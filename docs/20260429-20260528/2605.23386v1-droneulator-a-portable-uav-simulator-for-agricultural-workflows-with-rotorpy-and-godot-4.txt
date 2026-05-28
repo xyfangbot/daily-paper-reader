@@ -1,0 +1,151 @@
+Title: Droneulator: A Portable UAV Simulator for Agricultural Workflows with RotorPy and Godot 4
+
+URL Source: https://arxiv.org/pdf/2605.23386v1
+
+Published Time: Mon, 25 May 2026 00:45:34 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Droneulator: A Portable UAV Simulator for Agricultural Workflows with RotorPy and Godot 4 
+
+Jacob Swindell ∗, Michael Lowen ∗, Marija Popovi´ c†, and Riccardo Polvara ∗∗Lincoln Centre for Autonomous Systems (L-CAS) , University of Lincoln , Lincoln, UK. 
+
+†Faculty of Aerospace Engineering, MAVLab , Delft University of Technology (TU Delft) , Delft, Netherlands. 
+
+Fig. 1. System architecture overview of Droneulator. RotorPy provides multirotor dynamics, Godot 4 provides rendering and sensors, Zenoh exposes ROS 2-compatible sensing, and commands arrive through either PX4 SITL or a lightweight WebSocket path, enabling a portable workflow that supports both PX4-based control and lightweight scripted experiments. 
+
+Abstract —Agricultural UAV research requires simulators that integrate realistic 3D scenes, high-fidelity vehicle dynamics, and robotics middleware, while remaining practical to deploy across heterogeneous development machines. We present Droneulator, a portable UAV simulator architecture that combines RotorPy [1] for multirotor dynamics with Godot 4 [2] for rendering and sen-sor generation. Droneulator exposes both PX4-based control [3] and a lightweight WebSocket command path, and publishes syn-chronised visual and state streams through a Zenoh-based ROS 2-compatible pipeline [4], [5]. This integration enables a single stack to support inspection-oriented data capture, ROS 2/PX4 local planning, and reinforcement learning experiments without modifying the simulator infrastructure. We present quantified validation of the current system across three agricultural UAV workflows: tree-scale image collection for 3D reconstruction with COLMAP [6], local planning around canopy obstacles using EGO-Planner [7], and closed-loop reinforcement learning through a custom Gymnasium environment. In the reported setup, the results show that the simulator can sustain low-latency sensing, support reconstruction-oriented data collection under varying capture density, execute collision-free local planning around canopy obstacles, and support stable depth-sensing-based 
+
+This work was supported by the Engineering and Physical Sciences Research Council, UK Projects GAIA (Ref: EP/Y003438/1) and Agri-FoRwArdS (Ref: EP/S023917/1). Corresponding author: 25105508@stu-dents.lincoln.ac.uk 
+
+policy training for obstacle-aware navigation. Together, these results show the potential of Droneulator for agricultural UAV inspection, planning, and learning within one deployable stack. 
+
+Index Terms —Systems simulation, Drones, Autonomous aerial vehicles, Agricultural robots 
+
+I. I NTRODUCTION 
+
+Agricultural UAV research must bridge orchard-like 3D scenes, flight dynamics suitable for controller development, and interfaces that plug into existing tooling for perception, planning, and learning. These requirements are especially rele-vant for canopy inspection, local navigation around vegetation, and data collection for digital-twin generation, where field-testing is expensive and operationally constrained. Recent aerial robotics simulator surveys emphasise trade-offs among rendering fidelity, vehicle dynamics, integration readiness, and workflow usability [8]. A recent PX4 com-munity report likewise highlights multi-OS support, ROS 2 connectivity, and ease of installation as recurring priorities [9]. For the agricultural workflows considered here, the practical difficulty is not finding simulators that satisfy one of these requirements in isolation, but finding one stack that combines deployable packaging, UAV-oriented dynamics, visual sensing,                                                               
+
+> arXiv:2605.23386v1 [cs.RO] 22 May 2026 TABLE I FEATURE COMPARISON OF REPRESENTATIVE UAV SIMULATORS . M ARKS DENOTE DIRECT ,FIRST -PARTY SUPPORT IN MAINSTREAM RELEASES . [8], [9]
+> Simulator Multi-OS avail. UAV dynamics ROS 2PX4 Sensor suite RL workflow Active upstream
+> Gazebo [10] ✓✓✓✓✓✗✓
+> Isaac Sim [12] ✓✓✓✗✓✓✓
+> AirSim [13] ✓✓✗✓✓✓✗
+> Flightmare [14] ✗✓✗✗✓✓✗
+> RotorS [15] ✗✓✗✗✗✗✗
+> Webots [11] ✓✗✓✗✓✗✓
+> gym-pybullet-drones [16] ✓✓✗✗✗✓✓
+> Droneulator ✓✓✓✓✓✓✓
+
+ROS 2/PX4 integration, and support for both scripted and learning-based experiments. Droneulator 1 is designed around that integration gap while avoiding a native ROS 2 dependency on the simulator host. We show that this integrated architecture is sufficient to support three representative agricultural UAV workflows without changing the simulator infrastructure. Existing simulators cover different parts of this design space. As summarised in Table I, broad robotics platforms such as Gazebo [10] and Webots [11] provide mature ecosys-tems and middleware connectivity, but not the same UAV-focused workflow coverage across inspection, planning, and learning. Visually rich platforms such as Isaac Sim [12] and AirSim [13] provide strong rendering and sensing, but they do not offer the same combination of lightweight deployment and first-party integration paths targeted here. More specialised UAV or RL-oriented simulators, including Flightmare [14], RotorS [15], and gym-pybullet-drones [16], support parts of this stack but remain narrower in middleware, sensing, or deployment scope. Table I therefore serves as a coarse positioning context; the paper’s main argument comes from the quantified workflow results that follow. In Table I, we evaluate representative UAV simulators across key dimensions. ‘Multi-OS avail.’ indicates documented, first-party support on multiple desktop operating systems. ‘UAV dynamics’ refers to dedicated, high-fidelity multirotor flight dynamics rather than generic rigid-body kinematics. ‘ROS 2’ and ‘PX4’ denote out-of-the-box integration with the ROS 2 ecosystem and PX4 Autopilot (e.g., via SITL). ‘Sensor suite’ highlights comprehensive rendering support for per-ception, including RGB, depth, and semantic segmentation. ‘RL workflow’ designates documented, closed-loop training environments for reinforcement learning, distinct from generic scriptability. Finally, ‘Active upstream’ signifies the project is actively maintained and updated by its developers. Our contribution is a deployable simulator architecture that unifies scene rendering, multirotor dynamics, ROS 2-compatible sensing, and dual control paths within one portable stack. Concretely, this paper makes three contributions. First, we present a deployable simulator architecture that combines Godot 4 scene rendering, RotorPy multirotor dynamics, and dual control paths within one workflow. Second, we provide a Zenoh-based sensing pipeline that exposes synchronised 
+
+> 1Project repository: https://github.com/JakeSwin/Droneulator. The codebase will be made publicly available upon acceptance.
+
+visual and state data in ROS 2-compatible form, includ-ing RGB, depth, semantic segmentation, odometry, camera information, and TF [4], [5]. Third, we report quantified validation across three agricultural UAV workflows in tree-rich scenes: inspection-oriented data collection, local planning, and reinforcement learning. II. S YSTEM ARCHITECTURE & D ESIGN 
+
+Droneulator separates dynamics and rendering so that UAV physics, scene authoring, and downstream robotics work-flows can evolve independently within a portable deployment-oriented setup. Figure 1 summarises how the simulator con-nects Godot-rendered sensing, RotorPy dynamics, and external clients for data collection, planning, and learning. 
+
+A. Dynamics Engine 
+
+RotorPy [1] provides the multirotor dynamics backend, including aerodynamic effects and controller-oriented simula-tion. It was chosen because it is a modern, actively maintained, and intuitive multirotor dynamics engine that easily extends to complex tasks. To preserve portability, the RotorPy loop is packaged as a standalone executable using PyInstaller and launched by Godot as a child process. Because Godot manages the binary directly, startup and shutdown remain synchronised with the visual frontend without requiring an external Python environment on the host machine. Godot exchanges pose, attitude, and command data with the dynamics process over WebSocket, beginning with a hand-shake that identifies the simulator client. Because RotorPy uses a right-handed Z-up frame while Godot uses a right-handed 
+
+Y -up, −Z-forward frame, the state stream is converted online before being rendered. This decoupled architecture makes the flight model reusable across control and learning experiments while keeping scene and sensor development flexible. 
+
+B. Sensor Pipeline 
+
+Godot provides environment creation and sensor generation for scripted outdoor scenes, including tree-rich agricultural settings. A three-camera rig supplies RGB images compressed with JPEG, semantic-segmentation images transmitted as loss-less PNG, and metric depth reconstructed from the Z-buffer and transmitted raw. The segmentation stream is produced from a duplicated rendering layer whose meshes reuse the original geometry while replacing materials with flat class colours, keeping the implementation lightweight while pre-serving pixel-level labels for downstream perception tasks. Together with RotorPy odometry, these streams are pub-lished over Zenoh in ROS 2-compatible CDR format [4], [5]. The simulator also publishes TF and camera information, enabling perception and planning stacks to consume synchro-nised topics at 30 Hz. This is particularly useful for agri-UAV workloads in which image streams, geometry, and pose must remain temporally aligned for reconstruction, navigation, or policy learning. To quantify middleware efficiency, we measured end-to-end sensing latency on the local host machine over a 60-second execution window. Table II shows sub-millisecond (a) Main menu (b) Level select (c) Default scene (d) Tree inspection scene Fig. 2. Droneulator user interface and representative agricultural UAV scenes used for inspection-oriented experiments. TABLE II END -TO -END LATENCY FOR THE ZENOH -ROS 2 BRIDGE OVER 60 S AT                
+
+> 30 H Z(n= 1800 SAMPLES PER STREAM ).
+> Sensor Stream Payload Type Mean (ms) Std. Dev. (ms)
+> Odometry State Struct 0.45 ±0.12 RGB Camera Compressed (JPEG) 5.65 ±0.29 Depth Camera Raw (Float32) 17.06 ±1.23
+
+mean odometry latency (0.45 ms) and 17.06 ms mean latency for raw depth, which remained below the 33.3 ms budget associated with a 30 Hz update rate in the reported setup. The higher depth latency is consistent with the larger raw payload, but it still leaves headroom for the planning and reinforcement learning loops used elsewhere in the paper. These measurements show that the bridge is sufficient for the reported workflows. 
+
+> Fig. 3. Orchard-style tree scene visualised in RViz from the simulator’s depth output.
+
+C. Control Interface 
+
+The control stack is intentionally modular. Droneulator supports a PX4 bridge for software-in-the-loop control [3], allowing operation through standard tools such as QGround-Control, and it also exposes a lightweight WebSocket interface for high-level commands. This interface operates in two modes. The first is a position-and-yaw mode executed via a minimum-snap trajectory [17] and an internal SE(3) controller [18], which is sufficient for move-to-point data-collection workflows. Minimising snap is highly critical for multirotors because it guarantees smooth transitions in motor thrusts and body torques, thereby reducing mechanical vibrations and ensuring the controller can accu-rately track the intended path. The second control mode uses a continuous velocity-control mode for reinforcement learning agents, where a unicycle-style command pair is smoothed through slew-rate and low-pass filters before being integrated into a virtual reference setpoint tracked by the SE(3) controller. This split supports the paper’s target workflows: PX4 in-tegration enables compatibility with existing autonomy and operator tooling, while the lightweight command interface supports both repeatable scripted experiments and dynamic re-inforcement learning training without requiring a full autopilot stack. 
+
+D. Packaging and Portability 
+
+Portability is a core design requirement, defined here as the ability to deploy across multiple operating systems while minimising host dependencies by bundling necessary com-ponents directly into the application. Accordingly, the Godot frontend and RotorPy backend are packaged as native binaries, and Zenoh decouples the simulator from the ROS 2 envi-ronment. This architecture enables both lightweight scripted experiments and full ROS 2/PX4 deployments. III. A GRICULTURAL WORKFLOWS 
+
+The following examples provide quantified systems valida-tion across three agricultural workflows. The reported mea-surements were collected on an x86 Linux desktop PC (AM5 7700 CPU, RTX 4070 GPU). 
+
+A. Automated Data Collection 
+
+To demonstrate Droneulator’s utility for agricultural inspec-tion and data collection, we developed a pipeline for 3D point cloud generation using COLMAP [6]. A test appli-cation computes a circular image-capture trajectory around a tree, sends the resulting waypoints over the WebSocket interface, and records synchronised RGB images and poses as the vehicle reaches each target viewpoint. Internally, the simulator executes these move-and-capture commands through the same state and control interfaces exposed to downstream robotics software, which makes the workflow representative of a practical orchard inspection stack. The capture client uses the published camera information and simulation-state topics to determine when each waypoint has been reached and when an image should be recorded. Because the simulator publishes synchronised ground-truth odometry alongside the visual stream, we supplied these poses to COLMAP as priors, mirroring inspection settings in which accurate localisation is available from RTK-GPS, visual-inertial odometry, or fused state estimation. In practice, these priors stabilise the reconstruction pipeline and reduce failure modes associated with poor initialisation or scale drift. Across the reported task, all three image collection runs used the same tree scene, circular capture policy, image resolution, and COLMAP pipeline. Only the number of sampled viewpoints changed.                          
+
+> (a) 18 images (b) 36 images (c) 54 images Fig. 4. Dense COLMAP reconstructions from Droneulator-captured RGB images at increasing viewpoint densities, showing improved canopy complete-ness and point density with denser capture. TABLE III 3D RECONSTRUCTION QUALITY AND COMPUTATIONAL COST ACROSS VARYING DATA -COLLECTION DENSITIES UNDER A FIXED SCENE AND
+> COLMAP CONFIGURATION .
+> Images Sparse Pts Dense Pts Mean Track Reconstruction Time (min) Reproj Error (px)
+> 18 149 6,518 3.09 ∼3.9 0.79 36 1,156 34,795 3.72 ∼8.4 0.74 54 2,760 79,073 4.15 ∼11.8 0.72
+
+Figure 4 and Table III demonstrate how varying waypoint density impacts reconstruction. Increasing sampling from 18 to 54 images raises the mean track length to 4.15 and yields 79,073 dense points with a 0.72-pixel reprojection error. However, increasing from 36 to 54 images reveals diminish-ing returns. The dense-point count doubles, yet reprojection error improves only slightly. While denser sampling improves canopy completeness in the reported tree scene, it ultimately increases execution cost without proportional accuracy gains once baseline coverage is met. Additionally, this dense 54-image configuration exposed the limits of RotorPy’s SE(3) controller, with the tightly packed trajectories causing flight instability and altitude drops during waypoint transitions. 
+
+B. Local Planning with ROS 2 and PX4 
+
+To demonstrate compatibility with external autonomy stacks, we integrated EGO-Planner [7], a widely used open-source planner, through ROS 2 while using PX4 for low-level control. Using the sensing pipeline described in Section II-B, the simulator exposes the image, odometry, TF, and camera-information streams required by the planner. This use case is executed by starting PX4 SITL, the simulator, and the Zenoh ROS 2 bridge in a ROS 2 Jazzy environment. Because EGO-Planner does not output PX4-native commands directly, we use Micro XRCE-DDS Agent 
+
+> Fig. 5. Executed UAV odometry from five EGO-Planner runs reaching distinct goals while avoiding a central tree obstacle.
+
+to forward the planner’s ROS 2 command stream into the PX4 control path. After takeoff, the vehicle can be assigned goal positions via RViz or the ROS 2 command line interface and then navigate around nearby tree obstacles. As shown in Fig. 5, the five executed trajectories bend around the central tree before converging to their respective goal regions. This multi-goal scenario highlights a complete sensing-and-control chain spanning depth rendering, TF publication, ROS 2 planning, PX4 control, and RotorPy execution, demonstrating Droneulator’s ability to support complex, modern ROS 2autonomy stacks. For the metrics reported below, goal convergence is the Euclidean distance between the final executed UAV position and the commanded goal, while obstacle clearance is the minimum Euclidean distance between the executed trajectory and the tree boundary over the full run.                   
+
+> TABLE IV TRAJECTORY STATISTICS FOR MULTI -GOAL LOCAL PLANNING USING
+> EGO-P LANNER .
+> Target Region Flight Time (s) Goal Convergence (m) Obstacle Clearance (m)
+> Far Left 59.80 0.008 0.286 Left 23.76 0.071 1.017 Middle 35.18 0.026 0.883 Right 34.35 0.005 1.089 Far Right 39.43 0.002 2.182
+
+As detailed in Table IV, the multi-goal trajectory tests routed the UAV around the central canopy without collision, main-taining a minimum observed clearance of 0.28 m. Flight times ranged from 23.76 s to 59.80 s, indicating obstacle-dependent trajectories rather than uniform paths, while terminal accuracy remained sub-decimeter across all runs with an average goal-convergence error of 0.02 m. The spread across target regions is also informative: the far-left case produced both the longest flight and the tightest clearance, whereas the far-right route preserved over 2 m of separation, showing that the same planner-controller stack adapts to different local free-space geometries around a shared obstacle. In the reported setup, the ROS 2/PX4 pipeline therefore achieved successful local obstacle avoidance across multiple goals while preserving positive clearance in canopy-like clutter. C. Reinforcement Learning 
+
+To demonstrate learning-based integration, we constructed a custom Gymnasium environment for closed-loop training. The environment communicates with the simulator via aWebSocket client for UAV state and control, alongside Zenoh subscribers for image sensing, ensuring that each step provides an up-to-date observation vector to the RL agent. We formulated an obstacle-aware goal-reaching task within a simulated agricultural vineyard environment and trained a baseline Soft Actor-Critic (SAC) agent over 50,000 steps. Instead of relying purely on physical state variables, the agent perceives the environment through simulated sensor outputs, providing a vision-in-the-loop training interface for the reported task. This environment setup is particularly advantageous for agricultural robotics. Navigating vineyard rows presents a highly constrained challenge where reliable depth perception and precise flight control are critical to avoid damaging crops. By coupling Godot’s high-fidelity depth rendering of complex canopy structures with RotorPy’s realistic multirotor dynamics, Droneulator accurately captures the physical and perceptual realities of flying in tight proximity to foliage. The observation space is defined as a continuous vector ot ∈
+
+R35 , constructed as: 
+
+ot = [ D, θ err , ˜vf wd , ˜ωyaw ]T
+
+where D ∈ [0 , 1] 32 is a downsampled, normalised 1D depth strip extracted from the centre row of the simulator’s rendered depth camera image (clipped at a 10-metre maximum range). The variable θerr ∈ [−1, 1] represents the normalised relative yaw angle to the goal, while ˜vf wd and ˜ωyaw represent the normalised forward velocity and yaw rate, respectively. The continuous action space at ∈ R2 directly commands the UAV’s forward velocity and yaw rate: 
+
+at = [ vf wd , ω yaw ]T
+
+where vf wd ∈ [−2.0, 3.0] m/s and ωyaw ∈ [−1.5, 1.5] rad/s. Altitude is held constant by the simulator’s underlying flight controller, isolating the 2D navigation challenge. To guide learning, we used a dense reward function aug-mented by a programmatic A* pathfinding heuristic computed over a discretised grid of the vineyard canopy. The reward function Rt at step t is defined as: 
+
+Rt = λ(dt−1 − dt) − pstep + Rterm 
+
+Here, dt is the current A* shortest-path distance to the goal, and λ = 1.0 scales the progress reward. A step penalty 
+
+pstep = 0.01 encourages efficiency. The terminal reward 
+
+Rterm is defined by the environment’s termination conditions, which rely on Godot’s internal collision detection relayed back to the Python process: 
+
+Rterm =
+
+
+
+100 if distance to goal < 1.5 m
+
+−30 if collision detected 
+
+0 otherwise The training curves reported below correspond to a single 50,000-step SAC run. The final-trajectory statistics are com-puted from 10 inference rollouts of the trained policy.  
+
+> Fig. 6. Training curves from a single 50,000-step SAC run show improving reward and reduced episode length after initial obstacle-avoidance learning, consistent with convergence toward efficient goal-reaching behaviour.
+
+Figure 6 shows two training phases. Mean episode length first increases as the agent learns basic survival and obstacle avoidance, then decreases once the policy begins reaching the goal more efficiently. Mean episode reward rises steadily and then stabilises, consistent with convergence toward an efficient collision-free policy.  
+
+> Fig. 7. Spatial and kinematic performance across 10 successful inference rollouts of the trained policy. Left: Multirotor trajectory through the simulated vineyard. Right: Forward velocity and yaw-rate commands, colour-coded to correspond with positions along the spatial path.
+
+Figure 7 illustrates the spatial and kinematic behaviour of the trained agent. The mean trajectory navigates between the vine canopies while the bounded standard deviations across 10 inference runs highlight stable forward-velocity and yaw-rate outputs. The RL workflow therefore complements the scripted inspection and PX4-coupled planning results: it exercises the lightweight control path, depth sensing, collision handling, and reset logic under repeated interactions rather than single scripted passes. The reported setup produced 10/10 successful evaluation rollouts, demonstrating stable, closed-loop training using depth-sensing in the loop. Droneulator supports repeated depth-based closed-loop training episodes with reset, sensing, and control in the loop. The observation and action design are intentionally compact. By using a 1D depth profile, relative heading error, and low-dimensional velocity commands, the experiment isolates the simulator’s sensing, control, and reset interfaces from the separate challenge of training a large visual encoder. This makes the result appropriate for the paper’s purpose: it shows that the simulator can sustain repeated, sensor-driven learning episodes with meaningful canopy interactions, while leaving richer end-to-end vision policies as a natural extension rather than a prerequisite for validation. The RL findings should therefore be read as evidence of stable closed-loop training for the reported task, with limits given by the single-seed training run and 10-rollout evaluation. IV. D ISCUSSION 
+
+Having established Droneulator as a versatile integration layer across inspection, planning, and learning workflows, we identify several key areas for ongoing development to further extend the platform’s capabilities. 
+
+a) Sim-to-Real Gap and Environmental Modelling: 
+
+Presently, the simulator provides a highly controlled envi-ronment with ideal aerodynamic conditions and deterministic sensing. Real-world agricultural deployments must contend with dynamic wind disturbances, highly variable lighting, and significant sensor noise—particularly concerning depth-camera degradation when observing thin branches or sparse foliage. Future iterations will introduce configurable wind profiles into the RotorPy backend and statistical noise models into the Godot sensor outputs to better replicate the perceptual and physical disturbances typical of field robotics. 
+
+b) Algorithmic and Controller Boundaries: Our exper-iments highlighted the operational boundaries of the current control implementation. As observed during the dense 54-image data collection, highly aggressive, tightly-packed spatial trajectories strained the internal SE(3) controller. While this effectively demonstrates the simulator’s physical realism by enforcing kinematic constraints, users testing high-speed or highly dynamic trajectories may need to tune the controller gains or bypass it entirely in favour of direct motor-command inputs. Furthermore, the EGO-Planner demonstration success-fully validated canopy-aware local avoidance but did not address global routing across expansive orchard maps, which remains an area for future user-driven integration. 
+
+c) Scalability and Execution Speed: To maintain syn-chronised physics and visual rendering across separated pro-cesses, the current architecture operates at real-time execution speeds within single-agent environments. While this syn-chronous lockstep is highly effective for prototyping vision-in-the-loop policies and validating single-UAV navigation stacks, expanding the platform to support massive, faster-than-real-time parallel reinforcement learning or multi-agent swarm simulations is a primary objective for future architectural updates. V. C ONCLUSION 
+
+Droneulator provides a unified, deployable UAV simulation architecture tailored for agricultural inspection, planning, and learning in complex outdoor environments. By integrating RotorPy, Godot 4, a Zenoh-bridged ROS 2 pipeline, and dual control paths, it effectively collapses the toolchain required for multi-goal data collection, local canopy-aware planning, and closed-loop reinforcement learning into a single infrastructure. Ultimately, these results demonstrate Droneulator as a highly practical pre-field integration layer that bridges high-fidelity visual rendering with realistic multirotor dynamics. Building upon this foundation, ongoing development will target multi-agent scalability, faster-than-real-time execution, and advanced environmental modelling to further enhance its utility, culmi-nating in the public release of the open-source software stack. REFERENCES [1] S. Folk, J. Paulos, and V. Kumar, “RotorPy: A python-based multirotor simulator with aerodynamics for education and research,” arXiv preprint arXiv:2306.04485 , 2023. [2] Godot Engine contributors, “Godot engine.” https://godotengine.org/. [3] PX4 Development Team, “Px4 autopilot user guide.” https://docs.px4. io/v1.15/en/. Accessed: 2026-04-10. [4] Eclipse Foundation, “Eclipse zenoh.” https://zenoh.io/. Accessed: 2026-04-10. [5] ROS 2 Documentation Project, “zenoh bridge dds documentation.” https://docs.ros.org/en/jazzy/p/zenoh bridge dds/index.html. Accessed: 2026-04-10. [6] J. L. Sch¨ onberger and J.-M. Frahm, “Structure-from-motion revisited,” in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 4104–4113, 2016. [7] X. Zhou, Z. Wang, N. Pan, F. Gao, and S. Shen, “Ego-planner: An ESDF-free gradient-based local planner for quadrotors,” IEEE Robotics and Automation Letters , 2021. [8] C. A. Dimmig, G. Silano, K. McGuire, C. Gabellieri, W. H¨ onig, J. Moore, and M. Kobilarov, “Survey of simulators for aerial robots: An overview and in-depth systematic comparisons,” arXiv preprint arXiv:2311.02296 , 2025. [9] K. McGuire, “Px4 simulation integration survey.” https://www. mcguirerobotics.com/px4 sim research report/, 2025. Accessed: 2026-04-10. [10] N. Koenig and A. Howard, “Design and use paradigms for gazebo, an open-source multi-robot simulator,” in 2004 IEEE/RSJ international conference on intelligent robots and systems (IROS)(IEEE Cat. No. 04CH37566) , vol. 3, pp. 2149–2154, IEEE, 2004. [11] O. Michel, “Cyberbotics ltd. webotstm: professional mobile robot simu-lation,” International Journal of Advanced Robotic Systems , vol. 1, p. 5, 2004. [12] NVIDIA, “Isaac Sim.” https://github.com/isaac-sim/IsaacSim. [13] S. Shah, D. Dey, C. Lovett, and A. Kapoor, “Airsim: High-fidelity visual and physical simulation for autonomous vehicles,” in Field and service robotics: Results of the 11th international conference , pp. 621–635, Springer, 2017. [14] Y. Song, S. Naji, E. Kaufmann, A. Loquercio, and D. Scaramuzza, “Flightmare: A flexible quadrotor simulator,” in Proc. of the Conf. on Robot Learning (CoRL) , pp. 1147–1157, PMLR, 2021. [15] F. Furrer, M. Burri, M. Achtelik, and R. Siegwart, “Rotors—a modular gazebo mav simulator framework,” in Robot Operating System (ROS): The Complete Reference (Volume 1) , pp. 595–625, Springer, 2016. [16] J. Panerati, H. Zheng, S. Zhou, J. Xu, A. Prorok, and A. P. Schoel-lig, “Learning to fly—a gym environment with pybullet physics for reinforcement learning of multi-agent quadcopter control,” in 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 7512–7519, 2021. [17] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in 2011 IEEE international conference on robotics and automation , pp. 2520–2525, IEEE, 2011. [18] T. Lee, M. Leok, and N. H. McClamroch, “Geometric tracking control of a quadrotor uav on se (3),” in 49th IEEE conference on decision and control (CDC) , pp. 5420–5425, IEEE, 2010.

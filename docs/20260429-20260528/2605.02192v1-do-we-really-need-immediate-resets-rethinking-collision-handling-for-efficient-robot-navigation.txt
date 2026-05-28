@@ -1,0 +1,286 @@
+Title: Do We Really Need Immediate Resets? Rethinking Collision Handling for Efficient Robot Navigation
+
+URL Source: https://arxiv.org/pdf/2605.02192v1
+
+Published Time: Tue, 05 May 2026 01:50:30 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Do We Really Need Immediate Resets? Rethinking Collision Handling for Efficient Robot Navigation 
+
+Shanze Wang 1,2,∗, Xinming Zhang 1,3,∗, Siwei Cheng 1,3, Xianghui Wang 1,4, Hailong Huang 2, and Wei Zhang 1,†
+
+Abstract —Should a single collision necessarily terminate an entire navigation episode? In most deep reinforcement learn-ing (DRL) frameworks for robot navigation, this remains the standard practice: every collision immediately triggers a global environment reset and is penalized as a complete task failure. While a collision during deployment naturally indicates task failure, applying the same treatment during training prevents the agent from exploring challenging obstacle configurations, which slows learning progress in the early training phase. In this work, we challenge this convention and propose a Multi-Collision reset Budget (MCB) framework that decouples local collision termination from global environment resets, allowing the agent to retry difficult configurations within the same episode. Experi-ments on multiple simulated and real-world robotic platforms show that the framework accelerates early-stage exploration and improves both success rate and navigation efficiency over conventional single-collision reset baselines, with a small collision budget producing the largest gains. 
+
+Index Terms —Collision handling, reset strategy, deep rein-forcement learning, mapless robot navigation. 
+
+I. I NTRODUCTION 
+
+Deep reinforcement learning (DRL) has emerged as apromising paradigm for mapless robot navigation, enabling agents to learn end-to-end policies that directly map raw sensory observations to velocity commands without requiring explicit path planning [1]. Through trial-and-error interac-tion with the environment, DRL agents can acquire reactive collision-avoidance behaviors that generalize across diverse obstacle configurations, and can adapt to changing surround-ings based on current observations rather than relying on a pre-built map [2]. DRL-based navigation has been progressively extended from structured indoor environments [3] to socially compliant navigation in dynamic crowds [4], [5], and further 
+
+This work was supported in part by the National Natural Science Founda-tion of China under Grant 62503251. 
+
+> 1
+
+The authors are with the College of Informa-tion Science and Technology, Eastern Institute of Tech-nology, Ningbo, China. szwang@eitech.edu.cn, xhwang@eitech.edu.cn, zhw@eitech.edu.cn, {xm_zhang, chengsiwei }@mail.ustc.edu.cn 
+
+> 2
+
+The authors are with the Department of Aeronautical and Avi-ation Engineering, The Hong Kong Polytechnic University, Hung Hom, Kowloon, Hong Kong. shanze.wang@connect.polyu.hk, hailong.huang@polyu.edu.hk 
+
+> 3
+
+The authors are with the School of Computer Science and Technology, University of Science and Technology of China, Hefei, China. {xm_zhang, chengsiwei }@mail.ustc.edu.cn 
+
+> 4
+
+The author is with the Department of Mechanical Engineering, The Hong Kong Polytechnic University, Hung Hom, Kowloon, Hong Kong. 
+
+carlos.wang@connect.polyu.hk 
+
+> ∗
+
+Shanze Wang and Xinming Zhang contributed equally to this work. 
+
+> †
+
+Corresponding author: Wei Zhang. 
+
+Fig. 1. Overview of Single-Collision Reset and Multi-Collision Budget. 
+
+The conventional single-collision reset protocol stops the episode and triggers an immediate global reset after the first collision, whereas the proposed multi-collision budget allows continued exploration in the same scene and performs a global reset only after the collision count reaches K.
+
+to real-world settings with more stringent safety and feasibility requirements [6], [7]. Despite these advances, training efficiency during the early stage of learning remains a known bottleneck. Prior work has explored several directions to address this, including refine-ment of the observation representation [8] and the introduction of guided or assisted exploration [9], [10]. While these efforts have yielded measurable improvements, they all share the same underlying assumption that every collision immediately terminates an episode, and none of them questions this default convention itself. More broadly, RL research has examined episode management as a non-trivial component of the training pipeline, ranging from learned reset policies [11] to reset-free training [12]. However, these studies have been developed primarily in the context of general RL or manipulation tasks, and the specific role of collision-triggered resets in DRL-based mapless navigation has received little attention. The gap matters because, although a collision in deployment naturally indicates task failure, the same treatment during training is not equally warranted: a collision often corresponds to a local ma-
+
+> arXiv:2605.02192v1 [cs.RO] 4 May 2026
+
+neuvering error from which the agent could still learn valuable recovery behavior within the same scene. Under the standard convention, such learning opportunities are discarded at the first contact, and difficult scenarios remain underrepresented in the replay buffer precisely when collisions occur most frequently, which slows down early-stage policy improvement. Rethinking the role of collisions in navigation training, we argue that decoupling local collision termination from global environment resets can substantially improve early-stage exploration. In the proposed framework, each collision is still explicitly penalized and treated as a local termina-tion signal, whereas the environment is reset only when the cumulative number of collisions within an episode reaches a predefined budget. This mechanism allows the agent to continue interacting with the same scene after a collision, thereby enabling the discovery of effective recovery behaviors and alternative navigation strategies that would otherwise remain unexplored. This design increases exploration depth within a challenging scene, rather than prematurely switching the agent to a new one after a single local failure. As an optional practical refinement, a pose-change-based filtering strategy is further examined to mitigate the potential impact of highly redundant collision experience on learning. The main contributions of this letter are summarized as follows: 1) The prevailing single-collision reset convention in DRL-based navigation is challenged, and relaxing this assumption is shown to yield substantial and consistent improvements in training efficiency. To our knowledge, this is the first work that explicitly questions this convention in DRL-based navigation. 2) A multi-collision reset budget framework is proposed to decouple local collision termination from global environment resets, together with a collision-aware transition construction scheme that maintains consistent Bellman backups across collision boundaries and preserves clear credit assignment for obstacle-proximal failures. 3) Experiments are conducted on different simulation plat-forms as well as on real-world robotic platforms with distinct morphologies. The results demonstrate consistent improve-ments in early-stage success rate and navigation efficiency, and confirm the strong generalizability of the proposed framework across different simulation backends and robot embodiments. II. R ELATED WORK 
+
+A. DRL-Based Mapless Navigation and Efficient Training 
+
+Deep reinforcement learning is widely adopted for mapless navigation, where a policy maps local sensory observations directly to low-level motion commands without explicit global planning. Tai et al. [1] first established a virtual-to-real pipeline from sparse 2D laser readings. Building on this formulation, Patel et al. [6] coupled the dynamic window approach with DRL to enforce dynamically feasible control among mobile obstacles. Beyond task extension, another group of studies targets training efficiency and generalization. Tobin 
+
+et al. [13] showed that domain randomization enables zero-shot transfer, and a data-efficient framework [14] combines limited expert data with on-policy interaction to reduce sim-to-real cost. LiDAR scans are preprocessed in [8] through an adaptively parametric reciprocal function to obtain a better-scaled representation, whereas a hindsight intermediate-target scheme [10] relabels waypoints to densify sparse-reward sig-nals. Safety properties are refined online in [15]; hierarchical controllers with novelty-aware exploration [16] alleviate local-optima trapping; and scenario augmentation [17] diversifies the training distribution for better generalization. More recent work has also explored how to reuse informative training experience, using reset curricula that revisit collision-related states [18] or predictive trajectory reuse to improve value learning [19]. 
+
+B. Episode Management in Reinforcement Learning 
+
+Episode boundary handling governs which transitions are stored, how bootstrap targets are computed, and when the agent is relocated, yet it has received much less direct at-tention than policy design or reward shaping. Pardo et al. 
+
+[20] distinguished genuine terminations from training-induced truncations and showed that conflating the two biases value estimation, indicating that value-learning boundaries should be decoupled from artificial episode resets. A complementary line questions the reliance on externally triggered resets. Eysen-bach et al. [11] jointly learned a task policy and a reset policy so that the agent returns to safe initial states autonomously, whereas Recovery RL [21] decoupled task execution from recovery through learned recovery zones activated before im-minent constraint violations. Removing fixed re-initialization altogether, a reset-free trial-and-error paradigm [22] enables continual adaptation, and multi-task coupling [12] arranges tasks so that the completion of one implicitly resets another. On the scheduling side, [23] showed that synchronized resets across parallel environments induce harmful nonstationarity, whereas staggered schedules restore temporal diversity. How collisions should terminate episodes in DRL-based mapless navigation, however, remains systematically unexamined. III. P RELIMINARIES 
+
+A. State Representation and Reward Design 
+
+The policy is trained with Soft Actor-Critic (SAC) [24], an off-policy actor-critic algorithm that operates on transitions stored in a replay buffer. The state st encodes real-time 2D LiDAR readings, the robot velocity, and the goal position expressed in the body frame, and is given by: 
+
+st = ˆl1, . . . , ˆlm, d gt , φ gt , v t, ω t
+
+, (1) where ˆl1, . . . , ˆlm are processed LiDAR readings, dgt and φgt
+
+are the relative distance and angle to the goal, and vt and 
+
+ωt are the current linear and angular velocities. Each LiDAR reading is transformed by an adaptively parametric reciprocal function ˆlj = 1 /(¯lj − β) following [8], where β is a trainable parameter updated jointly with the policy network. The reward function is given by: 
+
+rt =
+
+
+
+rsuccess , if the goal is reached, 
+
+rcollision , if a collision occurs, 
+
+c1(dgt − dgt+1 ), otherwise, (2) where rsuccess = 10 is a positive reward for goal arrival, 
+
+rcollision = −10 is a negative collision penalty, c1 is ascaling constant, and the third term is a dense shaping signal encouraging progress toward the goal. 
+
+B. Local Termination and Global Reset 
+
+In DRL-based navigation, each episode may end with one of three events: the robot reaches the goal (success), collides with an obstacle (collision), or exceeds the maximum time step limit Tmax (timeout). To clarify how these events are handled in the proposed framework, we distinguish between two notions: local termination and global reset. Local termination refers to a collision that is treated as a local failure signal: the agent receives a collision penalty, but the episode is not necessarily terminated and the robot is allowed to continue interacting with the same scene. Global reset, in contrast, refers to the reinitialization of the environment, which re-randomizes the robot starting pose and goal position to begin a new episode. In the proposed framework, global reset is triggered by success, timeout, or the accumulation of colli-sions reaching a predefined budget, whereas local termination corresponds to the collisions that occur before this budget is exhausted. Conventional DRL navigation frameworks couple every collision with an immediate global reset, which discards the learning opportunity within the same scene; this conflation of local failure supervision with global environment resets motivates the method presented in the following section. IV. A PPROACH 
+
+A. Multi-Collision Reset Budget 
+
+The core idea of the proposed framework is to allow the agent to sustain multiple collisions within a single episode before a global reset is triggered. To this end, we introduce a collision counter c that records the cumulative number of collisions within the current episode, alongside a collision budget K that specifies the maximum number of local failures permitted before the environment is reinitialized. At the start of an episode, the collision counter is set to 
+
+c = 0 . After a collision, we update it as c ← c + 1 . When c < K, the event is handled as a local termination: the collision transition is stored with dt = 1 , the robot remains at its current pose, and navigation continues in the same scene. When c ≥
+
+K, the environment is globally reset and a new randomized scenario is sampled. Success and timeout retain their original semantics: reaching the goal or exceeding Tmax always triggers a global reset regardless of the current collision count. While this mechanism is simple in form, two practical issues need to be handled. Since one episode can contain several collisions, replay-buffer entries must keep value targets consistent across local termination boundaries. Otherwise, transitions after a collision may create incorrect bootstrap targets and blur credit assignment near obstacles. Repeated contacts in the same scene can also add nearly identical failure samples, especially when the robot is stuck and keeps moving with similar headings. Such samples can skew the replay-buffer distribution toward redundant collision experience. 
+
+Algorithm 1 Training procedure of MCB.  
+
+> 1:
+
+Input: collision budget K, maximum episode length 
+
+Tmax . 
+
+> 2:
+
+Initialize: policy πθ , critics Qϕ1 , Q ϕ2 , replay buffer B. 
+
+> 3:
+
+for episode = 1 , 2, . . . do  
+
+> 4:
+
+Reset environment and obtain initial observation x0. 
+
+> 5:
+
+t ← 0, c ← 0, b ← False. 
+
+// b: True if the previous step was a collision.  
+
+> 6:
+
+while t < T max and c < K do  
+
+> 7:
+
+Sample at ∼ πθ (· | xt) and execute.  
+
+> 8:
+
+Observe xt+1 , rt, and event et. 
+
+> 9:
+
+dt ← 1 if et ∈ { success , collision }, else dt ← 0.
+
+// Skip bridge transitions after a collision.  
+
+> 10:
+
+if not b then add (xt, a t, r t, x t+1 , d t) to B.
+
+// Update counter and flag.  
+
+> 11:
+
+if et = collision then c ← c + 1 . 
+
+> 12:
+
+b ← (et = collision ).
+
+// SAC update.  
+
+> 13:
+
+Sample mini-batch M ∼ B and update θ, ϕ 1, ϕ 2. 
+
+> 14:
+
+if et = success then break . 
+
+> 15:
+
+t ← t + 1 ; xt ← xt+1 . 
+
+> 16:
+
+end while  
+
+> 17:
+
+end for  
+
+> 18:
+
+return πθ .
+
+B. Collision-Aware Transition Construction 
+
+Separating local termination from global reset calls for careful handling of the transitions stored in the replay buffer, so that allowing post-collision exploration does not introduce inconsistent learning signals. Every collision transition is marked with a terminal flag 
+
+dt = 1 , whether or not it triggers a global reset. With this flag, the Bellman backup target at the collision step reduces to the immediate reward rt, because the terminal indicator drops the bootstrapped value of the next state. The collision penalty is therefore absorbed at the step where the failure happens, rather than diluted by rewards collected after the agent resumes navigation. This keeps credit assignment clean: the critic attributes the collision cost to the state-action pairs near the obstacle that caused the failure, without mixing them with returns earned after resumption. The terminal flag blocks value propagation across the col-lision boundary, but the first transition after a non-resetting collision still needs separate treatment. In this transition, the starting state corresponds to the collided state itself, while the next state is the one encountered after the agent resumes interaction within the same scene. Because the preceding step has already been marked as terminal for value learning, storing this bridge transition would couple a state that is treated as an episode endpoint with a successor drawn from the same ongoing episode. This introduces an inconsistent 
+
+(st, a t, s t+1 ) association that does not conform to the standard Markov Decision Process semantics assumed by the critic. Such transitions are therefore excluded from the replay buffer, while all subsequent transitions until the next collision or global reset are retained and used for training in the usual (a) Training Env 1 (b) Testing Env 2 (c) Isaac Lab Scene Fig. 2. Training environment Env 1 and an unseen test environment Env 2, with a corresponding scene example in Isaac Lab. 
+
+manner. The complete training procedure is summarized in Algorithm 1. 
+
+C. Pose-Change-Based Collision Filtering 
+
+As an optional refinement to the multi-collision reset bud-get, a lightweight filtering mechanism is further considered to regulate the composition of collision transitions stored in the replay buffer. This component is motivated by a specific side effect that may arise when K > 1. When the collision budget permits multiple local terminations per episode, the agent may experience several consecutive collisions under nearly identical robot orientations, particularly when it becomes stuck against an obstacle and repeatedly attempts similar motions. Such transitions reflect essentially the same failed strategy rather than distinct navigation attempts, and their accumulation may not be beneficial for learning diverse obstacle-avoidance behaviors. To mitigate this effect, a pose-change-based filtering crite-rion is introduced. Let θt denote the robot heading at time step t. For each collision transition, the angular displacement since the previous collision is computed as 
+
+∆θt = |atan2 (sin( θt − θt−1), cos( θt − θt−1)) | , (3) where the atan2 formulation correctly handles angle wrap-ping. A collision transition is retained in the replay buffer only if ∆θt ≥ τθ , where τθ is a predefined angular threshold; transitions with ∆θt < τ θ are discarded as redundant. In this manner, collisions that correspond to meaningfully different approach directions are preserved, while those arising from repeated contacts at similar orientations are suppressed. V. S IMULATION RESULTS AND ANALYSIS 
+
+A. Experimental Setup 1) Implementation Details: All experiments are conducted on a single PC equipped with an NVIDIA RTX 4090 GPU. Two simulation platforms are employed: the Stage simula-tor [25] in ROS [26], and the Isaac Lab platform [27]. The training environment and the unseen testing environment are illustrated in Fig. 4a and Fig. 4b, respectively. The policy network and the critic networks are implemented as four-layer multilayer perceptrons with 100 hidden units per layer. The action space consists of the linear velocity bounded within [0 , 0.5] m/s and the angular velocity bounded within 
+
+[−π/ 2, π/ 2] rad/s. In Stage, the maximum episode length is                                                
+
+> TABLE I SUMMARY OF THE COMPARED METHODS .Method Note SCR Single-Collision Reset baseline. MCB-K kMulti-Collision Budget with budget k.MCB-K k-PF θMCB-K kwith additional Pose-change
+> Filtering at angular threshold τθ.TABLE II END -OF -T RAINING NAVIGATION PERFORMANCE IN STAGE . T HE BEST VALUE IN EACH METRIC COLUMN IS MARKED .Method Training Env 1 Testing Env 2 SR AV AEL ANS SR AV AEL ANS SCR 0.93 0.39 87.45 0.71 0.74 0.34 82.44 0.54 MCB-K2 0.96 0.40 57.40 0.81 0.80 0.37 51.39 0.67
+> MCB-K2-PF3 0.96 0.43 77.48 0.77 0.81 0.40 66.78 0.65
+
+set to 200 steps, and each method is trained for 50,000 steps, with a checkpoint saved every 2,500 steps for evaluation. In Isaac Lab, training is organized into epochs, where one epoch corresponds to one rollout-update cycle over 512 parallel envi-ronments with 16 interaction steps collected per environment. Each method is trained for 3,000 epochs, and evaluation is performed every 150 epochs. The maximum episode length is kept at 200 steps on both platforms. To reduce seed-specific effects, each method is trained with 10 random seeds, and all reported curves and tables are averaged over those runs. Each checkpoint is evaluated on the same set of 50 point-to-point navigation tasks. 
+
+2) Evaluation Metrics: We use four metrics to characterize navigation performance, grouped by what they describe. The first group reports task-level outcomes. The success rate (SR) measures the proportion of evaluation episodes in which the robot reaches the goal without collision or timeout. The aver-age navigation score (ANS) further integrates task completion and time consumption into a single scalar, enabling a unified comparison across methods, and is defined as 
+
+S =
+
+
+
+1 − 2Ts
+
+Tmax 
+
+, if success ,
+
+−1, otherwise ,
+
+(4) where Ts denotes the number of navigation steps consumed in the current episode and Tmax denotes the maximum episode length. The second group reports motion-level behavior. The average velocity (AV) is the mean linear velocity of the robot across all evaluation steps, and the average episode length (AEL) is the mean number of steps elapsed before an episode terminates. 
+
+B. Overall Performance and Learning Efficiency in Stage 
+
+This subsection compares the proposed framework with the single-collision reset baseline from two perspectives: the con-verged navigation performance after 50,000 training steps, and the speed at which each method approaches that performance during training. Following the naming conventions in Table I, we report three representative methods: SCR, MCB-K2 as the Fig. 3. Learning curves and navigation efficiency metrics of the compared methods on Env 1 and Env 2 in Stage. Solid lines and shaded regions represent the mean and standard deviation over ten random seeds. 
+
+small-budget MCB instance, and MCB-K2-PF3 as its pose-change-filtered variant with τθ = 3 ◦. The threshold τθ = 3 ◦
+
+is chosen from an empirical observation: across all collected collision transitions in MCB-K k with k ∈ { 2, 3, 5}, more than 
+
+90% of consecutive collision pairs exhibit a heading change of less than 3◦. The full sweep over K and τθ is reported in the ablation study in Section V-C. Table II shows that both MCB variants outperform SCR on every reported metric in both environments. Because the MCB variants share the same network architecture, reward design, and total training budget as SCR, and differ only in how collisions are coupled to environment resets, the consistent gains directly support the central claim of this work: relaxing the single-collision reset convention is itself sufficient to improve converged navigation performance. Between the two MCB variants, MCB-K2 improves the success rate over SCR by a clear margin in both environments and produces the most time-efficient trajectories, attaining the shortest average episode length and the highest ANS on the unseen Env 2. MCB-K2-PF3 reaches a success rate close to MCB-K2 and at the same time raises the average velocity, which shows that the optional pose-change filter does not hurt task completion but improves the motion behavior of the learned policy. Since PF raises velocity without lowering the success rate, it can be turned on when faster motion is preferred. The gap between MCB and SCR is largest in the early stage of training. The learning curves in Fig. 3 show that    
+
+> (a) Training Env 1 (b) Unseen Env 2 Fig. 4. Training steps at which the evaluated success rate first reaches 50%, 70%, and 80% thresholds in Env 1 and Env 2.
+> Fig. 5. Trajectory comparison between SCR and MCB-K2 in Env 2.
+
+the success rate of both MCB-K2 and MCB-K2-PF3 rises sharply within the first few thousand steps and reaches a competent level well before SCR begins to make meaningful progress, with the same separation visible in the velocity and episode-length panels. Fig. 4 quantifies this gap by reporting the number of training steps required for the success rate to first reach 50% , 70% , and 80% . In both environments, the two MCB variants reduce the steps needed to reach each milestone by roughly 40% compared with SCR, and this gain holds across all three thresholds rather than being an artifact of any particular checkpoint. It confirms that decoupling local collision termination from global environment resets reshapes the early phase of policy learning, during which the agent benefits the most from extended interaction within challenging obstacle configurations. To provide a more intuitive comparison, Fig. 5 visualizes the evaluation trajectories of SCR and MCB-K2 on Env 2. The baseline frequently fails in narrow passages between obstacles, where collisions concentrate around regions that demand pre-cise local maneuvers. In contrast, MCB-K2 traverses the same regions with markedly fewer collisions and produces smoother trajectories that lead more directly to the goal. 
+
+C. Ablation Study 
+
+This subsection examines the two design parameters of the proposed framework: the collision budget K in the multi-collision reset rule, and the angular threshold τθ in the optional pose-change-based filter. 
+
+1) Effect of the Collision Budget: The MCB frame-work is trained without the pose-change filter using K in 
+
+{2, 3, 5, 10 , 50 } and is compared with SCR. Fig. 6 shows Fig. 6. Learning curves of MCB with collision budget K ∈ { 2, 3, 5, 10 , 50 }                          
+
+> and the SCR baseline on Env 1 and Env 2 in Stage. TABLE III SPREAD OF CONVERGED SUCCESS RATE AS KVARIES OVER
+> {2,3,5,10 ,50 },WITH AND WITHOUT THE POSE -CHANGE FILTER .Configuration Env 1 Spread Env 2 Spread w/o PF 7.20 9.40
+> τθ= 0 .5◦1.80 2.00
+> τθ= 1 ◦3.00 3.00
+> τθ= 2 ◦1.60 1.80
+> τθ= 3 ◦3.00 4.60
+> τθ= 10 ◦2.40 3.60
+
+a non-monotonic dependence on K. A small budget gives the fastest early learning and the highest converged success rate in both environments. As K grows, the early-stage gain becomes smaller and the final success rate drops; for the largest budget, performance stays below SCR across training. This trend supports our earlier argument. When too many collisions are allowed per episode, the replay buffer fills with repeated and highly correlated failure transitions, which dilutes informative experience and slows down value learning. The result therefore favors small collision budgets and motivates the choice of K = 2 as the default configuration in the comparative experiments. 
+
+2) Robustness of the Pose-Change Filter: To assess how the optional filter influences the sensitivity of the framework to K,we measured the spread of the converged success rate as K
+
+varies over {2, 3, 5, 10 , 50 }, defined as the difference between the largest and smallest values. A smaller spread indicates that the converged performance depends less on the choice of 
+
+K. Table III reports this spread on both environments for the framework without filtering and for five settings of τθ . Without filtering, the success rate exhibits a wide spread as K changes, indicating a strong dependence of the learned policy on the collision budget. Once the pose-change filter is enabled, this spread narrows considerably across all tested values of τθ ,while the best success rate per row varies only slightly across the five thresholds. The filter therefore provides two benefits: it reduces the framework’s sensitivity to the collision budget, and is itself insensitive to the specific value of τθ . Together, these properties allow the pose-change filter to serve as an optional refinement that can be enabled without careful tuning.  
+
+> Fig. 7. Learning curves of compared methods on Env 1 and Env 2 in Isaac Lab.
+
+D. Cross-Platform Validation in Isaac Lab 
+
+To verify that the observed improvements are not specific to the Stage simulator and to examine how the proposed framework scales under a modern GPU-accelerated training paradigm, we further validate all three methods on the Isaac Lab platform. As shown in Fig. 7, the same trend is repro-duced, and the advantage of our method becomes even more pronounced in this parallel training setting. Both MCB-K2 and MCB-K2-PF3 converge much faster than SCR in the early training phase on both environments, while maintaining comparable or higher success rates after convergence. VI. C ONCLUSION 
+
+This work has revisited the common practice of triggering an immediate environment reset upon every collision in deep reinforcement learning for mapless navigation, and has shown that this practice itself constitutes a non-trivial bottleneck for early-stage learning. We proposed a multi-collision reset budget framework that decouples the local termination of a collision from the global reinitialization of the environment, supported by a collision-aware transition construction scheme and an optional pose-change-based filter. Experiments on two simulation platforms and two real-world robots show consistent acceleration of early-stage exploration, together with improvements in success rate and navigation efficiency. The proposed mechanism is simple and can be incorporated into any deep reinforcement learning pipeline for mapless navigation as a plug-and-play component, and the consistent gains observed across diverse settings suggest that episode boundary handling deserves the same level of design attention as policy architectures and reward shaping. REFERENCES [1] L. Tai, G. Paolo, and M. Liu, “Virtual-to-real deep reinforcement learning: Continuous control of mobile robots for mapless navigation,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2017, pp. 31–36. [2] X. Xiao, B. Liu, G. Warnell, and P. Stone, “Motion planning and control for mobile robot navigation using machine learning: a survey,”    
+
+> Autonomous Robots , vol. 46, pp. 569–597, 2022. [3] J. Kulh´ anek, E. Derner, and R. Babuˇ ska, “Visual navigation in real-world indoor environments using end-to-end deep reinforcement learning,”
+> IEEE Robotics and Automation Letters , vol. 6, no. 3, pp. 4345–4352, 2021. [4] J. Jin, N. M. Nguyen, N. Sakib, D. Graves, H. Yao, and M. Jagersand, “Mapless navigation among dynamics with social-safety-awareness: a reinforcement learning approach from 2d laser scans,” in 2020 IEEE International Conference on Robotics and Automation (ICRA) , 2020, pp. 6979–6985.
+
+[5] M. Everett, Y. F. Chen, and J. P. How, “Collision avoidance in pedestrian-rich environments with deep reinforcement learning,” IEEE Access , vol. 9, pp. 10 357–10 377, 2021. [6] U. Patel, N. K. S. Kumar, A. J. Sathyamoorthy, and D. Manocha, “Dwa-rl: Dynamically feasible deep reinforcement learning policy for robot navigation among mobile obstacles,” in 2021 IEEE International Conference on Robotics and Automation (ICRA) , 2021, pp. 6057–6063. [7] Z. Xie and P. Dames, “DRL-VO: Learning to navigate through crowded dynamic scenes using velocity obstacles,” IEEE Transactions on Robotics , vol. 39, no. 4, pp. 2700–2719, 2023. [8] W. Zhang, Y. Zhang, N. Liu, K. Ren, and P. Wang, “Ipaprec: A promising tool for learning high-performance mapless navigation skills with deep reinforcement learning,” IEEE/ASME Transactions on Mecha-tronics , vol. 27, no. 6, pp. 5451–5461, 2022. [9] L. Xie, S. Wang, S. Rosa, A. C. Markham, and N. Trigoni, “Learning with training wheels: Speeding up training with a simple controller for deep reinforcement learning,” in 2018 IEEE International Conference on Robotics and Automation (ICRA) , 2018, pp. 6276–6283. [10] Y. Jang, J. Baek, and S. Han, “Hindsight intermediate targets for mapless navigation with deep reinforcement learning,” IEEE Transactions on Industrial Electronics , vol. 69, no. 11, pp. 11 816–11 825, 2022. [11] B. Eysenbach, S. Gu, J. Ibarz, and S. Levine, “Leave no trace: Learning to reset for safe and autonomous reinforcement learning,” in Interna-tional Conference on Learning Representations (ICLR) , 2018. [12] A. Gupta, J. Yu, T. Z. Zhao, V. Kumar, A. Rovinsky, K. Xu, T. De-vlin, and S. Levine, “Reset-free reinforcement learning via multi-task learning: Learning dexterous manipulation behaviors without human intervention,” in 2021 IEEE International Conference on Robotics and Automation (ICRA) , 2021, pp. 6664–6671. [13] J. Tobin, R. Fong, A. Ray, J. Schneider, W. Zaremba, and P. Abbeel, “Domain randomization for transferring deep neural networks from sim-ulation to the real world,” in 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2017, pp. 23–30. [14] H. Bharadhwaj, Z. Wang, Y. Bengio, and L. Paull, “A data-efficient framework for training and sim-to-real transfer of navigation policies,” in 2019 International Conference on Robotics and Automation (ICRA) ,2019, pp. 782–788. [15] L. Marzari, E. Marchesini, and A. Farinelli, “Online safety property col-lection and refinement for safe deep reinforcement learning in mapless navigation,” in 2023 IEEE International Conference on Robotics and Automation (ICRA) , 2023, pp. 7133–7139. [16] Y. Hu, S. Wang, Y. Xie, S. Zheng, P. Shi, I. J. Rudas, and X. Cheng, “Deep reinforcement learning-based mapless navigation for mobile robot in unknown environment with local optima,” IEEE Robotics and Automation Letters , vol. 10, no. 1, pp. 628–635, 2025. [17] S. Wang, M. Tan, Z. Yang, X. Wang, X. Shen, H. Huang, and W. Zhang, “Enhancing deep reinforcement learning-based robot navigation general-ization through scenario augmentation,” in 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2025, pp. 935– 942. [18] S. Chen, M. Yang, H. Mao, J. Zhang, H. Liu, S. He, D. Zhang, Z. Qiu, and C. Zhang, “Sea-nav: Efficient policy learning for safe and agile quadruped navigation in cluttered environments,” arXiv preprint arXiv:2603.09460 , 2026. [19] A. Romero, E. Aljalbout, Y. Song, and D. Scaramuzza, “Actor–critic model predictive control: Differentiable optimization meets reinforce-ment learning for agile flight,” IEEE Transactions on Robotics , vol. 42, pp. 673–692, 2025. [20] F. Pardo, A. Tavakoli, V. Levdik, and P. Kormushev, “Time limits in reinforcement learning,” in International Conference on Machine Learning . PMLR, 2018, pp. 4045–4054. [21] B. Thananjeyan, A. Balakrishna, S. Nair, M. Luo, K. Srinivasan, M. Hwang, J. E. Gonzalez, J. Ibarz, C. Finn, and K. Goldberg, “Recovery rl: Safe reinforcement learning with learned recovery zones,” 
+
+IEEE Robotics and Automation Letters , vol. 6, no. 3, pp. 4915–4922, 2021. [22] K. Chatzilygeroudis, V. Vassiliades, and J.-B. Mouret, “Reset-free trial-and-error learning for robot damage recovery,” Robotics and Au-tonomous Systems , vol. 100, pp. 236–250, 2018. [23] S. Bharthulwar, S. Tao, and H. Su, “Staggered environment resets improve massively parallel on-policy reinforcement learning,” arXiv preprint arXiv:2511.21011 , 2025. [24] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in International conference on machine learning . Pmlr, 2018, pp. 1861–1870. [25] R. Vaughan, “Massively multi-robot simulation in stage,” Swarm intel-ligence , vol. 2, no. 2, pp. 189–208, 2008. [26] M. Quigley, K. Conley, B. Gerkey, J. Faust, T. Foote, J. Leibs, R. Wheeler, A. Y. Ng, et al. , “Ros: an open-source robot operating system,” in ICRA workshop on open source software , vol. 3, no. 3.2. Kobe, 2009, p. 5. [27] M. Mittal, P. Roth, J. Tigue, A. Richard, O. Zhang, P. Du, A. Serrano-Munoz, X. Yao, R. Zurbr¨ ugg, N. Rudin, et al. , “Isaac lab: A gpu-accelerated simulation framework for multi-modal robot learning,” arXiv preprint arXiv:2511.04831 , 2025.

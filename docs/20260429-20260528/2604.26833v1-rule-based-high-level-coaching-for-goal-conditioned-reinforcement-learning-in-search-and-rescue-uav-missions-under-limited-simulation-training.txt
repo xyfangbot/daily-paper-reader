@@ -1,0 +1,1868 @@
+Title: 
+
+URL Source: https://arxiv.org/pdf/2604.26833v1
+
+Published Time: Thu, 30 Apr 2026 01:04:20 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+1
+
+Abstract — This paper presents a hierarchical decision -making 
+
+framework for unmanned aerial vehicle (UAV) missions 
+
+motivated by search -and -rescue (SAR) scenarios under limited 
+
+simulation training. The framework combines a fixed rule -based 
+
+high -level advisor with an o nline goal -conditioned low -level 
+
+reinforcement learning (RL) controller. To stress -test early 
+
+adaptation, we also consider a strict no -pretraining deployment 
+
+regime. The high -level advisor is defined offline from a
+
+structured task specification and compile d into deterministic 
+
+rules. It provides interpretable mission - and safety -aware 
+
+guidance through recommended actions, avoided actions, and 
+
+regime -dependent arbitration weights. The low -level controller 
+
+learns online from task -defined dense rewards and reus es 
+
+experience through a mode -aware prioritized replay mechanism 
+
+augmented with rule -derived metadata. We evaluate the 
+
+framework on two tasks: battery -aware multi -goal delivery and 
+
+moving -target delivery in obstacle -rich environments. Across 
+
+both tasks, the proposed method improves early safety and 
+
+sample efficiency primarily by reducing collision terminations, 
+
+while preserving the ability to adapt online to scenario -specific 
+
+dynamics. 
+
+I. INTRODUCTION 
+
+UAVs offer a flexible platform for search -and -rescue 
+
+(SAR) missions that require rapid situational response and 
+
+autonomous operation in uncertain environments [1] . In 
+
+representative scenarios, a UAV may need to deliver supplies 
+
+to multiple locations while avoiding obstacles and managing 
+
+limited battery reserves, or safely approach a moving person 
+
+under collision -avoidance and bounded -closing -speed 
+
+constraints [2, 3] . Such tasks require multi -objective decision -
+
+making that balances mission completion, safety, and resource 
+
+efficiency. In disaster environments, these challenges are 
+
+further complicated by intermittent visibility, unreliable 
+
+communication, incomplete maps , and limited prior 
+
+knowledge of the operating conditions [4] . As a result, UAV 
+
+autonomy for SAR must remain effective under uncertainty 
+
+while relying on limited and potentially inaccurate 
+
+environmental information. 
+
+Conventional model -based approaches can perform well 
+
+when system dynamics, maps, and sensing models are 
+
+sufficiently accurate. Examples include model predictive 
+
+control (MPC) [5] , control barrier function (CBF) safety 
+
+layers, and planning pipelines that combine global path 
+
+planning with local obstacle avoidance [6] . However, in 
+
+disaster environments these assumptions are often violated. As 
+
+a result, such methods may require repeated retuning of costs, 
+
+constraints, and safety margins, and their robustness can 
+
+degrade under sensing uncertainty and distribution shift. 
+
+Reinforcement learning (RL) offers an alternative by 
+
+learning control policies through interaction to maximize long -
+
+horizon return [7] . Deep RL has therefore been explored for 
+
+UAV navigation and collision avoidance in partially known or 
+
+unknown environments [8] .
+
+Despite its flexibility and the high success rate in various 
+
+aerospace applications such as drone motion control [9] and 
+
+path planning [10, 11] , satellite collision avoidance [12] ,
+
+satellite docking [13, 14] , satellite control [15, 16] , and failure 
+
+predictions [17] , deep RL typically requires substantial 
+
+training experience, which is usually collected in simulation 
+
+rather than during deployment [18] . This creates a practical 
+
+limitation for SAR applications: high -fidelity simulators are 
+
+costly to build and may not adequately capture the sensing and 
+
+disturbance conditions encountered in the field. As a result, the 
+
+simulation -to -deployment gap can subst antially reduce 
+
+performance. In addition, early exploration may produce 
+
+unsafe behavior, and safety -oriented RL variants often require 
+
+extra mechanisms such as runtime shielding or constraint 
+
+enforcement [19] .
+
+HRL studies decision making with temporal abstraction by 
+
+decomposing behavior into high level and low -level 
+
+components. In robotics, this decomposition is often used to 
+
+separate task level choices [20] . Recent UAV studies adopt this 
+
+structure by learning a high -level planner that selects 
+
+intermediate waypoints or modes, while a low -level policy 
+
+handles local motion and sensing constraints. In multi -UAV 
+
+search settings, hierarchical multi agent designs h ave been 
+
+proposed to separate strategic coordination from low level 
+
+execution [21] . This structure matches SAR missions, which 
+
+often switch between search, pursuit, avoidance, and delivery 
+
+behaviors [22] . At the same time, hierarchical formulations do 
+
+not remove the need for substantial experience collection. 
+
+Learning can remain sensitive to the quality of subgoals and to 
+
+the coupling between levels. Empirical analyses of goal 
+
+conditioned HRL report that subgoal specification and 
+
+reachability strongly affect convergence and stability. As a 
+
+result, early -stage reliability can remain a limiting factor, 
+
+especially when the agent must perform safely before it has 
+
+accumulated sufficient experience [23] .
+
+This work focuses on a limited -simulation training setting 
+
+for RL [24] . In this setting, offline training is restricted, and the 
+
+agent must adapt online under a strict interaction budget during 
+
+deployment [25] . In SAR , this constraint is well aligned with 
+
+practice. Large scale simulator training may be unavailable or 
+
+unreliable, and early unsafe exploration can be costly. 
+
+Consequently, the learner benefits from additional structure 
+
+# Rule -based High -Level Coaching for Goal -Conditioned 
+
+# Reinforcement Learning in Search -and -Rescue UAV Missions Under 
+
+# Limited -Simulation Training 
+
+Mahya Ramezani 1 and Holger Voos 1   
+
+> 1Automation and Robotics Research Group, Interdisciplinary Centre for
+> Security, Reliability and Trust (SnT), University of Luxembourg.
+> M. Ramezani (corresponding author; e -mail: mahya.ramezani @uni.lu)
+> H. Voos (e -mail: holger .voos @uni.lu )
+
+that would typically come from an expert designed strategy, 
+
+demonstrations, or engineered priors. 
+
+In limited -simulation settings, the learner can benefit from 
+
+additional structure that encodes basic safety and mission 
+
+priors in an explicit and interpretable form [26] . Recent work 
+
+has demonstrated the efficacy of such approaches. For 
+
+instance, a guiding network trained offline with expert 
+
+demonstrations can adaptively inform policy constraints 
+
+during online learning, a method proven to be near -optimal. 
+
+Similarly, a model predictive control -based safety guide can 
+
+refine a base policy's actions to enforce user -provided 
+
+constraints, ensuring the final policy is safe without altering 
+
+the underlying learning objective [27] . More recently, Failure -
+
+Aware Offline -to -Online Reinforcement Learning (FARL) has 
+
+shown that pre -training a world -model -based safety critic 
+
+offline can dramatically reduce real -world failures during 
+
+online exploration while actually improving task 
+
+perform ance [28] . Likewise, hierarchical frameworks such as 
+
+SURTR demonstrate how LLM -based high -level planners can 
+
+be synthesized offline to provide interpretable strategic 
+
+guidance, while separate low -level RL controllers execute 
+
+motion planning with their own objective s intact [29] . A 
+
+practical way to incorporate such structure is to define a fixed 
+
+rule -based high -level advisor offline from the task 
+
+specification and system interface, then use it to guide online 
+
+learning without modifying the low -level RL objective. This 
+
+preserves r eal -time compatibility and interpretability while 
+
+reducing early unsafe behavior. 
+
+In this paper, we adopt this perspective by using a fixed, 
+
+interpretable rule -based high -level advisor that is defined 
+
+offline from a structured description of the agent capabilities, 
+
+sensing assumptions, mission objectives, and operational 
+
+constraints. Th e low -level component is a goal -conditioned RL 
+
+controller that updates online. It learns from task -defined 
+
+rewards using advisor -guided action bias with stronger 
+
+influence in risky states and mode -aware prioritized replay 
+
+based on rule -derived metadata. Th e overall objective is to 
+
+improve early deployment performance under limited 
+
+interaction budgets while preserving the ability to adapt online 
+
+to scenario -specific dynamics. The approach is evaluated on 
+
+two SAR motivated scenarios. The first scenario is battery 
+
+aware multi goal delivery in which the UAV must visit 
+
+multiple targets and reach a terminal destination without 
+
+battery depletion while avoiding obstacles. The second 
+
+scenario is delivery to a moving perso n in which the UAV must 
+
+approach a moving targ et while respecting collision avoidance. 
+
+Performance is compared against non -HRL and baselines 
+
+using success rate, collision rate, task completion time, and 
+
+cumulative return, with emphasis on early deployment 
+
+performance. 
+
+The contributions of this work are as follows. 
+
+• We formulate a hierarchical decision -making framework 
+
+for UAV missions motivated by SAR under limited 
+
+simulation training, covering both battery -constrained 
+
+multi -goal delivery and moving -target delivery tasks. 
+
+• We introduce a fixed, interpretable rule -based high -level 
+
+advisor that provides mission -aware guidance through 
+
+recommended actions, avoided actions, and regime -
+
+dependent arbitration weights, while remaining 
+
+compatible with real -time deployment. 
+
+• We develop a goal -conditioned low -level RL controller 
+
+augmented with advisor -guided action bias and mode -
+
+aware prioritized replay and show that this design 
+
+improves early safety and sample efficiency relative to 
+
+RL baselines in both no -pretraining and limited -
+
+pretraining regimes. 
+
+II. PROBLEM DEFINITION 
+
+We consider a UAV operating in a SAR -motivated mission 
+
+and model the environment as a finite -horizon Markov 
+
+decision process, defined by the tuple (𝑆 , 𝐴 , 𝑃 , 𝑟 , 𝛾 , 𝑇 ). Here  𝑠 𝑡 
+
+∈ 𝑆  denotes the state at time step  𝑡 , 𝑎 𝑡 ∈ 𝐴  denotes the action, 
+
+𝑃 ( 𝑠 𝑡 +1 ∣∣ 𝑠 𝑡 , 𝑎 𝑡 ) is the transition kernel,  𝑟 (𝑠 𝑡 , 𝑎 𝑡 ) is the reward, 
+
+𝛾 ∈ (0,1) is the discount factor, and  𝑇  is the episode horizon. 
+
+The objective is to learn a policy  𝜋  that maximizes the 
+
+expected discounted return. 
+
+A. State and action spaces 
+
+We consider planar motion at a fixed altitude  ℎ. The UAV 
+
+state is represented in the horizontal plane, and altitude is 
+
+treated as constant. At time  𝑡 , the agent receives a state that 
+
+includes UAV kinematics, battery, LiDAR -derived obstacle 
+
+information, and target related position. 
+
+𝑠 𝑡 = (𝑝 𝑡 , 𝜓 𝑡 , 𝑣 𝑡 , 𝑏 𝑡 , ℓ𝑡 ), (1) 
+
+where  𝑝 𝑡  is the UAV position , 𝜓 𝑡  is yaw (heading) in the 
+
+horizontal plane,  𝑣 𝑡  is the UAV speed,  𝑏 𝑡  is the battery state of 
+
+charge, and  ℓ𝑡  is the LiDAR range vector .
+
+Obstacle perception is provided through a planar LiDAR 
+
+operating in the horizontal plane. In simulation, LiDAR ranges 
+
+are generated using a ray -casting model in MATLAB. The 
+
+environment is represented as an occupancy grid with axis -
+
+aligned  1 × 1 obstacles. At each time step, we cast  𝑁 𝜃 = 36 
+
+rays uniformly over  360 ∘ from the UAV position and compute, 
+
+for each bearing  𝜃 𝑖 , the distance  𝑟 (𝜃 𝑖 ) to the first intersection 
+
+with an occupied cell (or obstacle boundary), capped at the 
+
+maximum sensor range  𝑅 𝑚𝑎𝑥 = 10 . The LiDAR observation 
+
+is then encoded as the range vector  𝑙 𝑡 = [𝑟 (𝜃 1), … , 𝑟 (𝜃 𝑁 𝜃 )],
+
+which summarizes local obstacle proximity and is used 
+
+throughout the paper. 
+
+We consider two action parameterizations depending on 
+
+the low -level RL algorithm. For value -based methods, we use 
+
+a discrete action space that combines cardinal motion direction 
+
+with speed adjustment.  𝑎 𝑡 = (𝑑 𝑡 , 𝑣 𝑡 𝑐𝑚𝑑 ), where  𝑑 𝑡 ∈
+
+{up , down , left , right }, and  𝑣 𝑡 𝑐𝑚𝑑 ∈ {0,1,2,3,4} is the 
+
+commanded discrete speed level. 
+
+For continuous -control methods, we use  𝑎 𝑡 = (𝑣 𝑡 , 𝛥 𝜓 𝑡 ),
+
+where  𝑣 𝑡 ∈ [0, 𝑣 𝑚𝑎𝑥 ] is the commanded speed , and  𝛥 𝜓 𝑡  is the 
+
+commanded yaw change over one time step. 
+
+B. Transition model and battery dynamics 
+
+State transitions are generated by the simulator using a 
+
+UAV motion model and an energy -consumption model 
+
+implemented in the simulator. The simulator propagates 
+
+position and yaw according to the commanded motion and 
+
+updates the battery state as a function of the current state and 
+
+executed action. Battery evolution is modeled as: 
+
+𝑏 (𝑡 +1) = clip (𝑏 𝑡 − 𝛥𝑡𝐶 (𝑠 𝑡 , 𝑎 𝑡 ), 0, 𝑏 𝑚𝑎𝑥 ), (2) 
+
+where  𝐶  denotes the energy consumption rate induced by the 
+
+simulator model and 
+
+clip (𝑥 , 0, 𝑏 𝑚𝑎𝑥 ) = min (max (𝑥 , 0), 𝑏 𝑚𝑎𝑥 ). (3) 
+
+The transition kernel  𝑃  is not provided to the agent, and the 
+
+policy is learned in a model -free manner from observed 
+
+transitions. C. Tasks and objectives 
+
+We study two mission scenarios. 
+
+1) Battery aware multi goal delivery : The UAV must 
+
+visit a set of delivery goals  𝐺 = 𝑔 1, … , 𝑔 𝐾  and then reach a 
+
+terminal destination  𝑔 𝑓 . A delivery goal is considered reached 
+
+when  ∥ 𝑝 𝑡 − 𝑔 𝑘 ∥≤ 𝑑 𝑐𝑎𝑝 . The episode is successful if all goals 
+
+are visited and the terminal destination is reached before 
+
+battery depletion and without collision. 
+
+2) Moving target delivery : The UAV must approach a 
+
+moving target and satisfy delivery conditions define d as  𝑑 𝑔 (𝑠 𝑡 
+
+, 𝑔 𝑡 ) ≤ 𝑑 𝑐𝑎𝑝 . In addition to collision avoidance, the task 
+
+penalizes excessive speed near the target to encourage safe 
+
+approach behavior. 
+
+A collision with an obstacle terminates the episode and 
+
+incurs a large penalty. Battery depletion, defined by  𝑏 𝑡 ≤ 0,
+
+also terminates the episode and incurs a large penalty. 
+
+Successful mission completion yields a positive terminal 
+
+reward. 
+
+III. PROPOSED METHOD 
+
+A. Overview 
+
+We propose an HRL framework for UAV decision -making 
+
+in SAR missions under limited simulation training. The 
+
+method combines an offline, rule -based high -level advisor 
+
+with an online, goal -conditioned low -level controller. The 
+
+high -level advisor is synthesized from a structured task 
+
+specification and provides fixed, interpretable guidance that 
+
+reflects safety and mission priorities. The low -level controller 
+
+remains responsible for action execution and online 
+
+adaptation. It operates under limited simulation tra ining and is 
+
+augmented with advisor -guided action bias ( from high -level) 
+
+and mode -aware experience replay to improve early 
+
+performance and safety. 
+
+B. High -level coaching via an offline rule design 
+
+The high -level component provides an offline fixed 
+
+advisory prior that guides the low -level goal -conditioned RL 
+
+controller. Its purpose is to reduce early unsafe behavior by 
+
+producing a state -dependent recommendation that reflects 
+
+simple safety and mission priors while leaving long -horizon 
+
+optimizati on and adaptation to the low -level learner. The 
+
+finalized rules are compiled into deterministic code and kept 
+
+fixed during deployment. 
+
+Let  𝑠 𝑡 ∈ 𝑆  be the observed state and let  𝑔 𝑡  denote the 
+
+current goal position used by the low -level controller. In multi -
+
+goal delivery  𝑔 𝑡  is the active delivery waypoint (and later the 
+
+terminal destination), while in moving -target delivery  𝑔 𝑡  is the 
+
+current target position. The advisor maps the current state to a 
+
+recommended action set  𝐴 𝑟𝑒𝑐 (𝑠 𝑡 ) ⊆ 𝐴 , an avoided action set 
+
+𝐴 𝑎𝑣𝑜𝑖𝑑 (𝑠 𝑡 ) ⊆ 𝐴 , and a state -dependent weight vector  𝜔 (𝑠 𝑡 )
+
+that modulates the relative contribution of recommendation, 
+
+avoidance, and exploration within the low -level behavior 
+
+policy. The advisor does not access the environment transition 
+
+model, does not perform rollouts, and does not estimate 
+
+reward -to -go .
+
+C. State -derived features and the final ized advisory rules 
+
+From the LiDAR scan we compute the minimum clearance 
+
+𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) = min 
+
+> 1≤𝑖 ≤𝑁 𝜃
+
+𝑟 (𝜃 𝑖 ) , and direction of the closest 
+
+obstacle. Given the active goal  𝑔 𝑡 , we compute the goal 
+
+bearing  𝜓 𝑔 (𝑠 𝑡 , 𝑔 𝑡 ) = atan 2((𝑔 𝑡 )𝑦 − (𝑝 𝑡 )𝑦 , (𝑔 𝑡 )𝑥 − (𝑝 𝑡 )𝑥 ).
+
+The advisor also computes a free -space heading  𝜓 𝑓𝑟𝑒𝑒  that 
+
+selects a locally high -clearance direction and an emergency 
+
+repulsive heading  𝜓 𝑟𝑒𝑝  pointing away from the nearest 
+
+obstacle. These features are used in the deterministic rules 
+
+below. 
+
+Final advisory rules 
+
+The advisory rule set defines an advised heading  𝜓 𝑎𝑑𝑣 (𝑠 𝑡 )
+
+and an advised speed cap  𝑣 𝑚𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ), from which a
+
+recommended action set or region is constructed. The rules are 
+
+parameterized by clearance thresholds  𝑟 𝑠𝑡𝑜𝑝 < 𝑟 𝑎𝑣𝑜𝑖𝑑 < 𝑟 𝑐𝑙𝑒𝑎𝑟  ,
+
+where  𝑟 𝑠𝑡𝑜𝑝  is an emergency clearance threshold,  𝑟 𝑎𝑣𝑜𝑖𝑑  is an 
+
+avoidance threshold below which the advisor prioritizes free -
+
+space seeking, and  𝑟 𝑐𝑙𝑒𝑎𝑟  denotes a nominal clearance regime. 
+
+Also, near -goal threshold de noted by  𝑑 𝑛𝑒𝑎𝑟  , and battery 
+
+thresholds satisfy  𝑏 𝑤𝑎𝑟𝑛 > 𝑏 𝑐𝑟𝑖𝑡  . Speed caps satisfy 
+
+𝑣 𝑠𝑡𝑜𝑝 ≤ 𝑣 𝑎𝑣𝑜𝑖𝑑 ≤ 𝑣 𝑐𝑙𝑒𝑎𝑟 ≤ 𝑣 𝑚𝑎𝑥  , 𝑣 𝑛𝑒𝑎𝑟 ≤ 𝑣 𝑐𝑙𝑒𝑎𝑟  (4)
+
+All parameters are fixed for all experiments. 
+
+Advised goal selection 
+
+In multi -goal delivery, the advisor selects the active goal 
+
+𝑔 𝑡  presented to the low -level controller. Let  𝐺 𝑢𝑛𝑣 (𝑡 ) denote the 
+
+set of unvisited delivery goals. A goal is marked visited when 
+
+∥ 𝑝 𝑡 − 𝑔 ∥≤ 𝑑 𝑐𝑎𝑝 . The advisor then assigns 
+
+𝑔 𝑡 = {argmi n𝑔 ∈𝐺 𝑢𝑛𝑣 (𝑡 ) ∥ 𝑝 𝑡 − 𝑔 ∥ 𝐺 𝑢𝑛𝑣 (𝑡 ) ≠ ∅
+
+𝑔 𝑓 𝐺 𝑢𝑛𝑣 (𝑡 ) = ∅ (5)
+
+In moving -target delivery,  𝑔 𝑡  is set to the observed target 
+
+position. 
+
+If the stuck detector activates while pursuing a particular 
+
+goal, the advisor may temporarily reassign the active goal to 
+
+the next -best unvisited goal (without marking the current one 
+
+as visited), for a fixed cooldown horizon, and then revert to the 
+
+neares t-goal rule. This goal -switching is deterministic and uses 
+
+only current distances .
+
+Regime selection and advised heading 
+
+In the emergency regime the advised heading points away 
+
+from the nearest obstacle, in the avoidance regime it 
+
+maximizes local free space. Otherwise, it points toward the 
+
+current goal :
+
+𝜓 𝑎𝑑𝑣 (𝑠 𝑡 ) = {
+
+𝜓 𝑟𝑒𝑝 (𝑠 𝑡 ) 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) ≤ 𝑟 𝑠𝑡𝑜𝑝 
+
+𝜓 𝑓𝑟𝑒𝑒 (𝑠 𝑡 ) 𝑟 𝑠𝑡𝑜𝑝 < 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) ≤ 𝑟 𝑎𝑣𝑜𝑖𝑑 
+
+𝜓 𝑔 (𝑠 𝑡 , 𝑔 𝑡 ) 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) > 𝑟 𝑎𝑣𝑜𝑖𝑑 
+
+(6)
+
+Advised speed cap 
+
+The advised speed cap is a piecewise function of obstacle 
+
+clearance: 
+
+𝑣 𝑚𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ) = {
+
+𝑣 𝑠𝑡𝑜𝑝 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) ≤ 𝑟 𝑠𝑡𝑜𝑝 
+
+𝑣 𝑎𝑣𝑜𝑖𝑑 𝑟 𝑠𝑡𝑜𝑝 < 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) ≤ 𝑟 𝑎𝑣𝑜𝑖𝑑 
+
+𝑣 𝑐𝑙𝑒𝑎𝑟 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) > 𝑟 𝑎𝑣𝑜𝑖𝑑 
+
+(7)
+
+Conservative approach near the goal 
+
+To encourage safe delivery near a person and to avoid 
+
+aggressive motion near the goal, the advisor enforces a near -
+
+goal speed cap .
+
+Battery -aware moderation 
+
+The advisor further reduces allowable speed under low 
+
+battery to increase conservatism when the remaining energy 
+
+budget is small: 
+
+𝑏 𝑡 ≤ 𝑏 𝑤𝑎𝑟𝑛 𝑣 m𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ) = min (𝑣 m𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ), 𝑣 𝑎𝑣𝑜𝑖𝑑 ),
+
+𝑏 𝑡 ≤ 𝑏 𝑐𝑟𝑖𝑡 𝑣 m𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ) = min (𝑣 m𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ), 𝑣 𝑠𝑡𝑜𝑝 ) (8)D. Recommended and avoided action s
+
+The advisor converts  𝜓 𝑎𝑑𝑣 (𝑠 𝑡 ) and  𝑣 𝑚𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ) into a
+
+recommended action  𝐴 𝑟𝑒𝑐 (𝑠 𝑡 ) subset that steers toward the 
+
+advised heading under the advised speed cap and an avoided 
+
+set  𝐴 𝑎𝑣𝑜𝑖𝑑 (𝑠 𝑡 ) corresponding to actions that would steer into 
+
+nearby obstacles or violate conservative safety limits. The 
+
+avoided set is applied as a soft bias rather than a hard 
+
+constraint. 
+
+State -dependent weight mapping 
+
+The advisor outputs a weight vector  𝜔 (𝑠 𝑡 ) =
+
+(𝜔 𝑎𝑣𝑜𝑖𝑑 (𝑠 𝑡 ), 𝜔 𝑟𝑒𝑐 (𝑠 𝑡 ), 𝜔 𝑒𝑥𝑝 (𝑠 𝑡 ), where  𝜔 𝑖 (𝑠 𝑡 ) ∈ [0,1] and 
+
+∑ 𝜔 𝑖 (𝑠 𝑡 )𝑖 = 1. These weights determine the relative emphasis 
+
+on avoidance -biased actions, advisor -recommended actions, 
+
+and exploration within the low -level behavior policy. A
+
+deterministic regime -based mapping is used: 
+
+𝜔 (𝑠 𝑡 ) = {
+
+(𝜔 𝑎𝑣𝑜𝑖𝑑  
+
+> 𝑒𝑚𝑔
+
+, 𝜔 𝑟𝑒𝑐  
+
+> 𝑒𝑚𝑔
+
+, 𝜔 𝑒𝑥𝑝 
+
+> 𝑒𝑚𝑔
+
+) 𝑚 𝑡 = 𝑒𝑚𝑔 ,
+
+(𝜔 𝑎𝑣𝑜𝑖𝑑  
+
+> 𝑜𝑏𝑠
+
+, 𝜔 𝑟𝑒𝑐 
+
+> 𝑜𝑏𝑠
+
+, 𝜔 𝑒𝑥𝑝 
+
+> 𝑜𝑏𝑠
+
+) 𝑚 𝑡 = 𝑜𝑏𝑠 ,
+
+(𝜔 𝑎𝑣𝑜𝑖𝑑  
+
+> 𝑛𝑜𝑚
+
+, 𝜔 𝑟𝑒𝑐 
+
+> 𝑛𝑜𝑚
+
+, 𝜔 𝑒𝑥𝑝 
+
+> 𝑛𝑜𝑚
+
+) 𝑚 𝑡 = 𝑛𝑜𝑚 ,
+
+(9) 
+
+All numerical weight values are treated as fixed 
+
+hyperparameters, and held constant across runs to avoid tuning 
+
+bias. 
+
+Advisor -guided action bias and risk -adaptive arbitration 
+
+The low -level controller uses the advisor as an action -
+
+selection bias. At time  𝑡 , the advisor outputs a recommended 
+
+set  𝐴 𝑟𝑒𝑐 (𝑠 𝑡 ), an avoided set  𝐴 𝑎𝑣𝑜𝑖𝑑 (𝑠 𝑡 ), and regime -dependent 
+
+weights  𝜔 (𝑠 𝑡 ). These define a risk -adaptive arbitration 
+
+between advisor guidance and exploration. 
+
+Let  𝑚 𝑡 ∈ 𝑒𝑚𝑔 , 𝑜𝑏𝑠 , 𝑛𝑜𝑚  denote the advisor regime. The 
+
+behavior policy is 
+
+𝜋 𝑏 ( ⋅∣∣ 𝑠 𝑡 , 𝑔 𝑡 ) = 𝜔 𝑟𝑒𝑐 (𝑠 𝑡 )𝜋 𝑟𝑒𝑐 ( ⋅∣∣ 𝑠 𝑡 , 𝑔 𝑡 ) + 𝜔 𝑎𝑣𝑜𝑖𝑑 
+
+(𝑠 𝑡 )𝜋 𝑠𝑎𝑓𝑒 ( ⋅∣∣ 𝑠 𝑡 , 𝑔 𝑡 ) + 𝜔 𝑒𝑥𝑝 (𝑠 𝑡 )𝜋 𝑒𝑥𝑝 ( ⋅∣∣ 𝑠 𝑡 , 𝑔 𝑡 ) (10)
+
+where  𝜋 𝑟𝑒𝑐  biases actions toward  𝐴 𝑟𝑒𝑐 (𝑠 𝑡 ), 𝜋 𝑠𝑎𝑓𝑒  suppresses 
+
+actions in  𝐴 𝑎𝑣𝑜𝑖𝑑 (𝑠 𝑡 ), and  𝜋 𝑒𝑥𝑝  provides exploration. Because 
+
+𝜔 (𝑠 𝑡 ) is regime -dependent, arbitration is more safety -biased in 
+
+emergency/avoidance states and more exploratory in nominal 
+
+states. 
+
+In discrete control,  𝜋 𝑟𝑒𝑐  restricts candidates to  𝐴 𝑟𝑒𝑐 (𝑠 𝑡 ),
+
+while  𝜋 𝑠𝑎𝑓𝑒  masks actions in  𝐴 𝑎𝑣𝑜𝑖𝑑 (𝑠 𝑡 ) unless no feasible 
+
+alternative exists. In continuous control, the learned action 
+
+𝑎 𝑡 = (𝑣 𝑡 , 𝛥𝜓 𝑡 ) is biased toward the recommended region by 
+
+clipping speed to  𝑣 𝑚𝑎𝑥  
+
+> 𝑎𝑑𝑣
+
+(𝑠 𝑡 ) and projecting the post -action 
+
+heading into the tolerated sector around  𝜓 𝑎𝑑𝑣 (𝑠 𝑡 ) when the 
+
+advisor -selected component is active. 
+
+E. Low -level goal -conditioned control 
+
+The low -level controller is responsible for action execution 
+
+and online adaptation in the proposed method . It is modeled as 
+
+a goal -conditioned policy  𝜋 𝐿 ( 𝑎 𝑡 ∣∣ 𝑠 𝑡 , 𝑔 𝑡 ) trained from 
+
+interaction to maximize expected discounted return. 
+
+Conditioning on the goal variable  𝑔 𝑡  allows a single policy to 
+
+represent behaviors for multiple delivery locations and for 
+
+moving -target delivery . In multi -goal delivery,  𝑔 𝑡  denotes the 
+
+active delivery waypoint and is advanced deterministically 
+
+when the UAV enters the corresponding goal region. After all 
+
+delivery goals are visited, the terminal destination becomes the 
+
+active goal. In moving -target delivery,  𝑔 𝑡  is set to the current 
+
+target position and is updated at each time step from 
+
+observations . The low -level policy consumes the relative 
+
+displacement to the active goal as an input feature, which 
+
+provides translation invariance without requiring target 
+
+velocity estimation or an explicit target motion model. The 
+
+low -level controller uses the discrete and continuous action 
+
+definitions introduced in Section II -A and learns in a model -
+
+free manner under unknown transition dynamics. 
+
+The goal -conditioned reward  𝑟 ( 𝑠 𝑡 , 𝑎 𝑡 , 𝑠 (𝑡 +1) ∣∣ 𝑔 𝑡 ) is 
+
+defined as a task -specific dense reward composed of terminal 
+
+task signals and intermediate components computed from 
+
+measurable quantities. At each time step, we apply a constant 
+
+step penalty to encourage shorter completion time, a near -
+
+obstacle penalty based on minimum LiDAR clearance, a goal -
+
+reaching reward when entering the capture region of the active 
+
+goal, and an additional per -step penal ty for unusually large 
+
+battery drops. Concretely, we use 
+
+𝑟 𝑡 = −𝜆 𝑡 − 𝜆 𝑜 max (0, 𝑟 𝑠𝑎𝑓𝑒 − 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 )) + 𝜆 𝑝 (𝑑 𝑔 
+
+(𝑠 𝑡 , 𝑔 𝑡 ) − 𝑑 𝑔 (𝑠 𝑡 +1, 𝑔 𝑡 +1)) + 𝕀 𝑔𝑜𝑎𝑙 (𝑡 )𝑅 𝑔𝑜𝑎𝑙 −
+
+𝜆 𝑏 max (0, 𝛥 𝑏 𝑡 − 𝛥 𝑏 𝑡 ℎ𝑟 ) + 𝑟 𝑡𝑒𝑟𝑚 (𝑡 )
+
+(11)
+
+where  𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ) is the minimum LiDAR range over all 
+
+bearings,  𝛥 𝑏 𝑡 = 𝑏 𝑡 − 𝑏 𝑡 +1 is the battery drop in one step, and 
+
+𝛥 𝑏 𝑡 ℎ𝑟  is a threshold above which battery consumption is 
+
+penalized. The indicator  𝕀 𝑔𝑜𝑎𝑙 (𝑡 ) = 1 when the UAV enters 
+
+the capture region of the current goal. The terminal term is 
+
+defined as 
+
+𝑟 𝑡𝑒𝑟𝑚 (𝑡 )
+
+= {
+
+𝑅 𝑎𝑙𝑙 the mission is completed at 𝑡 
+
+−𝑅 𝑐𝑜𝑙 a collision occurs at 𝑡 
+
+−𝑅 𝑏𝑎𝑡 battery depletion occurs at 𝑡 
+
+0 𝑜𝑡 ℎ𝑒𝑟𝑤𝑖𝑠𝑒 
+
+(12)
+
+For moving -target delivery, we additionally penalize 
+
+excessive approach speed near the target: 
+
+𝑟 𝑛𝑒𝑎𝑟 (𝑡 )
+
+= {−𝜆 𝑛 max (0, 𝑣 𝑡 − 𝑣 𝑛𝑒𝑎𝑟 𝑑 𝑔 (𝑠 𝑡 , 𝑔 𝑡 ) ≤ 𝑑 𝑛𝑒𝑎𝑟 
+
+0 𝑜𝑡 ℎ𝑒𝑟𝑤𝑖𝑠𝑒 .
+
+(13)
+
+and we use  𝑟 𝑡 = 𝑟 𝑡 + 𝑟 𝑛𝑒𝑎𝑟 (𝑡 ).
+
+The low -level controller is trained off -policy using DQN 
+
+for discrete actions and SAC for continuous actions, with 
+
+standard architecture implementations [30] . Training occurs 
+
+online during deployment without assuming extensive 
+
+repeated pretraining, and experience reuse is provided via the 
+
+proposed mode -aware prioritized replay mechanism. To 
+
+improve sample efficiency, the proposed method uses a mode -
+
+aware prioritized replay buffer. Each stored transition  𝜏 𝑡 =
+
+(𝑠 𝑡 , 𝑔 𝑡 , 𝑎 𝑡 , 𝑟 𝑡 , 𝑠 𝑡 +1, 𝑔 𝑡 +1, 𝑑𝑜𝑛 𝑒 𝑡 ) stores advisor metadata 
+
+(regime  𝑚 𝑡 ∈ 𝑒𝑚𝑔 , 𝑜𝑏𝑠 , 𝑛𝑜𝑚 , 𝑑 𝑚𝑖𝑛 (𝑠 𝑡 ), and flags for  𝑎 𝑡 ∈
+
+𝐴 𝑟𝑒𝑐 (𝑠 𝑡 ), 𝑎 𝑡 ∈ 𝐴 𝑎𝑣𝑜𝑖𝑑 (𝑠 𝑡 )). The low -level learner does not 
+
+infer rule applicability from raw state similarity. Instead, at 
+
+each step the fixed advisor is evaluated on the current state (and 
+
+action), and the resulting regime label and rule -activation 
+
+indicators are stored as replay me tadata for prioritization. 
+
+Priority is defined as 
+
+𝑝 𝑖 = (|𝛿 𝑖 | + 𝜖 𝑝𝑒𝑟 )𝛼 𝑝𝑒𝑟 𝑤 𝑚𝑜𝑑𝑒 (𝑚 𝑖 )𝑤 𝑟𝑖𝑠𝑘 (𝑖 ) (14 )
+
+with sampling  𝑃 (𝑖 ) = 𝑝 𝑖  
+
+> ∑𝑝 𝑗 𝑗
+
+, and standard importance -sampling 
+
+correction (𝛽 𝑝𝑒𝑟  ). This prioritizes informative and safety -
+
+critical samples without changing the RL update. 
+
+To improve safety and sample efficiency, the low -level 
+
+controller uses the high -level advisor as a fixed behavioral 
+
+prior through risk -adaptive arbitration and mode -aware 
+
+prioritized replay. The advisor biases action selection and replay toward safety -critical transitions, while learning 
+
+remains driven by observed transitions and rewards. 
+
+F. Hyperparameters 
+
+All reward and advisor hyperparameters were selected on 
+
+a separate validation set using 500 episodes and then fixed for 
+
+the remainder of the study. DQN and SAC hyperparameters 
+
+follow standard defaults and are shared across all compared 
+
+methods. Table I summarize s the complete set of advisor and 
+
+reward hyperparameters. 
+
+Table I. Advisor and reward hyperparameters .
+
+Hyperparameter  Value  Hyperparameter  Value 
+
+Advisor, control, and regime hyperparameters 
+
+𝑟 𝑠𝑡𝑜𝑝  1.0  𝛥 𝜓 𝑒𝑚𝑔  π/6 
+
+𝑟 𝑎𝑣𝑜𝑖𝑑  2.0  Top -K directions  K = 2 
+
+𝑟 𝑐𝑙𝑒𝑎𝑟  5.0  𝑏 𝑤𝑎𝑟𝑛  0.25 
+
+𝑑 𝑛𝑒𝑎𝑟  3.0  𝑏 𝑐𝑟𝑖𝑡  0.05 
+
+𝑣 𝑚𝑎𝑥  4.0  𝑊 𝑠𝑡𝑢𝑐𝑘  10 
+
+𝑣 𝑠𝑡𝑜𝑝  0.5  𝜖 𝑝𝑟𝑜𝑔  1.0 
+
+𝑣 𝑎𝑣𝑜𝑖𝑑  2.0  𝛿  0.20 
+
+𝑣 𝑐𝑙𝑒𝑎𝑟  4.0  𝑇 𝑐𝑜𝑜𝑙  40 steps 
+
+𝑣 𝑛𝑒𝑎𝑟  1.0  (𝜔 𝑎𝑣𝑜𝑖𝑑 , 𝜔 𝑟𝑒𝑐 , 𝜔 𝑒𝑥𝑝 )Emergency  (0.55, 0.35, 0.10) 
+
+|𝛥𝜓 |max  π/6  (𝜔 𝑎𝑣𝑜𝑖𝑑 , 𝜔 𝑟𝑒𝑐 , 𝜔 𝑒𝑥𝑝 )Avoidance  (0.35, 0.40, 0.25) 
+
+𝛥 𝜓 𝑛𝑜𝑚  π/18  (𝜔 𝑎𝑣𝑜𝑖𝑑 , 𝜔 𝑟𝑒𝑐 , 𝜔 𝑒𝑥𝑝 )Nominal  (0.15, 0.30, 0.55) 
+
+𝛥 𝜓 𝑎𝑣𝑜𝑖𝑑  π/10 
+
+Reward hyperparameters 
+
+𝜆 𝑡  0.01  𝑅 𝑏𝑎𝑡  200 
+
+𝑟 𝑠𝑎𝑓𝑒  2.0  Δ𝑏 𝑡 ℎ𝑟  0.004 
+
+𝜆 𝑜  0.5  𝜆 𝑏  10 
+
+𝑅 𝑔𝑜𝑎𝑙  50  𝜆 𝑛  2.0 
+
+𝑅 𝑎𝑙𝑙  200  𝑑 𝑛𝑒𝑎𝑟  3.0 
+
+𝑅 𝑐𝑜𝑙  200  𝑣 𝑛𝑒𝑎𝑟  1.0 
+
+For the low -level learning algorithms, all deep RL methods 
+
+use discount factor  𝛾 = 0.99 , Adam optimizer, batch size 256, 
+
+replay buffer size  10 6, gradient clipping at 1.0, and soft target 
+
+updates with  𝜏 = 0.005 , with two -layer MLP (256 units per 
+
+layer, ReLU). DQN uses learning rate  3 × 10 −4, Huber loss, 
+
+Double -DQN, and ϵ-greedy exploration decayed linearly from 
+
+1.0 to 0.05 over 200 ,000 steps. SAC uses actor -critic learning 
+
+rates  3 × 10 −4, two critics (clipped double -Q), and automatic 
+
+entropy tuning with target entropy −2 for the action. Mode -
+
+aware prioritized replay uses  𝛼 𝑝𝑒𝑟 = 0.6, 𝛽 𝑝𝑒𝑟  linearly 
+
+annealed from 0.4 to 1.0, and  𝜀 𝑝𝑒𝑟 = 10 −6. Regime -based 
+
+replay multipliers are set to  𝑤 𝑚𝑜𝑑𝑒 (𝑒𝑚𝑔 ) = 1.5, 𝑤 𝑚𝑜𝑑𝑒 
+
+(𝑜𝑏𝑠 ) = 1.2, and  𝑤 𝑚𝑜𝑑𝑒 (𝑛𝑜𝑚 ) = 1.0. A bounded near -risk 
+
+replay multiplier  𝑤 𝑟𝑖𝑠𝑘 ∈ [1.0,1.5].
+
+IV. EXPERIMENTS AND RESULTS 
+
+A. Experiment environment 
+
+We evaluate the proposed framework using simulations 
+
+conducted in MATLAB 2022. The workspace is a square 
+
+domain of size  100 × 100 . Obstacles are axis -aligned  1 × 1
+
+squares placed on a uniform grid with obstacle occupancy ratio 
+
+𝜌 ∈ 0.10 ,0.20 ,0.30 . Episodes terminate upon collision with an 
+
+obstacle or battery depletion. A timeout termination is used to 
+
+bound the interaction budget. 
+
+We consider two mission scenarios. In battery -constrained 
+
+multi -goal delivery, the UAV must visit multi delivery goals 
+
+𝑔 1, … , 𝑔 𝐾  and then reach a terminal destination  𝑔 𝑓 . A goal is 
+
+considered reached when the UAV enters a capture region of 
+
+radius  𝑑 𝑐𝑎𝑝  around the goal. The episode is successful if all 
+
+delivery goals are reached and the terminal destination is 
+
+reached before battery depletion and without collision. In 
+
+moving -target delivery, the UAV must approach a moving 
+
+target and satisfy a delivery co ndition based on goal proximity 
+
+while avoiding collisions. The target follows a deterministic 
+
+motion policy with scheduled speeds  𝑣 𝑡  
+
+> 𝑡𝑎𝑟
+
+∈ 1,2,3, and 
+
+updates synchronously with the UAV at each time step. 
+
+For all experiments we use a fixed episode horizon of  𝑇 𝑚𝑎𝑥 
+
+= 800  steps. Each run is generated by sampling a random map 
+
+Fig . 1 The summary of no -pretraining performance for multi -goal delivery across obstacle densities .at the specified obstacle ratio, sampling start and goal locations 
+
+in free space, and rejecting instances that are infeasible under 
+
+straight -line connectivity at the grid resolution. Unless stated 
+
+otherwise, we use K=3 delivery goals plus a terminal 
+
+destin ation for multi -goal delivery. All results are computed 
+
+using five random seeds per method, and reported statistics 
+
+aggregate over the full set of evaluation runs. 
+
+B. Compared methods 
+
+We compare the proposed method against baselines that 
+
+isolate the effect of hierarchical structure and the advisory 
+
+prior. The low -level controller is goal -conditioned and trained 
+
+online using DQN for the discrete action formulation, and SAC 
+
+for continuous action formulation. For each learning 
+
+algorithm, we evaluate a baseline without high -level advice 
+
+and an advised variant that uses the fixed offline advisor 
+
+(HDQN and HSAC). We additionally report an Advisor -only 
+
+policy that executes the deterministic adv isor without learning. 
+
+In the no -pretraining moving -target experiments, we compare 
+
+HSAC to an ablation variant, HSAC (No MA -ER), in which 
+
+MA -ER is replaced with a standard experience replay buffer 
+
+while all other components are fixed. This comparison isolates 
+
+the contribution of mode -aware replay beyond the advisor -
+
+guided action bias . All methods share the same state definition, 
+
+action bounds, termination rules, and reward definition. The 
+
+advisory rules and hyperparameters are held fixed across 
+
+environments and run .
+
+C. Training and evaluation protocol 
+
+We report results under three evaluation regimes. 
+
+No -pretraining regime. 
+
+In this setting, the agent is initialized with random network 
+
+parameters and deployed for a single episode while updating 
+
+online during that episode. Performance is measured from the 
+
+deployment episode only. To reduce sensitivity to a particular 
+
+map instan ce, results are aggregated over  𝑁 𝑚𝑎𝑝𝑠 = 50 
+
+randomly generated maps for each obstacle density, and 
+
+statistics are reported across five random seeds per method. 
+
+Limited -pretraining regime. 
+
+In this regime, each method is trained for a fixed budget of 
+
+1000 (or 2000) episodes sampled from the training 
+
+distribution. After training, the policy parameters are frozen 
+
+and evaluated without further learning on a held -out test set of 
+
+𝑁 𝑡𝑒𝑠𝑡 = 200  maps. 
+
+Test -time generalization regime .
+
+Finally, we report performance after 5000 training 
+
+episodes, followed by evaluation in a more challenging, 
+
+previously unseen environment. Policies are frozen during 
+
+evaluation. All evaluations use matched random seeds across 
+
+methods .
+
+D. Results for the No -Pretraining Online Deployment 
+
+Regime 
+
+We first evaluate the no -pretraining regime , where the 
+
+policy is deployed with no offline pretraining and is allowed to 
+
+update only during the deployment episode. 
+
+Battery -Constrained Multi -Goal Delivery 
+
+Fig. 1 summarizes no -pretraining performance for multi -
+
+goal delivery (K = 3 plus terminal destination) across obstacle 
+
+densities. This long -horizon task yields low success for all 
+
+methods, particularly at moderate and high obstacle density. 
+
+Advisor -augment ed variants (HDQN and HSAC) consistently 
+
+reduce collisions and improve return, indicating safer and more 
+
+task -consistent early behavior. In several settings, lower 
+
+collision rates are accompanied by higher battery depletion or 
+
+timeout rates, reflecting lon ger survival without completing 
+
+the full mission under energy and horizon constraints. 
+
+At  𝜌 = 0.10 , advisor guidance reduces early collisions and 
+
+improves success, completion time, and return for both 
+
+discrete and continuous learners. At  𝜌 = 0.20 , collision 
+
+reduction remains the primary benefit, while some failures 
+
+shift to timeout or battery depletion as agents survive longer. 
+
+At  𝜌 = 0.30 , successful completion is rare for all methods ,
+
+nevertheless, HDQN and HSAC maintain lower collision rates 
+
+and higher returns, indicating that the advisory prior remains 
+
+beneficial for local safety and feasibility under severe clutter. 
+
+Moving -target delivery 
+
+Tables II and III report performance for moving -target 
+
+delivery under the no -pretraining regime at  𝜌 = 0.20 ,
+
+aggregated over 50 randomly generated maps and five random 
+
+seeds per method. In contrast to multi -goal delivery, which 
+
+requires long -horizon route sequencing, moving -target 
+
+delivery is primarily governed by local reactive interception 
+
+and collision avoid ance. As a result, measurable performance 
+
+is attainable even in the absence of offline pretraining.                                    
+
+> Table II. Moving -target delivery, no -pretraining regime, ρ=0.20 .
+> Method Success Collision Battery
+> depletion Timeout Time to
+> success Return
+> SAC 0.15 ± 0.07 0.69 ± 0.11 0.02 ± 0.02 0.14 ± 0.06 230 ± 75 −120 ± 115
+> HSAC 0.29 ± 0.09 0.49 ± 0.12 0.03 ± 0.02 0.19 ± 0.08 205 ± 65 −35 ± 140
+> Advisor -
+> only 0.20 ± 0.08 0.56 ± 0.11 0.03 ± 0.02 0.21 ± 0.08 215 ± 70 −65 ± 125
+> HSAC (No
+> Ma -er) 0.24 ± 0.08 0.55 ± 0.12 0.03 ± 0.02 0.18 ± 0.08 212 ± 70 −55 ± 135
+
+As shown in Table II, the advisor -guided variant (HSAC) 
+
+demonstrates clear improvements over the baseline SAC 
+
+controller. Specifically, HSAC increases success from 0.15 to 
+
+0.29 while reducing collision rate from 0.69 to 0.49, 
+
+accompanied by improved time -to-success and higher return. 
+
+These improvements indicate that the advisory prior promotes 
+
+safer and more effective early steering decisions during 
+
+deployment. The Advisor -only policy achieves moderate 
+
+performance, which is expected in a strict no -pretraini ng 
+
+setting where online learning is limited to a single episode and 
+
+may not fully surpass a well -structured deterministic prior. 
+
+The ablation study further clarifies the contribution of 
+
+mode -aware experience replay. Replacing MA -ER with a 
+
+standard replay buffer (HSAC No MA -ER) reduces success 
+
+and increases collision rate relative to full HSAC, 
+
+demonstrating that mode -aware replay contributes additional 
+
+gains beyond advisor -guided action arbitration.                                                   
+
+> Table III . Moving -target delivery, no -pretraining regime, ρ=0.20, by
+> target speed.
+> 𝑽 𝒕𝒂𝒓 Method Success Collision Battery
+> depletion Timeout Steps to
+> success Return
+> 1SAC 0.24 ±
+> 0.08 0.56 ± 0.12 0.03 ± 0.02 0.17 ± 0.07 210 ± 65 -60 ± 120
+> 1HSAC 0.42 ±
+> 0.10 0.36 ± 0.11 0.04 ± 0.03 0.18 ± 0.08 185 ± 55 40 ± 145
+> 2SAC 0.15 ±
+> 0.07 0.69 ± 0.11 0.02 ± 0.02 0.14 ± 0.06 240 ± 75 -130 ±
+> 110
+> 2HSAC 0.30 ±
+> 0.09 0.48 ± 0.12 0.03 ± 0.02 0.19 ± 0.08 215 ± 65 -30 ± 140
+> 3SAC 0.06 ±
+> 0.04 0.82 ± 0.09 0.01 ± 0.01 0.11 ± 0.05 300 ± 95 -200 ± 80
+> 3HSAC 0.15 ±
+> 0.06 0.63 ± 0.11 0.02 ± 0.02 0.20 ± 0.08 270 ± 85 -110 ±
+> 125
+
+Performance conditioned on target speed is reported in 
+
+Table III. As expected, increasing speed reduces success and 
+
+increases collision rates for all methods. Nevertheless, HSAC consistently outperforms SAC across all speeds. At  𝒗 𝒕𝒂𝒓 = 𝟏 ,
+
+HSAC substantially improves success and reduces collisions. 
+
+Even at  𝒗 𝒕𝒂𝒓 = 𝟑 , where interception becomes more difficult, 
+
+HSAC maintains a clear advantage .
+
+E. Test -set performance after limited pretraining 
+
+We next evaluate test -set performance after fixed offline 
+
+training budgets of 1000 and 2000 episodes. This regime 
+
+highlights sample efficiency, since policies are trained on the 
+
+same distribution and then evaluated without further learning 
+
+on a held -out te st set. Across both tasks, the advisor -
+
+augmented variants yield a stronger policy at low training 
+
+budgets, while the baselines partially close the gap as more 
+
+experience is collected.                                    
+
+> Table IV. Multi -goal delivery, test performance at ρ=0.20.
+> Episodes Method Success Collision Battery
+> depletion Timeout Steps to
+> success Return
+> 1000 DQN 0.62 ±
+> 0.0 5
+> 0.28 ±
+> 0.07 0.06 ± 0.0 70.04 ±
+> 0.03 260 ± 60 250 ±
+> 60
+> 1000 HDQN 0.74 ±
+> 0.0 9
+> 0.18 ±
+> 0.06 0.05 ± 0.0 10.03 ±
+> 0.02 240 ± 55 275 ±
+> 55
+> 2000 DQN 0.78 ±
+> 0.06
+> 0.16 ±
+> 0.05 0.04 ± 0.03 0.02 ±
+> 0.02 235 ± 55 285 ±
+> 50
+> 2000 HDQN 0.8 7±
+> 0.0 6
+> 0. 10 ±
+> 0.04 0.0 3± 0.0 20.02 ±
+> 0.02 225 ± 50 292 ±
+> 45
+
+Results in Table IV show that HDQN achieves higher 
+
+success and lower collision rates than DQN at both budgets. 
+
+After 1000 episodes, HDQN improves success from 0.62 to 
+
+0.74 and reduces collisions from 0.28 to 0.18, with faster 
+
+completion and higher return. After 2000 episodes, the DQN 
+
+baseline improves substantially . However, HDQN remains 
+
+more reliable and safer, reaching 0.87 success with 0.10 
+
+collision rate, compared to 0.78 success and 0.16 collision rate 
+
+for DQN, while also requiring fewer steps -to -succe ss and 
+
+achieving comparable -to -higher return. These results indicate 
+
+that the advisory prior reduces catastrophic failures early in 
+
+training and continues to provide a safety -oriented inductive 
+
+bias as learning progresses.                                            
+
+> Table V.Moving -target delivery, test performance at ρ=0.20,
+> 𝑽 𝒕𝒂𝒓 =𝟐 .
+> Training
+> episodes Method Success Collision Battery
+> depletion Timeout Steps to
+> success Return
+> 1000 SAC 0.58 ±
+> 0.08
+> 0.30 ±
+> 0.08 0.08 ± 0.04 0.04 ±
+> 0.03 240 ± 65 235 ±
+> 70
+> 1000 HSAC 0.70 ±
+> 0.07
+> 0.20 ±
+> 0.07 0.07 ± 0.04 0.03 ±
+> 0.02 225 ± 60 260 ±
+> 65
+> 2000 SAC 0.72 ±
+> 0.06
+> 0.18 ±
+> 0.06 0.07 ± 0.04 0.03 ±
+> 0.02 225 ± 60 265 ±
+> 60
+> 2000 HSAC 0. 82 ±
+> 0.06
+> 0.1 1±
+> 0.05 0.0 5± 0.03 0.02 ±
+> 0.02 215 ± 55 275 ±
+> 55
+
+The corresponding results in Table V show a similar 
+
+pattern, with a stronger early advantage for the advisor -guided 
+
+method. After 1000 training episodes, HSAC improves 
+
+success from 0.58 to 0.70 and reduces collision rate from 0.30 
+
+to 0.20, while also impro ving steps -to -success and return. 
+
+After 2000 episodes, the SAC baseline continues to improve, 
+
+but HSAC maintains an advantage, reaching 0.82 success 
+
+versus 0.72 for SAC and reducing collisions from 0.18 to 0.11. 
+
+The persistence of this gap at 2000 episodes suggests that 
+
+advisor -guided arbitration and mode -aware experience replay 
+
+continue to bias learning toward safer, higher -value 
+
+trajectories, even once the underlying low -level controller 
+
+becomes substantially more competent. 
+
+F. Test -set performance after Complete pretraining 
+
+We next evaluate a full -training regime in which each 
+
+method is trained for 5000 episodes and then evaluated without 
+
+further learning in a harder, previously unseen environment. 
+
+During training, all methods are trained in a 100×100 
+
+workspace with obstacle density  𝜌 = 0.20 . For moving -target 
+
+delivery, the target speed is fixed to 2, while for multi -goal 
+
+delivery we train with  𝐾 = 2 delivery goals. At test time, 
+
+policies are frozen and evaluated under a distribution shift ,
+
+obstacle density increases to  𝜌 = 0.30 , moving -target speed 
+
+increases to 3, and multi -goal delivery is tested with the harder 
+
+setting  𝐾 = 3 plus terminal destination. No parameter 
+
+updates are performed during testing. 
+
+Fig. 2 shows the success ratio over training episodes for all 
+
+methods. Advisor -guided variants converge faster and more 
+
+consistently, with lower variance across seeds. The effect is 
+
+stronger in moving -target delivery, which depends mainly on 
+
+reactive interception and collision avoidance. In multi -goal 
+
+delivery, the same trend holds, but the final gap is smaller 
+
+because long -horizon routing and battery and timeout 
+
+constraints remain limiting factors. 
+
+Fig. 2 The s uccess ratio over training episodes for both Multi 
+
+goal and Moving target scenarios. 
+
+Results in the test environment are reported in Table VI. In 
+
+multi -goal delivery, performance degrades substantially for all 
+
+methods under the combined increase in obstacle density and 
+
+task complexity , however, advisor -guided methods retain a 
+
+clear advantage. Relative to DQN, HDQN improves success 
+
+from 0.20 to 0.32 while reducing collisions from 0.46 to 0.31 
+
+and improves efficiency with a markedly higher return. In the 
+
+continuous -control setting, HSAC achieves the strongest 
+
+performance, increasing success relative to SAC and reducing 
+
+collisions, while also completing successful episodes in fewer 
+
+steps and achieving higher return. Notably, despite improved 
+
+collision avoidance, battery depletion and timeout rates remain 
+
+non -negligible across methods, reflecting the fundamental 
+
+difficulty of completing long -horizon multi -stage missions 
+
+under energy and hor izon constr aints in dense clutter.                                        
+
+> Table VI Test performance after complete pretraining in the test
+> environment .
+> Method Success Collision Battery
+> depletion Timeout Steps to
+> success Return
+> Multi -goal delivery (K = 3 plus terminal).
+> DQN 0.20 ± 0.06 0.46 ± 0.10 0.14 ± 0.06 0.20 ± 0.07 450 ± 110 -85 ± 115
+> HDQN 0.32 ± 0.08 0.31 ± 0.09 0.16 ± 0.07 0.21 ± 0.08 395 ± 100 -5 ± 125
+> SAC 0.25 ± 0.07 0.40 ± 0.10 0.13 ± 0.06 0.22 ± 0.08 425 ± 105 -60 ± 120
+> HSAC 0.39 ± 0.09 0.26 ± 0.08 0.15 ± 0.07 0.20 ± 0.08 365 ± 92 35 ± 130
+
+Moving -target delivery (𝒗 𝒕𝒂𝒓 = 𝟑 )                  
+
+> SAC 0.44 ± 0.09 0.31 ± 0.09 0.04 ± 0.03 0.21 ± 0.07 218 ± 55 85 ± 135
+> HSAC 0.61 ± 0.08 0.18 ± 0.07 0.05 ± 0.03 0.16 ± 0.06 188 ± 47 170 ± 120
+> HSAC No
+> Ma -er 0.55 ± 0.08 0.21 ± 0.07 0.05 ± 0.03 0.19 ± 0.06 195 ± 50 145 ± 125
+
+In moving -target delivery under faster target dynamics, the 
+
+advisor -guided methods again generalize more effectively. 
+
+HSAC improves success over SA C while substantially 
+
+reducing collision rate and achieves faster completion with 
+
+higher return. Finally, HSAC (No MA -ER) underperforms full 
+
+HSAC, supporting the conclusion that mode -aware replay 
+
+contributes additional robustness beyond advisor -guided 
+
+arbitration. 
+
+V. CONCLUSION 
+
+We presented an advisor -guided hierarchical RL 
+
+framework for UAV navigation in cluttered environments. By 
+
+integrating a fixed safety -oriented advisor with online low -
+
+level learning and mode -aware replay, the proposed methods 
+
+improve sample efficiency and r eliability. 
+
+Across no -pretraining, limited -pretraining, and shifted test -
+
+time evaluation, advisor -guided variants consistently reduce 
+
+collisions and increase success, with the largest gains in 
+
+moving -target delivery and persistent benefits under 
+
+distribution shift. In multi -goal delivery, improvements are 
+
+smaller but remain consistent with safety -driven behavior 
+
+under battery and horizon constraints. 
+
+References 
+
+[1] M. Ramezani and J. L. Sanchez -Lopez, "Human -Centric Aware UAV 
+
+Trajectory Planning in Search and Rescue Missions Employing Multi -
+
+Objective Reinforcement Learning with AHP and Similarity -Based 
+
+Experience Replay," arXiv preprint arXiv:2402.18487, 2024. 
+
+[2] M. Ramezani and M. Amiri Atashgah, "Energy -aware hierarchical 
+
+reinforcement learning based on the predictive energy consumption 
+
+algorithm for search and rescue aerial robots in unknown 
+
+environments," Drones, vol. 8, no. 7, p. 283, 2024. 
+
+[3] M. Ramezani and J. L. SANCHEZ LOPEZ, "To The Effects of 
+
+Anthropomorphic Cues on Human Perception of Non -Humanoid 
+
+Robots: The Role of Gender," 2023. 
+
+[4] I. Chandran and K. Vipin, "Multi -UAV networks for disaster 
+
+monitoring: challenges and opportunities from a network perspective," 
+
+Drone Systems and Applications, vol. 12, pp. 1 -28, 2024. 
+
+[5] M. Ramezani, H. Habibi, J. L. Sanchez -Lopez, and H. Voos, "UAV 
+
+path planning employing MPC -reinforcement learning method 
+
+considering collision avoidance," in 2023 International Conference on 
+
+Unmanned Aircraft Systems (ICUAS) , 2023: IEEE, pp. 507 -514. 
+
+[6] H. Zhang, R. Dai, G. Solak, P. Zhou, Y. She, and A. Ajoudani, "Safe 
+
+Learning for Contact -Rich Robot Tasks: A Survey from Classical 
+
+Learning -Based Methods to Safe Foundation Models," arXiv preprint 
+
+arXiv:2512.11908, 2025. 
+
+[7] R. S. Sutton and A. G. Barto, "Reinforcement learning," Journal of 
+
+Cognitive Neuroscience, vol. 11, no. 1, pp. 126 -134, 1999. 
+
+[8] G. Tong, N. Jiang, L. Biyue, Z. Xi, W. Ya, and D. Wenbo, "UAV 
+
+navigation in high dynamic environments: A deep reinforcement 
+
+learning approach," Chinese Journal of Aeronautics, vol. 34, no. 2, pp. 
+
+479 -489, 2021. 
+
+[9] G. Shetty, M. Ramezani, H. Habibi, H. Voos, and J. L. Sanchez -Lopez, 
+
+"Motion Control in Multi -Rotor Aerial Robots Using Deep 
+
+Reinforcement Learning," in 2025 International Conference on 
+
+Unmanned Aircraft Systems (ICUAS) , 2025: IEEE, pp. 29 -36. 
+
+[10] M. Ramezani and M. A. Atashgah, "CFR -MARL: Centralized 
+
+Feedback -Driven Reward Multi -Agent Reinforcement Learning for 
+
+Decentralized Cooperative Path Planning of Heterogeneous Agents," 
+
+Acta Astronautica, vol. 246, pp. 613 -626, 2026. 
+
+[11] M. Ramezani, M. Amiri Atashgah, and A. Rezaee, "A fault -tolerant 
+
+multi -agent reinforcement learning framework for unmanned aerial 
+
+vehicles –unmanned ground vehicle coverage path planning," Drones, 
+
+vol. 8, no. 10, p. 537, 2024. 
+
+[12] C. Mu, S. Liu, M. Lu, Z. Liu, L. Cui, and K. Wang, "Autonomous 
+
+spacecraft collision avoidance with a variable number of space debris 
+
+based on safe reinforcement learning," Aerospace Science and 
+
+Technology, vol. 149, p. 109131, 2024. 
+
+[13] M. Ramezani, M. A. Alandihallaj, and A. M. Hein, "PPO -based 
+
+dynamic control of uncertain floating platforms in zero -G
+
+environment," in 2024 IEEE International Conference on Robotics and 
+
+Automation (ICRA) , 2024: IEEE, pp. 11730 -11736. 
+
+[14] M. Ramezani, M. A. Alandihallaj, B. C. Yalçın, M. A. O. Mendez, and 
+
+H. Voos, "MPC -based deep reinforcement learning method for space 
+
+robotic control with fuel sloshing mitigation," in 2025 IEEE/RSJ 
+
+International Conference on Intelligent Robots and Systems (IROS) ,
+
+2025: IEEE, pp. 1503 -1510. 
+
+[15] M. Ramezani, M. Alandihallaj, and A. M. Hein, "Autonomous Orbital 
+
+Correction for Nano Satellites Using J2 Perturbation and LSTM 
+
+Networks," arXiv preprint arXiv:2410.10240, 2024. 
+
+[16] M. Ramezani and M. A. Alandihallaj, "StAR -RL: Stability -augmented 
+
+RL method for reliable spacecraft attitude control in uncertain asteroid 
+
+environments," Acta Astronautica, 2026. 
+
+[17] M. A. Alandihallaj, M. Ramezani, and A. M. Hein, "MBSE -Enhanced 
+
+LSTM Framework for Satellite System Reliability and Failure 
+
+Prediction," in MODELSWARD , 2024, pp. 349 -356. 
+
+[18] W. Zhao et al. , "A survey on drl based uav communications and 
+
+networking: Drl fundamentals, applications and implementations," 
+
+IEEE Communications Surveys & Tutorials, 2025. 
+
+[19] B. Matthew et al. , "Safe Exploration in RL -Based Industrial 
+
+Automation: Constraints Handling and Failure Recovery," Journal of 
+
+Design and Manufacturing Automation, vol. 118, pp. 75 -88, 2025. 
+
+[20] X. Luo, S. Xu, R. Liu, and C. Liu, "Decomposition -based hierarchical 
+
+task allocation and planning for multi -robots under hierarchical 
+
+temporal logic specifications," IEEE Robotics and Automation Letters, 
+
+vol. 9, no. 8, pp. 7182 -7189, 2024. 
+
+[21] M. Ramezani, M. A. Alandihallaj, J. L. Sanchez -Lopez, and A. Hein, 
+
+"Safe hierarchical reinforcement learning for CubeSat task scheduling 
+
+based on energy consumption," arXiv preprint arXiv:2309.12004, 
+
+2023. 
+
+[22] A. A. Kareem, A. J. Abid, D. A. Hammood, A. Al -Naji, and J. Chahl, 
+
+"Safe Search and Rescue Operations Based on Autonomous Robots: A 
+
+Systematic Review of the General System Architecture," IEEE Access, 
+
+2026. 
+
+[23] Q. Li et al. , "A hierarchical deep reinforcement learning model with 
+
+expert prior knowledge for intelligent penetration testing," Computers 
+
+& Security, vol. 132, p. 103358, 2023. 
+
+[24] B. Shacklett et al. , "Large batch simulation for deep reinforcement 
+
+learning," arXiv preprint arXiv:2103.07013, 2021. 
+
+[25] A. S. Chen, A. Sharma, S. Levine, and C. Finn, "You only live once: 
+
+Single -life reinforcement learning via learned reward shaping," in 
+
+Decision Awareness in Reinforcement Learning Workshop at ICML 
+
+2022 , 2022. 
+
+[26] W. Saunders, G. Sastry, A. Stuhlmueller, and O. Evans, "Trial without 
+
+error: Towards safe reinforcement learning via human intervention," 
+
+arXiv preprint arXiv:1707.05173, 2017. 
+
+[27] M. Ramezani, M. A. Alandihallaj, B. C. Yalçın, M. A. O. Mendez, and 
+
+A. M. Hein, "Fuel -Aware Autonomous Docking Using RL -augmented 
+
+MPC Rewards for On -Orbit Refueling," Acta Astronautica, 2025. 
+
+[28] H. Li et al. , "Failure -Aware RL: Reliable Offline -to -Online 
+
+Reinforcement Learning with Self -Recovery for Real -World 
+
+Manipulation," arXiv preprint arXiv:2601.07821, 2026. 
+
+[29] G. -Y. Wang, H. -R. Li, M. Dong, X. -Y. Hu, E. -L. Xu, and S. Bi, 
+
+"SURTR: Semantic Understanding and Reinforced Trajectory 
+
+Robotics via Collaborative Multi -LLMs and Offline Reinforcement 
+
+Learning," in 2025 IEEE 15th International Conference on CYBER 
+
+Technology in Automation, Control, and Intelligent Systems (CYBER) ,
+
+2025: IEEE, pp. 687 -691. 
+
+[30] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, "Soft actor -critic: Off -
+
+policy maximum entropy deep reinforcement learning with a stochastic 
+
+actor," in International conference on machine learning , 2018: PMLR, 
+
+pp. 1861 -1870.

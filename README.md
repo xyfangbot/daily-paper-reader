@@ -23,6 +23,25 @@
 </p>
 
 
+## Attribution And License Notice
+
+This repository is a personal fork and deployment of
+[ziwenhahaha/daily-paper-reader](https://github.com/ziwenhahaha/daily-paper-reader),
+used for personal academic paper discovery and reading.
+
+The upstream project is distributed under the MIT License. The original
+copyright notice and license are retained in this repository. This fork does not
+claim original authorship of the upstream project, and it is not an official
+release or endorsement by the upstream author.
+
+Generated paper lists, metadata, summaries, screenshots, PDFs, figures, and
+other research materials may be subject to the copyrights, licenses, and terms
+of their original authors, publishers, conferences, archives, or hosting
+platforms. This deployment is intended for personal research and reading
+workflow only. If any rights holder believes content should be removed or
+attribution should be corrected, please open an issue or contact the repository
+owner.
+
 
 ## 🖼️ 界面预览
 <p align="center">

@@ -1,0 +1,1636 @@
+Title: Trust, Geometry, and Rules: A Credibility-Aware Reinforcement Learning Framework for Safe USV Navigation under Uncertainty
+
+URL Source: https://arxiv.org/pdf/2605.26974v1
+
+Published Time: Wed, 27 May 2026 01:09:03 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+> JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 1
+
+# Trust, Geometry, and Rules: A Credibility-Aware Reinforcement Learning Framework for Safe USV Navigation under Uncertainty 
+
+Yuhang Zhang, Shuqi Chai, Yukang Zhang, Liusha Yang, Member, IEEE , Mingchuan Zhang, Wei Wang, Qingjiang Shi and Quanbo Ge 
+
+Abstract —Autonomous navigation of Unmanned Surface Ve-hicles (USVs) that is safe and compliant with the International Regulations for Preventing Collisions at Sea (COLREGs) remains a formidable challenge in dynamic maritime environments, partic-ularly when perception systems exhibit miscalibrated uncertainty. Existing Reinforcement Learning (RL)-based methods often falter because state-estimation errors induce unreliable belief states that mislead the value function, while discrete traffic rules introduce discontinuity in the learning objective. To address these challenges, we propose a framework integrating credibility-aware learning, geometric safety shielding, and continuous rule-aware embedding. First, Credibility-Weighted Value Learning (CW-VL) introduces a dynamic trust factor derived from the discrepancy between filter-estimated covariance and empirical error statistics to modulate the critic’s heteroscedastic loss, preventing policy overfitting to noisy samples. Second, the Covariance-Inflated Velocity Obstacle (CI-VO) maps position-estimation uncertainty into set-wise angular margins, forming a conservative geometric shield that overrides hazardous exploratory actions. Third, Risk-Aware COLREGs Duty Embedding relaxes binary encounter duties into continuous rule-aware signals, providing smooth sector-transition information and suppressing oscillation from sparse rule rewards. Simulated encounter studies demonstrate improved training robustness against perceptual inconsistency and superior collision avoidance and COLREGs compliance over baselines. 
+
+Index Terms —Unmanned Surface Vehicles, Deep Reinforcement Learning, Perception Uncertainty, Velocity Obstacle, Credibility-Aware Learning 
+
+I. I NTRODUCTION 
+
+# THE rapid development of Unmanned Surface Vehicles (USVs), as a representative class of Maritime Autonomous Surface Ships (MASS), is transforming the maritime industry 
+
+This work was supported in part by the National Natural Science Foundation of China (NSFC) under Grants 62033010 and 62401376, in part by the Qing Lan Project of Jiangsu Province of China under Grant R2023Q07, in part by the Shenzhen Science and Technology Program under Grant RCBS20231211090816034, and in part by the Natural Science Foundation of Top Talent of SZTU under Grant GDRC202332. (Corresponding author: Quanbo Ge.) Yuhang Zhang and Mingchuan Zhang are with the School of Information Engineering, Henan University of Science and Technology, Luoyang 471023, China (e-mail: yhZhang@stu.haust.edu.cn; zhang mch@haust.edu.cn). Shuqi Chai is with the Shenzhen Research Institute of Big Data, Shenzhen 518172, China (e-mail: schai@sribd.cn). Liusha Yang is with Shenzhen Technology University, Shenzhen 518118, China (e-mail: author@sztu.edu.cn). Wei Wang is with the School of Computer Science, Wuhan University, Wuhan 430072, China(e-mail: wangw@whu.edu.cn). Shi Qingjiang is with the School of Software Engineering, Tongji University, Shanghai 201804, China(e-mail: shiqj@tongji.edu.cn). Quanbo Ge is with the School of Automation, Nanjing University of Information Science and Technology, Nanjing 210044, China (e-mail: geqb@nuist.edu.cn). 
+
+[1], [2], offering improved efficiency and safety for hydro-graphic surveys, environmental monitoring, and logistics. How-ever, their safe deployment in congested, mixed-traffic scenarios remains challenging. Since onboard perception systems are vulnerable to sensor noise, occlusions, and environmental disturbances, perceiving other vessels involves high uncertainty. This unreliability makes robust collision avoidance strategies imperative for ensuring safe USV operations. Collision avoidance for USVs is generally categorized as local path planning [3]. The Artificial Potential Field (APF), a classical reactive method initially introduced for robot navigation [4], is widely adopted for USVs due to its mathe-matical simplicity [5]. However, APF suffers from the inherent problem of local minima. To incorporate vehicle kinematics, the Dynamic Window Approach (DWA) is frequently employed [6] as it ensures generated commands are feasible for the ship dynamics [7]. Search-based methods, such as Hybrid A∗,are also utilized for unstructured environments where non-holonomic constraints are critical [8], but their search efficiency decreases significantly in dynamic settings. In contrast, the Ve-locity Obstacle (VO) method offers a computationally efficient geometric solution that instantly predicts collision risks [9], [10]. Nevertheless, VO methods can result in oscillatory behaviors and do not explicitly optimize energy or smoothness. Model Predictive Control (MPC) formulates collision avoidance as a constrained optimization problem to handle dynamics and constraints simultaneously [11], but the high computational complexity of solving nonlinear optimization problems online remains a bottleneck. To overcome these limitations, recent re-search has shifted toward synergizing artificial intelligence with traditional methods [12]. For instance, Deep Reinforcement Learning (DRL) has been combined with Reciprocal Velocity Obstacles (RVO) [13], [14] or improved A∗ algorithms [15] to enhance path smoothness and search efficiency. Other approaches utilize Convolutional Neural Networks (CNN) and Gated Recurrent Units (GRU) to map system states directly to control commands [16], [17], or employ feature-enhanced dynamic training to handle under-actuated USVs [18]. Furthermore, hybrid frameworks integrating Q-learning with Particle Swarm Optimization (PSO) have been explored to dynamically refine evasion strategies [19]. Despite these advances, a critical limitation persists in these methodologies. Most existing approaches overlook the perception uncertainty regarding target ships and potential calibration errors in the perception system. While some methods employ heteroscedastic regression to model data noise [20], they tend to overestimate aleatoric uncertainty by failing to  
+
+> arXiv:2605.26974v1 [cs.RO] 26 May 2026 JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 2
+
+distinguish between inherent sensor noise and the mismatch between the filter’s theoretical model and the actual physical system [21]–[23]. Furthermore, conventional particle-based or Gaussian-based probabilistic inference methods typically provide only probability distributions rather than deterministic bounded belief regions, which limits their efficacy in safety-critical decision-making [24]. These errors induce unreliable belief states and consequently mislead the critic network [25], causing it to overfit to noisy data or yield overly conservative estimates that degrade system reliability. In parallel, strict adherence to the convention on the International Regulations for Preventing Collisions at Sea (COLREGs) is mandatory [26], [27]. While recent works have explicitly constrained maneu-vering under COLREGs duties via risk-informed safe RL [28], [29], most approaches still encode rules through discrete sector classification or binary duty indicators [30]. This discrete representation introduces abrupt switching logic at sector boundaries. Such discontinuities create non-smooth training signals for gradient-based RL and often lead to oscillatory behaviors or unstable convergence. Motivated by the need to bridge the gap between noisy perception, rigid rules, and robust decision-making, this paper proposes a unified Credibility-Aware Safe Reinforcement Learning framework. We formulate the navigation task as a Partially Observable Markov Decision Process (POMDP) and introduce a holistic architecture that integrates belief reliability, geometric shielding, and continuous rule embedding. The specific contributions of this work are as follows:  
+
+> •
+
+To mitigate the impact of unreliable perception, we propose Credibility-Weighted Value Learning (CW-VL). Unlike standard heteroscedastic approaches that often overestimate aleatoric uncertainty, we introduce a dynamic trust factor grounded in the concept of filter credibility. This factor quantifies the degree of matching between the filter’s theoretical error model and the actual physical system dynamics. By modulating the critic loss with this trust factor, we effectively down-weight samples where the filter’s internal assessment diverges from reality, prevent-ing the value function from overfitting to miscalibrated uncertainty data.  
+
+> •
+
+We develop the Covariance-Inflated Velocity Obstacle (CI-VO) to ensure safety under spatial uncertainty. This module explicitly maps the belief state covariance ellipse into a set-wise angular margin, creating a conservative, uncertainty-aware forbidden velocity set that serves as a geometric shield to correct hazardous exploratory actions.  
+
+> •
+
+We introduce a Risk-Aware Continuous COLREGs (RC-COLREGs) Embedding to facilitate stable policy learning. By relaxing binary collision regulations into continuous rule-aware signals using sigmoid-windowed sectors and a soft temporal risk gate, this mechanism provides smoother training signals near sector boundaries, avoiding the oscillation typically caused by sparse rule rewards. The rest of this paper is organized as follows. Section II formulates the USV navigation task as a POMDP. Section III presents belief-state estimation and credibility-weighted PPO. Section IV introduces CI-VO, RC-COLREGs embedding, and reward design. Section V provides experimental validation and comparative studies. Section VI gives the concluding remarks and future work. II. P ROBLEM FORMULATION 
+
+Autonomous navigation in cluttered maritime environments necessitates simultaneous collision avoidance and adherence to traffic rules. However, practical perception systems inevitably introduce state estimation errors, rendering the environment partially observable. To address the decision-making problem under such perceptual uncertainty, the navigation task is formulated as a discrete-time Partially Observable Markov Decision Process (POMDP) with a continuous latent state space and a bounded continuous action space. Formally, the POMDP is defined by the tuple 
+
+M = ( S, A, T , R, Ω, O). (1) In this formulation, S ⊆ Rns denotes the continuous latent state space. Let N denote the number of target ships. At discrete time step k ∈ { 0, 1, . . . }, the joint latent state is defined as 
+
+sk =
+
+h
+
+(xos  
+
+> k
+
+)T ,  xts 1,k 
+
+T , . . . ,  xts 
+
+> N,k
+
+TiT
+
+∈ S , (2) where xos  
+
+> k
+
+and xts  
+
+> i,k
+
+denote the own-ship and target-ship kinematic substates, respectively. The own-ship substate is 
+
+xos  
+
+> k
+
+= pos 
+
+> x,k
+
+, p os 
+
+> y,k
+
+, ψ os  
+
+> k
+
+, u os  
+
+> k
+
+, v os  
+
+> k
+
+, r os 
+
+> k
+
+T , (3) where (pos 
+
+> x,k
+
+, p os 
+
+> y,k
+
+) denotes the own-ship position in the global horizontal frame, ψos  
+
+> k
+
+is the heading angle, and uos  
+
+> k
+
+, vos  
+
+> k
+
+, and 
+
+ros  
+
+> k
+
+are the surge velocity, sway velocity, and yaw rate. For each target ship i = 1 , . . . , N , the corresponding substate is 
+
+xts  
+
+> i,k
+
+= pts 
+
+> x,i,k
+
+, p ts 
+
+> y,i,k
+
+, v ts 
+
+> x,i,k
+
+, v ts 
+
+> y,i,k
+
+T , (4) where (pts 
+
+> x,i,k
+
+, p ts 
+
+> y,i,k
+
+) and (vts 
+
+> x,i,k
+
+, v ts 
+
+> y,i,k
+
+) are its position and velocity components in the global horizontal frame. The action space A is defined according to the three-degree-of-freedom(3-DOF) underactuated USV model. Since the sway channel is unactuated, only the surge thrust τu and yaw moment 
+
+τr are directly commanded. Accordingly, the action vector at time step k is defined as 
+
+ak = [ τu,k , τ r,k ]T ∈ A , (5) which is subject to the following physical actuator bounds: 
+
+τ min  
+
+> u
+
+≤ τu,k ≤ τ max  
+
+> u
+
+, |τr,k | ≤ τ max  
+
+> r
+
+. (6) The observation space Ω consists of noisy multisensor measurements, denoted by ˜(·). At time step k, the joint observation vector ok ∈ Ω concatenates the own-ship state and the states of N target ships: 
+
+ok = (oos  
+
+> k
+
+)T, (ots 1,k )T, . . . , (ots 
+
+> N,k
+
+)TT . (7) Here, the own-ship observation oos  
+
+> k
+
+comprises its measured global pose and body-frame velocities for the 3-DOF model: 
+
+oos  
+
+> k
+
+=
+
+h
+
+˜pos 
+
+> x,k
+
+, ˜pos 
+
+> y,k
+
+, ˜ψos  
+
+> k
+
+, ˜uos  
+
+> k
+
+, ˜vos  
+
+> k
+
+, ˜ros 
+
+> k
+
+iT
+
+, (8) JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 3
+
+and ots  
+
+> i,k
+
+contains the measured position and velocity of the 
+
+i-th target ship in the global horizontal frame: 
+
+ots  
+
+> i,k
+
+= ˜pts 
+
+> x,i,k
+
+, ˜pts 
+
+> y,i,k
+
+, ˜vts 
+
+> x,i,k
+
+, ˜vts 
+
+> y,i,k
+
+T , i = 1 , . . . , N. (9) The system dynamics are governed by the state transition probability density function T (sk+1 | sk, ak), describing the likelihood of transitioning to state sk+1 given the current state 
+
+sk and action ak. Subsequently, the observation likelihood func-tion O(ok+1 | sk+1 , ak) defines the probability of receiving the sensor measurement ok+1 given the executed action ak and the resulting latent state sk+1 . By mapping the true kinematic state to noisy observations, O explicitly encapsulates the perception uncertainty of the USV. Finally, the reward function R(sk, ak)
+
+is formulated to encapsulate both the navigation goals and the safety constraints. The primary objective of the autonomous agent is to learn an optimal policy π∗ that maximizes the expected discounted return, mathematically formulated as: 
+
+J(π) = Eπ
+
+" ∞X
+
+> k=0
+
+γkR(sk, ak)
+
+#
+
+, (10) where Eπ denotes the expectation operator over the stochastic trajectory distribution induced by the policy π, and γ ∈ (0 , 1) 
+
+serves as the discount factor balancing the trade-off between immediate and long-term rewards. In the absence of direct access to the latent state sk, the policy must rely on an inferred probabilistic representation. Thus, the decision-making process is conditioned on the belief state: 
+
+bk(sk) ≜ p(sk | hk), (11) where p(sk | hk) denotes the posterior probability density of the latent state sk conditioned on the history hk = ( o0: k, a 0: k−1).Here, hk represents the complete sequence of observations and actions up to time step k, and the belief state bk provides a sufficient statistic for optimal decision-making under partial observability. Based on this sufficient statistic, the transition from the latent state to the belief space is governed by the recursive Bayesian update rule [31], [32]. Given a new observation ok+1 after executing action ak, the posterior belief bk+1 is computed as: 
+
+bk+1 (sk+1 ) = η O(ok+1 | sk+1 , ak)
+
+×
+
+Z
+
+> S
+
+T (sk+1 | sk, ak) bk(sk) dsk, (12) where η = p(ok+1 | bk, ak)−1 serves as the normalization constant derived from the marginal likelihood. This update transforms the original POMDP into a fully observable Belief-MDP. Consequently, the agent must maximize the expected reward with respect to the belief distribution. The immediate reward function is reformulated as the belief expectation: 
+
+r(bk, ak) = Esk ∼bk [R(sk, ak)] = 
+
+Z
+
+> S
+
+bk(sk) R(sk, ak) dsk.
+
+(13) Unlike the trajectory-level expectation Eπ in Eq. (10) , the operator Esk ∼bk [·] evaluates the instantaneous reward over the current belief distribution. Collectively, the belief update (12) and the belief reward (13) establish the information-state formulation, enabling the application of reinforcement learning algorithms to the continuous belief space. 
+
+Remark 1: Directly conditioning the policy on instantaneous noisy observations ok can make the USV sensitive to sensor noise and perception outliers. The policy therefore relies on the belief state bk, which encodes probabilistic estimates of the vessel kinematic states together with their associated estimation uncertainty. However, exact propagation of the con-tinuous Bayesian belief update in Eq. (12) is computationally prohibitive for real-time USV control. To obtain a tractable online implementation, this work approximates the belief state by a Gaussian posterior and implements the belief update using a Kalman-filter-based recursive estimator, as detailed in Section III-A . The resulting posterior mean ˆsk|k and covariance 
+
+Pfk|k represent the estimated joint latent state and its uncertainty, and provide the basis for the subsequent credibility evaluation. III. C REDIBILITY -A WARE LEARNING UNDER PERCEPTUAL 
+
+UNCERTAINTY 
+
+As formulated in Section II, the USV collision avoidance task under sensor noise constitutes a multi-objective optimization problem modeled as a POMDP. This section focuses on the learning layer of the proposed framework. A recursive Bayesian estimator first constructs a Gaussian belief state from noisy observations, while a filter-consistency-based trust factor evaluates the credibility of this belief. The trust factor is then incorporated into Proximal Policy Optimization (PPO) [33] through a credibility-weighted heteroscedastic critic, reducing the influence of unreliable belief samples on value learning. The overall framework is shown in Fig. 1. 
+
+A. Belief-State Estimation and Credibility 
+
+To infer the latent state from noisy sensor measurements, we employ a Kalman-filter-based recursive estimator. In prin-ciple, the belief update in (12) propagates the full posterior distribution over the continuous multi-vessel state. However, maintaining this full distribution is computationally prohibitive for online collision avoidance, especially when multiple target ships are considered simultaneously. We therefore adopt a Gaussian approximation, under which the belief state at time step k is represented by a Gaussian posterior: 
+
+bk(sk) ≈ N (sk; ˆsk|k, Pfk|k), (14) where sk is the latent state defined in (2) , and N (sk; ˆsk|k, Pfk|k)
+
+denotes the multivariate Gaussian probability density function with mean ˆsk|k and covariance Pfk|k. Here, ˆsk|k is the posterior mean estimate of the latent state obtained from the Kalman-filter update, and Pfk|k is the filter calculated mean square error (FMSE) matrix. In the considered multi-target collision-avoidance scenario, the belief state is defined over the joint latent state sk, which consists of the own-ship state and the states of N target ships. For the i-th target ship, we denote the corresponding local pos-terior mean and FMSE matrix by ˆsi,k |k and Pfi,k |k, respectively. If the assumed process and measurement noise statistics match those of the physical system, Pfi,k |k is expected to be consistent JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 4USV Kinematics   
+
+> Dynamic Obstacles Recursive Bayesian
+> Estimator
+> Kalmen filter
+> Environment
+> Trust factor
+> Covariance Matrix
+> Risk gate based on
+> DCPA\TCPA
+> Confidence Ellipse
+> Belief
+> Deterministic VO
+> Project to LOS
+> Frame
+> Angular Margin
+> Calculation
+> Covariance -Inffated
+> VO
+> Forbidden Set
+> Shield Optimization
+> Safe Control Output
+> Belief
+> CI -VO Shield
+> Belief
+> Sigmoid Window Function for
+> Soft COLREGs Embedding
+> COLREGs duty ,i k
+
+g, ,,R S            
+
+> i k i k 
+> heteroscedastic Gaussian
+> negative log -likelihood
+> Value Loss 1,,,,kkkkkbbart+
+> Trajectory Buffer RL
+> k
+
+a    
+
+> Update
+> Loss Calculation
+> Update
+> Policy Loss Entropy Loss
+> RC -COLREGs
+> Critic network Actor network
+> ...
+> ...
+> ...
+> ...
+> ...
+> ...
+> ...
+> ...
+> Input Input
+> Output Output
+> CW -VL k
+
+tkbkbkbP2RL   
+
+> min kaa−*
+> k
+
+a
+
+> risk -triggered gate
+
+Fig. 1: Algorithm overall framework flow chart. with the true mean-square-error (TMSE) matrix Pmi,k |k. In practice, however, noise-statistics mismatch and unmodeled dynamics may make the FMSE matrix underestimate the actual error or become inconsistent. Moreover, the exact TMSE matrix 
+
+Pmi,k |k is not directly available during deployment. To obtain a practical reliability measure for downstream learning, we adopt the Trust Factor Estimation with Directly Numerical Solving (TFE-DNS) method [21]. Its rationale follows from the innovation-consistency property of the Kalman filter. With correctly specified process and measurement noise statistics, the innovation sequence is approximately zero-mean, and its empirical covariance agrees with the filter-predicted covariance. Noise-statistics mismatch or unmodeled dynamics breaks this consistency, allowing TFE-DNS to use the resulting innovation-covariance deviation to numerically obtain the online TMSE estimate ˆP mi,k |k. The trust factor associated with the i-th target ship is then defined as 
+
+ti,k = 1
+
+∥Pfi,k |k − ˆPmi,k |k∥2 + 1 , ti,k ∈ (0 , 1] , (15) where ∥ · ∥ 2 denotes the matrix 2-norm, measuring the discrepancy between the FMSE matrix mathbf P fi,k |k and the online TMSE estimate ˆPmi,k |k. A smaller discrepancy indicates better filter consistency and yields a trust factor closer to one. To ensure conservative decision-making under uncertainty, the global trust factor tk is determined by the least reliable risk-active target ship: 
+
+tk =
+
+
+
+min    
+
+> i:gi,k >0
+
+ti,k , if ∃ i s.t. gi,k > 0,
+
+1, otherwise ,
+
+(16) where gi,k ∈ [0 , 1] is the risk gate defined in Section IV-B ,and gi,k > 0 indicates that the i-th target ship is risk-active. Restricting the aggregation to risk-active target ships prevents distant non-threatening vessels from dominating the credibility evaluation. When no target ship is risk-active, tk is set to one, indicating that no additional credibility attenuation is imposed. 
+
+B. Credibility-Weighted PPO 
+
+The value-learning component of the proposed framework is referred to as Credibility-Weighted Value Learning (CW-VL). It is implemented within PPO by replacing the standard value loss with a credibility-weighted heteroscedastic critic loss. PPO algorithms typically employ a homoscedastic mean square error (MSE) loss for value estimation [33], implicitly assuming that all state inputs are equally reliable. However, in our POMDP setting, the belief state is represented by Kalman-filter outputs whose credibility varies with noise-statistics mismatch and unmodeled dynamics. Regressing the critic on targets generated JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 5
+
+from unreliable beliefs may therefore bias value learning. To reduce this effect, we propose a Credibility-Aware Critic that combines heteroscedastic value [20] modeling with credibility-based reweighting, using the trust factor tk to attenuate the contribution of unreliable samples. The critic network is designed to approximate the belief-value function, which represents the expected cumulative discounted reward from the current belief state: 
+
+V π (bk) = Eπ [Rk | bk] , (17) where Eπ [·] denotes the conditional expectation when the agent starts from the current belief bk and follows policy π thereafter. The expectation is taken with respect to the randomness of the environment dynamics and observations, which jointly determine the future rewards. The discounted return Rk is defined as 
+
+Rk ≜
+
+> ∞
+
+X
+
+> n=0
+
+γnrk+n, (18) where γ ∈ (0 , 1) is the discount factor and rk+n is the immediate reward at step k + n. The infinite-horizon return Rk
+
+is a theoretical quantity that is not directly observable during training. We therefore use a finite-horizon bootstrapped target 
+
+ˆRk as the regression target supplied to the critic. Since this target is computed from sampled trajectories and bootstrapped value estimates, it is a noisy estimator of V π (bk) and is modeled as an observation corrupted by belief dependent target noise: 
+
+ˆRk = V π (bk) + εk,
+
+E[εk | bk] = 0 , Var( εk | bk) = σ2(bk), (19) where εk is the residual noise with zero conditional mean, and 
+
+σ2(bk) denotes the aleatoric variance arising from environment stochasticity and partial observability. Taking the conditional expectation of (19) on both sides yields E[ ˆRk | bk] = V π (bk),so the conditional mean of the bootstrapped target coincides with the true belief value. To capture this heteroscedastic target uncertainty, whose vari-ance depends on the belief state, the critic is parameterized as a probabilistic network. Specifically, the critic with parameters 
+
+ϕ outputs a Gaussian predictive density: 
+
+p( ˆRk | bk; ϕ) = N  ˆRk; μϕ(bk), σ 2
+
+> ϕ
+
+(bk), (20) where p( ˆRk | bk; ϕ) is the critic predictive density and N (·)
+
+denotes a univariate normal density. The mean head μϕ(bk)
+
+estimates the belief value V π (bk), whereas the variance head σ2
+
+> ϕ
+
+(bk) estimates the belief-dependent variance of the bootstrapped target. Maximizing the log-likelihood of (20) yields the standard heteroscedastic negative log-likelihood (NLL) loss [20], which captures aleatoric target noise but treats all belief samples as equally credible. This equal-credibility assumption is inadequate in our POMDP setting. The belief state bk is represented by Kalman-filter outputs whose assumed error statistics may deviate from the physical system, so different samples carry different levels of filter credibility. We therefore formulate critic training as a credibility-weighted empirical loss, where each per-sample loss is multiplied by a non-negative weight reflecting the reliability of the corresponding belief. We use the global trust factor tk ∈ (0 , 1] defined in Eq. (16) as this weight. It is bounded, determined by the FMSE–TMSE discrepancy, and approaches one when the FMSE matrix is consistent with the online TMSE estimate. For numerical stability during optimization, we parameterize the variance head in log-space as sϕ(bk) ≜ log σ2
+
+> ϕ
+
+(bk). Multiplying the per-sample heteroscedastic NLL by the credibility weight tk yields the credibility-weighted value loss at time step k:
+
+LVk (ϕ) = 12 tk
+
+h
+
+sϕ(bk)+ exp   − sϕ(bk)  ˆRk − μϕ(bk)2i
+
+.
+
+(21) Calculating the gradient with respect to the mean prediction explicitly reveals the loss mechanism: 
+
+∂LVk
+
+∂μ ϕ
+
+= − tk exp   − sϕ(bk)   ˆRk − μϕ(bk). (22) This formulation reveals two complementary attenuation mech-anisms acting on the same update. Because tk multiplies the entire per-sample NLL rather than only the squared-error term, both the mean and variance heads receive attenuated gradients from low-credibility samples. Thus, unreliable beliefs have reduced influence on both value prediction and variance estimation. Specifically, exp( −sϕ(bk)) performs intrinsic at-tenuation along the aleatoric axis learned from data, while tk
+
+performs extrinsic attenuation along the filter credibility axis supplied by the estimator. Samples drawn from a divergent filter are automatically down-weighted in the parameter update, preventing the critic from overfitting to spurious targets caused by filter–system mismatch, while fully consistent samples with 
+
+tk → 1 recover standard heteroscedastic regression. The actor network, parameterized by θ, is optimized via the PPO-Clip objective: 
+
+Lπk (θ) = min 
+
+
+
+ρk(θ) ˆAk, clip  ρk(θ), 1 − ϵ, 1 + ϵ ˆAk
+
+
+
+, (23) where ρk(θ) = πθ (ak |bk )    
+
+> πθold (ak|bk)
+
+is the probability ratio between the new and old policies, ϵ is the clipping coefficient that bounds the policy update step, and ˆAk is the advantage estimate used in PPO. The bootstrapped target ˆRk is used for the critic update in (21). IV. S HIELDED AND RULE -A WARE DECISION MAKING UNDER PERCEPTUAL UNCERTAINTY 
+
+Although the credibility-aware PPO improves value learning under unreliable beliefs, it does not guarantee that every ex-ploratory action is safe and COLREGs-compliant. This section therefore introduces the execution-level decision-making layer. CI-VO converts belief covariance into conservative velocity-space constraints, RC-COLREGs embeds discrete encounter duties into continuous rule-aware features, and the reward function integrates navigation efficiency, geometric safety, rule compliance, and control smoothness. JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 6
+
+A. Uncertainty Modeling via CI-VO 
+
+The credibility-weighted learning layer improves value estimation under unreliable beliefs, but cannot inherently prevent unsafe exploratory actions. We therefore introduce the CI-VO as a one-step geometric shield. For each target ship, CI-VO first enlarges the deterministic collision cone in relative-velocity space according to the confidence region of the relative-position estimate. Following VO translation, this relative cone is shifted by the estimated target-ship velocity to define a forbidden set for candidate OS velocities in the global horizontal frame. Let i ∈ { 1, . . . , N } index the target ships. Denote by ˆpk ∈
+
+R2 and ˆvk ∈ R2 the estimated position and velocity of the own ship (OS), and by ˆpts  
+
+> i,k
+
+∈ R2 and ˆvts  
+
+> i,k
+
+∈ R2 those of the i-th target ship (TS), all expressed in the global horizontal plane. The mean relative position and the current relative velocity are defined as 
+
+ri,k = ˆ pts  
+
+> i,k
+
+− ˆpk, vrel  
+
+> i,k
+
+= ˆ vk − ˆvts 
+
+> i,k
+
+, (24) where vrel  
+
+> i,k
+
+follows the VO convention that a positive projection along ri,k indicates closing motion from the OS toward the TS. Let di,k = ∥ri,k ∥ be the mean relative distance. The covariance of the relative-position error is denoted by Σr 
+
+> i,k
+
+∈
+
+R2×2 and is assumed positive definite. In the experiments, the OS localization error is negligible, so Σr 
+
+> i,k
+
+is taken as the target ship position covariance extracted from the belief state. For a confidence level 1 − εc, define ζ =
+
+q
+
+χ22,1−εc , where 
+
+χ22,1−εc is the (1 − εc) quantile of the chi-square distribution with two degrees of freedom. The confidence set of the true relative position r′ 
+
+> i,k
+
+is 
+
+Er
+
+> i,k
+
+(ζ) = 
+
+n
+
+r′ 
+
+> i,k
+
+= ri,k + e eT Σr
+
+> i,k
+
+−1e ≤ ζ2o
+
+, (25) where e ∈ R2 is the relative-position estimation error. Let 
+
+ˆri,k = ri,k 
+
+di,k 
+
+, ˆr⊥,i,k = −(ˆ ri,k )y (ˆ ri,k )x
+
+T (26) denote the unit line-of-sight (LOS) direction and its left-hand normal, respectively. The projection radii of the relative-position confidence ellipse onto the normal and LOS directions are then given by 
+
+emax 
+
+> ⊥,i,k
+
+(ζ) = ζ
+
+q
+
+ˆrT
+
+> ⊥,i,k
+
+Σr
+
+> i,k
+
+ˆr⊥,i,k ,emax 
+
+> ∥,i,k
+
+(ζ) = ζ
+
+q
+
+ˆrT
+
+> i,k
+
+Σr
+
+> i,k
+
+ˆri,k .
+
+(27) These bounds follow from the ellipsoidal projection identity 
+
+max eTΣ−1e≤ζ2 aTe = ζ√aTΣa for any unit vector a.Define the conservative forward distance 
+
+dmin  
+
+> i,k
+
+= di,k − emax 
+
+> ∥,i,k
+
+(ζ). (28) If dmin  
+
+> i,k
+
+≤ 0, the confidence set is not guaranteed to remain in front of the OS in the mean LOS frame, so no finite bearing margin can certify a safe angular sector. If 0 < d min  
+
+> i,k
+
+≤ Rcomb ,where Rcomb = Ros + Rts is the combined safety radius of the OS and TS, the confidence set may intersect the combined safety disk. In both cases, CI-VO treats the target ship as an immediate risk and assigns a full angular blockage. Otherwise, i.e., when dmin  
+
+> i,k
+
+> R comb , the uncertainty-induced bearing margin and the worst-case physical-size tangent angle are 
+
+∆θpos  
+
+> i,k
+
+= arctan emax 
+
+> ⊥,i,k
+
+(ζ)
+
+dmin 
+
+> i,k
+
+!
+
+, βrad  
+
+> i,k
+
+= arcsin Rcomb 
+
+dmin 
+
+> i,k
+
+!
+
+.
+
+(29) The CI-VO half-angle is therefore 
+
+αi,k =
+
+
+
+π, dmin  
+
+> i,k
+
+≤ Rcomb ,
+
+min 
+
+n
+
+π, ∆θpos  
+
+> i,k
+
++ βrad 
+
+> i,k
+
+o
+
+, dmin  
+
+> i,k
+
+> R comb . (30) This construction is conservative because, for every admissible error vector in (25) , the perturbed LOS bearing differs from the mean LOS bearing by at most ∆θpos  
+
+> i,k
+
+, while the tangent half-angle of the physical safety disk is upper-bounded by βrad 
+
+> i,k
+
+due to ∥ri,k + e∥ ≥ dmin  
+
+> i,k
+
+.For any candidate OS velocity vk, define the corresponding candidate relative velocity with respect to target ship i as 
+
+vrel 
+
+> i,k
+
+(vk) = vk − ˆvts 
+
+> i,k
+
+. (31) The CI-VO forbidden set induced by target ship i is then given by the translated collision cone 
+
+VCI -VO  
+
+> i,k
+
+=
+
+(
+
+vk ∈ R2 vk̸ = ˆ vts 
+
+> i,k
+
+,
+
+rT
+
+> i,k
+
+vrel 
+
+> i,k
+
+(vk)
+
+∥ri,k ∥∥ vrel 
+
+> i,k
+
+(vk)∥ ≥ cos( αi,k )
+
+)
+
+.
+
+(32) Here, rT
+
+> i,k
+
+vrel 
+
+> i,k
+
+(vk) is the inner product between the mean LOS vector and the candidate relative velocity. After normalization by their Euclidean norms, this term gives the cosine of the angle between the two vectors. Hence, the inequality in (32) is equivalent to requiring the candidate relative velocity to lie within the covariance-inflated half-angle αi,k around the mean LOS direction. Geometrically, the resulting forbidden set 
+
+VCI -VO  
+
+> i,k
+
+is obtained by translating this relative collision cone by the estimated TS velocity ˆvts  
+
+> i,k
+
+into the global OS-velocity space. By construction, VCI -VO  
+
+> i,k
+
+is the Minkowski sum of ˆvts  
+
+> i,k
+
+and the union of all deterministic collision cones generated by target ship positions inside Er
+
+> i,k
+
+(ζ) at the confidence level 1 − εc. The aggregate forbidden set is 
+
+VCI -VO  
+
+> k
+
+=
+
+> N
+
+[
+
+> i=1
+
+VCI -VO  
+
+> i,k
+
+. (33) Fig. 2a illustrates the LOS-aligned projection of the confidence ellipse, and Fig. 2b shows the resulting velocity-space cone. The shield uses (32) to correct unsafe actions before execution. Let aRL  
+
+> k
+
+∈ A be the action proposed by the policy. Since the admissible action domain A is bounded and continuous, the shield is implemented over a finite candidate set Acand ⊂ A constructed from the admissible surge-thrust and yaw-moment ranges. For each candidate action a ∈ A cand ,the vessel kinematic model predicts the next-step OS position 
+
+ˆpk+1 (a) and velocity ˆvk+1 (a). The executed action is selected by 
+
+a∗ 
+
+> k
+
+= arg min 
+
+> a∈A cand
+
+∥a − aRL  
+
+> k
+
+∥2, (34) JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 7OT, ,    
+
+> max i k e�||, ,
+> max i k e,
+> pos i k ��os Rts Rcomb R,()ri k ��os
+
+vts vts v�ref v
+
+> CI-VO Cone VO Cone ,
+> pos i k ��
+> ,
+> pos i k ��
+
+(a) Geometry of covariance inflation. os Rts Rcomb Rts vos vref vts v�CI-VO Cone  
+
+> ts v
+
+(b) CI-VO in velocity space. 
+
+Fig. 2: CI-VO illustration: (a) uncertainty-induced angular inflation; (b) the corresponding velocity-space constraint. subject to 
+
+ˆvk+1 (a) /∈ V CI -VO  
+
+> i,k
+
+, ∀i ∈ { 1, . . . , N },
+
+ˆpk+1 (a) ∈ S free , (35) where Sfree is the navigable region excluding static obstacles and boundaries. If the policy action already satisfies the constraints, the shield retains it; otherwise, it replaces the policy action with the closest feasible candidate action satisfying the covariance-inflated VO constraints. 
+
+B. RC-COLREGs Duty Embedding 
+
+Strict COLREGs adherence is mandatory for autonomous navigation. COLREGs rules are discrete, defining binary obligations based on relative geometry. Directly incorporating such discrete logic into gradient-based reinforcement learning introduces discontinuities in the reward landscape, causing policy oscillation and convergence instability. To address this, we propose a risk-aware continuous duty embedding that encodes the right-of-way and give-way obligations into a continuous rule-aware signal Φi,k ∈ [0 , 1] , which is augmented to the state observation space, providing a smoothly varying rule-aware prior for the policy network. Consider the encounter geometry for target ship i at step 
+
+k. Let pOS  
+
+> rel ,i,k
+
+= [xOS i,k , y OS i,k ]T denote its relative position in the own-ship body-fixed frame, with the x-axis along the heading and the y-axis pointing to port. The relative bearing βi,k ∈ [0 , 2π) is derived from the principal angle 
+
+ψi,k = atan2( yOS i,k , x OS i,k ) ∈ (−π, π ] via 
+
+βi,k =
+
+(
+
+ψi,k , if ψi,k ≥ 0,ψi,k + 2 π, if ψi,k < 0, (36) so that βi,k = 0 corresponds to a target ship directly ahead of the own ship, and βi,k increases counterclockwise toward the port, stern, and starboard directions. COLREGs Rules 13–15 partition the bearing space into dis-crete sectors for head-on, crossing, and overtaking encounters. Let I{β ∈ [a, b ]} denote the indicator function, evaluating to 1 if β ∈ [a, b ] and 0 otherwise. To avoid the abrupt transitions induced by such discrete boundaries, we introduce a soft membership relaxation utilizing a dual-sigmoid construction: 
+
+Win( β; a, b ) = σ κ(β − a) σ κ(b − β),σ(x) = 11 + e−x . (37) where Win( β; a, b ) ∈ (0 , 1) is the soft membership function that quantifies the degree to which a bearing β falls within an angular sector of interest. In this expression, β ∈ [0 , 2π) is the relative bearing defined in (36) , and a, b are the lower and upper boundaries of the target sector, satisfying 0 ≤ a < b ≤ 2π.The function σ(·) is the logistic sigmoid mapping any real input to the open interval (0 , 1) , and κ > 0 is a hyperparameter controlling the sharpness of the boundary transition. Note that as κ → ∞ , this soft formulation strictly converges to the hard indicator I{β ∈ [a, b ]}. The construction in (37) relies on the fact that the two sigmoid factors operate on opposite endpoints. The first factor σ(κ(β − a)) saturates to one as β moves above 
+
+a, and the second factor σ(κ(b − β)) saturates to one as β
+
+stays below b. Their product therefore approaches one when 
+
+β lies well inside [a, b ], decays smoothly toward zero outside the sector, and supplies a non-zero gradient throughout the boundary transition region. Following the COLREGs sector convention, let θh denote the head-on half-angle and θℓ denote the starboard sector boundary. We then define the soft stand-on membership ΨSi,k , which corresponds to a target appearing on the port-side crossing sector [θh, θ ℓ]:
+
+ΨSi,k = Win  βi,k ; θh, θ ℓ
+
+. (38) JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 8
+
+The give-way duty is triggered by the head-on sector [0 , θ h]
+
+and the starboard-side sector [2 π − θℓ, 2π]. We aggregate these memberships using the probabilistic-sum t-conorm [34], a fuzzy-set union operator: 
+
+ΨRi,k = 1 −
+
+
+
+1 − Win  βi,k ; 0 , θ h
+
+
+
+×
+
+
+
+1 − Win  βi,k ; 2 π − θℓ, 2π
+
+.
+
+(39) This operator is monotone in each argument, remains in [0 , 1] ,and reduces to the active membership when only one sector is engaged. Near the dead-ahead bearing βi,k ≈ 0, where the head-on and starboard-crossing sectors meet, both member-ships activate simultaneously and the t-conorm aggregates them into a strengthened give-way signal without exceeding one. Together, (38) and (39) provide continuous relaxations 
+
+ΨRi,k , ΨSi,k ∈ [0 , 1] , thereby replacing abrupt sector switching with smooth boundary transitions. The memberships above depend only on bearing and therefore may activate even for distant or receding target ships that pose no immediate collision threat. To suppress such cases, we introduce a risk-triggered gate gi,k ∈ [0 , 1] based on the distance to closest point of approach (DCPA) and time to closest point of approach (TCPA). Using the estimated relative position 
+
+ri,k and relative velocity vrel  
+
+> i,k
+
+defined in (24) , and assuming constant relative velocity over the look-ahead interval, DCPA and TCPA are computed as 
+
+TCPA i,k = rT
+
+> i,k
+
+vrel 
+
+> i,k
+
+∥vrel 
+
+> i,k
+
+∥2 + ϵv
+
+,
+
+DCPA i,k = ri,k − TCPA i,k vrel  
+
+> i,k
+
+.
+
+(40) where ϵv > 0 is a small constant used to avoid numerical singularity when the relative speed is close to zero. The risk gate is then defined as 
+
+gi,k =
+
+
+
+1 − DCPA i,k 
+
+dsafe 
+
+
+
+> +
+
+· σ κτ TCPA i,k 
+
+σ κτ (τ − TCPA i,k ),
+
+(41) where [x]+ ≜ max( x, 0) is the rectification operator, and κτ >
+
+0 controls the sharpness of the temporal activation window. Parameters dsafe and τ specify the spatial safety threshold and temporal look-ahead horizon, respectively. The two sigmoid factors softly activate the gate for approaching encounters with 0 < TCPA i,k < τ and suppress receding or temporally irrelevant target ships. The final embedding Φi,k ∈ [0 , 1] combines the two memberships through a normalized competition and applies the risk gate. The normalization ΨR/(Ψ R + Ψ S ) expresses the 
+
+relative dominance of the give-way duty over the stand-on duty rather than its absolute magnitude, which would otherwise be sensitive to the sharpness parameter κ:
+
+Φi,k = gi,k · ΨRi,k 
+
+ΨRi,k + Ψ Si,k + δ , δ > 0. (42) The small constant δ > 0 prevents numerical ill-conditioning when both memberships are close to zero. In the rear bearing region, where crossing-rule duties are inactive, both ΨRi,k and 
+
+ΨSi,k are close to zero, and thus Φi,k is naturally suppressed. A high value of Φi,k indicates a strong give-way obligation for the own ship under head on or crossing encounters. In multi-target scenarios, Φi,k is computed independently for each of the N target ships, and the set {Φi,k }Ni=1 is concatenated into the state vector, enabling the policy network to systematically prioritize and resolve multi-ship encounters. 
+
+C. Design of Reward Functions 
+
+To enable the USV to learn a policy that balances navigation efficiency, geometric safety under uncertainty, and smooth rule compliance, we design a multi-objective reward function. At each time step k, the total reward Rk is computed as the weighted sum of five distinct components: 
+
+Rk = rnav k + rcol k + rrisk k + rrule k + rstab k , (43) where the weights balance the conflicting objectives of speed and safety. The navigation reward rnav k drives the agent toward the destination while penalizing excessive time consumption. It is composed of a dense progress signal, a terminal success bonus, and a constant step cost. Regarding safety, a substantial penalty rcol k is imposed if a collision occurs. However, relying solely on sparse collision penalties is insufficient for robust learning. Therefore, we introduce a proactive risk reward rrisk k
+
+explicitly grounded in the proposed CI-VO. Let VCI −V O k be the union of the uncertainty-aware forbidden velocity sets defined in (33) . The agent is penalized if its current velocity vk violates this geometric shield: 
+
+rrisk  
+
+> k
+
+= −wrisk ·
+
+> N
+
+X
+
+> i=1
+
+I  vk ∈ V CI -VO 
+
+> i,k
+
+ · dsafe 
+
+di,k 
+
+. (44) where wrisk > 0 is the weight of the risk term, N is the number of target ships considered, and I(·) is the indicator function that equals 1 if its argument is true and 0 otherwise. Moreover, di,k denotes the Euclidean distance between the own ship and the i-th target ship at time step k, and dsaf e is the prescribed safety distance used to normalize the proximity penalty. By scaling the penalty inversely with distance, this term prioritizes imminent threats and encourages the policy to respect the uncertainty margins. Furthermore, to facilitate COLREGs compliance without introducing discontinuity, the rule reward rrule k leverages the continuous duty embedding 
+
+Φi,k derived in (42) . This term penalizes yaw maneuvers ak
+
+that contradict the specific give-way intensity calculated by the RC-COLREGs module,where the encounter geometry is characterized by the relative bearing βi,k defined in (36): 
+
+rrule k =
+
+> N
+
+X
+
+> i=1
+
+Φi,k · H (ak, β i,k ), (45) where H is a penalty function for non-compliant turns (e.g., turning to port in a head-on encounter). Finally, to ensure trajectory regularity and prevent oscillations, a stability reward 
+
+rstab k minimizes the Cross-Track Error (CTE) relative to the reference path and suppresses rapid yaw rate changes: 
+
+rstab k = − wcte 
+
+|(pk − pstart ) × (pg − pstart )|∥pg − pstart ∥− wyaw ∥ ˙ψk∥2.
+
+(46) JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 9
+
+Algorithm 1 Credibility-Aware Safe PPO Training Procedure  
+
+> 1:
+
+Input: Kalman filters FilterInit (·), Filter (·); horizon Nsteps ,epochs K, total iterations M 
+
+> 2:
+
+Initialize: Actor parameters θ, Critic parameters ϕ, empty replay buffer D 
+
+> 3:
+
+for iter = 1 , . . . , M do  
+
+> 4:
+
+o0 ← Reset env. & get initial obs.  
+
+> 5:
+
+b0 ← FilterInit (o0) 
+
+> 6:
+
+for k = 0 , . . . , N steps − 1 do  
+
+> 7:
+
+for i = 1 , . . . , N do  
+
+> 8:
+
+Compute trust factor ti,k via Eq. (15)  
+
+> 9:
+
+Compute memberships ΨSi,k , ΨRi,k and embedding 
+
+Φi,k via Eq. (38)–(42)  
+
+> 10:
+
+end for  
+
+> 11:
+
+Aggregate global trust factor tk via Eq. (16)  
+
+> 12:
+
+Form augmented state xk ← [bk, {Φi,k }Ni=1 ] 
+
+> 13:
+
+aRL  
+
+> k
+
+∼ πθ (· | xk) 
+
+> 14:
+
+Construct forbidden set VCI -VO  
+
+> k
+
+via Eq. (32)–(33)  
+
+> 15:
+
+Solve shield projection (34)–(35) for a∗ 
+
+> k
+> 16:
+
+Execute a∗
+
+> k
+
+, receive rk, ok+1  
+
+> 17:
+
+bk+1 ← Filter (bk, a∗
+
+> k
+
+, ok+1 ) 
+
+> 18:
+
+Store (xk, aRL  
+
+> k
+
+, a∗
+
+> k
+
+, r k, t k, x k+1 ) in D 
+
+> 19:
+
+end for  
+
+> 20:
+
+Compute advantages ˆAk and bootstrapped returns ˆRk
+
+via GAE  
+
+> 21:
+
+θold ← θ 
+
+> 22:
+
+for epoch = 1 , . . . , K do  
+
+> 23:
+
+Update Critic via credibility-weighted loss LV (ϕ)
+
+in (21)  
+
+> 24:
+
+Update Actor via PPO-Clip loss Lπ (θ) in (23) using 
+
+πθold  
+
+> 25:
+
+end for  
+
+> 26:
+
+Clear buffer D 
+
+> 27:
+
+end for  
+
+> 28:
+
+return Optimized parameters θ, ϕ 
+
+In this expression, pk, pstart , and pg denote the 2D position vectors of the USV at time step k, the mission starting point, and the goal location, respectively. The operator × represents the 2D vector cross-product used to calculate the perpendicular deviation from the path. The second term penalizes the squared yaw rate ˙ψk scaled by the coefficient wyaw , thereby discourag-ing abrupt heading changes and ensuring kinematically smooth control inputs. The training procedure for the proposed Credibility-Aware Safe Reinforcement Learning framework is summarized in Algorithm 1. The process integrates the recursive Bayesian estimation, credibility calculation, and geometric shielding into the PPO learning loop. At each time step k, the agent first computes the COLREGs embedding vector Φk to augment the belief state. The raw action aRL k generated by the policy is then rectified by the CI-VO shield to ensure strict geometric safety before execution. Crucially, during the optimization phase, the trust factor tk is utilized to modulate the critic’s loss function, effectively down-weighting gradient updates derived from unreliable state estimates. V. N UMERICAL RESULTS 
+
+To validate the performance of our algorithm, a series of experiments are conducted. First, the simulation environment and experimental setup are defined. Specifically, reproducible scenarios ranging from 1 to 6 ships with increasing difficulty are constructed, in which a stage of state estimation filtering mismatch is designed to simulate realistic sensor errors. Under these settings, the proposed filtering credibility weighted critic network is compared with RL baselines to demonstrate its advantages. Furthermore, the effectiveness of the CI-VO shield is verified regarding safety and rationality. Finally, compliance with COLREGs and the feasibility of the proposed method in complex maritime environments are analyzed. 
+
+A. Simulation Setup 
+
+The computer is an Intel Core i5 12600KF CPU, NVIDIA GeForce RTX 5060 8 GB, and 16 GB DDR5 memory. The simulation is hosted on a virtual simulation platform designed by Python. Our algorithm is implemented in PyTorch. A rectangular environment of 32 m ×32 m is used. The boundaries are considered static obstacles. The starting and target points are set on the two vertices of the area. The USV measures 3.2 m × 1.2 m. Table I shows the specific hydrodynamic parameters of the USV. The relevant parameters of the neural network training are defined in Table II. TABLE I: Hydrodynamic parameters of the USV.                       
+
+> Parameters Value Description
+> L3.2 Length of the hull (m)
+> B1.2 Beam of the hull (m)
+> m11 19.0 Surge mass (kg)
+> m22 35.2 Sway mass (kg)
+> m33 4.2 Yaw inertia ( kg ·m2)
+> du, d u24.0, 10.0 Linear and quadratic drag in surge
+> dv, d v21.0, 2.0 Linear and quadratic drag in sway
+> dr, d r210.0, 15.0 Linear and quadratic drag in yaw
+
+TABLE II: Relevant parameters used in training.                         
+
+> Parameters Name Value Description Total timesteps 5,000,000 Total sampling steps Batch size 2048 Size of the batch Number of steps 1024 Steps per update Learning rate 3×10 −4Learning rate of NN Gamma 0.99 Discount factor Epochs 4Number of epochs Clip range 0.15 Clipping parameter Entropy coefficient 0.02 Coefficient of entropy Value function coefficient 0.5 Coefficient of value function Target KL 0.03 Target KL divergence
+
+B. Robustness Verification Against Perception Uncertainty 
+
+To validate the efficacy of the proposed Credibility-Weighted Value Learning (CW-VL) module under state estimation mismatch, comparative experiments were conducted against the classical Proximal Policy Optimization (PPO) algorithm. In contrast to idealized simulation environments, practical sensors frequently encounter transient disturbances that deviate from the internal model of the filter.To emulate this realistic uncertainty, a reproducible filtering mismatch mechanism based JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 10 0.0     
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success Rate
+> PPO
+> PPO + RC-COLREGs
+> CWVL
+> CWVL + RC-COLREGs
+> 1M 2M 3M 4M 5M
+> Training Steps
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> Episode Reward
+> PPO
+> PPO + RC-COLREGs
+> CWVL
+> CWVL + RC-COLREGs
+
+Fig. 3: Training curves of success rate and episode reward. The comparison includes PPO, PPO with RC-COLREGs, CW-VL, and CW-VL with RC-COLREGs. The green curve shows the fastest convergence and highest performance. on Kalman filter logic was established. Specifically, stochastic noise injection events were introduced during the navigation process, with the duration of each event ranging from 10 to 15 time steps. During these intervals, the standard deviation of the true measurement noise was scaled by a severity factor randomly sampled from [3 .0, 8.0] , resulting in a 9- to 64-fold increase in the measurement covariance R. Significantly, the filter operates without knowledge of this variation and continues to update the state using the covariance parameters. This discrepancy induces a divergence between the estimated and true states, thereby creating a mismatch that challenges the value estimation of the critic network.All statistical results reported herein represent the average of 1,000 testing episodes to ensure statistical significance.First, the learning curves during the training phase are analyzed. As illustrated in Fig. 3, the comparative analysis comprises PPO, PPO with RC-COLREGs, CW-VL, and CW-VL with RC-COLREGs. The training process spans 5 million steps. The proposed CW-VL integrated with RC-COLREGs, depicted by the green curve, demonstrates the most rapid convergence speed and achieves the highest performance ceiling. This indicates that the incorporation of credibility weights enables the USV to evaluate state values more accurately in the early stages, where sensor errors might otherwise mislead the policy update. To evaluate algorithmic robustness in complex dynamic environments, scenarios with target ships ranging from one to six were established. Detailed performance metrics, including success rate, average speed, and path length, are presented in Fig. 4. In low-density scenarios containing one and two target ships, depicted in Fig. 4a and Fig. 4b respectively, both PPO and CW-VL maintain a high success rate approaching 100%. However, the standard deviation, indicated by the shaded area, is notably narrower for the CW-VL curve than for PPO, indicating more stable decision-making by the proposed method despite minor filtering mismatches. As environmental complexity increases to medium density with three and four target ships, illustrated in Fig. 4c and Fig. 4d, baseline limitations become evident. PPO’s success rate fluctuates, and its average speed trends downward. This implies that under estimation error interference, the PPO agent fails to effectively discriminate between safe and risky states, causing hazardous actions. In high-density environments featuring five and six target ships, shown in Fig. 4e and Fig. 4f, the proposed method’s superiority is pronounced. In such highly dynamic states, estimation uncertainty accumulates rapidly due to frequent target ship interactions. Consequently, classical PPO performance degrades significantly, with success dropping to approximately 52.9% in the six target ships scenario detailed in Fig. 4f. Conversely, CW-VL exhibits robustness, maintaining a success rate exceeding 90.7%. Regarding navigation efficiency, CW-VL’s path length remains stable with low variance, whereas PPO shows significantly increased variance. These results substantiate that the credibility-weighted critic network can effectively filter out unreliable observational data, enabling the USV to execute precise and decisive collision avoidance maneuvers even when state estimation is severely perturbed. 
+
+C. Compliance Test with the COLREGs 
+
+To verify the compliance and effectiveness of the proposed algorithm, four typical encounter scenarios were constructed based on the COLREGs: Overtaking, Head-on, Crossing (Stand-on), and Crossing (Give-way). The experimental trajectories are illustrated in Fig.5, where the Own Ship (OS) is marked in red and the Target Ship (TS) in blue. The numerical labels indicate the ship positions at intervals of 5 s. JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 11 0 200 400 600 800 1000 
+
+Episode 
+
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+
+Success Rate      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 1.3
+> 1.4
+> 1.5
+> Speed (m/s)
+
+Average Speed      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 25
+> 30
+> 35
+> Distance (m)
+
+Path Length 
+
+> PPO
+> CWVL
+
+(a) Scenario with 1 target ship 0 200 400 600 800 1000 
+
+Episode 
+
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+
+Success Rate      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 1.3
+> 1.4
+> 1.5
+> Speed (m/s)
+
+Average Speed      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 25
+> 30
+> 35
+> Distance (m)
+
+Path Length 
+
+> PPO
+> CWVL
+
+(b) Scenario with 2 target ships 0 200 400 600 800 1000 
+
+Episode 
+
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+
+Success Rate      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 1.3
+> 1.4
+> 1.5
+> Speed (m/s)
+
+Average Speed      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 25
+> 30
+> 35
+> Distance (m)
+
+Path Length 
+
+> PPO
+> CWVL
+
+(c) Scenario with 3 target ships 0 200 400 600 800 1000 
+
+Episode 
+
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+
+Success Rate      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 1.3
+> 1.4
+> 1.5
+> Speed (m/s)
+
+Average Speed      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 25
+> 30
+> 35
+> Distance (m)
+
+Path Length 
+
+> PPO
+> CWVL
+
+(d) Scenario with 4 target ships 0 200 400 600 800 1000 
+
+Episode 
+
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+
+Success Rate      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 1.3
+> 1.4
+> 1.5
+> Speed (m/s)
+
+Average Speed      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 25
+> 30
+> 35
+> Distance (m)
+
+Path Length 
+
+> PPO
+> CWVL
+
+(e) Scenario with 5 target ships 0 200 400 600 800 1000 
+
+Episode 
+
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+
+Success Rate      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 1.3
+> 1.4
+> 1.5
+> Speed (m/s)
+
+Average Speed      
+
+> PPO
+> CWVL
+> 0200 400 600 800 1000
+
+Episode 
+
+> 25
+> 30
+> 35
+> Distance (m)
+
+Path Length 
+
+> PPO
+> CWVL
+
+(f) Scenario with 6 target ships 
+
+Fig. 4: Comparative performance analysis under varying target ship densities. Subfigures (a)–(f) correspond to scenarios containing 1 to 6 target ships, respectively. The proposed CW-VL method (green curve) demonstrates superior robustness, whereas the PPO baseline (yellow curve) exhibits significant variance and performance degradation in highly cluttered environments (e–f). JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 12 
+
+The trajectory of the overtaking scenario is illustrated in Fig.5a. At the initial moment t = 0 s, the OS is positioned at coordinates (5 , 4.5) , while the TS is located at (12 , 8) .The TS maintains a heading of 60 ◦ and is positioned 5◦ off the USV’s starboard bow. Possessing a speed advantage, the USV is capable of overtaking. This configuration constitutes a typical overtaking situation governed by COLREGs Rule 13. To execute the maneuver, the OS initiates a course alteration to starboard. By t = 12 s, the OS successfully establishes a parallel course with the TS while maintaining a safe lateral separation distance. Subsequently, the OS completes the overtaking maneuver and converges towards the destination, reaching the target waypoint at t = 21 s . The trajectory of the head-on scenario is shown in Fig.5b. The initial heading of the OS is 30 ◦, while the TS approaches on a reciprocal course of 
+
+224 ◦. The TS is located at a relative bearing of 14 ◦, presenting a clear head-on situation governed by Rule 14. In this scenario, both vessels are required to alter their course to starboard so that each passes on the port side of the other. At t = 0 s , the OS starts at position (5 , 10) . At t = 5 s , recognizing the risk, the OS initiates a starboard turn. By t = 10 s, the heading has been adjusted significantly to the right, ensuring a safe port-to-port passing. At t = 14 s, the OS clears the TS and begins to adjust its heading leftward, returning to the planned path at t = 18 s . The maneuver strictly adheres to the pass port-to-port requirement. The trajectory of the crossing scenario where the TS approaches from the port side is presented in Fig.5c. The initial heading of the OS is 45 ◦, and the TS is heading 310 .5◦.The TS is located on the port beam of the OS with a relative bearing of 94 .5◦. According to Rules 15 and 17 of COLREGs, when a vessel approaches from the port side, the OS is the stand-on vessel and is required to maintain its course and speed. As observed in the figure, from t = 0 s to 10 s, the OS maintains its initial heading without deviation, allowing the TS to pass safely astern. The algorithm correctly identifies the stand-on responsibility, avoiding unnecessary maneuvers while ensuring navigational safety. The trajectory of the crossing scenario where the OS gives way is depicted in Fig.5d. The initial heading of the OS is approximately 40 ◦, and the TS is heading 195 ◦. The TS is located on the starboard bow relative to the intended path of the OS, constituting a crossing risk where the OS is the give-way vessel. Rule 15 requires the vessel which has the other on its own starboard side to keep out of the way. At t = 0 s , the OS starts at (5 , 6) . By t = 2 s , the algorithm detects the intrusion of the TS into the safety domain. Consequently, the OS executes a substantial starboard turn to avoid crossing ahead of the TS. At t = 8 s , the OS passes astern of the TS. Once the collision risk is resolved at t = 10 s , the OS turns leftward to realign with the target. This behavior demonstrates compliant give-way execution by turning starboard to pass astern of the target. 
+
+D. CI-VO Shield in Complex Scenarios 
+
+To validate the proposed method’s capability in resolving safe navigation within complex, multi-target ship environments, we conducted simulation experiments focusing on dense traffic scenarios. Unlike traditional random initialization, which often yields sparse effective interactions, the training and testing environments were constructed using a novel inverse generation mechanism based on Expected Encounter Points. This mechanism first samples potential collision points along the USV’s route and then back-calculates the initial kinematic states of target ships. This ensures that every generated scene—whether involving crossing, head-on, or coordinated encirclement topologies—poses a substantive and physically valid threat to the USV. We established a representative high-density testing scenario containing six target ships to verify the Shield’s performance in real-time constraint enforcement. The specific initial config-uration of the encounter scenario is detailed in Table III. In this setup, the USV must navigate from (5 , 6) to a target point while managing multidirectional threats. TABLE III: Initial states of the USV and TS in the six target ship simulation scenario.                        
+
+> Ship number Initial posit Initial orient.(deg) USV (5 ,6) 45 TS1 (6 ,15) 329 TS2 (9 ,19) 310 TS3 (21 ,28) 225 TS4 (29 .5,17 .5) 220 TS5 (23 ,6) 125 TS6 (11 ,14) 252
+
+The comparative results highlight the critical role of the Shield mechanism. In the baseline evaluation without the Shield Fig. 6a, the RL agent initially avoids threats from TS1 and TS6. However, it subsequently exhibits an erroneous threat prioritization. At t = 10 , s , the policy continues to react to the starboard-crossing vessel TS5, which has already cleared the heading line and no longer constitutes a collision risk, while failing to account for the emerging head-on conflict with TS4. Consequently, when the agent re-assesses the scene at 
+
+t = 14 , s , the available evasive margin has diminished, resulting in collision. In contrast, with the Shield enabled Fig. 6b, the system mitigates this unsafe decision. At t = 10 , s , the Shield correctly identifies TS4 as the dominant threat and determines that the policy’s course-keeping action is unsafe. The Shield therefore overrides the command at t = 13 , s and enforces a starboard maneuver to satisfy collision-avoidance constraints. This in-tervention establishes a safe passing distance under opposing headings by t = 20 , s , after which the USV reorients toward the goal at t = 25 , s . Overall, the case study indicates that the Shield improves robustness to transient threat-assessment errors in the RL policy, thereby enhancing safety in high-risk multi-ship encounters. 
+
+E. Comparative Analysis and Discussion 
+
+To rigorously evaluate the superiority and robustness of the proposed framework, a comparative study was conducted in a high-density environment containing 6 target ships. The experimental setup strictly follows the reproducible filtering mismatch mechanism and the inverse target ship generation JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 13 0 5 10 15 20 25 30 
+
+> x (m)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y (m)
+> OS
+> TS
+
+(a) Overtaking scenario 0 5 10 15 20 25 30  
+
+> x (m)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y (m)
+> OS
+> TS
+
+(b) Head-on scenario 0 5 10 15 20 25 30 
+
+> x (m)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y (m)
+> OS
+> TS
+
+(c) Crossing scenario (Stand-on) 0 5 10 15 20 25 30  
+
+> x (m)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y (m)
+> OS
+> TS
+
+(d) Crossing scenario (Give-way) 
+
+Fig. 5: Experimental trajectories of four typical encounter scenarios constructed based on COLREGs. (a) Overtaking scenario; (b) Head-on scenario; (c) Crossing scenario where OS is the stand-on vessel; (d) Crossing scenario where OS is the give-way vessel. The OS is marked in red and the TS in blue. Numerical labels indicate positions at intervals of 5 s. logic detailed in Section V-D , ensuring that each episode presents a substantive and physically valid collision threat under sensor uncertainty. All statistical results reported herein are derived from the average of 1,000 independent testing episodes. The quantitative performance metrics, including Success Rate, Average Path Length, and Average Speed, are summarized in Table IV. As indicated in the table, the PPO baseline struggles in this complex setting, achieving a relatively low success rate due to the impact of perception noise. In contrast, the integration of the CW-VL module and RC-COLREGs significantly improves the success rate compared to the PPO baseline. Notably, this substantial gain in safety is achieved while maintaining navigational efficiency comparable to that of PPO, as evidenced by the similar Average Path Length and Average Speed. This demonstrates that the credibility-weighted critic effectively mitigates the misleading effects of filter divergence without inducing overly conservative behaviors. Furthermore, the proposed framework incorporating the CI-VO shield attains the best safety performance. As shown in Fig. 7, the complete framework improves the success rate by 5.6% relative to the CW-VL + RC-COLREGs variant. This gain in safety is accompanied by a measurable efficiency trade-off: the average speed decreases by 4.9%, while the average path length increases by 5.5%. This trend aligns with the CI-VO module’s design rationale. Under pronounced state-estimation uncertainty, the shield imposes a more conservative geometric safety margin by inflating the error covariance, which can require the USV to adopt wider avoidance maneuvers or reduce speed to ensure strict satisfaction of safety constraints. Although these behaviors slightly degrade efficiency, they provide a robust guarantee of collision avoidance in high-uncertainty conditions. VI. C ONCLUSION AND FUTURE WORK 
+
+This study presented a holistic Credibility-Aware Reinforce-ment Learning framework for safe USV navigation under JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 14 0 5 10 15 20 25 30 
+
+> x (m)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y (m)
+
+(a) With CIVO OS Path        
+
+> OS
+> Goal
+> TS1
+> TS2
+> TS3
+> TS4
+> TS5
+> TS6 0510 15 20 25 30
+> x (m)
+> 0
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> y (m)
+
+(b) Without CIVO 
+
+Fig. 6: Representative trajectories in a dense six target ships encounter illustrating the effect of the CI-VO safety shield: (a) with CIVO enabled, unsafe actions are overridden to avoid an emerging head-on conflict; (b) without CIVO, a collision occurs due to inadequate avoidance behavior. The central legend denotes the Own Ship (OS) and Target Ships (TS1-TS6). 0 200 400 600 800 1000 
+
+Episode 
+
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success Rate
+
+Success Rate      
+
+> CWVL
+> CWVL+CIVO
+> 0200 400 600 800 1000
+
+Episode 
+
+> 1.30
+> 1.35
+> 1.40
+> 1.45
+> 1.50
+> Speed (m/s)
+
+Average Speed      
+
+> CWVL
+> CWVL+CIVO
+> 0200 400 600 800 1000
+
+Episode 
+
+> 26
+> 28
+> 30
+> 32
+> 34
+> 36
+> 38
+> Distance (m)
+
+Path Length 
+
+> CWVL
+> CWVL+CIVO
+
+Fig. 7: Episode-wise success rate, average speed, and path length of CW-VL and CW-VL+CIVO over 1000 episodes in the six target ships simulation scenario. TABLE IV: TABLE IV Performance Comparison In The Six target ships Scenario 
+
+Method Success Rate (%) Avg. Path Len. (m) Avg. Speed (m/s) PPO 0.529 33.268 1.392 CW-VL + RC-COLREGs 0.907 35.062 1.430 Proposed method 0.963 35.540 1.356 
+
+perception uncertainty and regulatory constraints. Formulating the problem as a POMDP, we introduced three synergistic mechanisms: CW-VL, CI-VO, and RC-COLREGs. Specifically, CW-VL mitigates the impact of state-estimation mismatch by weighting the critic loss according to filter credibility, CI-VO provides a geometric shield against spatial uncertainty, and RC-COLREGs embeds continuous rules for smooth, compliant maneuvers. Experimental results in multi-ship en-counters demonstrated that the proposed method significantly outperforms deep reinforcement learning baselines, achieving high success rates and navigational efficiency in complex environments. Future work will enhance the framework’s robustness by integrating dynamic hydrodynamic disturbances and exploring non-Gaussian belief approximations to better handle multi-modal uncertainties. REFERENCES [1] Y. Qiao, J. Yin, W. Wang, F. Duarte, J. Yang, and C. Ratti, “Survey of deep learning for autonomous surface vehicles in marine environments,” 
+
+IEEE Trans. Intell. Transp. Syst. , vol. 24, no. 4, pp. 3678–3701, 2023. [2] C.-H. Chang, I. B. Wijeratne, C. Kontovas, and Z. Yang, “Colreg and mass: Analytical review to identify research trends and gaps in the development of autonomous collision avoidance,” Ocean Eng. , vol. 302, p. 117652, 2024. [3] S. He, S.-L. Dai, Z. Zhao, T. Zou, and Y. Ma, “Ude-based distributed formation control for msvs with collision avoidance and connectivity preservation,” IEEE Trans. Ind. Inf. , vol. 20, no. 2, pp. 1476–1487, 2024. [4] O. Khatib, “Real-time obstacle avoidance for manipulators and mobile robots,” Int. J. Robot. Res. , vol. 5, no. 1, pp. 90–98, 1986. JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 15 
+
+[5] P. Yuan, Z. Zhang, Y. Li, and J. Cui, “Leader-follower control and apf for multi-usv coordination and obstacle avoidance,” IEEE ROBOT AUTOM MAG , vol. 313, p. 119487, 2024. [6] D. Fox, W. Burgard, and S. Thrun, “The dynamic window approach to collision avoidance,” IEEE Robot. Autom. Mag. , vol. 4, no. 1, pp. 23–33, 1997. [7] N. Su, J.-B. Wang, C. Zeng, H. Zhang, M. Lin, and G. Y. Li, “Unmanned-surface-vehicle-aided maritime data collection using deep reinforcement learning,” IEEE Internet Things J. , vol. 9, no. 20, pp. 19 773–19 786, 2022. [8] D. Xu, J. Yang, X. Zhou, and H. Xu, “Hybrid path planning method for USV using bidirectional A* and improved DWA considering the manoeuvrability and COLREGs,” Ocean Eng. , vol. 298, p. 117210, 2024. [9] P. Fiorini and Z. Shiller, “Motion planning in dynamic environments using velocity obstacles,” Int. J. Robot. Res. , vol. 17, no. 7, pp. 760–772, 1998. [10] D. Xiao, Z. Song, M. Zhai, and N. Jiang, “Distributed multiple unmanned surface vehicles path planning integrated control framework in complex scenarios,” Comput. Electr. Eng. , vol. 124, p. 110430, 2025. [11] G. Wen, J. Lam, J. Fu, and S. Wang, “Distributed mpc-based robust collision avoidance formation navigation of constrained multiple usvs,” 
+
+IEEE Trans. Intell. Veh. , vol. 9, no. 1, pp. 1804–1816, 2024. [12] C. Pan, Z. Peng, Y. Li, B. Han, and D. Wang, “Flocking of under-actuated unmanned surface vehicles via deep reinforcement learning and model predictive path integral control,” IEEE Trans. Instrum. Meas. , vol. 73, pp. 1–11, 2024. [13] Y. Ou, H. Xiong, H. Jiang, Y. Zhang, and B. R. Noack, “Dynamic obstacle avoidance of fixed-wing aircraft in final phase via reinforcement learning,” 
+
+IEEE Trans. Aerosp. Electron. Syst. , vol. 60, no. 4, pp. 3923–3935, 2024. [14] R. Han, S. Chen, S. Wang, Z. Zhang, R. Gao, Q. Hao, and J. Pan, “Reinforcement learned distributed multi-robot navigation with reciprocal velocity obstacle shaped rewards,” IEEE Rob. Autom. Lett. , vol. 7, no. 3, pp. 5896–5903, 2022. [15] J. Zhang, H. Ling, Z. Tang, W. Song, and A. Lu, “Path planning of USV in confined waters based on improved A* and DWA fusion algorithm,” 
+
+Ocean Eng. , vol. 322, p. 120475, 2025. [16] Y. Tao, J. Du, and F. L. Lewis, “Integrated intelligent guidance and motion control of USVs with anticipatory collision avoidance decision-making,” 
+
+IEEE Trans. Intell. Transp. Syst. , vol. 25, no. 11, pp. 17 810–17 820, 2024. [17] Z. Wei and Q. Wang, “Autonomous navigation and collision avoidance for unmanned surface vehicle based on TD3-PD algorithm with CNN-GRU network,” Ocean Eng. , vol. 341, p. 122633, 2025. [18] P. Wang, R. Liu, X. Tian, X. Zhang, L. Qiao, and Y. Wang, “Obstacle avoidance for environmentally-driven USVs based on deep reinforcement learning in large-scale uncertain environments,” Ocean Eng. , vol. 270, p. 113670, 2023. [19] X. Wang, Y. Li, L. Gan, and Y. Ma, “An enhanced ship collision-avoidance method using Q-learning-optimized VO-PSO-Q-learning algorithm,” 
+
+Ocean Eng. , vol. 343, p. 123395, 2026. [20] A. Kendall and Y. Gal, “What uncertainties do we need in Bayesian deep learning for computer vision?” in Adv. Neural Inf. Process. Syst. ,vol. 30. Curran Associates, Inc., 2017, pp. 5574–5584. [21] Q. Ge, X. Hu, Y. Li, H. He, and Z. Song, “A novel adaptive Kalman filter based on credibility measure,” IEEE/CAA J. Autom. Sinica , vol. 10, no. 1, pp. 103–120, 2023. [22] Q. Ge, Y. Cheng, G. Yao, S. Chen, and Y. Zhu, “Credible Gaussian sum cubature Kalman filter based on non-Gaussian characteristic analysis,” 
+
+Neurocomputing , vol. 565, p. 126922, 2024. [23] W. Zhang, Z. M. Ma, S. Das, T.-W. L. Weng, A. Megretski, L. Daniel, and L. M. Nguyen, “One step closer to unbiased aleatoric uncertainty estimation,” in Proc. AAAI Conf. Artif. Intell. , vol. 38, no. 15, 2024, pp. 16 857–16 864. [24] W. Wei, L. Zhang, L. Li, H. Song, and J. Liang, “Set-membership belief state-based reinforcement learning for POMDPs,” in ICML , vol. 202, 2023, pp. 36 856–36 867. [Online]. Available: https://proceedings.mlr.press/v202/wei23d.html [25] M. Huang, X. Li, Z. Li, D. Zhang, and Y. Chen, “Uncertainty-aware deep distributed reinforcement learning for autonomous navigation of unmanned surface vehicles in complex environments,” Ocean Eng. , vol. 342, p. 122899, 2025. [26] L. Li, D. Wu, Y. Huang, and Z.-M. Yuan, “A path planning strategy unified with a COLREGS collision avoidance function based on deep reinforcement learning and artificial potential field,” Appl. Ocean Res. ,vol. 113, p. 102759, 2021. [27] A. Heiberg, T. N. Larsen, E. Meyer, A. Rasheed, O. San, and D. Varag-nolo, “Risk-based implementation of COLREGs for autonomous surface vehicles using deep reinforcement learning,” Neural Networks , vol. 152, pp. 17–33, 2022. [28] C. Wang, X. Zhang, H. Gao, M. Bashir, H. Li, and Z. Yang, “COLREGs-constrained safe reinforcement learning for realising MASS’s risk-informed collision avoidance decision making,” Knowledge-Based Syst. ,vol. 300, p. 112205, 2024. [29] H. Krasowski and M. Althoff, “Provable traffic rule compliance in safe reinforcement learning on the open sea,” IEEE Trans. Intell. Veh. , vol. 9, no. 12, pp. 7617–7634, 2024. [30] C.-C. Wang, Y.-L. Wang, and L. Jia, “Multi-usv formation collision avoidance via deep reinforcement learning and colregs,” IEEE/CAA J. Autom. Sinica , vol. 11, no. 11, pp. 2349–2351, 2024. [31] L. P. Kaelbling, M. L. Littman, and A. R. Cassandra, “Planning and acting in partially observable stochastic domains,” Artificial Intelligence ,vol. 101, no. 1–2, pp. 99–134, 1998. [32] S. Thrun, W. Burgard, and D. Fox, Probabilistic Robotics . MIT Press, 2005. [33] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Prox-imal policy optimization algorithms,” arXiv preprint arXiv:1707.06347 ,2017. [Online]. Available: https://arxiv.org/abs/1707.06347 [34] G. J. Klir and B. Yuan, Fuzzy Sets and Fuzzy Logic: Theory and Applications . Prentice Hall, 1995.

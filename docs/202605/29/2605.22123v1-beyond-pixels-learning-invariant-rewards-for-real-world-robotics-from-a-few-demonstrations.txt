@@ -1,0 +1,824 @@
+Title: Beyond Pixels: Learning Invariant Rewards for Real-World Robotics From a Few Demonstrations
+
+URL Source: https://arxiv.org/pdf/2605.22123v1
+
+Published Time: Fri, 22 May 2026 00:45:21 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+> 1
+
+# Beyond Pixels: Learning Invariant Rewards for Real-World Robotics From a Few Demonstrations 
+
+Tengye Xu 1,2, Yangting Sun 2, Ziju Shen 2,4, Guanqi Chen 1, Zhen Fu 2,3, Yizhou Chen 1, Hua Chen 2,5†, Jia Pan 1†
+
+1School of Computing and Data Science, The University of Hong Kong 2LimX Dynamics Technology Co., Ltd 
+
+3Southern University of Science and Technology 4Peking University 5Zhejiang University 
+
+Abstract —Designing reward functions that generalize beyond controlled laboratory settings remains a fundamental challenge in reinforcement learning for robotics. In open-world manipulation problems, a single task can appear in numerous variants through different object instances, positions, and camera viewpoints. Recent vision-based reward models tend to memorize specific pixel distributions and fail to generalize beyond their training conditions. To address this, we propose a framework that learns invariant symbolic reward functions from as few as five demonstrations. The insight is to shift from visual feature-fitting to the discovery of behavioral invariants: task-level properties that remain constant across diverse visual instantiations. The framework has two coupled components: a structural reward formulation that encodes task-level strategies and physical con-straints while preserving optimal policy invariance, and a hy-brid symbolic-numerical procedure that distills these invariants from demonstrations without online interaction. Experiments on eight Meta-World tasks and three Franka manipulation tasks demonstrate that our method achieves stronger process align-ment and policy rollout ranking abilities compared to baselines, accelerating downstream policy learning. Three real-world out-of-distribution experiments further show that the same learned reward generalizes zero-shot to position, viewpoint, and object variations, enabling a single reward representation to be reused across diverse task variants in practice. 
+
+Index Terms —Reward Shaping, Generalization, Robotics, Real-World Reinforcement Learning, Optimal Policy Invariance. 
+
+I. I NTRODUCTION 
+
+Developing robust, dense reward functions for open-world manipulation is a long-standing goal in reinforcement learning and Embodied AI. In an open-world setting, a unit task like opening a box is rarely visually identical twice, due to the inherent variability of object instances, spatial configurations, and camera perspectives. While the semantic essence of the task typically remains unchanged, the aforementioned inherent variability makes handcrafted reward functions brittle and im-practical to scale. Rather than hand-crafting rewards, modern approaches turn to learning reward functions automatically from demonstrations. The key requirement is generalization: a learned reward model should distill the behavioral invariants of a task class from only a handful of demonstrations, enabling it to generalize beyond the limited visual conditions seen during training to the infinite variability encountered in the real world. The recent success of using Vision-Language Models (VLMs) in open-world understanding has motivated their use for automatic reward design. One line of work uses general-purpose VLMs to score task progress directly from text descriptions and images [1, 2, 3]. While these models FLORA          
+
+> Reward Fn
+> Learning
+> Behavior
+> Invariant
+> (a) Learn a Symbolic Reward Function from 5 Demonstrations
+> 5 Demonstrations
+> Box Open Peg insert Bulb Unscrew
+> (c) Zero -shot Generalization to OOD Tasks
+> Position OOD Viewpoint OOD Object OOD
+> (b) Real -World RL &Base Tasks
+> Base task
+> Learning
+
+Fig. 1. Overview. (a) Five demonstrations are used to learn a symbolic reward function that captures the behavioral invariants of the task rather than its visual appearance. (b) The learned reward model guides real-world RL on a Franka arm across three manipulation tasks: Peg-Insert, Box-Open, and Bulb-Unscrew. (c) Without any retraining, the same reward model transfers zero-shot to position, viewpoint, and object OOD variants. 
+
+offer broad semantic coverage, their scores lack temporal consistency and numerical calibration, limiting their reliability as dense rewards for policy optimization. A second line [3, 4, 5, 6, 7, 8, 9, 10] trains dedicated reward models on large-scale robotic datasets, with representative examples including LIV [11], VLC [12], ReWiND [13], and SARM [14]. These models produce more accurate scores but are prone to visual overfitting, usually requiring in-distribution test tasks, and fail to correctly score the images, which are semantically identical but visually different. A more principled way to capture behavioral invariants is through programmatic reward functions. Unlike black-box neural networks, code-based rewards can explicitly represent physical laws and logical constraints that hold across task variants. Recent efforts, such as Eureka [15] and Text2Reward [16], have utilized Large Language Models (LLMs) to auto-matically synthesize reward functions. However, these meth-ods generally depend on privileged state information, such as ground-truth 6D object poses, and usually require extensive online interaction within simulation. These requirements are often infeasible in real-world settings, where access to an oracle state is unavailable and interaction budgets are strictly limited by hardware safety and time. Furthermore, existing VLM-based and programmatic meth-
+
+> arXiv:2605.22123v1 [cs.RO] 21 May 2026 2
+
+ods often lack theoretical guarantees regarding optimal policy invariance. This can lead to the phenomenon of reward hack-ing, where an agent maximizes the reward through unintended or suboptimal behaviors. For example, in a pick-and-place task, an agent may learn to hover infinitely near a target region rather than completing the placement. A robust reward framework must provide dense guidance without altering the task’s original optimal policy. Consequently, how to extract reward functions that are invariant to visual appearance, grounded in task logic, and provably policy-invariant, using only a small number of offline demonstrations without privileged state access, remains an open and critical challenge. We address these challenges by introducing Flow-based Language-driven Offline Reward Adaptation (FLORA), aframework designed to learn invariant symbolic reward func-tions from as few as five demonstrations. To eliminate the dependency on privileged state information, we develop a Flow-Generator that extracts task-relevant motion flows from raw images to serve as a robust state representation. To ensure theoretical rigor and prevent reward hacking, we adopt a Potential-Based Reward Shaping (PBRS) formulation. Within this framework, our synthesized programmatic functions serve as potential functions ; the final reward signal is derived via a PBRS-style post-processing module, which mathematically guarantees optimal policy invariance. With all these together, FLORA introduces a new theoretically grounded reward for-mulation for real-world Reinforcement Learning (RL), which can explicitly encode task-level strategies and physical con-straints from raw visual inputs. Crucially, to automatically learn this reward model in a low-data regime, we propose a hybrid symbolic-numerical learning framework. This method combines discrete symbolic search with continuous parameter optimization, allowing FLORA to discover robust, invariant reward functions from as few as five demonstrations. In summary, our contributions are as follows:  
+
+> •
+
+We introduce FLORA, a novel framework for learning invariant symbolic reward functions from as few as five visual demonstrations, without privileged state access or online environment interaction.  
+
+> •
+
+We propose a structural reward formulation that decom-poses the reward model into a Flow-Generator, a sym-bolic potential function, and a PBRS-MS module. The formulation carries a formal guarantee of optimal policy invariance, eliminating reward hacking by construction.  
+
+> •
+
+We develop a hybrid symbolic-numerical learning proce-dure that jointly optimizes the discrete program structure via LLM reflection and the continuous parameters via Bayesian Optimization, using only five demonstrations.  
+
+> •
+
+Extensive simulation and real-world experiments show that FLORA outperforms vision-language reward base-lines in process alignment and policy learning efficiency, and transfers zero-shot to position, viewpoint, and object variations. II. R ELATED WORK 
+
+A. Classical Reward Learning 
+
+Classical approaches to reward learning include inverse reinforcement learning (IRL) [17, 18, 19, 20, 21] , which infers rewards from expert demonstrations, and preference-based reward learning [22, 23, 24], which uses human comparisons to align agent behavior with user intent. IRL provides a principled formulation but often depends on predefined reward features, strong modeling assumptions, or a large number of demonstrations. Preference-based methods reduce the need for explicit reward design, but they usually require repeated human feedback during training or adaptation. These require-ments make both approaches difficult to deploy in the low-data, real-robot setting, where only a few visual demonstra-tions are available and additional interaction is costly. 
+
+B. Vision-Language Reward Models 
+
+Prior work has also explored using VLMs to generate re-ward signals [1, 2, 3] or utilizing VLMs to provide preference rankings between image pairs [25, 26, 27]. Although VLMs provide broad semantic priors, their scores are not optimized to be temporally smooth or numerically calibrated across consecutive robot states. This makes them useful for coarse semantic judgment but less reliable as dense rewards for policy optimization, where small inconsistencies can change the gradient of exploration. Another line of work [3, 4, 5, 6, 7, 11, 12, 13, 14] trains models on large-scale robotic demonstration datasets. While these models provide more accurate scores, they are prone to visual overfitting, failing to correctly score scenes that are semantically identical but visually different. Furthermore, these methods typically impose a heavy data burden; for example, SARM [14] requires over 200 hours of demonstrations for tasks like T-shirt folding, while ReWiND [13] necessitates demonstrations across 20 target-environment tasks to ensure coverage. A parallel line of work [9, 10] trains general-purpose reward models on large-scale datasets containing both successful and failure trajectories. While these models achieve strong discrimination on in-distribution tasks, they rely on large-scale pretraining and task-specific LoRA fine-tuning before deployment, which introduces a nontrivial computational cost (e.g., 8 hours on an NVIDIA RTX A6000). FLORA tar-gets a setting where only a handful of demonstrations are available and the reward model must generalize zero-shot to unseen task variants without any further training. Furthermore, RoboReward [10] produces discrete reward signals, whereas our framework provides dense, continuous shaping signals grounded in PBRS theory, a property critical for guiding exploration in contact-rich manipulation. 
+
+C. Programmatic Reward Functions 
+
+Recent methods [15, 16, 28, 29, 30, 31] use LLMs or VLMs to synthesize executable reward code, encoding task-level heuristics and physical priors directly in programs. However, they typically assume access to privileged state information and often require extensive online interaction in simulation to 3Raw visual input 
+
+(c) Online Real -world RL with FLORA 
+
+(a) Structural Reward Formulation    
+
+> Symbolic
+> Potential Function
+> 𝚽 (𝒔 ;𝜽 ,𝝓 )
+> Flow -
+> Generator
+> PBRS -MS
+> (Potential -Based
+> Rewards Shaping
+> MileStone )
+> Dense
+> Reward
+> Signal
+
+𝑹 𝒕 
+
+(b) Hybrid Symbolic -Numerical Learning     
+
+> Minimal
+> Demo Set
+> Outer Loop:
+> LLM Reflection
+> Structure 𝝓
+> Inner Loop:
+> Bayesian Optimization
+> Parameters 𝜽
+> Bi -level
+> Optimization Loop
+> Reward
+> Model
+> Real -world Robot -Arm
+> Symbolic
+> Potential
+> Function
+> Flow -
+> Generator PBRS -MS
+> Raw Image Stream Policy
+> 𝝅
+
+Action  (a) 
+
+State (s) 
+
+Dense Reward (r)         
+
+> Accelerated
+> Convergence
+> FLORA Reward Model
+> Fig. 2. Framework Overview: (a) Structural Reward Formulation : A pipeline that maps raw visual input to robust reward signals. It comprises a Flow-Generator for flow generation, a symbolic potential function for progress estimation, and a Potential-Based Reward Shaping-MileStone (PBRS-MS) module to ensure optimal policy invariance and signal stability. (b) Hybrid Symbolic-Numerical Learning : A bi-level optimization loop that jointly discovers the optimal symbolic program structure ϕ(Outer Loop via LLM reflection) and its continuous parameters θ(Inner Loop via Bayesian Optimization) using a minimal demonstration set. (c) Online Real-world RL : Deployment of the synthesized reward model to provide dense guidance. The framework computes dense rewards from raw image streams to accelerate policy convergence in complex manipulation tasks.
+
+refine the generated rewards. These assumptions are difficult to satisfy in real-world settings, where oracle states are unavail-able and interaction budgets are tightly constrained. FLORA shares the goal of obtaining interpretable programmatic re-wards, but differs in the source of state information and the optimization setting: it learns symbolic potential functions over motion-flow representations rather than privileged simulator variables, and optimizes their structure and parameters entirely offline from a small demonstration set. 
+
+D. Motion Flow in Manipulation 
+
+Motion flow has emerged as a robust representation for cross-domain [32, 33, 34, 35, 36] transfer. By abstracting raw images into object-centric trajectories, motion flow can provide a practical visual proxy for task-relevant state variables when privileged object poses are unavailable. While some recent approaches like HUDOR [37], GENFLOWRL [38] utilize motion flow for reward design, they typically rely on handcrafted functions that require human expertise and limit scalability across task variants. In contrast, our work proposes a hybrid symbolic-numerical learning framework that automatically learns symbolic reward functions from a few demonstrations and guarantees optimal policy invariance. 
+
+E. Optimality-Preserving Reward Shaping 
+
+Reward shaping aims to accelerate policy learning by pro-viding dense, informative signals. Among various methods, Potential-Based Reward Shaping (PBRS) [39] is a widely used framework due to its theoretical guarantee of optimal policy invariance, and has been used in robotics tasks [6, 40]. However, traditional PBRS does not provide a mechanism for designing task-specific potential functions and suffers from potential collapse in long-horizon tasks. FLORA learns the potential function automatically from demonstrations and introduces a milestone-augmented formulation that provably resolves collapse while preserving the invariance guarantee. III. B ACKGROUND AND PROBLEM FORMULATION 
+
+A. Reinforcement Learning and PBRS 
+
+A manipulation task is modeled as a Markov Decision Process (MDP) M = ( S, A, P, R, γ ), where S and A are the state and action spaces, P : S × A → S the transition dynamics, R : S × A × S → R the reward, and γ ∈ (0 , 1] 
+
+the discount factor. The agent seeks a policy π maximizing 
+
+G = E[P∞ 
+
+> t=0
+
+γtRt]. In real-world manipulation, we address the sparse reward setting: the environment returns a binary sig-nal R ∈ { 0, 1}, which provides little gradient for exploration. To mitigate reward sparsity without introducing re-ward hacking, we employ PBRS [39]. A shaped reward 
+
+R′(st, a t, s t+1 ) = R(st, a t, s t+1 )+ γϕ (st+1 )−ϕ(st) augments 
+
+R with a potential function ϕ : S → R. PBRS guarantees 
+
+optimal policy invariance : any optimal policy for the shaped MDP M′ = ( S, A, R ′, P, γ ) is also optimal for M, so the shaping signal accelerates convergence without altering the intended objective. 
+
+B. Problem Formulation 
+
+Given a sparse-reward MDP and a minimal set of visual demonstrations Ddemo , the goal is to learn a symbolic reward function R′ that provides dense, reliable reward signals from raw visual observations. To be effective for open-world manip-ulation, R′ must satisfy two constraints: behavioral invariance ,meaning the reward is grounded in the task’s logical structure rather than absolute pixel values to enable generalization to new task variants; and optimality invariance , meaning R′
+
+strictly preserves the optimal policy of M, preventing reward hacking. 4Annotated  Image   
+
+> Initial Image
+> Auto -Annotated Image
+> Point Sample
+> Filter
+> State (s)
+> DINO
+> Corre sp -
+> ondence
+> Point
+> Sample
+> Filter
+> (a)
+> DINO
+> Flow
+> tracking
+> Raw Image Stream
+> Point tracking
+> Motion Flow
+> (b)
+> Point
+> Track
+> Model
+> Fig. 3. The flow generation procedure.
+
+IV. S TRUCTURAL REWARD FORMULATION 
+
+Rather than learning a reward function end-to-end from images, FLORA encodes the Behavioral and Optimality In-variance constraints directly into the reward architecture, con-verting a constrained optimization problem into a tractable unconstrained one. The formulation has three components, as illustrated in Fig. 2 (a). A Flow-Generator abstracts raw visual input into object-centric motion flows, restricting the potential func-tion’s input space to task-relevant spatial relations and satis-fying behavioral invariance by design. A Symbolic Potential Function maps these flows to scalar progress values through programmatic logic that encodes task strategies and physical constraints. A PBRS-MS module wraps the potential within a potential-difference reward structure, stabilizing training against potential collapse while formally guaranteeing optimal policy invariance. This section details these three components; Section V then describes a Hybrid Symbolic-Numerical Learn-ing Framework, which dictates how the potential function is learned from as few as five demonstrations. 
+
+A. Flow-Generator: Grounding via Motion Flow 
+
+To satisfy the behavioral invariance constraint, the reward model must be grounded in task-relevant relative spatial re-lationships between objects (e.g., the alignment between a gripper and a handle) rather than raw pixel intensities. We propose a Flow-Generator that transforms high-dimensional visual observations into a task-relevant motion flow represen-tation ot. This ensures that the downstream potential function perceives the task’s logical state regardless of visual distractors or scene variations. As shown in Fig. 3, the pipeline operates in three stages. Regions of Interest (RoIs), such as the robot gripper, the manipulated object, and the target, are identified once per task class in a reference image, either manually or via Grounding DINO [41]. Since re-running the detector at every episode is costly and brittle under appearance shift, we use the dense correspondence model DINOv2 [42] to re-locate these RoIs in the initial frame of each new episode. A 3D point tracker (e.g., TAPIP3D [43]) then tracks keypoints within each RoI throughout the episode; all tracked points are then expressed in a canonical object-centric coordinate frame to achieve spatial invariance. 
+
+B. Symbolic Potential Function 
+
+With the input space canonicalized by the Flow-Generator, we define the core of our reward model as a symbolic potential function ϕ, parameterized by θ. For each timestep t, this function maps the current motion flow ot and the initial motion flow o0 to a scalar potential pt and an auxiliary task stage ˆμt:
+
+(pt, ˆμt) = ϕ(ot, o 0; θ). (1) The potential function ϕ is decoupled into two components: its symbolic structure and numerical parameters. The symbolic structure ϕ ∈ Φ is the programmatic logic of the reward, encoding semantic reward structure and task-level strategy; it is automatically discovered by an LLM (Section V). The 
+
+numerical parameters θ ∈ Θ are the continuous coefficients embedded within the code, such as thresholds, weighting factors, and gain coefficients, and are optimized by Bayesian Optimization (Section V). 
+
+C. PBRS-MS: Theoretical Guarantees for Manipulation 
+
+To satisfy the Optimality Invariance constraint, we wrap the symbolic potential within a PBRS form. However, directly applying PBRS in high-dimensional manipulation tasks can lead to training instabilities due to potential collapse. In manipulation, near-miss states (e.g., dropping an object at the final step) are adjacent to success states. Due to the telescoping property of PBRS, the cumulative shaped return over N steps is dominated by the boundary potentials ϕ(sN ):
+
+G = PN −1 
+
+> t=0
+
+γt(Rt + γϕ (st+1 ) − ϕ(st)) = PN −1 
+
+> t=0
+
+γtRt +
+
+γN ϕ(sN ) − ϕ(s0). Consequently, a trajectory that lifts an object but drops it at the terminal step yields a return nearly identical to one that never initiated a grasp, as both terminate in low-potential states sN . This lack of differentiation prevents the Q-function from correctly assigning credit to partial suc-cesses, leading to severe training instability. Furthermore, local basins and plateaus in ϕ can generate uninformative gradients that trap exploration, a failure mode particularly prevalent in long-horizon manipulation. To provide a robust global signal that resists potential collapse, we augment PBRS with a milestone-based progress tracker. The key idea is to lock in partial progress so that late-stage failures do not erase earlier achievements. 
+
+a) Milestone Definition: We partition the potential range 
+
+[0 , ϕ max ] into K discrete levels using uniformly spaced thresh-olds κk = kK for k ∈ { 1, . . . , K }. A state s is said to have 
+
+reached milestone k if its potential satisfies ϕ(s) ≥ κk · ϕmax .We augment the state space with a monotonic milestone index mt ∈ {0, 1, . . . , K } that records the highest milestone achieved up to time t:
+
+mt = max ( mt−1, max {k | ϕ(st) ≥ κk · ϕmax }) , m0 = 0 .
+
+Thus we define a Shaped Augmented MDP 
+
+˜M ′ = ( ˜S, A, ˜P , ˜R′, γ ): The state space is 
+
+˜S = S × { 0, . . . , K }. The transition dynamics ˜P are defined as: ˜P (s′, m ′|s, m, a ) = P (s′|s, a ) · P(m′|s′, m ) where the milestone transition P(m′|s′, m ) is deterministic. 50 T          
+
+> Time Step (t)
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Potential Value
+> Potential Collapse
+> (Object Dropped)
+> Near-miss return
+> ≈ failed return
+> (a) Standard PBRS: Potential Collapse
+> Near-miss Trajectory
+> Failed Trajectories
+> 0T
+> Time Step (t)
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Potential Value
+> κ1
+> κ2
+> κ3
+> PBRS-MS return:
+> near-miss ≫failed
+> Progress Locked In!
+> (Monotonic index mt)
+> (b) PBRS-MS: Milestones Prevent Collapse
+> Local ϕ(st) (near-miss)
+> Global Ψ( mt)(near-miss)
+> Failed Trajectories
+
+Fig. 4. Potential collapse under standard PBRS and its resolution by our proposed PBRS-MS. 
+
+b) Global Potential and Shaped reward: We define a cumulative potential over milestones: Ψ( m) = Pmk=1 ˆRk,where ˆRk > 0 is the reward bonus for reaching milestone 
+
+k. The final shaped reward integrates both local and global signals: 
+
+R′ 
+
+> t
+
+= Rt + γϕ (st+1 ) − ϕ(st)
+
+| {z }
+
+> Local PBRS
+
++ γΨ( mt+1 ) − Ψ( mt)
+
+| {z }
+
+> Global MS
+
+. (2) Since both ϕ and Ψ are defined over this augmented space via potential-based shaping, the following theorem holds: 
+
+Theorem 1 (Policy Invariance of PBRS-MS) . For any dis-count factor γ ∈ [0 , 1) , any optimal policy ˜π∗ in the shaped augmented MDP ˜M ′ is also an optimal policy in the original MDP M .Proof Sketch. Let ˜M denote the unshaped counterpart of ˜M ′,i.e., ˜M ′ with FMS = 0 . The proof follows a two-stage reduction 
+
+˜M ′ → ˜M → M . Stage 1. Setting Φ(˜ s) = ϕ(s) + Ψ( m),the shaping signal satisfies FMS = γΦ(˜ st+1 ) − Φ(˜ st), which is PBRS form [39]. Hence ˜Q∗˜M ′ and ˜Q∗˜M differ only by 
+
+Φ(˜ s), leaving the arg max a unchanged; every optimal policy in ˜M ′ is optimal in ˜M . Stage 2. Since ˜R ignores m and P 
+
+> m′
+
+P(m′|s′, m ) = 1 , the candidate ˜V (s, m ) = V ∗ 
+
+> M
+
+(s) is a fixed point of the Bellman operator ˜T . Uniqueness of the γ-contraction gives ˜V ∗ 
+
+> ˜M
+
+(s, m ) = V ∗ 
+
+> M
+
+(s), so ˜π∗(s, m ) = π∗(s)
+
+independently of m. Combining both stages completes the proof. ( Full proof in Supplementary Material I. )V. H YBRID SYMBOLIC -N UMERICAL LEARNING OF 
+
+POTENTIAL FUNCTIONS 
+
+The structural reward formulation in Sec. IV transforms the original optimization problem into a tractable, unconstrained one. We solve this using a bi-level optimization strategy over a demonstration dataset Ddemo . The goal is to find a symbolic structure ϕ and a parameter vector θ that maximize a surrogate 
+
+Algorithm 1 Hybrid Symbolic-Numerical Learning 
+
+Require: Task l, LLM L, Surrogate J , Data {D train , Dval },Iterations N , Batch size K, Top-m size m, Prompt p0
+
+1: p ← p0; vbest ← −∞ 
+
+2: for i = 1 to N do 
+
+3: {ϕk, θ k}Kk=1 ∼ L (l, p ) // symbolic outer-loop 
+
+4: for k = 1 to K do 
+
+5: θ∗ 
+
+> k
+
+← BO (ϕk, θ k, J , Dtrain ) // numerical inner-loop 
+
+6: vk ← J (ϕk, θ ∗
+
+> k
+
+; Ddemo )
+
+7: end for 
+
+8: Dtop ← TOP -m {(ϕk, θ ∗
+
+> k
+
+, v k)}Kk=1 
+
+
+
+9: if max( vk) > v best then 
+
+10: (ϕbest , θ best , v best ) ← arg max (ϕ,θ,v ) ∈ D top v
+
+11: end if 
+
+12: p ← p ⊕ REFLECTION (Dtop )
+
+13: end for 
+
+14: return ϕbest , θ best 
+
+performance objective J while ensuring generalization to unseen trajectories. The pipeline is shown in Fig. 5. 
+
+A. Problem Formulation 
+
+Given a demonstration set partitioned into training and validation subsets, Ddemo = {D train , Dval }, we seek the optimal potential function (ϕ, θ ) by solving: 
+
+ϕ∗ = arg max  
+
+> ϕ∈Φ
+
+J (ϕ, θ ∗(ϕ); Ddemo ) (3) 
+
+θ∗(ϕ) = arg max  
+
+> θ∈Θ
+
+J (θ; ϕ, Dtrain ) (4) where J is the multi-objective surrogate (Section V-C). In this formulation, the inner-loop optimization solves for the best numerical alignment θ for a given logic structure on Dtrain ,while the outer-loop searches for a symbolic structure ϕ that generalizes to both training set and held-out validation set. 
+
+B. Optimization Dataset Preparation 
+
+To ground the optimization in semantic task logic rather than visual features, each demonstration in Ddemo is pre-processed in three steps before being passed to the bi-level optimizer. Raw observations are first mapped to motion-flow representations following Section IV-A, replacing pixel-level inputs with object-centric spatial relations. We then use GPT-4.1 [44] to decompose each task into a sequence of discrete symbolic subtasks and let GPT-4.1 annotate every trajectory with the corresponding stage labels μt; shuffling [2] and majority voting are applied to reduce annotation noise. Finally, 
+
+Ddemo is split 60/40 into training and validation subsets Dtrain 
+
+and Dval . Crucially, the inner loop only observes Dtrain , so the outer loop is forced to select symbolic structures that generalize to held-out trajectories rather than memorizing the training set. 6BO                     
+
+> Surrogate Objective
+> LLM
+> Reflection & Evol ution
+> Evaluation Board
+> Top -𝒎
+> Selection
+> …
+> `
+> (𝝓 𝟏 ,𝜽 𝟏
+> ∗)
+> Numerical
+> Inner -loop
+> Candidate
+> 𝜽 𝟏 →𝜽 𝟏
+> ∗
+> BO
+> BO
+> 𝜽 𝟐 →𝜽 𝟐
+> ∗
+> 𝜽 𝑲 →𝜽 𝑲
+> ∗
+> (𝝓 𝟐 ,𝜽 𝟐
+> ∗)
+> (𝝓 𝑲 ,𝜽 𝑲
+> ∗)
+> Program 𝝓 𝟏
+> Params 𝜽 𝟏
+> Program 𝝓 𝟐
+> Params 𝜽 𝟐
+> Program 𝝓 𝑲
+> Params 𝜽 𝑲
+> Symbolic
+> Outer -Loop
+> Fig. 5. The Hybrid Symbolic-Numerical Learning Pipeline.
+
+C. The Surrogate Objective ( J )
+
+We define a multi-objective surrogate J (ϕ, θ ; Dtrain ) to measure the alignment of the learned potential function with an ideal one. We seek to maximize: 
+
+J (ϕ, θ ; Dtrain ) = X 
+
+> τ∈D train
+
+[λ1Cstage + λ2Cprog + λ3Cpbrs ] (5) where the components are defined as: 
+
+a) Stage alignment ( Cstage ): This measures the accuracy of the predicted subtasks ˆμt against VLM labels μt:
+
+Cstage (ϕ) = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+1{ˆμt = μt}. (6) where 1{·} is the indicator function. A high stage-alignment score indicates that the symbolic structure has correctly en-coded the task’s sequential logic. 
+
+b) Progress monotonicity (Cprog ): This measures the Spearman correlation between ϕ(ot) and normalized time t/T :
+
+Cprog (ϕ) = Corr( ϕ(ot), t/T ). (7) Spearman correlation is preferred over Pearson because mono-tonicity, not linearity, is desired for a progress proxy. 
+
+c) PBRS positivity ( Cpbrs ): This term measures the fre-quency of non-negative shaping signals: 
+
+Cpbrs (ϕ) = 1
+
+T − 1 
+
+> T−1
+
+X
+
+> t=1
+
+1{γϕ (ot+1 ) − ϕ(ot) ≥ 0}. (8) 
+
+D. Bi-Level Optimization Procedure 
+
+The nested optimization is solved through a hybrid search strategy summarized in Algorithm 1. 
+
+a) Numerical inner loop: For each candidate symbolic structure ϕk, the lower-level problem is solved with Bayesian Optimization [45] using the Upper Confidence Bound (UCB) acquisition function [46]: 
+
+θ∗ 
+
+> k
+
+= arg max 
+
+> θk
+
+J (θk; ϕk, Dtrain ). (9) The initial parameters are drawn directly from the LLM, which ensures they lie within a physically plausible order of magnitude and gives the BO optimizer a warm start rather than a random initialization.         
+
+> TABLE I
+> REWARD EVALUATION METRICS .COMPARISON OF REWARD MODELS IN THE TRAINING TASKS AND POSITION OOD T ASKS , V IEWPOINT OOD
+> AND OBJECT OOD T ASKS .
+
+Metric LIV LIV-FT VLC ReWiND-CT Ours Training Task 
+
+Proc. Algn. ρ ↑ -0.13 0.78 0.86 0.89 0.97 
+
+Rew. RanK ↑ -0.03 0.42 0.01 0.53 0.80 
+
+Rew. Diff. ↑ -0.01 0.27 0.03 0.16 0.80 Position OOD 
+
+Proc. Algn. ρ ↑ 0.13 0.55 0.65 0.61 0.85 
+
+Rew. RanK ↑ -0.08 0.39 0.07 0.40 0.57 
+
+Rew. Diff. ↑ -0.01 0.17 0.10 0.03 0.46 Viewpoint OOD 
+
+Proc. Algn. ρ ↑ 0.08 0.69 0.75 0.65 0.88 
+
+Rew. RanK ↑ 0.07 0.38 0.10 0.41 0.67 
+
+Rew. Diff. ↑ 0.01 0.12 0.08 0.03 0.46 Object OOD 
+
+Proc. Algn. ρ ↑ 0.04 0.67 0.61 0.67 0.81 
+
+Rew. RanK ↑ 0.02 0.39 0.04 0.45 0.53 
+
+Rew. Diff. ↑ 0.00 0.16 0.02 0.04 0.32 
+
+b) Symbolic outer loop: The LLM serves as the opti-mizer over the symbolic space Φ. After each batch of inner-loop optimization, the top-m candidates by validation score are collected into a reflection set Dtop . Each candidate in 
+
+Dtop is summarized into structured feedback comprising: the symbolic program ϕk with its optimized parameters θ∗
+
+> k
+
+; the surrogate scores on both Dtrain and Dval ; and a visualization of the potential trajectory pt over the demonstration rollouts. Given this feedback, the LLM identifies failure causes in the current symbolic structures and revises the generated symbolic functions to improve logical consistency and cross-trajectory invariance in the next batch. VI. E XPERIMENTS 
+
+Experiments evaluate FLORA along four dimensions: re-ward quality and OOD generalization in simulation (Sec. VI-A), policy learning efficiency (Sec. VI-B), real-world reliabil-ity (Sec. VI-C), and ablation analysis (Sec. VI-D). 
+
+A. Reward Quality and OOD Generalization 
+
+Experiments are conducted on Meta-World [47], covering four simple tasks shared with prior baselines for direct com-parison, and four multi-stage tasks that are among the most challenging in Meta-World, to stress-test reward generalization beyond the single- to two-substage settings evaluated in prior work. For each task, the training set Ddemo comprises five demonstrations collected using a scripted policy in Meta-World for reward model learning. To evaluate generalization, we collect a test set Dtest consisting of ten successful trajecto-ries generated from novel random seeds, representing unseen spatial configurations. Baselines include LIV [11], a vision-language reward model pretrained on EpicKitchens [48] and fine-tuned on Ddemo per task (LIV-FT); Video-Language Critic (VLC) [12], trained 7Success                                      
+
+> t = 0% t = 50% t = 100%
+> Partial
+> Success
+> t = 0% t = 50% t = 100%
+> Random
+> t = 0% t = 50% t = 100%
+> Origin VLC ReWiND-CT FLORA (Ours)
+> 0100 200
+> 0.0
+> 0.5
+> 1.0
+> 0100 200 0100 200 0100 200
+> Success
+> t = 0% t = 50% t = 100%
+> Partial
+> Success
+> t = 0% t = 50% t = 100%
+> Random
+> t = 0% t = 50% t = 100%
+> Origin VLC ReWiND-CT FLORA (Ours)
+> 0100 200
+> 0.0
+> 0.5
+> 1.0
+> 0100 200 0100 200 0100 200
+> (a) Base Task Demonstrations (b) Viewpoint OOD Demonstrations
+
+Fig. 6. Representative rollouts and reward curves on the Lever-Pull task under (a) base and (b) viewpoint-OOD settings. Origin denotes the default dense reward provided by the Meta-World simulator, serving as the ground-truth reference. FLORA (Ours) maintains clear reward separation across success, partial-success, and random trajectories where baseline methods degrade. 
+
+on Ddemo ; and ReWiND [13], pretrained on the Open X-Embodiment dataset Dopen-x [49] and a custom dataset con-taining 20 tasks with 5 demonstrations each. We evaluate a co-trained version (ReWiND-CT) that is trained on both Dopen-x 
+
+and task-specific Ddemo data for each task. 
+
+a) Process Alignment: Process alignment measures how closely reward signals track actual task progression, quan-tified by Spearman’s rank correlation against time on Dtest .As shown in Table I, FLORA consistently outperforms all baselines in process alignment. This superior performance on 
+
+Dtest demonstrates that FLORA can successfully extrapolate to novel spatial configurations within the same task. 
+
+b) Policy Rollout Ranking and Discriminative Ability: 
+
+A robust reward model must not only award success but also accurately penalize failures. To test this discriminative ability, we construct an evaluation set by mixing: (i) 10 successful test trajectories ( Dtest ); (ii) 10 partial-success trajectories ( DPS )generated by adding noise to the scripted policies; and (iii) 10 completely random trajectories ( Drandom ). We treat the trajec-tory rank derived from Meta-World’s default dense rewards as the ground-truth rank and compare rankings generated by reward models against the ground-truth rank using Spearman’s rank correlation. Additionally, we report the average reward difference, which measures the numerical distance between the rewards assigned to successful vs. failed rollouts. As shown in Table I, FLORA significantly outperforms the strongest baseline, achieving a 51% improvement in rank cor-relation and a 196% increase in reward margin. These results demonstrate FLORA’s superior ability to separate success from failure by focusing on semantic task progression rather than misleading visual artifacts. 
+
+c) OOD Generalization: To evaluate the generalization ability of the reward models learned from five demonstra-tions, we construct three distinct Out-of-Distribution (OOD) scenarios for each of the eight tasks: (i) Position OOD: The initial positions of the object and gripper are shifted by 40 cm, significantly exceeding the distribution of the training Success Rates 
+
+> Ours
+> ReWiND-CT
+> VLC
+> LIV-FT
+> Sparse
+
+Simple tasks      
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Success Rates
+> Ours
+> ReWiND-CT
+> VLC
+> LIV-FT
+> Sparse
+
+Difficult tasks 
+
+Fig. 7. Meta-World Performance: We report interquartile means of success rates with interquartile range in simple tasks and difficult tasks. 
+
+demonstrations; (ii) Viewpoint OOD: The camera is rotated by 30° relative to the reference viewpoint; (iii) Object OOD: The color and scale of task-relevant objects are modified. All modifications are performed under the constraint that the robot gripper and objects remain visible to the camera. For each task variant, we construct corresponding Dtest , DPS and Drandom sets to evaluate the model’s progress alignment, policy ranking, and discriminative ability under distribution shift. As summarized in Table I, FLORA consistently outperforms all baseline models. While baseline reward models suffer significant performance degradation due to visual overfitting, FLORA maintains high process alignment and discriminative ability. To further assess reward quality, we visualize the reward curves produced by each reward model for success-ful, partial-success, and random trajectories on the base and Viewpoint-OOD variants of the Lever-Pull task. As shown in Fig. 6, while baselines such as LIV-FT and ReWiND fail to separate partial-success from random trajectories under this distribution shift, FLORA maintains a clear margin across all three trajectories. 80.0        
+
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Button-Press-Topdown
+> Success Rate
+> ID Position OOD View OOD Object OOD
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Lever-Pull
+> Success Rate
+> LIV-FT VLC ReWiND-CT Ours
+> Fig. 8. Generalization Performance: We reuse the trained reward models in three OOD tasks and report the average success rates across three independent random seeds.
+
+B. Policy Learning Efficiency a) Default Tasks: The reward model’s effect on policy learning is assessed across eight Meta-World tasks, comprising four simple and four difficult tasks. RLPD [50] serves as the base RL algorithm, maintaining identical hyperparameters across all experiments for a fair comparison. Baselines include LIV-FT, VLC, ReWiND-CT, and the default sparse binary signal. Each task is trained over three independent random seeds. We report the Inter-Quartile Means (IQM) of success rates with interquartile range. For simple tasks, agents are trained for 100k timesteps, while agents on difficult tasks are trained for 200k timesteps. Detailed training curves are provided in Supplementary Material III. As shown in Fig. 7, FLORA significantly outperforms all baselines. In simple tasks, FLORA achieves a 96% success rate, representing a 22% improvement over the strongest baseline. Crucially, in the difficult tasks, FLORA maintains a 42% success rate, nearly double the best baseline. These results are consistent with the reward quality metrics in Table I: methods with higher process alignment and ranking scores systematically yield faster policy convergence, validating our surrogate objective as a reliable predictor of RL performance. 
+
+b) OOD Tasks: To further evaluate the generalization ability of our reward models, we reuse the trained reward models in these three OOD tasks: Position OOD, Viewpoint OOD, and Object OOD. We select one simple (Button-Press-Topdown) task and one difficult task (Lever-Pull) as represen-tative tasks for this analysis. The implementation details and learning curves are in the Supplementary Material III. The results (Fig. 8) highlight the superior generalization ability of our reward model. While baseline reward models suffer from catastrophic failure in OOD settings due to visual distribution shifts, FLORA achieves high success rates in all OOD tasks. (a) Peg -Insert  (b) Bulb -Unscrew  (c) Box -Open        
+
+> (e) Position OOD (f) Object OOD
+> (d) View OOD
+> Base
+> Tasks
+> OO D
+> Tasks
+> OO D
+> Tasks
+> OO D
+> Tasks
+> Fig. 9. Real-world manipulation tasks and OOD variants. (a)–(c) Base tasks on the Franka arm. (d)–(f) OOD variants: viewpoint shift, position shift, and novel object instances. TABLE II SUCCESS RATES OF THREE REAL -WORLD EXPERIMENTS AT 20 MIN , 40
+> MIN ,AND 60 MIN TRAINING TIME .
+
+Time Tasks Sparse ReWiND-CT Ours 20 min Box-Open 0/20 8/20 20/20 
+
+Peg-Insert 0/20 5/20 20/20 
+
+Bulb-Unscrew 0/20 0/20 0/20 
+
+40 min Box-Open 0/20 20/20 20/20 
+
+Peg-Insert 0/20 20/20 20/20 
+
+Bulb-Unscrew 0/20 0/20 3/20 
+
+60 min Box-Open 0/20 20/20 20/20 Peg-Insert 8/20 20/20 20/20 
+
+Bulb-Unscrew 0/20 0/20 9/20 
+
+C. Real-world Experiments a) Policy Learning: To evaluate the reliability of FLORA in the real world, we conduct experiments using a 7-DOF Franka Emika research arm [51]. We design three challenging manipulation tasks, as shown in Fig. 9: (i) Peg-Insert: Aligning and inserting a peg into a tight-tolerance hole, requiring millimeter-level precision and sustained contact. (ii) Box-Open: Grasping and rotating a hinged lid to open the box, requiring stable contact and coordinated rotational motion. (iii) Bulb-Unscrew: A complex, long-horizon task requiring the robot to grasp a bulb, execute multiple counterclockwise rotations to unscrew it, and successfully place it on the table. Five demonstrations per task are provided to learn reward models. As for policy initialization, we provide 5 demonstra-tions for Peg-Insert and Box-Open, and 20 demonstrations for the long-horizon Bulb-Unscrew task to facilitate initial exploration. We utilize RLPD [50] as the base reinforcement learning algorithm. We compare against ReWiND-CT, the most powerful baseline in simulation, and Sparse Rewards, a classifier-based reward signal R ∈ { 0, 1}. Full hardware details are provided in Supplementary Material IV. As shown in Table II, FLORA exhibits superior sample efficiency and robustness: In the Peg-Insert and Box-Open tasks, FLORA reaches a near 100% success rate within 20 minutes, doubling the learning speed of the strongest baseline ReWiND-CT. In the complex Bulb-Unscrew task, FLORA is the only method capable of achieving success, reaching a 45% success rate within one hour. All baselines fail to achieve a single successful rollout in this time budget.          
+
+> TABLE III SUCCESS RATES OF BOX -O PEN TASK AT POSITION OOD, V IEWPOINT
+> OOD AND OBJECT OOD AT 30 MIN TRAINING TIME .
+
+Tasks Sparse ReWiND-CT Ours Position OOD position 1 0/20 10/20 20/20 
+
+position 2 0/20 0/20 19/20 
+
+Viewpoint OOD View1 0/20 2/20 15/20 
+
+Object OOD Box1 0/20 0/20 18/20 
+
+Box2 0/20 0/20 17/20 
+
+b) OOD Generalization Ability: To evaluate the gen-erality of our reward model in real-world experiments, we conduct experiments on three OOD task variants of the Box-Open task, as shown in Fig. 9: (i) Position OOD: Two 9                                               
+
+> TABLE IV ABLATION STUDY : S UBTRACTING (−)AND ADDING (+)VARIOUS
+> FLORA COMPONENTS ON DEFAULT AND OOD TASKS .Model (a) Default (b) OOD-Position Proc. Algn.
+> ρ↑
+> Rew. Rank
+> ↑
+> Proc. Algn.
+> ρ↑
+> Rew. Rank
+> ↑
+> Original FLORA 0.97 0.80 0.85 0.57
+> −Object-Centric Norm 0.97 0.78 0.85 0.47
+> −3D Point Tracking 0.94 0.68 0.74 0.59
+> −Symbolic Function 0.99 0.60 0.96 0.52
+> −3 demos 0.98 0.80 0.85 0.42
+> +10 demos 0.98 0.84 0.88 0.58
+> +Human Subtask Labels 0.97 0.84 0.85 0.68
+
+levels of spatial perturbations relative to training: Position 1 ( 5 × 5 cm shift) and Position 2 ( 10 × 10 cm shift); (ii) Viewpoint OOD: A near 45-degree shift in camera extrinsics, significantly altering the visual perspective; (iii) Object OOD: Two novel box instances (Box 1 and Box 2) featuring different colors, textures, and scales, while sharing the same hinged mechanism. For each variant, we reuse the trained reward model and use it to guide RL policy training for a fixed 30-minute budget. Table III shows that FLORA maintains high success rates across all OOD scenarios. Notably, even under extreme viewpoint shifts and novel object geometries, FLORA enables the robot to achieve near-optimal performance within the 30-minute training budget. In contrast, the baseline models fail to provide accurate reward signals for novel scenarios, resulting in poor policy learning performance. These results confirm that our method enables a single learned reward representation to be reused in the diverse task variants in the real world. 
+
+D. Ablation Study 
+
+We conduct a series of ablation studies to isolate the contribution of our core design choices. 
+
+a) Flow-Generator: The flow generator pipeline is eval-uated along two axes: the contribution of object-centric nor-malization and the choice of point tracker. The full FLORA model is compared against a variant without the normalization module and a variant that substitutes the 3D tracker with a 2D alternative, CoTracker3 [52]. Both process alignment and policy rollout ranking abilities are reported under nominal and positional OOD conditions. The results in Table IV indicate that object-centric normalization is one of the primary drivers of OOD generalization. Furthermore, 3D point tracking outperforms the 2D alternative, as 3D motion flows align more naturally with the physical priors and semantic logic used by LLMs during reward learning. 
+
+b) Symbolic Function: To evaluate the necessity of the symbolic potential function, the default setting is compared with a variant which replaces the symbolic potential function with a transformer network. The transformer network is trained on the same motion-flow input with the same surrogate objec-tive and evaluated under both ID and positional OOD condi-tions. The results in Table IV indicate that while the trans-former network trivially interpolates the temporal progression of the 5 successful demonstrations, achieving a deceptive 0.99 Process Alignment), it catastrophically fails to penalize novel failure modes, dropping Reward Rank from 0.80 to 0.60 on ID. This proves that without the structural constraints of symbolic math, an unconstrained neural network cannot learn the strict boundaries of task failure from successful-only data and lacks the structural inductive bias needed to extrapolate to novel configurations. The symbolic function, by contrast, imposes task-relevant geometric constraints that remain valid under distribution shift by construction. These results underscore that the symbolic potential is not merely a performance-enhancing component but a necessary structural prior for reliable OOD generalization. 
+
+c) Demonstration Numbers: To assess robustness to demonstration count, the default five-demonstration setting is compared against a low-data variant with three demonstrations and a higher-data variant with ten. Both process alignment and policy rollout ranking abilities are reported under nominal and positional OOD conditions. The results in Table IV indicate that performance gains are marginal when going from 5 to 10 demonstrations, while reducing the number below five leads to a significant drop in generalization. 
+
+d) Subtask Labels: To assess the impact of annotation quality on reward synthesis, we compare our default VLM-generated subtask labels against an oracle variant utilizing expert human labels. The VLM achieves a mean annotation ac-curacy of 84.7% across the task suite, validating its reliability as a proxy for human supervision. Potential functions are then generated for all eight Meta-World tasks using human labels and evaluated under both ID and positional OOD conditions. The result is shown in Table IV. Human labels yield amoderate performance boost, but at the cost of significant manual effort; VLM-based labeling offers a practical, fully automatic alternative with acceptable impact on performance. 
+
+e) PBRS-MS Module: The contribution of the PBRS-MS module is isolated by comparing it against two ablated variants on the Lever Pull and Peg Insert Side tasks, both of which involve high-dimensional, multi-stage contact-rich manipulation. The two variants include Standard PBRS, which applies a single unified potential across all task stages; and direct, where Φ( s) is used as the reward signal ( R = Φ( s)), rather than through the difference-based shaping mechanism. As shown in Fig. 10, traditional PBRS suffers from training instability due to potential collapse in complex manipulation tasks. PBRS-MS significantly improves data efficiency and ensures stable convergence. 0 5 10 15 20 25 30        
+
+> Environment Step (×10 4)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success Rate
+> Lever Pull
+> 010 20 30 40
+> Environment Step (×10 4)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success Rate
+> Peg Insert Side
+> PBRS-MS PBRS direct
+> Fig. 10. Ablation study on the PBRS-MS module.
+
+f) Hybrid Optimization Method: The hybrid optimizer is compared against three reduced variants: LLM reflection alone, Bayesian Optimization alone, and direct selection of the best LLM-generated candidate without further optimization. Each variant is run five times; performance is measured by 10 
+
+> TABLE V ABLATION ON THE OPTIMIZATION PROCEDURE .
+
+Task Variant Cprog Cstage Cpbrs J
+
+Lever-Pull 
+
+LLM Refl. + BO 0.92 ±0.01 0.90 ±0.00 0.94 ±0.00 9.29 ±0.04 
+
+LLM Refl. only 0.82 ±0.21 0.68 ±0.17 0.67 ±0.14 7.31 ±1.58 
+
+BO only 0.96 ±0.01 0.78 ±0.08 0.91 ±0.02 9.14 ±0.03 
+
+Direct 0.44 ±0.06 0.44 ±0.00 0.58 ±0.04 5.10 ±0.06 
+
+Peg-Insert 
+
+LLM Refl. + BO 0.90 ±0.05 0.88 ±0.01 0.89 ±0.07 8.95 ±0.15 
+
+LLM Refl. only 0.85 ±0.07 0.66 ±0.01 0.73 ±0.10 7.69 ±0.26 
+
+BO only 0.89 ±0.06 0.75 ±0.09 0.88 ±0.08 8.74 ±0.06 
+
+Direct 0.84 ±0.01 0.67 ±0.01 0.58 ±0.09 6.89 ±0.47 
+
+the three surrogate metrics Cstage, Cprog, and Cpbrs , with results reported in Table V. The results demonstrate that our hybrid approach, combining LLM Reflection with BO, achieves superior performance. These ablation results show that object-centric normal-ization, 3D point tracking and hybrid optimization improve performance and OOD robustness, PBRS-MS ensures stable convergence; each component contributes to the overall per-formance. VII. D ISCUSSION AND FUTURE WORK 
+
+The core claim of this work is that behavioral invariants sufficient for real-world reward generalization can be distilled from as few as five demonstrations, provided the reward representation is grounded in object-centric motion rather than raw pixels and its structure is constrained by symbolic inductive biases. The following sections examine the evidence for this claim, characterize the boundaries of the approach, and identify directions for future work. 
+
+A. Sources of OOD Robustness 
+
+We attribute FLORA’s OOD robustness to three comple-mentary inductive biases, each targeting a different source of visual overfitting. (1) Input-level invariance. The Flow-Generator discards appearance information and retains only the relative motion of task-relevant objects, so visually dis-tinct scenes that share the same spatial topology produce similar flow representations. (2) Function-level invariance. Symbolic programs explicitly represent physical laws and logical constraints that hold across task variants. This restricted hypothesis space inherently prevents the few-shot overfitting that plagues neural reward models trained on only five demon-strations. (3) Learning-level invariance. The bi-level optimiza-tion explicitly rewards potential functions that generalize to held-out validation trajectories, implicitly enforcing behavioral invariance without explicit domain randomization. The ablation results corroborate this decomposition. Remov-ing object-centric normalization or substituting 2D for 3D point tracking degrades positional OOD ranking (Table IV), confirming the contribution of input-level invariance. However, input-level invariance alone is insufficient: substituting the symbolic potential with a neural surrogate trained on the same motion-flow input immediately degrades OOD reward ranking (0.57 → 0.52) and ID discriminative ability (0.80 → 0.60), as empirically validated in Table IV. This confirms that the   
+
+> TABLE VI ROBUSTNESS OF THE 5-DEMONSTRATION SETTING (L EVER -P ULL ).
+
+Default Task Position OOD Factor Setting Proc. Algn. ρ ↑
+
+Rew. Rank ↑ ∆(%) 
+
+Proc. Algn. ρ ↑
+
+Rew. Rank ↑ ∆(%) 
+
+Ref 1.00 0.89 – 0.96 0.92 –
+
+Seed 
+
+seed 1 1.00 0.89 +0.1 0.99 0.92 +1.3 seed 2 0.99 0.88 −1.0 0.92 0.94 −0.9 seed 3 1.00 0.91 +0.9 0.97 0.91 −0.4 
+
+Cov. 
+
+Full 1.00 0.88 −0.6 0.96 0.92 +0.1 1/2 1.00 0.92 +1.5 0.89 0.71 −15.3 
+
+1/8 1.00 0.89 +0.2 0.80 0.17 −48.6 
+
+Qual. 
+
+1 noisy 1.00 0.89 −0.1 0.97 0.90 −0.4 3 noisy 0.99 0.87 −1.6 0.95 0.93 −0.1 5 noisy 1.00 0.75 −7.5 1.00 0.13 −40.0 
+
+rigid geometric priors embedded in programmatic logic are the decisive factor preventing few-shot memorization. Finally, the sharp generalization collapse under reduced spatial coverage (Table VI) indicates that cross-trajectory diversity is essential for the optimization to discover invariant programs. 
+
+B. Robustness of the Five-Demonstration Setting 
+
+FLORA learns an invariant symbolic reward function from as few as five demonstrations. To quantify the robustness of this setting, we conduct ablation studies on the Lever-Pull task in Meta-World, examining seed choice, spatial coverage, and demonstration quality. Results are summarized in Table VI. 
+
+a) Seed Sensitivity: The five demonstrations used in the main experiments were collected via Meta-World’s scripted policy with a fixed random seed. Repeating data collection with three additional random seeds yields performance vari-ations of at most ±1.29% on ID tasks and similarly small changes under positional OOD evaluation, confirming that the method’s behavior is not an artifact of a particular seed choice. 
+
+b) Spatial Coverage: We construct three demonstration sets that cover approximately the full task range, one-half, and one-eighth of the range. FLORA maintains strong ID performance even at 1/8 coverage. However, positional OOD performance decreases as coverage shrinks, suggesting that broad spatial variability is important for OOD generalization. 
+
+c) Demonstration Quality: Sensitivity to demonstration quality is assessed by injecting action noise into the scripted policy to produce suboptimal trajectories, and varying their fraction across three settings. The experimental results show that FLORA is resilient to imperfect data: even with a majority of suboptimal demonstrations (3 noisy + 2 clean), it maintains strong OOD performance. Performance collapses only when all five demonstrations are noisy, confirming that bi-level optimization effectively filters out suboptimal behaviors. 
+
+C. Limitations and Future Work a) Monotonicity Assumption: A core assumption of PBRS-MS is that task progress is monotonically non-decreasing along the optimal trajectory. This assumption is well-suited to staged manipulation tasks. However, it breaks 11 
+
+down for tasks requiring reversible subtasks . For example, when a peg jams during insertion, the robot must partially withdraw before re-approaching at a corrected angle. The local PBRS term γϕ (st+1 ) − ϕ(st) is negative during withdrawal, directly penalizing the required backward motion, while the global milestone term remains zero since mt is non-decreasing by construction. The combined signal therefore discourages optimal recovery strategies. A similar issue arises in tasks admitting multiple valid subtask orderings (e.g., assembling four table legs in any permutation): demonstrations following a single ordering cause the learned potential to suppress alternative, equally valid sequences. Extending PBRS-MS with mode-dependent or order-invariant milestone formulations is a natural direction for future work. 
+
+b) Perception and Computation: As a vision-based method, FLORA is sensitive to occlusion: when the objects of interest are partially or fully occluded, the reward signal may degrade. Incorporating multimodal inputs such as propri-oception or tactile feedback is a natural direction to improve robustness. Additionally, the current implementation requires a one-time, per-task-class specification of the objects of interest, which takes about one minute; as open-vocabulary detection models mature, this step could be fully automated. Finally, the offline optimization stage currently takes 1–8 hours per task, dominated by GPT-4.1 inference and BO optimization. As reasoning-capable LLMs improve in code generation, this cost is expected to fall substantially. In the longer term, distilling the full pipeline into a lightweight end-to-end model would eliminate the explicit symbolic search at deployment time. VIII. C ONCLUSION 
+
+We introduced FLORA, a framework for learning invariant symbolic reward functions from as few as five demonstrations. By combining object-centric motion flow representations, the PBRS-MS reward formulation, and hybrid LLM-BO opti-mization, FLORA successfully extracts task-level behavioral invariants from a few demonstrations. Across simulation and real-world manipulation experiments, FLORA provides dense and reliable reward signals, improves downstream policy learn-ing, and enables zero-shot reuse across position, viewpoint, and object variations. These results suggest that symbolic, flow-grounded reward learning is a promising direction for building reusable reward functions for open-world robotic manipulation. REFERENCES 
+
+[1] J. Rocamonde, V. Montesinos, E. Nava, E. Perez, and D. Lindner, “Vision-language models are zero-shot re-ward models for reinforcement learning,” in Proc. Int. Conf. Learn. Representations (ICLR) , 2023. [2] Y. J. Ma, J. Hejna, C. Fu, D. Shah, J. Liang, Z. Xu, S. Kirmani, P. Xu, D. Driess, T. Xiao et al. , “Vision language models are in-context value learners,” in Proc. Int. Conf. Learn. Representations (ICLR) , 2024. [3] C. Kim, M. Heo, D. Lee, H. Lee, J. Shin, J. J. Lim, and K. Lee, “Subtask-aware visual reward learning from segmented demonstrations,” in Proc. Int. Conf. Learn. Representations (ICLR) , 2025. [4] S. Sontakke, J. Zhang, S. Arnold, K. Pertsch, E. Bıyık, D. Sadigh, C. Finn, and L. Itti, “RoboClip: One demon-stration is enough to learn robot policies,” Adv. Neural Inf. Process. Syst. , vol. 36, pp. 55 681–55 693, 2023. [5] K.-H. Hung, P.-C. Lo, J.-F. Yeh, H.-Y. Hsu, Y.-T. Chen, and W. H. Hsu, “VICtoR: Learning hierarchical vision-instruction correlation rewards for long-horizon manipu-lation,” arXiv:2405.16545 , 2024. [6] W. Ye, Y. Zhang, H. Weng, X. Gu, S. Wang, T. Zhang, M. Wang, P. Abbeel, and Y. Gao, “Reinforcement learn-ing with foundation priors: Let the embodied agent efficiently learn on its own,” arXiv:2310.02635 , 2023. [7] T. W. Ayalew, X. Zhang, K. Y. Wu, T. Jiang, M. Maire, and M. R. Walter, “Progressor: A perceptually guided reward estimator with self-supervised online refinement,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2025, pp. 10 297–10 306. [8] S. Chen, C. Harrison, Y.-C. Lee, A. J. Yang, Z. Ren, L. J. Ratliff, J. Duan, D. Fox, and R. Krishna, “TOPRe-ward: Token probabilities as hidden zero-shot rewards for robotics,” arXiv:2602.19313 , 2026. [9] A. Liang, Y. Korkmaz, J. Zhang, M. Hwang, A. An-war, S. Kaushik, A. Shah, A. S. Huang, L. Zettle-moyer, D. Fox et al. , “RoboMeter: Scaling general-purpose robotic reward models via trajectory compar-isons,” arXiv:2603.02115 , 2026. [10] T. Lee, A. Wagenmaker, K. Pertsch, P. Liang, S. Levine, and C. Finn, “RoboReward: General-purpose vision-language reward models for robotics,” arXiv:2601.00675 ,2026. [11] Y. J. Ma, V. Kumar, A. Zhang, O. Bastani, and D. Jayara-man, “LIV: Language-image representations and rewards for robotic control,” in Proc. Int. Conf. Mach. Learn. (ICML) . PMLR, 2023, pp. 23 301–23 320. [12] M. Alakuijala, R. McLean, I. Woungang, N. Farsad, S. Kaski, P. Marttinen, and K. Yuan, “Video-language critic: Transferable reward functions for language-conditioned robotics,” Transactions on Machine Learning Research (TMLR) , 2025. [13] J. Zhang, Y. Luo, A. Anwar, S. A. Sontakke, J. J. Lim, J. Thomason, E. Biyik, and J. Zhang, “ReWiND: Language-guided rewards teach robot policies without new demonstrations,” arXiv:2505.10911 , 2025. [14] Q. Chen, J. Yu, M. Schwager, P. Abbeel, Y. Shentu, and P. Wu, “SARM: Stage-aware reward modeling for long horizon robot manipulation,” arXiv:2509.25358 , 2025. [15] Y. J. Ma, W. Liang, G. Wang, D.-A. Huang, O. Bastani, D. Jayaraman, Y. Zhu, L. Fan, and A. Anandkumar, “Eureka: Human-level reward design via coding large language models,” arXiv:2310.12931 , 2023. [16] T. Xie, S. Zhao, C. H. Wu, Y. Liu, Q. Luo, V. Zhong, Y. Yang, and T. Yu, “Text2Reward: Reward shaping with language models for reinforcement learning,” in Proc. Int. Conf. Learn. Representations (ICLR) , 2023. [17] A. Y. Ng and S. Russell, “Algorithms for inverse rein-forcement learning.” in Proc. Int. Conf. Mach. Learn. 12 
+
+(ICML) , 2000. [18] S. Arora and P. Doshi, “A survey of inverse reinforce-ment learning: Challenges, methods and progress,” Artif. Intell. , vol. 297, p. 103500, 2021. [19] P. Abbeel and A. Y. Ng, “Apprenticeship learning via inverse reinforcement learning,” in Proc. Int. Conf. Mach. Learn. (ICML) , 2004, p. 1. [20] B. D. Ziebart, A. L. Maas, J. A. Bagnell, A. K. Dey et al. ,“Maximum entropy inverse reinforcement learning.” in 
+
+Proc. AAAI Conf. Artif. Intell , vol. 8, 2008, pp. 1433– 1438. [21] C. Finn, S. Levine, and P. Abbeel, “Guided cost learning: Deep inverse optimal control via policy optimization,” in 
+
+Proc. Int. Conf. Mach. Learn. (ICML) . PMLR, 2016, pp. 49–58. [22] D. J. Hejna III and D. Sadigh, “Few-shot preference learning for human-in-the-loop RL,” in Proc. Conf. Robot Learn. (CoRL) . PMLR, 2023, pp. 2014–2025. [23] P. F. Christiano, J. Leike, T. Brown, M. Martic, S. Legg, and D. Amodei, “Deep reinforcement learning from hu-man preferences,” Adv. Neural Inf. Process. Syst. , vol. 30, 2017. [24] D. Sadigh, A. D. Dragan, S. Sastry, and S. A. Seshia, “Active preference-based learning of reward functions,” in Proc. Robot.: Sci. Syst. (RSS) , 2017. [25] Y. Wang, Z. Sun, J. Zhang, Z. Xian, E. Biyik, D. Held, and Z. Erickson, “RL-VLM-F: Reinforcement learn-ing from vision language foundation model feedback,” 
+
+arXiv:2402.03681 , 2024. [26] S. Venkataraman, Y. Wang, Z. Wang, N. S. Ravie, Z. Erickson, and D. Held, “Real-world offline reinforce-ment learning from vision language model feedback,” 
+
+arXiv:2411.05273 , 2024. [27] U. Ghosh, D. S. Raychaudhuri, J. Li, K. Karydis, and A. Roy-Chowdhury, “Preference VLM: Leveraging VLMs for scalable preference-based reinforcement learn-ing,” arXiv:2502.01616 , 2025. [28] H. Hu and D. Sadigh, “Language instructed reinforce-ment learning for human-Ai coordination,” in Proc. Int. Conf. Mach. Learn. (ICML) . PMLR, 2023, pp. 13 584– 13 598. [29] W. Yu, N. Gileadi, C. Fu, S. Kirmani, K.-H. Lee, M. G. Arenas, H.-T. L. Chiang, T. Erez, L. Hasenclever, J. Humplik et al. , “Language to rewards for robotic skill synthesis,” arXiv:2306.08647 , 2023. [30] J. Ma, W. Liang, H.-J. Wang, Y. Zhu, L. Fan, O. Bastani, and D. Jayaraman, “DrEureka: Language model guided sim-to-real transfer,” in Proc. Robot.: Sci. Syst. (RSS) ,2024. [31] R. Zeng, D. Zhou, Q. Liang, J. Liu, H. Li, C. Huang, J. Li, X. Hu, and F. Sun, “Video2reward: Generating reward function from videos for legged robot behavior learning,” arXiv:2412.05515 , 2024. [32] C. Wen, X. Lin, J. So, K. Chen, Q. Dou, Y. Gao, and P. Abbeel, “Any-point trajectory modeling for policy learning,” arXiv:2401.00025 , 2023. [33] M. Xu, Z. Xu, Y. Xu, C. Chi, G. Wetzstein, M. Veloso, and S. Song, “Flow as the cross-domain manipulation interface,” in Proc. Conf. Robot Learn. (CoRL) , 2024. [34] C. Yuan, C. Wen, T. Zhang, and Y. Gao, “General flow as foundation affordance for scalable robot learning,” 
+
+arXiv:2401.11439 , 2024. [35] H. Zhi, P. Chen, S. Zhou, Y. Dong, Q. Wu, L. Han, and M. Tan, “3DFlowAction: Learning cross-embodiment manipulation from 3d flow world model,” 
+
+arXiv:2506.06199 , 2025. [36] R. Xu, J. Zhang, M. Guo, Y. Wen, H. Yang, M. Lin, J. Huang, Z. Li, K. Zhang, L. Wang et al. , “A0: An affordance-aware hierarchical model for general robotic manipulation,” arXiv:2504.12636 , 2025. [37] I. Guzey, Y. Dai, G. Savva, R. Bhirangi, and L. Pinto, “HuDOR: Bridging the human to robot dexterity gap through object-oriented rewards,” in Workshop on Con-tinual Robot Learning from Humans , 2024. [38] K. Yu, S. Zhang, H. Soora, F. Huang, H. Huang, P. Tokekar, and R. Gao, “GenFlowRL: Generative object-centric flow matching for reward shaping in visual re-inforcement learning,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2025. [39] A. Y. Ng, D. Harada, and S. J. Russell, “Policy invariance under reward transformations: Theory and application to reward shaping,” in Proc. 16th Int. Conf. Mach. Learn. (ICML) , 1999, pp. 278–287. [40] P. Yin, T. Westenbroek, S. Bagaria, K. Huang, C.-a. Cheng, A. Kobolov, and A. Gupta, “Rapidly adapting policies to the real world via simulation-guided fine-tuning,” arXiv:2502.02705 , 2025. [41] S. Liu, Z. Zeng, T. Ren, F. Li, H. Zhang, J. Yang, C. Li, J. Yang, H. Su, J. Zhu et al. , “Grounding DINO: Marrying dino with grounded pre-training for open-set object detection,” arXiv:2303.05499 , 2023. [42] M. Oquab, T. Darcet, T. Moutakanni, H. V. Vo, M. Szafraniec, V. Khalidov, P. Fernandez, D. Haziza, F. Massa, A. El-Nouby et al. , “DINOv2: Learning robust visual features without supervision,” Trans. Mach. Learn. Res. , 2024. [43] B. Zhang, L. Ke, A. W. Harley, and K. Fragkiadaki, “TAPIP3D: Tracking any point in persistent 3d geom-etry,” arXiv:2504.14717 , 2025. [44] J. Achiam, S. Adler, S. Agarwal, L. Ahmad, I. Akkaya, F. L. Aleman, D. Almeida, J. Altenschmidt, S. Alt-man, S. Anadkat et al. , “GPT-4 technical report,” 
+
+arXiv:2303.08774 , 2023. [45] P. I. Frazier, “A tutorial on bayesian optimization,” 
+
+arXiv:1807.02811 , 2018. [46] E. Kaufmann, O. Cappe, and A. Garivier, “On bayesian upper confidence bounds for bandit problems,” in Proc. Int. Conf. Artif. Intell. Stat. (AISTATS) , ser. Proceedings of Machine Learning Research, N. D. Lawrence and M. Girolami, Eds., vol. 22. La Palma, Canary Islands: PMLR, 21–23 Apr 2012, pp. 592–600. [47] T. Yu, D. Quillen, Z. He, R. Julian, K. Hausman, C. Finn, and S. Levine, “Meta-World: A benchmark and evalua-tion for multi-task and meta reinforcement learning,” in 
+
+Proc. Conf. Robot Learn. (CoRL) . PMLR, 2020, pp. 1094–1100. 13 
+
+[48] D. Damen, H. Doughty, G. M. Farinella, S. Fidler, A. Furnari, E. Kazakos, D. Moltisanti, J. Munro, T. Per-rett, W. Price et al. , “The EPIC-Kitchens dataset: Col-lection, challenges and baselines,” IEEE Trans. Pattern Anal. Mach. Intell. , vol. 43, no. 11, pp. 4125–4141, 2020. [49] A. O’Neill, A. Rehman, A. Maddukuri, A. Gupta, A. Padalkar, A. Lee, A. Pooley, A. Gupta, A. Mandlekar, A. Jain et al. , “Open X-Embodiment: Robotic learning datasets and RT-X models,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA)) . IEEE, 2024, pp. 6892–6903. [50] P. J. Ball, L. Smith, I. Kostrikov, and S. Levine, “Efficient online reinforcement learning with offline data,” in Proc. Int. Conf. Mach. Learn. (ICML) . PMLR, 2023, pp. 1577–1594. [51] S. Haddadin, S. Parusel, L. Johannsmeier, S. Golz, S. Gabl, F. Walch, M. Sabaghian, C. J¨ ahne, L. Haus-perger, and S. Haddadin, “The Franka Emika robot: A reference platform for robotics research and education,” 
+
+IEEE Robot. Autom. Mag , vol. 29, no. 2, pp. 46–64, 2022. [52] N. Karaev, Y. Makarov, J. Wang, N. Neverova, A. Vedaldi, and C. Rupprecht, “Cotracker3: Simpler and better point tracking by pseudo-labelling real videos,” in 
+
+Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2025, pp. 6013–6022.

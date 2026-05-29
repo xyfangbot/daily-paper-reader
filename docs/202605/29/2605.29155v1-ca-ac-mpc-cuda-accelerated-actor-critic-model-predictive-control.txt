@@ -1,0 +1,314 @@
+Title: CA-AC-MPC: CUDA-Accelerated Actor-Critic Model Predictive Control
+
+URL Source: https://arxiv.org/pdf/2605.29155v1
+
+Published Time: Fri, 29 May 2026 00:24:19 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# CA-AC-MPC: CUDA-Accelerated Actor-Critic Model Predictive Control 
+
+Antonio Buo, Vittorio Cammarota, Michele Avagnale, Pierluigi Arpenti, Vincenzo Lippiello, Fabio Ruggiero 
+
+Abstract— In the literature, actor-critic model predictive control (AC-MPC) integrates MPC with reinforcement learn-ing to enable high-performance control of complex dynamical systems. However, its differentiable MPC layer requires re-peatedly solving an optimization problem in both the forward and backward passes, leading to substantial training and in-ference latency. This paper tackles this bottleneck introducing a CUDA-accelerated variant that significantly reduces end-to-end execution time while preserving the control performance of the baseline formulation. Simulation results on an agile drone racing task show that our approach achieves state-of-the-art lap times and near-limit dynamic behaviour with markedly reduced training and inference time. 
+
+Supplementary Material Code can be found at https://github.com/prisma-lab/CA-AC-MPC. List of most used acronyms 
+
+Acronym Meaning AC-MPC Actor–Critic Model Predictive Control AC-MLP Actor–Critic Multilayer Perceptron CA-AC-MPC CUDA-Accelerated Actor–Critic Model Predictive Control CA-DiffMPC CUDA-Accelerated Differentiable Model Predictive Control CUDA Compute Unified Device Architecture DiffMPC Differentiable Model Predictive Control MLP Multilayer Perceptron MPC Model Predictive Control 
+
+I. Introduction Control design is especially difficult in high-performance robotic applications, where robots operate in dynamic conditions with unmodelled effects, param-eter uncertainties, and rapid transients. The bottleneck of classical model-based control strategies—including online optimization methods such as MPC—is not the model-based paradigm per se, but the mismatch be-tween model fidelity and computational tractability [1]. Pushing performance often requires dynamical models that are either too inaccurate to capture the relevant phenomena or too expensive to be used in real-time [2]. This gap motivated growing interest in reinforcement learning (RL) and other data-driven approaches, which                
+
+> This work was partially supported by the Italian Ministry of University and Research, under the complementary actions to the NRRP ’Fit4MedRob - Fit for Medical Robotics’ Grant (# PNC0000007). This research was also partially supported by the INVITALIA Project NEMESI (CUP C67G22000420008).
+> 1Authors are with PRISMA Lab and CREATE Consortium, Department of Electrical Engineering and Information Technology, University of Naples Federico II, Naples, Italy. Corresponding author’s email:
+
+[fabio.ruggiero@unina.it] .
+
+can optimize control policies directly from task perfor-mance without requiring an explicit high-fidelity model. While RL still requires significant design choices (e.g., reward shaping, curriculum design, hyperparameter tun-ing, etc.), it provides a flexible framework in which feedback policies are learned through interaction with the environment. In particular, RL can handle non-differentiable and structured objectives without relying on proxy references such as predefined trajectories or paths. This has enabled state-of-the-art results in highly dynamic robotic tasks where model-free RL has been shown to outperform classical optimal control in near-limit conditions [3], [4]. However, RL approaches typi-cally require massive amounts of data—often millions of simulated interactions. These challenges have led research to focus on hy-brid control frameworks that combine the structure and reliability of model-based optimal control with the flexibility and task-driven optimization of RL. Among these, AC-MPC emerged as a promising paradigm, in which an MPC-based actor provides short-horizon optimal control actions while a learned critic captures long-term value information [5]. This integration yields policies that retain the interpretability and constraint-handling capabilities of MPC while benefiting from the adaptability and performance of RL [2]. Nevertheless, embedding an optimization-based control layer within a neural policy introduces a computational burden, since each policy evaluation requires solving a parameterized optimal control problem (OCP) rather than executing a simple feed-forward pass [6], [7]. Moreover, MPC typically assumes access to an accurate differentiable dynamic model [2], [7]. In the AC-MPC, the OCP must be solved during the forward pass to compute the control action, and an additional linear system must be solved during the backward pass to propagate gradients, increasing training time. During inference, gradients are not required and only the forward MPC pass is performed; however, the policy remains substantially slower than a standard AC-MLP [5]. This paper addresses this limitation by introducing a CUDA-accelerated actor-critic model predictive control framework, referred to as CA-AC-MPC. Unlike the original PyTorch-based implementation [2], [8], which relies on PyTorch’s GPU backend, our approach directly invokes CUDA kernels for the most computationally intensive operations. This provides finer-grained control over GPU parallelism, reduces overhead, and accelerates 
+
+> arXiv:2605.29155v1 [cs.RO] 27 May 2026
+
+Fig. 1: Inspired from the initial picture in [5], we present the overview of the proposed CA-AC-MPC framework, highlighting the introduced low-level CUDA optimized solver. both the forward and backward passes of the differen-tiable MPC layer. The specific contribution of this work is a fused-kernel CUDA implementation of iterative linear quadratic regulator (iLQR) for differentiable MPC. We present a C++/CUDA PyTorch extension that restructures the iLQR computation into three fused stages (roll-out and linearization, Riccati backward pass with box constraints, and line-search rollout). This replaces the Python-level recursion over the horizon with a fixed number of CUDA kernel launches per iteration. We refer to this implementation as CA-DiffMPC. When integrated into the AC-MPC framework, CA-DiffMPC gives rise to our CA-AC-MPC (see Fig. 1), yielding an overall speed-up of one to two orders of magnitude in our simulations, while also reducing runtime inference. The proposed framework is validated on an agile drone-racing task, where CA-AC-MPC achieves lap-time performance comparable to, and in some cases better than, an end-to-end AC-MLP baseline, consistent with the performance reported for AC-MPC in [9]. We release the source code to facilitate future research 1.II. Related Works The integration of MPC with RL has its roots in dif-ferential dynamic programming and dual control. Early approaches such as guided policy search [10] and MPC-guided policy learning [11] leveraged MPC as a supervi-sory signal or data generator for policy training. Recent developments in DiffMPC [7] have enabled the inclusion of OCPs as differentiable layers within neural networks, allowing gradient-based policy optimization [5]. Nevertheless, DiffMPC-based approaches remain com-putationally demanding. In particular, end-to-end train-ing of the actor requires computing gradients of the MPC solution with respect to the cost parameters predicted by the neural network. Since the MPC solver does not define 
+
+> 1https://github.com/prisma-lab/CA-AC-MPC.
+
+a closed-form mapping, naive automatic differentiation through the solver iterations (i.e., unrolling) is both com-putationally expensive and numerically unstable [12]. An alternative is implicit differentiation, which computes gradients by differentiating the Karush–Kuhn–Tucker (KKT) optimality conditions at convergence, thus avoid-ing the need to store the full computational graph [7]. A complementary direction to mitigate this computational burden is to exploit parallel hardware acceleration. For instance, a GPU-based MPC framework for legged locomotion that enables both temporal and state-space parallelization via a parallel associative scan to solve the primal–dual KKT system is proposed in [13]. Recently, a GPU-accelerated DiffMPC solver based on sequential quadratic programming, combined with a custom pre-conditioned conjugate gradient routine and structure-exploiting tridiagonal preconditioning, was introduced in [14], enabling efficient parallelization of the backward pass. However, existing approaches predominantly ad-dress the computational bottleneck of DiffMPC at the algorithmic level [13], [14]. As acknowledged in those works, GPU acceleration can become ineffective—and in some cases slower than CPU-based implementations— for small- to medium-scale problems, where temporal parallelism does not amortize kernel launch overhead because the per-time step arithmetic is relatively cheap. This regime is highly relevant in robotics, where state and control dimensions are often moderate and dispatch latency can dominate end-to-end execution time. The proposed CA-AC-MPC targets this dispatch overhead directly. III. Methodological Background In this section, the fundamental concepts underlying the AC-MPC framework are briefly summarized. The reader can refer to the cited works for a more detailed discussion. A. Economic Model Predictive Control Let nx ∈ N and nu ∈ N denote the numbers of states and control inputs, respectively, of a given discrete-time dynamical system with nonlinear state-transition map 
+
+f (·, ·) : Rnx × Rnu → Rnx , i.e., xt+1 = f (xt, u t), where 
+
+xt ∈ X ⊆ Rnx denotes the state of the system, belonging to the set X , at time t, and ut ∈ U ⊆ Rnu denotes the control input of the system, belonging to the set U, at time t. Consider the discrete-time finite-horizon OCP [15] 
+
+min   
+
+> u0,...,u T−1
+> T−1
+
+∑
+
+> t=0
+
+ℓt(xt, u t) + Vf (xT )
+
+s.t. xt+1 = f (xt, u t), t = 0 , . . . , T − 1
+
+ut ∈ U , t = 0 , . . . , T − 1
+
+x0 = xinit 
+
+(1) where ℓ(·, ·) : Rnx × Rnu → R is the stage cost, 
+
+Vf (·) : Rnx → R is the terminal cost, and xinit ∈ Rnx
+
+and xT ∈ Rnx are the initial and terminal states of the system, respectively. In MPC, at each sampling instant, the finite-horizon optimization problem (1) is solved using the current state at time step t as the initial condition xinit [16]. Subsequently, only the first control input u∗ 
+
+> 0
+
+of the resulting optimal control sequence is applied to the closed-loop system. The procedure is then repeated at the next time step using the newly measured state [15]. In standard tracking MPC, the stage cost ℓt(·, ·) is typically chosen as a positive-definite quadratic func-tion that penalizes deviations from a prescribed trajec-tory/setpoint. A broader class of formulations is referred to as economic MPC [17], in which the tracking cost is replaced by a more general stage cost encoding a task-specific performance objective. This flexibility in-troduces significant challenges. In many tasks, the stage cost ℓt(·, ·) is sparse, non-smooth, or non-differentiable, complicating both the formulation and the numerical solution of the OCP. Indeed, performance indicators of practical interest are often not smooth by nature [18]: they may exhibit discontinuities, piecewise definitions, or abrupt changes depending on the operating regime. Hence, constructing a globally smooth and informative cost function is often difficult. The lack of differentiabil-ity is particularly problematic for gradient-based opti-mization method. This often requires smoothing approxi-mations, differentiable surrogate costs, or dedicated non-smooth optimization techniques. A common strategy to address these issues in economic MPC is to approximate the original stage cost with a quadratic surrogate that is more amenable to numerical optimization. Defining 
+
+zt = [x⊤ 
+
+> t
+
+u⊤
+
+> t
+
+]⊤ ∈ Rnx+nu , the stage cost can be approximated as 
+
+ℓ(zt) ≈ 12 z⊤ 
+
+> t
+
+Ctzt + c⊤ 
+
+> t
+
+zt, (2) where Ct ∈ R(nx+nu)×(nx+nu) is a positive semidefinite cost matrix and ct ∈ Rnx+nu collects the cost param-eters. The quadratic surrogate in (2) yields a smooth objective and makes the OCP differentiable with respect to (Ct, c t), which is essential when embedding MPC as a differentiable layer within a learning pipeline. However, in economic control tasks, the relevant objective is often time-varying and context-dependent [17]; therefore, fixed hand-tuned parameters may fail to generalize across operating regimes. B. Actor–Critic Policy Architecture In RL, the interaction between an agent and its environment is commonly formalized as a Markov de-cision process (MDP), described by the tuple M =
+
+⟨S , A, P, R, γ ⟩, where S is the state space (with states 
+
+s ∈ S ), A is the action space (with actions a ∈ A ), 
+
+P (s′ | s, a ) = Pr( st+1 = s′ | st = s, a t = a) is the state-transition probability, R(s, a ) = E[rt | st = s, a t = a]
+
+is the expected immediate reward function (with reward 
+
+r), and γ ∈ [0 , 1] is the discount factor. One way to solve these MDP problems is by using temporal difference (TD) methods. The class of TD algorithms updates a value estimate V (s) toward a target that combines the observed reward and the estimate at the next state. The update for a state-value function under policy π is given by V (st) ← V (st)+ α [rt + γV (st+1 ) − V (st)] where 
+
+α > 0 ∈ R is a learning rate and the temporal-difference error δt = rt + γV (st+1 ) − V (st) quantifies the mismatch between successive value estimates [19]. The actor– critic class of algorithms integrates policy optimization with TD value estimation. The actor, with parameters 
+
+θ ∈ Rnθ , represents a stochastic policy πθ (a | s) and it is responsible for choosing actions. The critic, with parameters ϕ ∈ Rnϕ , estimates a value function that evaluates the quality of the actor’s actions. While the critic is typically trained using TD updates to reduce prediction error, the actor is updated via policy gradients that rely on the critic’s evaluation as a performance signal. Let N ∈ N denote the number of sampled trajectories and L ∈ N the episode length. The actor parameters θ are optimized to maximize the expected discounted return J(πθ ) ∈ R via the policy-gradient estimate 
+
+∇θ J(πθ ) = 1
+
+N
+
+> N
+
+∑
+
+> i=1
+> L
+
+∑
+
+> t=1
+
+∇θ log πθ (ait | sit) Aϕ(sit, a it), (3) where the advantage function Aϕ is approximated using the TD error, Aϕ(st, a t) ≈ rt + γV ϕ(st+1 ) − Vϕ(st). Here, 
+
+sit and ait denote the state and action of the i-th sampled trajectory at time t, respectively, and actions are sampled from the stochastic policy as at ∼ πθ (· | st).C. Actor-Critic Model Predictive Control In the AC-MPC architecture [5], [9], the MPC module is embedded as the final layer of the actor network within a standard actor-critic pipeline trained with proximal policy optimization. By casting MPC as adifferentiable layer, gradients can be propagated through the underlying optimal control problem, tightly coupling policy learning with model-based control. Instead of manually specifying task-dependent cost functions, the MPC objective is parameterized by a neural network that outputs quadratic cost coefficients at each time step. This learned cost representation allows the control objective to be shaped directly by the reinforcement signal while preserving key advantages of MPC, including constraint handling and generalization across the state space. To promote exploration during training, control actions are sampled around the MPC solution via a stochastic policy. At deployment time, the deterministic MPC solution is applied directly, retaining the structure of a model-based controller. Algorithm 1 summarizes the resulting AC-MPC workflow. In detail, the AC-MPC framework combines two aspects: it is economic in the objective design and differentiable in the solver implementation. The cost structured adopted by the AC-MPC is (2) [5]. At each timestep, the actor network maps the current observation Algorithm 1 AC–MPC deployment. Require: Trained actor πθ , dynamics f , horizon T , iLQR iterations K, bounds U 
+
+> 1:
+
+for t = 0 , 1, 2, . . . do  
+
+> 2:
+
+Observe state xt 
+
+> 3:
+
+{(Ct, c t)}0: T −1 ← πθ (xt) ▷ stage-cost parameters over the horizon  
+
+> 4:
+
+u⋆t ← DiffMPC (xt, {(Ct, c t}0: T −1, f, U, K ) ▷
+
+DiffMPC: iLQR forward solve [7]  
+
+> 5:
+
+Apply u⋆t to the system ▷ receding horizon  
+
+> 6:
+
+end for to the quadratic cost parameters (Ct, c t), defining the stage objective optimized by the MPC controller online. In parallel, the differentiable iLQR-based solver lets gradients of the RL loss propagate back through the MPC layer, enabling end-to-end actor optimization in an actor-critic setting. Thus, economic specifies what is optimized at runtime, while differentiable specifies how the policy is trained via the underlying optimization. A key limitation of this architecture is computational overhead: each policy evaluation requires solving an MPC problem, and end-to-end training additionally requires differentiating through the solver—typically via the solution of an auxiliary linear system—to propagate gradients. As a result, AC-MPC incurs substantially higher training and inference latency than a standard feed-forward MLP. Although PyTorch provides highly optimized CUDA kernels for many tensor operations [8], differentiable MPC workloads are often composed of repeated horizon-wise recursions and numerous small-to-medium tensor operations. In this regime, end-to-end performance is frequently limited not by raw GPU throughput, but by Python-side orchestration and kernel launch overhead associated with many short-running kernels. IV. Cuda-Accelerated Actor-Critic Model Predictive Control Motivated by the computational bottlenecks high-lighted in Section III-C, we propose the CA-AC-MPC, a CUDA-accelerated extension of the AC-MPC. Rather than relying solely on standard tensor-level dispatch, the proposed implementation leverages fused custom C++/CUDA operators that merge multiple computa-tional steps into single kernel launches. Although graph-based batching (e.g., CUDA Graphs) can also mitigate these costs when tensor shapes and control flow are sufficiently static, our design targets the differentiable MPC workload directly and yields a practical reduction in end-to-end execution time for both training and inference [20], [21]. We consider the same box-constrained control problem adopted by the reference differentiable MPC implemen-tation in [8], which we denote hereafter as the baseline backend DiffMPC 2. The resulting control problem is 
+
+min  
+
+> xt,u t
+> T−1
+
+∑
+
+> t=0
+
+12 z⊤ 
+
+> t
+
+Ctzt + c⊤ 
+
+> t
+
+zt
+
+s.t. xt+1 = f (xt, u t), x0 = xinit ,umin ≤ ut ≤ umax , t = 0 , . . . , T − 1,
+
+(4) where (Ct, c t) parametrize the quadratic surrogate cost predicted by the actor network. Gradients of an external loss L with respect to (Ct, c t) and xinit are recovered via implicit differentiation of the KKT conditions at the converged solution [7], making the backward pass independent of the number of solver iterations. The forward solver follows the control-limited iLQR formula-tion [22]. During AC-MPC training with proximal policy optimization (PPO), the forward solve is invoked at every rollout step; for a single training run with horizon 
+
+T and K iLQR iterations, this results in millions of MPC solves. In DiffMPC [8], each iLQR phase (lineariza-tion, Riccati backward sweep, and line-search rollout) is implemented via a Python-level for loop over the horizon T , triggering O(T ) GPU kernel launches per phase and per iteration. When nx and nu are small to moderate (e.g., below 10 2), each operation completes in a few microseconds, so host-side dispatch and kernel launch overhead can dominate overall runtime. Our contribution is a C++/CUDA extension that fuses each iLQR phase into a single kernel launch, eliminating this dispatch overhead while retaining the same mathematical formulation and implicit differentiation targets. The underlying solver follows a standard iLQR struc-ture and it is implemented as a three-stage loop, described below. These stages are mapped to three fused CUDA kernels, invoked sequentially at each iLQR iteration. 1) Rollout and linearization: Given the current nomi-nal inputs, the kernel computes the state rollout xt+1 =
+
+f (xt, u t) and the analytical Jacobians At = ∂f /∂x ∈
+
+Rnx×nx and Bt = ∂f /∂u ∈ Rnx×nu for all batch elements and timesteps in a single pass. Analytical derivatives avoid storing large autograd graphs (i.e., the data structures employed by automatic differentiation to track operations for gradient computation), reducing memory usage and directly providing the linear time-varying model required for the iLQR backward pass. 2) Backward pass with input bounds: The second kernel runs the iLQR/DDP backward pass (Riccati recursion) over the horizon, yielding δu t = Ktδx t + kt
+
+(unconstrained) where Kt ∈ Rnu×nx and kt ∈ Rnu are the feedback and feedforward gains, respectively. With box constraints umin ≤ ut ≤ umax , the stagewise control update is obtained by solving the corresponding box-constrained quadratic subproblem [22] in CUDA. The recursion is sequential in time and parallelized across batch elements. 
+
+> 2In [8], this backend is referred to as mpc.pytorch.
+
+Algorithm 2 CA-AC-MPC deployment. Require: Actor πθ , dynamics f , horizon T , max iter K,bounds U 
+
+> 1:
+
+Initialize CA-DiffMPC backend  
+
+> 2:
+
+for t = 0 , 1, 2, . . . do  
+
+> 3:
+
+Observe state xt 
+
+> 4:
+
+(C, c )0: T −1 ← πθ (xt) ▷ Cost parameters  
+
+> 5:
+
+(X0, U 0) ← Rollout (xt, f ) 
+
+> 6:
+
+for k = 1 . . . K do  
+
+> 7:
+
+(A, B, ℓ )0: T −1 ← LQ (f, (C, c ), X k−1, U k−1) ▷
+
+Quadraticize cost function  
+
+> 8:
+
+(K, k )0: T −1 ← FBP (( A, B, ℓ ), U) ▷ Fused backward pass  
+
+> 9:
+
+(Xk, U k) ← FFP (xt, U k−1, (K, k )) ▷ Fused forward pass + line-search  
+
+> 10:
+
+if Converged (Xk, U k) then  
+
+> 11:
+
+break  
+
+> 12:
+
+end if  
+
+> 13:
+
+end for  
+
+> 14:
+
+u⋆t ← U k[0] ▷ Extract current action  
+
+> 15:
+
+Apply u⋆t to system ▷ Receding horizon  
+
+> 16:
+
+end for 3) Forward pass with line-search: We denote by α ∈
+
+(0 , 1] the scalar line-search coefficient used to scale the feedforward term. In practice, the third kernel evaluates a small set of candidate values, α ∈ { 1.0, 0.5, 0.25 , 0.1},in parallel. For each candidate, the kernel applies the affine feedback update and rolls out the dynamics to obtain the new trajectory and cost. The best candidate is selected and used to update the nominal solution for the next iLQR iteration. The three stages outlined above constitute our core contribution, the CA-DiffMPC. Compared with a Python-level recursion over time (which typically incurs 
+
+O(T ) GPU operator launches per phase), CA-DiffMPC requires only three kernel launches per iLQR iteration. Embedding CA-DiffMPC as the final differentiable layer of an actor-critic network yields the overall framework, CA-AC-MPC, whose workflow is summarized in Algo-rithm 2. The mathematical formulation and implicit differentiation strategy of the proposed approach are unchanged with respect to DiffMPC [7], [8]. Our con-tribution is thus primarily architectural: we replace per-timestep Python-level loops with three fused CUDA kernel launches per iLQR iteration. V. Numerical Evaluation In this section, we numerically evaluate the proposed CA-AC-MPC framework and compare it with state-of-the-art methods. We assess task performance in a simulated drone racing scenario following [2], [4], [9]. Since the exact SplitS track geometry used in prior studies is not publicly available, we train and evaluate on TABLE I: Training hyperparameters values.                    
+
+> Setting Value Discount factor γ0.99
+> GAE λ0.95
+> Steps per update 256
+> Mini-batch size 2048
+> SGD epochs 10
+> Clip range 0.2
+> Learning rate 3×10 −4→3×10 −5
+> Entropy coef. 0.0
+> Value-loss coef. 0.5
+> Grad. clip 0.5
+
+a reconstructed layout based on available descriptions 3.For consistency, we report lap-time comparisons only within our environment and do not compare absolute lap times with those in the literature. The reconstructed track is available in our provided code. The comparison evaluation is thus organized con-sidering four metrics: (M1) standalone CA-DiffMPC forward- and backward-pass latencies benchmarked against DiffMPC; (M2) CA-AC-MPC policy training time; (M3) CA-AC-MPC policy inference time; and (M4)
+
+closed-loop task performance. Metrics M2 − M4 are eval-uated across three MPC horizon lengths ( T ∈ { 2, 5, 10 })and three iLQR iteration counts ( K ∈ { 1, 5, 10 }). Metrics 
+
+M1 − M3 are reported to quantify the computational advantages of the proposed implementation. In M1, we compare solver latency in isolation by benchmarking the CA-DiffMPC against the baseline DiffMPC, without integrating the actor-critic components. Metrics M2
+
+and M3 evaluate the end-to-end training and inference latency of the complete CA-AC-MPC stack against the original AC-MPC implementation of [9]. However, it is worth citing that, during these comparisons, we observed persistent memory leaks when running the public AC-MPC codebase [9] with the DiffMPC backend 4. A practi-cal consequence of this issue is that the baseline AC-MPC policy could not be trained to converge in our setup, preventing a direct, like-for-like, closed-loop comparison in metrics M4.Regarding the learning setup, the actor predicts the stage-cost coefficients via a neural cost map implemented as a two-layer MLP— 512 hidden units per layer, rectified linear unit (ReLU) activations—with a sigmoid output layer that enforces the same scaling and bounds as the reference implementation. The critic is a two-layer ReLU MLP with 512 hidden units per layer and outputs a scalar value. All other implementation details follow the original AC-MPC formulation and its public codebase. Training hyperparameters are reported in Table I. All simulations were conducted on a desktop workstation equipped with an Intel Core i9-13900K CPU and an NVIDIA RTX A6000 GPU. 
+
+> 3Gates were reconstructed from top-down views and metric scales reported in the cited papers; gate heights are more uncertain.
+> 4See: https://github.com/uzh-rpg/acmpc_public/issues/1
+
+TABLE II: Execution time comparison (in milliseconds) between CA-DiffMPC and DiffMPC.                               
+
+> Forward time Backward time
+> BTCA-DiffMPC DiffMPC CA-DiffMPC DiffMPC 120.93 9.92 0.32 4.81
+> 10 1.08 41 .00.80 9.16
+> 50 1.84 492 2.35 30 .1
+> 256 21.21 25 .40.38 9.71
+> 10 1.68 90 .30.87 14 .5
+> 50 4.00 674 2.60 37 .3
+
+A. Solver latency comparison ( M1)To evaluate M1 we did not consider the drone racing scenario. Here, the MPC aims at stabilizing the drone at random target hovering positions, and the time required to compute each control update is recorded. The task is performed for three prediction horizons ( T ∈ { 2, 10 , 50 }), both for a single environment ( B = 1 ) and for a batch of B = 256 environments to characterize scaling under parallel execution. Table II reports the corresponding numerical values. The proposed CA-DiffMPC achieves consistently low forward-pass latency in the single-instance setting compared to the baseline DiffMPC and demonstrates effective scaling when evaluated on large batches. B. Training time comparison ( M2)Here we performed shortened training runs under identical conditions for both solvers. In preliminary evaluations with AC-MPC (which uses DiffMPC as the differentiable MPC backend [7], [8]), random access memory usage increased steadily until the process ter-minated, preventing completion of the full 10 7 training steps. We attribute this behaviour to two likely causes: (i) the LQRStep closure factory instantiated a new torch.autograd.Function subclass on each call, causing unbounded accumulation of class-level metadata in Py-Torch’s autograd engine; (ii) the iLQR iteration loop executed with gradient tracking enabled, constructing large autograd graphs during each of the ∼80 MPC solves per PPO update that were never backpropagated through. We patched the library by replacing the clo-sure factory with a single module-level Function class, executing the iteration loop within a torch.no_grad() context, and invoking malloc_trim after each rollout to reclaim fragmented heap memory. These modifications remove only unnecessary autograd bookkeeping and do not affect the solver’s numerical output. With these patches, memory usage plateaus, and the full train-ing completes successfully. The resulting training times are reported in Table III. Across both horizons, our implementation (see Fig. 2 for CA-AC-MPC training throughput) consistently reduces training time relative to AC-MPC, decreasing runtime from more than two hours to about 27 minutes (about 5.4× speedup). For reference, training a policy based solely on an AC-MLP TABLE III: Policy training times for the AC-MLP, the AC-MPC, and the CA-AC-MPC.                        
+
+> AC-MLP 16m:18s TK= 1 K= 5 K= 10
+> AC-MPC 2–2h:15m:03s –CA-AC-MPC 221m:22s 27m:32s 30m:30s CA-AC-MPC 521m:55s 37m:03s 29m:01s CA-AC-MPC 10 21m:34s 30m:29s 33m:22s its/s
+
+Fig. 2: CA-AC-MPC training throughput, measured in thousands of iterations per second. Results are grouped by prediction horizon, from left to right ( T ∈ { 2, 5, 10 }). Within each group, bars represent varying numbers of iLQR iterations (K ∈ {1, 5, 10 }, from left to right, respectively). (without the MPC in the loop) requires roughly 16 
+
+minutes under the same hardware setup. While this indicates that MPC-based training remains more com-putationally demanding, the overhead introduced by our solver is limited to a moderate increase (about 1.3× with respect to the AC-MLP). For the sake of transparency, we note that, under our setup, the AC-MPC absolute training times differ significantly from those reported in [9]. This discrepancy is likely due to differences in stopping criteria, hardware, and other implementation details not stated in public repositories. Moreover, since the AC-MPC baseline did not reliably converge in our simulations, the only result reported is the one achieving convergence, also allowing for inference time comparison. C. Policy Inference Times ( M3)The proposed solver achieves substantial improve-ments in policy inference latency across all tested con-figurations (Table IV). Relative to the inference times reported in [5], [9], we observe an approximately 10 ×
+
+speedup in the baseline AC-MPC configuration ( T = 2 ,five iLQR iteration). For longer horizons and multiple quadratic iterations, the performance improvements be-come even more pronounced. The improved scaling stems from the constant number of GPU kernel launches in our implementation, which avoids the horizon-dependent overhead present in previous approaches. As a result, TABLE IV: Policy inference times (in milliseconds) for the AC-MLP, the AC-MPC, and the CA-AC-MPC.                                              
+
+> AC-MLP 0.245 ±0.01 TK= 1 K= 5 K= 10
+> AC-MPC 2–11.6 ±0.9 –CA-AC-MPC 21.26 ±0.06 1.26 ±0.06 1.26 ±0.07 CA-AC-MPC 51.43 ±0.08 2.39 ±0.08 2.32 ±0.17 CA-AC-MPC 10 1.60 ±0.01 2.83 ±0.10 2.99 ±0.30
+
+inference time grows significantly more slowly with prob-lem complexity. For the same reasons reported at the end of Section V-B, comparison with AC-MPC baseline was possible only with the case achieving convergence. D. Policy Performance ( M4)This section evaluates the performance of the trained policy across different prediction horizons. The resulting trajectories are illustrated in Fig. 3, while a top-down view featuring a velocity-based color map is provided in Fig. 4. Although the peak velocity remains comparable across the evaluated trajectories, the optimal policy maintains a consistently higher speed throughout the entire track. This is particularly evident between gates 
+
+2 and 4, before the split-S maneuver, whereas the alternative methods exhibit noticeable deceleration when approaching the waypoints. As shown in Fig. 4, all trained policies achieve peak velocities of approximately 20 m /s, demonstrating the ability to operate the platform near its dynamic limits. The primary qualitative difference among the policies lies in the geometry of the resulting trajectories: increasing the number of iterations leads to progressively smoother paths. Table V reports the achieved lap times to provide a comprehensive assessment of closed-loop performance. As said, direct comparisons with [5], [9] are intentionally omitted because the same SplitS track geometry was not publicly available. Consequently, the reported results are intended as controlled evaluation of the performance gains unlocked by the proposed solver, whose improved computational efficiency enables the use of longer MPC horizons and more solver iterations. The most stable and effective results were obtained for horizons T = 2 and 
+
+T = 5 . Increasing the horizon to T = 10 , the resulting MPC problem requires the prediction of 140 optimization variables, increasing the problem complexity. Given the limited capacity of the adopted neural network archi-tecture, this led to training instability and ultimately prevented to a policy convergence. VI. Discussion Despite the substantial reduction in solver latency enabled by CA-AC-MPC, several limitations remain. Increasing the MPC horizon in the CA-AC-MPC frame-work tends to improve performance in agile tasks (see Table V) but it also increases the number of cost [m]
+
+> [m][m][m][m][m]
+
+Fig. 3: Simulated agile drone flight trajectories for horizon T = 2 (top) under different iLQR iteration counts ( K ∈ { 1, 5, 10 }, shown in blue, orange, and green, respectively) and T = 5 (bottom). The green circle indicates the starting position. Gates are numbered. TABLE V: Lap times (in seconds) for the AC-MLP and the CA-AC-MPC.               
+
+> TKLap time [s] AC-MLP ––5.32 CA-AC-MPC 255.26 CA-AC-MPC 210 5.10 CA-AC-MPC 554.98
+
+parameters that the actor must predict. As the hori-zon grows, a simple feed-forward AC-MLP struggles to output temporally consistent costs, leading to noisy or inconsistent objectives across timesteps. This can slow down training and reduce robustness. A promising direction is to enforce structure in the cost parametrization: a move blocking cost could be a solution, or use temporal architectures that explicitly model time/progress dependencies [23]. Our solver en-forces box constraints on the control inputs within the iLQR/DDP update; however, general state constraints are not directly supported by the underlying differen-tiable MPC layer and are currently handled through differentiable barrier/penalty terms. While this preserves differentiability, it does not provide hard constraint guarantees and may increase the learning burden, as the actor must learn both task optimality and implicit Fig. 4: Top view of simulated agile drone trajectories across distinct horizons and iLQR iterations: (a) T = 2 , K = 1 ;(b) T = 2 , K = 5 ; (c) T = 2 , K = 10 ; (d) T = 5 , K = 5 . The green circle indicates the starting position. The colorbar indicates variations in the instantaneous velocity norm. Gates are numbered. constraint satisfaction. Agile flight and racing objectives vary with track progress and maneuver phase. Thus, if the MPC cost is parameterized by a purely feed-forward network, coherent time-varying cost schedules generally require explicit progress/time inputs or asequence model; otherwise, the policy may struggle to maintain consistent objectives over long horizons. The three-kernel-per-iteration structure also makes CA-DiffMPC a promising candidate for embedded GPU deployment. By replacing horizon-wise PyTorch re-cursions with a compact, horizon-independent CUDA launch pattern, the solver reduces CPU-side dispatch overhead, a key concern for small-scale MPC workloads on platforms such as NVIDIA Jetson Orin. Although hardware validation remains future work, this archi-tecture suggests that deployment on realistic robotic compute platforms should preserve much of the observed latency advantage. VII. Conclusion In this work, we extend AC-MPC with CUDA-based GPU acceleration. Our resulting CA-AC-MPC substan-tially reduces both training and inference time relative to the baseline implementation. The speedups come from faster differentiable MPC solves across horizon lengths and batch sizes, enabled by a fused-kernel CUDA iLQR implementation for differentiable MPC, which we call CA-DiffMPC. Overall, CA-DiffMPC yields approx-imately at least one order-of-magnitude speed-ups in forward and backward solve time for single instances, and at least 20 × for batched problems. As a result, the proposed CA-AC-MPC increases end-to-end training time by only about 30% relative to the AC-MLP baseline, whereas the reference AC-MPC implementation requires approximately 30 × the AC-MLP training time [5]. This substantially reduces the latency introduced by em-bedding a differentiable MPC layer within the actor– critic paradigm, which constitutes the main bottleneck of the original architecture. Crucially, these computational advantages are obtained without compromising closed-loop performance in a drone racing scenario. Although a direct, like-for-like comparison against the full baseline AC-MPC was not possible due to issues in the public repository, our simulations show that CA-AC-MPC en-ables near-limit dynamic behaviour consistent with [5]. References  
+
+> [1] Z. Xie, Y. Wang, X. Luo, P. Arpenti, F. Ruggiero, and B. Sicil-iano, “Three-dimensional variable center of mass height biped walking using a new model and nonlinear model predictive control,” Mechanism and Machine Theory, vol. 197, p. 105651, 2024.
+
+[2] A. Romero, S. Sun, P. Foehn, and D. Scaramuzza, “Model pre-dictive contouring control for time-optimal quadrotor flight,” IEEE Transactions on Robotics, vol. 38, no. 6, pp. 3340–3356, 2022. [3] Y. Song, A. Romero, M. Müller, V. Koltun, and D. Scara-muzza, “Reaching the limit in autonomous racing: Opti-mal control versus reinforcement learning,” Science Robotics, vol. 8, no. 82, p. eadg1462, 2023. [4] E. Kaufmann, L. Bauersfeld, A. Loquercio, M. Müller, V. Koltun, and D. Scaramuzza, “Champion-level drone racing using deep reinforcement learning,” Nature, vol. 620, no. 7976, pp. 982–987, 2023. [5] A. Romero, Y. Song, and D. Scaramuzza, “Actor-critic model predictive control,” in 2024 IEEE International Conference on Robotics and Automation (ICRA), pp. 14777–14784, 2024. [6] B. Amos and J. Z. Kolter, “OptNet: Differentiable optimiza-tion as a layer in neural networks,” in International Conference on Machine Learning (ICML), pp. 136–145, 2017. [7] B. Amos, I. D. J. Rodriguez, J. Sacks, B. Boots, and J. Z. Kolter, “Differentiable MPC for end-to-end planning and con-trol,” in Advances in Neural Information Processing Systems (NeurIPS), vol. 31, 2018. [8] B. Amos, I. Jimenez, J. Sacks, B. Boots, and J. Z. Kolter, “mpc.pytorch: A fast and differentiable model predictive con-trol solver for pytorch (v0.0.6).” https://github.com/locuslab/ mpc.pytorch/tree/v0.0.6, 2024. GitHub repository, MIT Li-cense. Accessed: 2026-02-14. [9] A. Romero, E. Aljalbout, Y. Song, and D. Scaramuzza, “Actor–critic model predictive control: Differentiable opti-mization meets reinforcement learning for agile flight,” IEEE Transactions on Robotics, vol. 42, p. 673–692, 2026. [10] S. Levine, C. Finn, T. Darrell, and P. Abbeel, “End-to-end training of deep visuomotor policies,” Journal of Machine Learning Research, vol. 17, no. 39, pp. 1–40, 2016. [11] A. Nagabandi, G. Kahn, R. S. Fearing, and S. Levine, “Neu-ral network dynamics for model-based deep reinforcement learning with model-free fine-tuning,” in IEEE International Conference on Robotics and Automation (ICRA), 2018. [12] A. Agrawal, B. Amos, S. Barratt, S. Boyd, S. Diamond, and J. Z. Kolter, “Differentiable convex optimization lay-ers,” in Advances in Neural Information Processing Systems (NeurIPS), vol. 32, 2019. [13] L. Amatucci, J. Sousa-Pinto, G. Turrisi, D. Orban, V. Bara-suol, and C. Semini, “Primal-dual ilqr for gpu-accelerated learning and control in legged robots,” IEEE Robotics and Automation Letters, vol. 11, no. 1, pp. 1010–1017, 2026. [14] E. Adabag, M. Greiff, J. Subosits, and T. Lew, “Differen-tiable model predictive control on the gpu,” arXiv preprint arXiv:2510.06179, 2025. [15] F. Borrelli, A. Bemporad, and M. Morari, Predictive Control for Linear and Hybrid Systems. Cambridge University Press, 2017. [16] L. Grne and J. Pannek, Nonlinear model predictive control: theory and algorithms. Springer Publishing Company, Incor-porated, 2013. [17] M. Ellis, J. Liu, and P. D. Christofides, Economic Model Pre-dictive Control: Theory, Formulations and Chemical Process Applications. Advances in Industrial Control, Springer, 2017. [18] R. Findeisen, L. Grüne, and M. A. Müller, eds., Economic Model Predictive Control. Cham: Springer, 2017. [19] R. Sutton and A. Barto, “Reinforcement learning: An intro-duction,” IEEE Transactions on Neural Networks, vol. 9, no. 5, pp. 1054–1054, 1998. [20] PyTorch Blog, “Accelerating pytorch with cuda graphs.” https: //pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/, 2021. Accessed: 2026-02-14. [21] PyTorch Contributors, “Cuda semantics – pytorch documentation.” https://docs.pytorch.org/docs/stable/ notes/cuda.html, 2026. Accessed: 2026-02-14. [22] Y. Tassa, N. Mansard, and E. Todorov, “Control-limited differential dynamic programming,” in IEEE International Conference on Robotics and Automation (ICRA), pp. 1168– 1175, 2014. [23] W. Li, H. Luo, Z. Lin, C. Zhang, Z. Lu, and D. Ye, “A survey on transformers in reinforcement learning,” 2023.

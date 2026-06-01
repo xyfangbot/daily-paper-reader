@@ -1,0 +1,434 @@
+Title: Self-Supervised Online Robot-Agnostic Traversability Estimation for Open-World Environments
+
+URL Source: https://arxiv.org/pdf/2605.28442v2
+
+Published Time: Mon, 01 Jun 2026 01:39:52 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Self-Supervised Online Robot-Agnostic Traversability Estimation for Open-World Environments 
+
+Julia Hindel, Simon Bultmann, Houman Masnavi, Daniele Cattaneo, and Abhinav Valada 
+
+Abstract — Self-supervised online traversability estimation enables robots to continuously learn from unlabeled open-world experiences and adapt their navigation behavior toward safe and efficient trajectories. Existing approaches either rely on handcrafted proprioceptive traversability scores, limiting robot-agnosticism, or cluster prior data, preventing online learning. Moreover, many continual learning methods incur substantial memory and computational costs, hindering onboard deployment. We introduce COTRATE, an online learning frame-work for continuous traversability estimation from multimodal, unlabeled robot experience. Our method first infers robust traversability scores using a robot-agnostic, learning-based online terrain assessment module operating on proprioceptive and inertial signals. These scores then supervise a visual traversability network through a novel alignment loss that associates visual embeddings with online terrain assessments. To mitigate forgetting during continual learning with minimal overhead, we propose a diversity-aware feature selection strategy that preserves performance using a compact replay memory. We further show that the learned traversability representation supports knowledge transfer across different robot platforms with different locomotion kinematics. We evaluate COTRATE on a dataset of ≈ 50,000 images collected with two robotic platforms across 11 outdoor terrains, and benchmark it on navigation tasks in three representative outdoor environments. We make the dataset, code, and trained models publicly available. 
+
+I. I NTRODUCTION 
+
+Mobile robots are increasingly deployed in off-road en-vironments for diverse applications, such as agriculture [1] and forestry [2], where safe and energy-efficient navigation is essential. In such settings, traversability estimation enables robots to assess terrain difficulty and dynamically update motion plans according to the expected traversal cost. How-ever, off-road environments are inherently open-world as robots frequently encounter previously unseen terrain types, changing surface conditions, and robot-terrain interactions that cannot be fully captured by static models trained offline. Self-supervised learning from proprioceptive and inertial sensing provides a promising solution for this problem, as these signals directly reflect the interaction between the robot and the terrain. Unlike pure visual supervision, proprioceptive feedback can capture quantities that are closely related to physical traversal cost, including motion irregularity, slip, vibration, and energy expenditure. Such signals can therefore be used to generate traversability assessments without manual annotation and supervise a visual model that predicts terrain cost from images before the robot physically reaches the terrain. However, for fully autonomous deployment, this 
+
+> Department of Computer Science, University of Freiburg, Germany. This work was funded by the German Research Foundation (DFG) Emmy Noether Program grant number 468878300 and SFB 1597 – 499552394
+> Fig. 1: COTRATE learns self-supervised, robot-agnostic traversability scores from multimodal sensor data which supervise a visual traversability network during online learning.
+
+supervision should be generated online, generalize across robot platforms, and support continual visual learning without excessive memory or computation. Existing self-supervised traversability methods only par-tially address these requirements. Several approaches derive traversability labels from handcrafted proprioceptive criteria, such as traction estimates [3], [4] or vibration intensity along the vertical axis [5]. While effective in specific settings, these scores are often tied to a particular robot morphology, sensor configuration, or locomotion mechanism, and they do not explicitly capture energy-efficient traversal. This limits their applicability across different platforms and makes transfer of experience between robots challenging. Other methods learn terrain representations from inertial, proprioceptive, or tactile sensor streams and cluster terrain types offline [6]. However, these approaches typically rely on pre-collected datasets and human ratings, whereas robots operating in the open world must adapt online as new terrains are encountered. Another critical challenge is the continual adaptation of the visual traversability model. As the robot encounters new terrain appearances, the visual model must incorporate new supervision while retaining previously acquired knowledge. Naively updating the model online leads to catastrophic forgetting [7], whereas many continual learning strategies require storing raw data [8], [9] or training generative replay models [10], which is often impractical for onboard deployment under limited compute and memory budgets. In this work, we propose COTRATE ( Continual Online 
+
+Transferable Robot-Agnostic Traversability Estimation), a unified framework for self-supervised visual traversability learning in outdoor environments. COTRATE learns contin-uous traversability scores from multimodal robot experience (Fig. 1) and leverages them to supervise a monocular visual traversability network during online operation. At the core of 
+
+> arXiv:2605.28442v2 [cs.RO] 29 May 2026
+
+our method is a novel online traversability score generation module that predicts numerical traversability scores using an incrementally trained variational autoencoder. These scores supervise a visual model that incorporates a pretrained visual foundation model with our novel feature-distance alignment loss to correlate visual feature similarities with our learned continuous traversability scores. To enable continual learning, we introduce a diversity-aware feature-replay strategy that retains a compact set of representative features and mitigates forgetting under a minimal replay budget. Finally, we study cross-platform transfer and show that the learned traversability representation can be transferred across robotic embodiments with different locomotion kinematics when their terrain-dependent energy-efficiency ratings are compatible. We evaluate COTRATE on a novel collected outdoor dataset comprising 11 terrain types across two robotic platforms with distinct embodiments. Navigation experiments in three representative environments demonstrate the method’s effectiveness, with systematic ablations quantifying the impact of terrain scoring, visual alignment, feature replay, and cross-platform transfer. The results show that COTRATE enables continuous self-supervised traversability learning while maintaining low memory overhead and supporting transferable terrain understanding across platforms. In summary, our main contributions are:  
+
+> •
+
+A novel robot-agnostic, online, self-supervised terrain assessment module that yields continuous traversability scores from proprioceptive and inertial data.  
+
+> •
+
+A visual traversability estimation framework that aligns monocular visual features with learned multimodal traversability assessments.  
+
+> •
+
+An efficient continual learning strategy based on diversity-aware selective feature replay for low-memory onboard adaptation.  
+
+> •
+
+Extensive evaluations and ablation on two distinct robotic platforms, including navigation experiments in three representative outdoor environments.  
+
+> •
+
+We publicly release the code, models, and dataset upon acceptance. II. R ELATED WORKS 
+
+Self-Supervised Traversability Estimation : Self-supervised methods compute traversability estimates from on-board sensors without human labeling. Commonly, cues such as flat surfaces in 3D scene geometry [11], traction [12], or the past traversal of a terrain [13] are used to distinguish traversable from non-traversable terrain. Additional work examines the risk of collision with a reinforcement learning framework [14]. While these methods ensure safe navigation, they fail to prioritize energy-efficient trajectories. Accordingly, other pertinent work focuses on computing continuous traversability costs from audio, inertial, and proprioceptive sensor data. While vehicle-terrain acoustic interactions are clustered to obtain weak terrain labels [15], other works compute a precise slip between the commanded and observed movement of the robot [3], [4], [16], [17]. Thereby, terrains experiencing the highest deviation are regarded as least traversable. Another direction of work analyzes frequency patterns in IMU data to discriminate terrain difficulty [5], [18]–[21]. In general, high vibrations along the robot’s z-axis are considered directly proportional to terrain difficulty. Some prior works combine vibration with traction or joint measurements [19], [22] to create robust metrics. However, vibration and traction are not directly correlated with energy efficiency, and all available platform-dependent proprioceptive sensors should be automatically leveraged [6]. While AMCO [23] and Pronav [24] cluster joint measurements to divide terrains, Sterling [6] proposes multimodal representation learning to correlate various tactile, inertial, and proprioceptive readings with image data. However, the latter requires offline clustering and human preferences to determine the final traversability scores [6]. Consequently, we highlight the need for an online, robot-agnostic traversability estimation method that leverages all raw platform-dependent proprioceptive sensors to estimate robust traversability scores. 
+
+Continual Traversability Estimation : While prior work com-monly explores few- and zero-shot capabilities [3], [4], [12], [13], [19], continual learning techniques avoid forgetting prior knowledge when learning from new observations [25]. Traditional continual learning schemes include replay buffers, knowledge distillation, and network expansion [7], with replay methods outperforming the latter two on image classification and semantic segmentation benchmarks. Replay buffers commonly save a small portion of previous data for periodic retraining. In the context of traversability estimation, IMOST [8] uses information-maximization to select suitable replay images, while ARTE [9] focuses on LiDAR-based traversability and stores samples with the highest losses. Further, Lee et al. [10] leverage a VAE-based replay model to synthesize past data, removing the need to store raw images at the cost of higher computational complexity. We leverage a frozen vision foundation backbone and store representative visual features selected via furthest-point sampling to span the full extent of the feature space. This strategy reduces computational and storage overhead while effectively preventing forgetting. III. T ECHNICAL APPROACH 
+
+In this section, we present the methodology of the CO-TRATE framework, which first learns traversability scores from inertial and proprioceptive signals and then uses them to incrementally train a visual network, as shown in Fig. 2. 
+
+A. Problem definition 
+
+This work addresses online traversability estimation for out-door navigation in environments with unknown terrain bound-aries. We process sensor sequences D = {D1, D 2, . . . , D o}
+
+that arrive as a continuous stream, where each sequence Di
+
+contains RGB images I, point clouds P , and propriocep-tive and inertial measurements from on-board sensors. Our traversability estimation module learns normalized scores 
+
+TS ∈ [0 , 1] from the multimodal sensor data. Scores are predicted periodically (every 5 minutes) and converted to supervision signals for the vision model via odometry-based projection. Both visual and sensor models are updated DINOv3 
+
+> Visual Network (b)  Trav. Scoring (a)
+> Feature
+> Replay (c)
+> Sensor
+> decoder
+> Conv head
+> Sensor
+> encoder Fig. 2: COTRATE trains a Variational Auto-encoder (VAE) on different proprioceptive and inertial raw sensor data to obtain self-supervised traversability scores through learned embedding distances. Then, a DINOv3 backbone with a small trainable head extracts visual terrain features from a reference image and regularizes the observed feature differences to be equivalent to the embedding distances of the sensor model.
+
+online using a single training epoch. At inference, per-image traversability scores are back-projected onto the point cloud 
+
+P and accumulated into a dense 2.5D elevation map for downstream path planning and evaluation. 
+
+B. Data Collection and Pre-Processing 
+
+We collect a multimodal off-road dataset with two robotic platforms (Boston Dynamics Spot and Clearpath Husky) across 11 terrain types, including walkways, open grounds, and playgrounds. Data is captured over four months with varying lighting and weather conditions. We record three distinct test environments at distant locations. In total, the dataset comprises 50 , 000 images. All sensor streams are recorded in ROS bag format with synchronized timestamps. Odometry is computed using Fast-LIO2 [26]. 
+
+Traversability score ( TS ): To learn traversability scores in a self-supervised manner, we first temporarily align sensor readings (IMU, joint motors, odometry, velocity commands) and linearly interpolate lower-frequency sensors. The synchro-nized data is partitioned into frames Xt ∈ RW ×S , where W
+
+is the time window size and S is the sensor dimensionality. We encode the data with a small Variational Auto-Encoder (VAE) consisting of an encoder with two CNN layers with ReLU, followed by adaptive average pooling across time and two parallel linear layers to obtain mean Pt ∈ R1×L
+
+and variance σt. The decoder applies two CNN layers with ReLU to reconstruct yt ∈ R1×S . We employ four loss functions to separate terrains based on robot dynamics in the VAE latent space P as shown in Fig. 2a. First, we apply the Kullback-Leibler loss ( LKL ) to smooth latent feature distributions and a reconstruction MSE-based loss ( LREC )on the decoder output yt and the last sensor reading of the input sequence xt,W , focusing on temporal dynamics and periodicity rather than identity mapping [27]. Further, we enhance the feature separation with Vicreg [28] ( LVIC ), a non-contrastive representation learning method. This loss minimizes the distance between correlated features while ensuring sufficient variance among batch samples, using a hinge loss. In contrast to Sterling [6], which performs image-viewpoint and image-sensor correlations, we learn time-series representations where the reference for Pt1 is 
+
+Pt2 if t1 − t2 < H, else Pt1 . Here, t1 and t2 are the last sensor readings of consecutive sequences, and H is a predefined threshold. Consequently, LVIC guides features from temporally adjacent samples to be similar. Lastly, we ensure consistent features during online learning by replaying past sensor data with a 20:80 old-to-new data ratio, constraining learned latent features between initial P (1)  
+
+> t
+
+and new feature positions P (i) 
+
+> t
+
+with our MSE-based LINC loss. Full data replay is feasible given the small memory overhead of sensor data (< 400 MB on disk). In summary, our total loss function for our traversability score creation module is defined as: 
+
+L = αLKL + βLREC + γLVIC + α + β + γ
+
+3 LINC , (1) where α, β, γ are tunable hyperparameters. We hypothesize that minimizing the losses organizes the embedding space such that similarly felt terrains cluster in proximity. Thus, we manually define a reference terrain A from 5 minutes of robot navigation on smooth, well-traversable terrain (yielding 
+
+MA timestamps), then compute traversability scores TS,t as the normalized cosine similarity of a feature Pt and mean reference feature PA:
+
+PA = 1
+
+MAMAX
+
+> m=1
+
+PA,m , TS,t = PA, P t
+
+∥PA∥ ∥ Pt∥ . (2) This brief calibration suffices for our self-supervised approach and we observe the correlation between our computed scores and mean energy consumption per terrain in Sec. IV-D. 
+
+Pixel-wise Visual Traversability ( TV ): To obtain sparse visual annotations, we convert the experienced traversability into visual footprints TF by projecting TS onto image coordinates using odometry, the center of mass, and camera calibration, as in [12]. Then, we compute fine-grained terrain masks TM using a frozen DINOv3 [29] encoder, grouping footprint features with cosine similarity greater than threshold Stego  Ours Fast-SAM Odometry Only (  )Fig. 3: Visual comparison of terrain masks predicted by Stego [31], Fast-SAM [30] and DINOv3 (ours). TM shows segmentation masks in arbitrary colors, and Odometry Only indicates the robot’s center as crosses. TV shows the combination of TM with visual footprints TF .
+
+c into segments as shown in Fig. 3. We find that this methodology performs better for ground segmentation than the object-oriented Fast-SAM model [30] or Stego [31], as shown in Fig. 3 and Sec. IV-D. We compute the final traversability mask TV by averaging TF within each segment of TM .
+
+C. Visual Traversability Estimation Model 
+
+We use the frozen ViT-backbone with DINOv3 pre-training [29], which we introduced for generating TM , as our visual network encoder. Our decoder consists of two CNN layers with batch normalization and ReLU activations, yielding C-dimensional features. We interpolate to image dimensions D = W · H, yielding F ∈ RD×C . Then, we allocate NA reference images {IA}NA 
+
+> n=1
+
+of the previously defined terrain A and compute reference features {FA} in a forward pass. Next, we compute the mean FA from 100 
+
+randomly sub-sampled features in terrain regions of {FA}.
+
+Multimodal Alignment Loss : Our alignment loss enforces the cosine similarity of predictions Ft for image It versus 
+
+FA to match their traversability scores TV,t :
+
+ˆTV,t = FA, F t
+
+∥FA∥ ∥ Ft∥ , Lalign = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+ ˆTV,t − TV,t 
+
+2
+
+. (3) This loss function ensures that distances between visual features reflect relative terrain difficulty. We only compute gradients w.r.t the input It and rescale the computed cosine similarities in ˆTV,t to a value range of [0 , 1] for inference. 
+
+Continual Terrain Learning : Continual learning enables adaptation to new terrains, but catastrophic forgetting is a major challenge. We mitigate this with selective feature replay, which outperforms alternatives on classification tasks while minimizing storage requirements [25]. Specifically, we replay selected encoder features through our custom decoder to retain knowledge. We propose to select features based on furthest-point sampling (FPS), as prototypes [25] cannot be obtained from distributional heuristics for regression tasks. Specifically, we maintain a replay feature buffer BR and a temporary feature buffer BT . During online training, incoming visual terrain features are first stored in BT . After a fixed time interval tb, we update BR as BR 
+
+> new
+
+= F P S (BR 
+
+> old
+
+∪BT ). Then, we perform a forward pass through our decoder and save their correlating current predictions F BR . Our replay loss Lreplay en-forces constant predictions of F BR with a MSE loss every tr
+
+iterations. This online learning strategy results in stable train-ing with minimal storage requirements. To reduce sparsity, we introduce feature cut-mix (FCM), which replaces features in unannotated image regions with features from BR . FCM com-plements Lreplay and stabilizes the semi-supervised training. 
+
+D. Traversability-Aware Navigation 
+
+We build a 3D voxel map with a traversability channel using a semantic mapping approach [32]. Thus, we first project the time-synchronized LiDAR scans into the camera-based traversability prediction ˆTV using the known calibration and obtain point-wise traversability scores ˆTP via bilinear interpolation. Multiple ˆTP are then aggregated into a 3D voxel map ˆMp using LiDAR odometry [26], where voxel-wise traversability scores are updated over time using a recursive moving average. Subsequently, we reduce ˆMp to a 2.5D elevation map ˆMe by projecting voxels between the ground plane, estimated via RANSAC, and a maximum height hmax .
+
+Path Evaluation : The planner employs A* search with a terrain-aware cost function that integrates geometric distance and traversability. For each edge traversal, the cost is defined as 
+
+Redge =
+
+q
+
+ℓ2 
+
+> horiz
+
++ ∆ z2 ·
+
+
+
+1 + (1 − ˆTG) wtrav 
+
+
+
+, (4) where ℓhoriz is the horizontal distance, ∆z is the elevation change for obstacle avoidance, ˆTG ∈ [0 , 1] is the average traversability of adjacent cells, and wtrav is a tunable weight. This formulation penalizes low-traversability regions while accounting for 3D geometry. The heuristic uses Euclidean distance to ensure admissibility and optimal paths with respect to the defined cost. IV. E XPERIMENTAL RESULTS 
+
+In this section, we quantitatively and qualitatively eval-uate the performance of COTRATE in comparison to five traversability estimation baselines. With our experiments, we aim to answer the following questions:  
+
+> •
+
+Can our traversability estimation method choose the most energy-efficient path?  
+
+> •
+
+Can our introduced feature replay strategy prevent catas-trophic forgetting more effectively than the baselines?  
+
+> •
+
+Can our introduced traversability estimation model generalize zero-shot to a different robot embodiment? 
+
+A. Datasets 
+
+Each platform is equipped with a frontal Allied Vision Alvium 1800 U-507c camera, an Ouster OS0-128 beam 3D LiDAR, an IMU, and robot-internal proprioceptive sensors (e.g., joint encoders and motor currents). Images were recorded at Full-HD resolution with Spot and at 1024 × 1024 
+
+resolution on the Husky platform. Camera and LiDAR data were captured at 10 Hz , IMU measurements at 100 Hz , and internal robot sensors at their native rates. 
+
+B. Experimental Settings 
+
+We incrementally learn the terrains in the order shown in Fig. 8. We train the VAE on the first three terrains for 13 
+
+epochs, then perform online learning ( 1 epoch) on the remain-ing terrains. The latent variable P is 16-dimensional, with cor-responding loss weights α = 16 , β = 16 , and γ = 3 . We set TABLE I: Comparison of Effort, Effort Weighted per Path Length (EPL) on all three environments ( E) across two robots. mIoU scores for 2.5D segmentation and 2D segmentation results are recorded in [%]. 2D segmentation results are across all environments. We define the training settings as Si: continual learning on Spot, Hi: continual learning on Husky, S: joint training on Spot, and H: joint training on Husky. bold: best resp., underline: 2nd best.                                                                                                                                                                                                                       
+
+> Effort ↓EPL ↓2.5D segm. ↑2D segm. ↑
+> Robot Method Training Data E1 E2 E3 E1 E2 E3 E1 E2 E3 all E Spot Euclidean Distance 10.02 9.99 11.13 0.427 0.368 0.644 ----Joint S6.94 2.72 16.81 0.264 0.062 0.558 41.44 45.43 35.68 36.35 LangSAM 7.09 4.05 13.82 0.265 0.094 0.752 29.09 7.90 6.71 23.87 WVN [12] Si9.98 4.03 17.10 0.421 0.095 0.581 ----I-MOST [8] Si9.83 8.72 7.65 0.348 0.286 0.335 26.27 9.22 2.46 10.92 Image replay Si7.51 5.95 7.88 0.294 0.165 0.343 40.18 28.20 18.15 30.73 VAE-based replay [10] Si8.23 7.40 12.01 0.326 0.234 0.690 26.17 16.06 8.62 13.17 COTRATE (Ours) Si6.86 3.42 6.43 0.237 0.079 0.271 53.57 39.40 25.88 33.23
+> COTRATE Zero-Shot (Ours) Hi8.35 3.89 5.96 0.304 0.088 0.247 23.68 37.50 13.00 21.15 Husky Euclidean Distance 12.49 4.84 10.02 0.401 0.179 0.536 ----Joint H10.81 1.16 7.38 0.251 0.0205 0.281 36.39 24.03 8.31 16.76 LangSAM 11.78 3.96 9.94 0.301 0.135 0.527 33.79 12.04 2.50 21.49 WVN [12] Hi13.39 3.93 15.41 0.409 0.134 0.522 ----I-MOST [8] Hi11.99 3.73 9.83 0.382 0.124 0.527 8.68 9.61 3.53 10.63 Image replay Hi11.94 3.68 14.88 0.384 0.125 0.799 26.07 20.71 5.43 17.06 VAE-based replay [10] Hi11.97 3.85 10.64 0.382 0.126 0.572 12.87 19.84 4.27 14.66 COTRATE (Ours) Hi9.34 1.16 8.47 0.201 0.0206 0.310 35.87 25.42 7.83 17.73 COTRATE Zero-Shot (Ours) Si11.35 1.11 8.54 0.260 0.0207 0.312 44.52 25.78 5.38 21.80
+> Fig. 4: Example images of our continual learning dataset recorded on Spot.
+> IA: example of reference terrain (asphalt), Ti: terrains ordered according to the continual learning sequence: asphalt, spaced cobblestone with grass, grass, coarse gravel, bare dirt, cobblestone, tall grass, medium-high grass, spaced cobblestone, sand, and fine gravel.
+
+the threshold c to 0.95 to produce terrain masks TM using ViT-B at full resolution. This threshold ensures stable terrain sep-aration while lowering it significantly leads to merging with other terrains ( c = 0 .85 ) or background structure ( c < 0.7). We use 5 asphalt images as reference IA and set the feature dimension to C = 64 . Replay buffers are set to tb = 100 , tr =1, and BR = 200 . We weight Lreplay 20 × higher than Lalign .Training uses 224 ×224 crops with augmentations (horizontal flip, color jitter, Gaussian blur, grayscale), SGD with momen-tum 0.9 and weight decay 10 −4, learning rate 10 −5, batch size 2, and 1 epoch per terrain. Navigation sets hmax = 1 m .We formulate traversability as a regression to capture within-terrain variations. For terrain change detection, we discretize predictions and compute IoU with ground truth. A prediction is correct if within ±2×std of the mean traversabil-ity per terrain. We hand-label 2,450 test images and manually annotate grid maps for evaluation. Navigation efficiency is assessed using terrain-specific effort signals computed from the average motor current during training sequences, which correlate with energy expenditure. Consequently, we compute path effort Ueffort as terrain-specific effort weighted by distance traveled: Ueffort = PNi=1 ui ∆si where ui ∈ [0 , 1] 
+
+is normalized terrain-specific effort, ∆si is segment distance, and N is the number of segments. Effort Weighted Path Length (EPL) normalizes Ueffort by total distance. We train COTRATE on an NVIDIA RTX 4060, where it requires 4.2GB for the visual model and 0.6GB for the score VAE. We measure an inference speed of 20Hz on the robotic hardware, using an RTX 3070 mobile GPU with 8GB VRAM, a Zotac Z-Box with an Intel i7-11800H CPU, and 64GB RAM. 
+
+C. Quantitative Results 
+
+We evaluate COTRATE against four self-supervised base-lines supporting continual learning or fast adaptation. For WVN [12], we use published code with equivalent training. For continual learning baselines, we integrate replay strategies from IMOST [8] and VAE-based replay [10]. Image replay trains with a buffer of size 5 updated at regular intervals. LangSAM serves as a zero-shot semantic segmentation base-line, converting predicted masks into effort-based traversabil-ity scores. Joint training on all data for 30 epochs (batch size 
+
+16 ) provides an upper bound for comparison. The evaluation results for three environments with both robots are shown in Tab. I, and additional visuals are presented in the multimedia material. We observe that COTRATE out-performs all self-supervised baselines and LangSAM on all scenes on both robots. For Spot, effort decreases by an average of 0.7 compared to the best baseline, while for Husky by 2.1. Our method also outperforms baselines in EPL, demonstrating its ability to choose the most energy-efficient routes, which we attribute to coherent traversability scores and knowledge retention. We further assess full-environment predictions with our 2.5D and 2D segmentation metrics. For Spot, COTRATE outperforms the baselines by at least 2.5pp on both mIoU metrics, while for Husky, the improvement is at least 2.1pp on 2.5D mIoU. These metrics 1 3 5 7 9   
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> Test performance after Continual Learning Step Ti
+> 2D segm mIoU [%]
+> COTRATE VAE-based replay
+> IMOST Image replay
+> Fig. 5: 2D segmentation mIoU recorded over all test terrains after every increment on Spot.
+
+demonstrate that our method reliably predicts energy-efficient preferences across all test environments. Further, we observe that COTRATE even outperforms joint training in E1 on Husky and E3 on Spot. Our dataset includes a heterogeneous distribution of terrain data, which should be balanced to improve joint training. Further, online learning can reduce the interference between very dissimilar terrains, which helps generalization. Next, we find that LangSAM performs poorly on different types of grass and cobblestone, as evident from low 2.5D segmentation scores in E2 and E3. Finally, we evaluate the zero-shot capabilities across both platforms. We observe that the zero-shot model even outperforms the platform-specific model on E2 for Husky and E3 for Spot, demonstrating that traversability scores are well-calibrated and transfer effectively across embodiments with similar energy efficiency ratings, as further analyzed in Sec. IV-D. We evaluate catastrophic forgetting for the continual learning methods on Spot in Fig. 5. We show that Image-based feature replay and COTRATE exhibit strong continual learning capabilities, as evidenced by their consistent predic-tions, with COTRATE achieving the best overall performance with lower memory cost. I-MOST and VAE-based replay exhibit large fluctuations between steps 4 and 5, likely due to re-learning grass when tall grass appears. 
+
+D. Ablation study 
+
+We analyze the influence of components on navigation per-formance and traversability prediction. Navigation and 2.5D gridmap evaluations are on Spot in Environment E2, while 2D segmentation results are averaged across all environments. 
+
+1) Effect of each Loss function for Score Creation: We observe the impact of each loss function in Tab. II. We evaluate the traversability scores based on pairwise overlap of scores across different terrains, the mean score range per location, the absolute change in the mean, and the standard deviation of terrain features during continual learning (denoted as stability) and the Pearson correlation with the computed energy-efficiency terrain ranking. We observe that LREC 
+
+alone can achieve terrain separation, which is evident in the pairwise overlap and average range scores. On both platforms, LKL reduces the average range while hindering the stability of the feature space. While not critical, we include this component because it has proven beneficial in avoiding overfitting during VAE training. Next, our LV IC loss improves the correlation by 0.46 on Spot and 0.57 on Husky 5533111 2 34464 17      
+
+> RGB WVN LangSAM Ours
+> E1, Husky
+> E2, Spot
+> E3, Spot
+> Fig. 6: Selected paths for Husky-E1 and Spot-E2, E3: Euclidean (orange), WVN (pink), LangSAM (light blue), and Ours (light green); start (red) to goal (green). 1–grass, 2–cobble with grass, 3–asphalt, 4–cobblestone, 5– gravel, 6–dirt, 7–sand. E1, Husky : WVN rates high-effort gravel similarly to asphalt and cobblestone, yielding suboptimal paths. LangSAM overestimates grass and gravel traversability, increasing path effort. COTRATE avoids high-effort gravel, resulting in the lowest-effort paths. E2, Spot : Euclidean crosses high-effort grass; WVN and LangSAM cross cobble (2) instead of asphalt near the start. COTRATE avoids cobble (2) and minimizes traversal on grass (1). E3, Spot : WVN rates high-effort sand (6) similarly to cobblestone (4) and dirt (7), yielding high-effort paths. LangSAM poorly distinguishes terrains. COTRATE correctly favors cobblestone (4), avoids grass (1), and minimizes traversal on sand (6).
+
+by superiorly ordering the observed terrains in feature space. It further boosts the stability on both platforms, indicating that this loss already divides the feature space favorably during base training ( T1). Lastly, our incremental learning loss LIN C 
+
+improves stability by 0.06 on Husky and reduces pairwise terrain overlap by 0.12 on this platform, though it is not crucial for the already stable feature space on Spot. 
+
+2) Effect of Self-Supervised Traversability Score and Visual Terrain Mask: We compare COTRATE trained with our self-supervised scores to handcrafted scores from prior work in Tab. III. Vibration is IMU z-axis PSD over 10 .24 s [5], traction follows WVN [12], and torque uses raw motor current. Our model yields lowest-effort paths, producing smooth, descriptive scores that correlate with energy efficiency. Vibration, Traction, and Raw torque yield unreliable results, exhibiting lower IoU scores. Although motor torque is directly related to energy efficiency, it is highly noisy in short time intervals and therefore provides a weak supervisory signal for learning traversability. Vibration and traction correlate poorly with energy efficiency and do not minimize effort. Their rankings are orthogonal to our metrics. Further, we quantitatively evaluate the navigation perfor-E2, Spot                                                                                                         
+
+> E1, Husky
+> RGB Ours Reference Scores TVSpot Scores TVHusky
+> Fig. 7: Traversability map evaluation of E2 on Spot and E1 on Husky. Our predictions align with the reference as quantitatively observed by the segmentation metrics in Tab. I. Mean learned traversability score ranges are shown on the right. Spot and Husky largely align, with minor ranking differences. Low-traversability terrains cluster together, while higher-traversability terrains are more dispersed. TABLE II: Ablation study on the efficacy of various components of COTRATE score clustering. We record metrics for pairwise overlap of different terrains, average score range per location, feature space stability, and Pearson correlation with energy efficiency.
+> LREC LKL LV IC LIN C Pairwise over-lap ↓
+> Average Range
+> ↓
+> Stability
+> ↑
+> Cor-rela-tion ↑
+> Si
+> ✓0.37 0.15 0.85 0.62
+> ✓✓0.35 0.06 0.73 0.44
+> ✓✓✓0.21 0.13 0.85 0.90
+> ✓✓✓✓0.21 0.13 0.87 0.90
+> Hi
+> ✓0.25 0.04 0.75 0.14
+> ✓✓0.25 0.03 0.41 0.14
+> ✓✓✓0.37 0.13 0.65 0.71
+> ✓✓✓✓0.25 0.17 0.71 0.64 TABLE III: Influence of self-supervised traversability score TSand terrain mask TMon navigation performance (Effort, EPL) and prediction quality (2D segm., 2.5D segm.). mIoU scores are recorded in [%].
+> TSEffort ↓EPL ↓2.5D segm. ↑2D segm. ↑
+> Vibration (PSD) [5] 6.45 0.181 2.16 1.01 Traction (WVN) [12] 5.90 0.161 16.70 7.93 Torque 5.83 0.160 25.96 18.10 COTRATE (Ours) 3.42 0.079 39.40 33.23
+> TMEffort ↓EPL ↓2.5D segm. ↑2D segm. ↑
+> Fast-SAM [30] 5.66 0.198 10.91 9.52 Stego [31] 5.24 0.176 19.54 19.83 COTRATE (Ours) 3.42 0.079 39.40 33.23
+
+mance of COTRATE with different terrain masks TM and record an improvement of at least 1.8 on effort and 0.1 on EPL in Tab. III. Furthermore, our method outperforms Stego and Fast-SAM by at least 13 .4pp on both IoU metrics. While Fast-SAM focuses on segmenting small surrounding objects, Stego struggles with precise boundary estimation on uneven terrain (e.g., spaced cobblestones with grass), as shown in Fig. 3, a problem that is prominent in E2. 
+
+3) Ablation of Visual Model Components: We ablate the architectural novelties introduced in Tab. IV. First, we attach a DeepLabv3 decoder head with class dimension 1 to the DINOv3 encoder and train the decoder with a MSE-based loss (row 1). Training a larger decoder for direct regression increases effort by 26% compared to using Lalign . This indi-cates better generalization with our alignment loss in higher-dimensional spaces. Selective feature replay improves mIoU                             
+
+> TABLE IV: Ablation study on the efficacy of various components of COTRATE. mIoU is reported in [%]. First row uses DeepLabv3 decoder with 1 class dimension. FCM denotes feature cut-mix strategy (Sec. III-C).
+> Lalign Lreplay FCM Effort ↓EPL ↓2.5D segm. ↑2D segm. ↑
+> 14.15 0.470 6.29 5.46
+> ✓10.48 0.308 10.10 7.98
+> ✓✓5.24 0.121 37.16 32.51
+> ✓✓✓3.42 0.079 39.40 33.23
+
+by 24 .5pp (2D) and 27 .1pp (2.5D), mitigating catastrophic forgetting. FCM further improves EPL by 0.04 and effort by 
+
+1.82 by injecting replayed features into unannotated regions in a semi-supervised learning setting. 
+
+4) Replay Buffer Size, Update and Replay Interval: We ablate various settings of our feature replay buffer on our 2.5D and 2D mIoU metrics in Tab. V. Increasing the replay interval to 10 iterations lowers 2.5D mIoU and 2D mIoU by 
+
+21 pp and 17 .3pp, respectively, indicating increased forgetting. Nonetheless, replaying every 100 iterations still improves performance by 5.9pp (2.5D) over no replay, highlighting the effectiveness of our feature selection strategy. Next, we vary the feature replay buffer size BR and observe that 20 features cannot capture the diversity of the observed terrains, resulting in a drop of at least 4.91 pp in both metrics. Using 2000 
+
+features preserves 2D performance but lowers 2.5D mIoU by 7.2pp, likely because excess features distract the model from new terrains. Last, we observe that 100 iterations are the optimal update interval tb for the replay buffer. While too frequent updates ( tb=10) impose instability in the furthest point sampling ( ↓ 7.61 pp), few updates ( tb=1000) can lead to a deferred inclusion of terrain knowledge for replay, which leads to a decrease in 18 .68 on 2.5D mIoU. 
+
+5) Qualitative Results: We qualitatively evaluate map traversability predictions for E2 and E1 using Spot and Husky, respectively, in Fig. 7. COTRATE robustly differentiates sim-ilar terrains, e.g., asphalt vs. fine gravel in E2, demonstrating the benefit of our fine-grained traversability score module. For E1, Husky ranks terrains correctly, though the separation between gravel and grass is less pronounced. We also compare our method’s paths to baselines in Fig. 6 and observe that COTRATE selects the most energy-efficient routes, favoring asphalt or cobblestone while WVN and LangSAM navigate TABLE V: Influence of replay frequency, replay buffer size and replay update frequency on segmentation metrics. mIoU is reported in [%]. Replay freq. tr 2.5D segm. ↑ 2D segm. ↑
+
+0 10.10 7.98 1 39.40 33.23 
+
+10 18.37 15.97 100 16.04 12.70 Replay buffer size BR 2.5D segm. ↑ 2D segm. ↑
+
+20 31.44 28.32 200 39.40 33.23 
+
+2000 32.19 31.01 Replay update freq. tb 2.5D segm. ↑ 2D segm. ↑
+
+10 31.05 32.46 100 39.40 33.23 
+
+1000 18.96 19.72 
+
+longer on high-effort gravel (E1) and cobble w. grass (E2) or sand (E3). Additionally, the traversability scores from COTRATE are smoother for grass than those from LangSAM. A video of robot navigation and additional maps are presented in the multimedia material. V. C ONCLUSION 
+
+We present COTRATE, a novel self-supervised, robot-agnostic, online visual traversability estimation method. Our approach first learns robust terrain separation from proprio-ceptive and inertial sensor data using non-contrastive represen-tation learning in a Variational Auto-Encoder. Traversability scores are computed by comparing encoded sensor data to smooth terrain features. We generate conclusive terrain masks from DINOv3 visual features and align them with traversabil-ity scores using our novel alignment loss. To mitigate forgetting in online learning scenarios, we introduce selective visual feature replay. Experiments on three environments across two robot platforms show that our method outperforms existing self-supervised traversability and open-vocabulary segmentation models. To the best of our knowledge, this is among the first works to address self-supervised, continual traversability estimation in off-road environments. REFERENCES [1] J. Hindel, N. Gosala, K. Bregler, and A. Valada, “INoD: Injected Noise Discriminator for Self-Supervised Representation Learning in Agricultural Fields,” IEEE Rob. and Auto. Let. , 2023. [2] A. Valada, G. Oliveira, T. Brox, and W. Burgard, “Towards robust semantic segmentation using deep fusion,” in RSS workshop: are the sceptics right? Limits and potentials of deep learning in robotics , 2016. [3] X. Cai, S. Ancha, L. Sharma et al. , “Evora: Deep evidential traversability learning for risk-aware off-road autonomy,” IEEE Trans. on Rob. , 2024. [4] M. Endo, T. Taniai, and G. Ishigami, “Deep Probabilistic Traversability with Test-time Adaptation for Uncertainty-aware Planetary Rover Navigation,” arXiv preprint arXiv:2409.00641 , 2024. [5] M. G. Castro, S. Triest, W. Wang, J. M. Gregory, F. Sanchez, J. G. Rogers, and S. Scherer, “How Does It Feel? Self-Supervised Costmap Learning for Off-Road Vehicle Traversability,” in Proc. IEEE Int. Conf. on Rob. and Auto. , 2023, pp. 931–938. [6] H. Karnan, E. Yang, D. Farkash, G. Warnell, J. Biswas, and P. Stone, “STERLING: Self-Supervised Terrain Representation Learning from Unconstrained Robot Experience,” in Proc. Conf. on Rob. Learn. , 2023. [7] J. Hindel, D. Cattaneo, and A. Valada, “Taxonomy-aware continual semantic segmentation in hyperbolic spaces for open-world perception,” 
+
+IEEE Rob. and Auto. Let. , vol. 10, no. 2, pp. 1904–1911, 2025. [8] K. Ma, Z. Sun, C. Xiong, Q. Zhu, K. Wang, and L. Pei, “IMOST: Incremental Memory Mechanism with Online Self-Supervision for Continual Traversability Learning,” in Proc. IEEE Int. Conf. on Rob. and Auto. , 2025, pp. 8788–87 949. [9] H.-S. Yoon, J.-H. Hwang, C. Kim, E. I. Son, S.-W. Yoo, and S.-W. Seo, “Adaptive robot traversability estimation based on self-supervised online continual learning in unstructured environments,” IEEE Rob. and Auto. Let. , vol. 9, no. 6, pp. 4902–4909, 2024. [10] H. Lee, Y. Lee, D. A. Duecker, and C. Kwon, “Continual Learning for Traversability Prediction With Uncertainty-Aware Adaptation,” IEEE Rob. and Auto. Let. , vol. 10, no. 11, pp. 12 109–12 116, 2025. [11] I. Cho and W. Chung, “Learning Self-Supervised Traversability With Navigation Experiences of Mobile Robots: A Risk-Aware Self-Training Approach,” IEEE Rob. and Auto. Let. , 2024. [12] J. Frey, M. Mattamala, N. Chebrolu, C. Cadena, M. Fallon, and M. Hutter, “Fast traversability estimation for wild visual navigation,” in 
+
+Proc. Rob.: Sci. and Syst. , 2023. [13] S. Jung, J. Lee, X. Meng, B. Boots, and A. Lambert, “V-STRONG: Visual Self-Supervised Traversability Learning for Off-road Navigation,” in Proc. IEEE Int. Conf. on Rob. and Auto. , 2024, pp. 1766–1773. [14] G. Kahn, P. Abbeel, and S. Levine, “BADGR: An Autonomous Self-Supervised Learning-Based Navigation System,” IEEE Rob. and Auto. Let. , vol. 6, no. 2, pp. 1312–1319, 2021. [15] J. Zurn, W. Burgard, and A. Valada, “Self-Supervised Visual Terrain Classification From Unsupervised Acoustic Feature Learning,” IEEE Trans. on Rob. , vol. 37, pp. 466–481, 2019. [16] M. V. Gasparino, A. N. Sivakumar, Y. Liu, A. E. B. Velasquez, V. A. H. Higuti, J. Rogers, H. Tran, and G. Chowdhary, “WayFAST: Navigation With Predictive Traversability in the Field,” IEEE Rob. and Auto. Let. ,vol. 7, no. 4, pp. 10 651–10 658, 2022. [17] M. V. Gasparino, A. N. Sivakumar, and G. Chowdhary, “Wayfaster: a self-supervised traversability prediction for increased navigation awareness,” in Proc. IEEE Int. Conf. on Rob. and Auto. , 2024. [18] P. V. Borges, T. Peynot, S. Liang et al. , “A Survey on Terrain Traversability Analysis for Autonomous Ground Vehicles: Methods, Sensors, and Challenges.” IEEE Trans. on Field Rob. , 2022. [19] A. J. Sathyamoorthy, K. Weerakoon, T. Guan, J. Liang, and D. Manocha, “TerraPN: Unstructured Terrain Navigation using Online Self-Supervised Learning,” in Proc. IEEE Int. Conf. on Intel. Rob. and Syst. , 2022. [20] J. Seo, T. Kim, S. Ahn, and K. Kwak, “METAVerse: Meta-Learning Traversability Cost Map for Off-Road Navigation,” in Proc. IEEE Int. Conf. on Intel. Rob. and Syst. , 2024, pp. 13 190–13 197. [21] M. Sivaprakasam, S. Triest, C. Ho, S. Aich, J. Lew, I. Adu, W. Wang, and S. Scherer, “SALON: Self-supervised Adaptive Learning for Off-road Navigation,” arXiv preprint arXiv:2412.07826 , 2024. [22] G. Seneviratne, K. Weerakoon et al. , “CROSS-GAiT: Cross-Attention-Based Multimodal Representation Fusion for Parametric Gait Adaptation in Complex Terrains,” arXiv preprint arXiv:2409.17262 , 2025. [23] M. B. Elnoor, K. Weerakoon, A. J. Sathyamoorthy et al. , “Amco: Adap-tive multimodal coupling of vision and proprioception for quadruped robot navigation in outdoor environments,” Proc. IEEE Int. Conf. on Intel. Rob. and Syst. , pp. 7687–7694, 2024. [24] M. Elnoor, A. J. Sathyamoorthy, K. Weerakoon, and D. Manocha, “Pronav: Proprioceptive traversability estimation for legged robot navi-gation in outdoor environments,” IEEE Rob. and Auto. Let. , 2024. [25] D.-W. Zhou, Q.-W. Wang, Z.-H. Qi, H.-J. Ye, D.-C. Zhan, and Z. Liu, “Class-incremental learning: A survey,” IEEE Trans. Pattern Anal. Mach. Intell. , vol. 46, no. 12, p. 9851–9873, 2024. [26] W. Xu and F. Zhang, “Fast-lio: A fast, robust lidar-inertial odometry package by tightly-coupled iterated kalman filter,” IEEE Rob. and Auto. Let. , vol. 6, no. 2, pp. 3317–3324, 2021. [27] P. Trirat, Y. Shin, J. Kang, Y. Nam, J. Na, M. Bae, J. Kim, B. Kim, and J.-G. Lee, “Universal Time-Series Representation Learning: A Survey,” 
+
+arXiv preprint arXiv:2401.03717 , 2024. [28] A. Bardes, J. Ponce, and Y. LeCun, “Vicreg: Variance-invariance-covariance regularization for self-supervised learning,” in Int. Conf. Learn. Represent. , 2022. [29] O. Sim ´eoni, H. V. Vo, M. Seitzer, F. Baldassarre, M. Oquab et al. ,“DINOv3,” arXiv preprint arXiv:2508.10104 , 2025. [30] X. Zhao, W. Ding, Y. An, Y. Du, T. Yu, M. Li, M. Tang, and J. Wang, “Fast Segment Anything,” arXiv preprint arXiv:2306.12156 , 2023. [31] M. Hamilton, Z. Zhang, B. Hariharan, N. Snavely, and W. T. Freeman, “Unsupervised Semantic Segmentation by Distilling Feature Correspon-dences,” in Int. Conf. Learn. Represent. , 2022. [32] S. Bultmann, J. Quenzel, and S. Behnke, “Real-time multi-modal semantic fusion on unmanned aerial vehicles,” Rob. and Autonomous Systems , vol. 159, p. 104286, 2023. Self-Supervised Online Robot-Agnostic Traversability Estimation for Open-World Environments - Supplementary Material -
+
+Julia Hindel, Simon Bultmann, Houman Masnavi, Daniele Cattaneo and Abhinav Valada In this supplementary material, we present additional analysis on our score creation process in Sec. VI. Further, we show additional quantitative and qualitative results in Sec. VII and Sec. VIII, respectively. VI. S CORE CREATION 
+
+A. Hyperparameters 
+
+We detail additional hyperparameters in Tab. VI. For Spot, all sensors are operating at least at 10 Hz , so a window size of 100 (i.e. 1 s) is sufficient to capture terrain-specific sensor information. For Husky, which has sensors operating at different rates down to 1 Hz , we use a window size of W =1000 (i.e., 10 s) to capture sufficient temporal correlations. After we compute the traversability scores per timestamp, we set the terrain score to be the minimum within a 2.5 swindow for spot and 10 s time window for husky to obtain robust scores. We use the proposed hyperparameter settings for LV IC . Further loss hyperparameters, temporal settings, and other training details are tuned using Optuna on Husky. The hyperparameter optimization objective is to minimize 
+
+Lhyper = Opairwise + Rlocation + (1 −S ) + (1 −ρenergy ), (5) where Opairwise denotes the pairwise overlap between terrain score distributions, Rterrain is the mean score range per location, S represents the stability metric, and ρenergy is the Pearson correlation with the terrain-specific effort. We apply equivalent hyperparameters for loss and training details for Spot, but set a platform-specific learning rate due to the varied number of sensor inputs. 
+
+B. Qualitative Analysis of VAE Feature Space 
+
+We visualize the t-SNE projection of the 16 -dimensional feature space in Fig. 8. We observe that different terrains are consistently separated. Although not all terrains form tight clusters, their relative positions in the 2D projection reflect similarities to asphalt, our reference terrain. In par-ticular, paved terrains appear closer to asphalt than grass, consistent with their higher cosine similarity in the original 16-dimensional space. 
+
+C. Effect of Each Sensor 
+
+Next, we show the impact of removing selected sensors from the score creation, as shown in Tab. VII. We report the best trade-off when all sensors are included. Further, we observe that removing the raw IMU signals has little impact on the metrics. On the other hand, removing feet or torque significantly reduces the correlation with the terrain-specific                                                                                                         
+
+> TABLE VI: Hyperparameters for score creation VAE on each platform. Learning rates and input dimensions differ per platform. Otherwise, identical parameters are used.
+> Parameter Spot Husky
+> Input Dimensions
+> W100 1000
+> S129 33
+> Architecture
+> Kernel sizes (11, 7) (11, 7) Channels (64, 64) (64, 64) Latent Dimension 16 16
+> Loss hyperparameters
+> α16 16
+> β16 16
+> γ33
+> LV IC settings
+> T[s] 1.6 1.6
+> λ25 25
+> μ25 25
+> ν11
+> Training
+> Batch size 128 128 Base Epochs 13 13 Base Learning rate 0.00006 0.0016 Online Epochs 11Online Learning rate 6×10 −71.6×10 −5
+> TABLE VII: Ablation study on the efficacy of removing various sensor information of COTRATE from score clustering for the Spot robot. We record metrics for pairwise overlap across different terrains, average score ranges per location, feature-space stability, and Pearson correlation with energy efficiency. Vel: Velocity from Odometry, Cmd Vel: Command velocity. IMU Joint Feet Tor que Cmd Vel Vel Pairwise over-lap ↓
+> Average Range
+> ↓
+> Stability
+> ↑
+> Cor-rela-tion
+> ↑
+> ✓✓✓✓✓0.21 0.13 0.87 0.90
+> ✓✓✓✓✓0.22 0.14 0.83 0.90
+> ✓✓✓✓✓0.47 0.05 0.73 0.17
+> ✓✓✓✓✓0.34 0.23 0.95 0.62
+> ✓✓✓✓✓0.18 0.12 0.81 0.90
+> ✓✓✓✓✓0.22 0.15 0.81 0.90
+> ✓✓✓✓✓✓0.21 0.13 0.87 0.90
+
+effort. Moreover, stability is partially affected, indicating that the feature space structure becomes less consistent when foot inputs are missing. Consequently, we argue that proprioceptive signals should be combined to obtain robust effort-correlated traversability scores. 
+
+D. Comparison with Other Methods 
+
+We compare different score creation methods in Fig. 9, showing their respective value ranges on the training terrains. Quantitative results of path planning and segmentation metrics are shown in the main paper. Our score creation module produces scores that follow the trend of the reference terrain-asphalt cobblestone w. grass spaced cobblestone bare dirt grass tall grass medium-high grass coarse gravel  
+
+> fi ne gravel sand cobblestone Fig. 8: t-SNE visualization of the feature space learned by our VAE. Relative cluster positions reflect similarity to anchor terrain asphalt .
+
+specific effort metric. However, it does not produce the correctly correlated scores for medium-high grass and spaced cobblestone w. grass on Spot and tall grass, coarse gravel and paved cobblestone w. grass on Husky. We posit that our score creation module is self-supervised, and soft or diverse terrains attenuate various sensor measurements, making it challenging to discern these differences. For Husky, vibration in the z-axis is very dominant for coarse gravel, which steers the feature space towards a vibration-dependent division. Further, we note that raw torque is very noisy, which can be seen from the large, overlapping ranges produced for each terrain. Next, the traction method as introduced in WVN [12] doesn’t produce terrain-aware scores. Despite only subtle terrain differences for vibration (PSD), we observe comparatively large discrepancies in performance for tall grass on Spot and fine gravel on Husky. Further, vibration does not correlate with our effort-based reference metric for navigation energy efficiency. VII. A DDITIONAL QUANTITATIVE RESULTS 
+
+COTRATE better preserves terrain knowledge, outperform-ing the baselines on 7 out of 11 terrains in terms of 2D segmentation scores on Spot in Tab. VIII. We further observe that zero-shot deployment of this Spot-trained model on Husky outperforms all baselines across grass terrains. All learning-based baselines perform poorly on bare dirt for Spot. We attribute this to the large visual domain gap: the bare dirt in the Spot test environment, taken from a playground, differs from the pathway used in training, and appears visually similar to sand, as shown in Fig. 10iii–iv, causing frequent confusion. Further, tall grass is not included in the test domain for Husky, whereas spaced cobblestone is not included in the test domains for either Husky or Spot. Additionally, all baselines show low scores for coarse gravel on Husky, which we attribute to strong lighting conditions that hinder detection even under joint training, as illustrated in Fig. 10v. We observe the same issue for cobblestone on Husky, shown in Fig. 10vi. VIII. A DDITIONAL QUALITATIVE RESULTS 
+
+In this section, we show the created paths of all baselines and our method. For Spot, the three environments E1, E2, E3, are detailed in Fig. 11, Fig. 13, and Fig. 15 while for Husky we show them in Fig. 12, Fig. 14, and Fig. 16, respectively. We observe that COTRATE avoids traversing the high-cost terrains of all grass types in all selected environments, resulting in the most energy-efficient navigation paths. Additionally, we note that the zero-shot model (shown in grey) identifies effective solutions by largely following the baseline trajectories while applying small modifications that improve energy efficiency. Furthermore, we note that COTRATE produces traversability maps with uniform scores across terrain segments, unlike LangSAM, which often mixes areas at the edges, as shown in Fig. 10i-ii. Our model also enables more fine-grained terrain differentiation, e.g., between different types of cobblestone and asphalt. However, we observe that our model commonly confuses bare dirt and sand for both robots in Fig. 15 and Fig. 16. We attribute this to the large visual domain gap: the sand in the test environment resembles bare dirt, which is highly traversable, as discussed in Sec. VII. Spot Husky 
+
+Reference Effort 
+
+Ours 
+
+Raw Torque 
+
+Traction 
+
+Vibration (PSD) 
+
+Fig. 9: Comparison of score creation modules for Spot and Husky. 
+
+(i) Differentiation paved-terrain LangSAM (ii) Differentiation grass types LangSAM (iii) Differentiation sand and bare dirt Husky (iv) Differentiation sand and bare dirt Spot (v) Lighting cobblestone Husky (vi) Lighting coarse gravel Husky Fig. 10: Sample images of failure cases. TABLE VIII: Comparison of 2D segmentation performance for each terrain in mIoU scores, results are recorded in [%] 
+
+Robot Method asphalt cobblestone w. grass grass coarse gravel bare dirt cobblestone tall grass medium-high grass spaced cobble-stone sand fine gravel Spot Joint 74.41 52.96 76.62 16.82 49.45 25.06 3.59 62.66 0.88 11.52 25.83 LangSAM 83.62 0.00 0.00 4.93 73.01 1.89 0.00 44.73 0.00 25.73 10.63 Image replay 85.98 0.49 63.57 16.18 0.30 30.50 14.49 69.77 0.00 29.50 27.19 
+
+VAE-based replay [10] 77.41 0.00 3.59 5.98 0.00 17.75 10.18 0.00 0.00 11.81 18.18 I-MOST [8] 70.29 0.00 0.00 5.99 0.04 8.01 0.00 0.00 0.00 29.35 6.48 COTRATE (Ours) 
+
+88.01 23.35 73.15 9.65 0.92 35.39 6.24 71.96 1.57 30.94 24.33 COTRATE (Ours, Zero-shot) 55.53 7.89 58.99 5.97 0.13 23.36 5.96 57.90 0.00 15.84 1.10 Husky Joint 60.47 0.00 65.59 0.02 14.88 11.06 0.00 43.81 0.00 3.89 8.66 LangSAM 81.65 0.00 0.00 6.85 69.52 0.64 0.00 37.16 0.00 16.39 8.02 Image replay 55.14 0.00 54.21 0.00 0.31 15.45 0.00 33.29 0.00 21.64 8.07 VAE-based replay [10] 61.33 0.00 20.38 0.00 0.34 14.88 0.00 46.26 0.00 22.62 6.44 I-MOST [8] 61.62 0.00 1.54 0.00 0.26 12.00 0.00 28.25 0.00 12.79 5.43 COTRATE (Ours) 72.88 0.00 44.61 0.00 0.16 17.49 0.00 37.13 0.00 10.33 8.09 COTRATE (Ours, Zero-shot) 75.23 0.00 61.90 0.00 12.66 15.15 0.00 48.45 0.00 17.25 9.15 555433311111   
+
+> RGB WVN LangSAM Ours
+
+Fig. 11: Paths E1 for Spot. Euclidean (Orange), WVN (Pink), LangSAM (Light Blue), COTRATE (Light Green), VAE-based replay (Yellow), I-MOST (Purple), Image-replay (Red), Joint (Dark Blue), COTRATE–Zero-Shot (Grey). Terrains: 1-grass, 3-asphalt, 4-cobblestone, 5-coarse gravel. WVN scores high-effort gravel close to low-effort asphalt and cobblestone, resulting in a suboptimal path. LangSAM predicts higher traversability for grass compared to ours and WVN, resulting in longer traversal on grass and higher path effort. COTRATE minimizes traversal on grass, resulting in the lowest path effort. 553311   
+
+> RGB WVN LangSAM Ours
+
+Fig. 12: Paths E1 for Husky. Euclidean (Orange), WVN (Pink), LangSAM (Light Blue), COTRATE (Light Green), VAE-based replay (Yellow), I-MOST (Purple), Image-replay (Red), Joint (Dark Blue), COTRATE–Zero-Shot (Grey). Terrains: 1-grass, 3-asphalt, 5-coarse gravel. WVN scores high-effort gravel close to low-effort asphalt and cobblestone, resulting in a suboptimal path. LangSAM predicts higher traversability for grass and gravel compared to ours, resulting in higher path effort. COTRATE minimizes traversal on high-effort gravel, resulting in the lowest path effort. 34 433221RGB WVN LangSAM Ours 
+
+Fig. 13: Paths E2 for Spot. Euclidean (Orange), WVN (Pink), LangSAM (Light Blue), COTRATE (Light Green), VAE-based replay (Yellow), I-MOST (Purple), Image-replay (Red), Joint (Dark Blue), COTRATE–Zero-Shot (Grey). Terrains: 1-grass, 2-cobble w/ grass, 3-asphalt, 4-cobblestone. LangSAM and WVN wrongly score cobble w/ grass (2) close to asphalt near the start (red dot); LangSAM further has inconsistent grass predictions (1). COTRATE consistently predicts different score ranges for grass (1), cobble w/ grass (2), and asphalt (3), resulting in the only navigation path that avoids (2) and minimizes distance on grass (1). 22344433 3222111  
+
+> RGB WVN
+> LangSAM Ours
+
+Fig. 14: Paths E2 for Husky. Euclidean (Orange), WVN (Pink), LangSAM (Light Blue), COTRATE (Light Green), VAE-based replay (Yellow), I-MOST (Purple), Image-replay (Red), Joint (Dark Blue), COTRATE–Zero-Shot (Grey). Terrains: 1-grass, 2-cobble w/ grass, 3-asphalt, 4-cobblestone. COTRATE consistently seperats the terrains (1)-(4). WVN and LangSAM wrongly predict low traversability for parts of the cobblestone (4), resulting in paths crossing the high-effort grass. Although taking a longer detour, COTRATE produces the only paths consistently avoiding grass (1) and staying on the most efficient asphalt (3) and cobblestone (4), for both default setting and zero-shot transfer. 464 17RGB WVN LangSAM Ours 
+
+Fig. 15: Paths E3 for Spot. Euclidean (Orange), WVN (Pink), LangSAM (Light Blue), COTRATE (Light Green), VAE-based replay (Yellow), I-MOST (Purple), Image-replay (Red), Joint (Dark Blue), COTRATE–Zero-Shot (Grey). Terrains: 1-grass, 4-cobblestone, 6-sand, 7-bare dirt. WVN wrongly scores higher effort sand (6) close to cobblestone (4) and dirt (7), resulting in a high-effort path. LangSAM cannot distinguish the low-effort cobblestone (4) well. COTRATE superiorly distinguishes cobblestone (4), correctly avoids grass (1), and minimizes distance traveled on sand (6) in comparison to the baselines. Joint training prioritizes traversal on well-traversable bare dirt, sacrificing performance on sand. 14476   
+
+> RGB WVN LangSAM Ours
+
+Fig. 16: Paths E3 for Husky. Euclidean (Orange), WVN (Pink), LangSAM (Light Blue), COTRATE (Light Green), VAE-based replay (Yellow), I-MOST (Purple), Image-replay (Red), Joint (Dark Blue), COTRATE–Zero-Shot (Grey). Terrains: 1-grass, 4-cobblestone, 6-sand, 7-bare dirt. WVN wrongly scores higher effort sand (6) close to cobblestone (4) and dirt (7), resulting in a high-effort path. LangSAM doesn’t achieve terrain separation in this challenging environment, COTRATE correctly predicts the range for cobblestone (4), enabling it to produce the most efficient navigation path.

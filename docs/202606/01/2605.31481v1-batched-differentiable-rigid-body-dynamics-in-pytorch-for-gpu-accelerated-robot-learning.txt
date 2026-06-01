@@ -1,0 +1,752 @@
+Title: Batched Differentiable Rigid Body Dynamics in PyTorch for GPU-Accelerated Robot Learning
+
+URL Source: https://arxiv.org/pdf/2605.31481v1
+
+Published Time: Mon, 01 Jun 2026 01:47:18 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Batched Differentiable Rigid Body Dynamics in PyTorch for GPU-Accelerated Robot Learning 
+
+Yue Wang 1, Yanran Xu 1, Wenbo Wu 1, Chuanhang Qiu 1, and Zhaoxing Li 1
+
+University of Southampton, Southampton, SO17 1BJ, UK 
+
+{Yue.Wang,Y.Xu,Wenbo.Wu,C.Qiu,Zhaoxing.Li}@soton.ac.uk 
+
+Abstract. As robot control shifts toward large-scale reinforcement learn-ing with in-loop dynamics computation, the community’s reliance on CPU-bound libraries such as Pinocchio creates a throughput bottleneck in GPU-based training pipelines. We present bard (Batched Articulated 
+
+Rigid-body Dynamics), a self-contained PyTorch implementation of Feath-erstone’s rigid-body dynamics algorithms, optimized for batched GPU evaluation and automatic differentiation. Three design choices make this efficient: a tiered lazy-evaluation cache that avoids redundant tree traver-sals, matmul-free joint transforms via pre-computed Rodrigues constants, and level-parallel propagation that reduces sequential operations to tree-depth batched steps. On five robot models (7–23 DOF), bard matches Pinocchio numerically while reaching up to 64 × higher throughput for Forward Kinematics and 63 × for Jacobians at batch size 4096 on an NVIDIA H200. We validate differentiability through gradient-based sys-tem identification on a 7-DOF manipulator, recovering link masses to 
+
+1.24% mean error under 5% torque noise, and integrate bard into an Isaac Lab AMP training pipeline for an 11-DOF spined quadruped with 4096 parallel environments, where it is 8.5× faster than Pinocchio and 
+
+2.0× faster than ADAM for in-loop dynamics. bard is open-sourced at: 
+
+https://github.com/YueWang996/bard-pytorch-dynamics .
+
+Keywords: Rigid body dynamics, Differentiable simulation, PyTorch, GPU computing, Robot learning. 
+
+## 1 Introduction 
+
+With the increasing complexity of both robot structures [1,25,32,10] and deploy-ment environments [31,22,16,28,13], control techniques have shifted from tra-jectory optimization [26] to large-scale reinforcement learning [21,9] to achieve more generalizable behavior. To reduce exploration in high-dimensional action spaces, rigid-body dynamics can be included in the training loop as a guide. For example, they can serve as differentiable models for gradient-based system iden-tification [11], or as analytical operators (Jacobians, inverse dynamics) within physics-informed reward and constraint formulations [11]. These applications need standalone dynamics operators (e.g. a Jacobian or mass-matrix call) that can be embedded in a custom loss function, not a monolithic simulator whose  
+
+> arXiv:2605.31481v1 [cs.RO] 29 May 2026 2Wang et al.
+
+internals are inaccessible. Current RL training frameworks such as Isaac Lab [14] and MuJoCo Playground [29] use a PyTorch [18] backend with batched GPU execution for efficiency; however, the community’s standard dynamics library, Pinocchio [3], is CPU-bound and sequential, neither exploiting GPU parallelism nor avoiding the CPU–GPU data transfer overhead introduced at every call. Existing GPU alternatives like Brax [7] and MuJoCo MJX [29] provide high throughput but are tied to non-PyTorch ecosystems (JAX), making them hard to integrate into PyTorch training loops. Differentiable off-the-shelf dynamics li-braries such as ADAM [12] sacrifice GPU throughput for backend generality (see Section 2). A native, high-performance, modular dynamics library for batched GPU evaluation within PyTorch is still missing. We present bard (Batched Articulated Rigid-body Dynamics), a pure-PyTorch library implementing Featherstone’s robot dynamics algorithms [5], designed for batched GPU evaluation. While Featherstone’s algorithms are well established, their inherently serial tree traversals resist parallelisation, making them hard to deploy in modern RL training pipelines. We address this by reor-ganizing traversals into level-parallel batched operations and adding a multi-tier lazy-evaluation cache that skips redundant computation across successive calls. The entire code path is compatible with torch.compile , allowing the PyTorch compiler to fuse the resulting operator graph. On an NVIDIA H200 at batch size 4096, bard is up to 64 × faster than a sequential Pinocchio baseline for forward kinematics (FK) and Jacobian evaluation. We test bard on gradient-based sys-tem identification of a 7-DOF manipulator and inside an Isaac Lab RL pipeline for the SPARC quadruped [25], where bard achieves 8.5 × higher throughput than Pinocchio and 2 × higher than ADAM for in-loop dynamics computation. Our contributions are: 1. bard , an open-source, pure-PyTorch dynamics library for batched GPU evaluation. 2. Systems-level techniques for running recursive tree computations on GPUs, including a kinematics cache, pre-allocated workspaces, and level-parallel propagation. 3. Validation on gradient-based identification and large-scale RL training with 4096 parallel environments. 
+
+## 2 Related Work 
+
+We review CPU dynamics libraries, GPU simulators, and differentiable dynamics tools, focusing on why each falls short for batched PyTorch workloads. Pinocchio [3] is the standard for Featherstone’s spatial-vector algebra algo-rithms [5], offering highly optimized single-threaded C++ routines and analytical derivatives [2]. RBDL [6] and Drake [23] provide similar CPU-based functionality, and downstream frameworks such as Crocoddyl [15] build on these libraries for trajectory optimization. Although these libraries provide excellent performance for single-robot configurations, they suffer from two problems when embedded Batched Differentiable Rigid Body Dynamics in PyTorch 3
+
+in GPU training loops. First, their sequential execution model requires looping over environments one by one, leaving GPU cores idle. Second, calling a CPU library from a PyTorch pipeline forces a CPU–GPU data transmission at every evaluation; this overhead grows linearly with batch size and quickly becomes a training bottleneck. To improve throughput, frameworks such as Brax [7], MuJoCo MJX [29], and Isaac Gym [14] move the entire simulation onto the GPU, achieving efficient training via massive parallelism across robots. However, they are architected as monolithic end-to-end simulators that bundle contact detection, time inte-gration, and dynamics into a single pipeline. This design makes it difficult to extract a standalone operator. For instance, when only a subsystem’s dynam-ics is required (such as a robot arm mounted on a quadruped), an RNEA call for gravity compensation or a CRBA call for mass-matrix analysis cannot be obtained from these simulators, and therefore cannot be embedded in a cus-tom loss function or controller to regulate that subsystem’s behavior. Beyond modularity, ecosystem compatibility is a concern: MJX is built on JAX, which precludes native integration into the PyTorch training loops used by Isaac Lab and similar frameworks. DiffTaichi [8] achieves high-performance differentiable simulation but likewise requires a programming model distinct from standard PyTorch workflows. Recent efforts have attempted to provide modular, differentiable dynamics operators within PyTorch, but they often face performance trade-offs at scale. ADAM [12] supports multiple backends (CPU, GPU, JAX) through a shared abstraction layer, but this generality prevents PyTorch-specific optimizations such as kernel fusion and compile-time graph capture, and its throughput falls well below hardware capacity at large batch sizes. PyTorch-Kinematics [30] pro-vides batched FK and Jacobians in PyTorch but omits core dynamics algorithms (RNEA, CRBA, ABA). GRiD [20] delivers high-performance GPU dynamics with analytical gradients, yet relies on generated CUDA kernels outside the Python autograd ecosystem, raising the integration barrier for typical PyTorch research code. Other efforts either target single-configuration workloads rather than batched training [17], or predate modern GPU-accelerated RL pipelines altogether [4,27]. To our knowledge, existing tools have not been designed with 
+
+torch.compile compatibility in mind, and data-dependent control flow in their implementations causes graph breaks that prevent the PyTorch compiler from fusing operations across the computation graph. 
+
+## 3 Methodology 
+
+bard addresses these limitations by implementing the major algorithms, includ-ing forward kinematics (FK), the Recursive Newton-Euler Algorithm (RNEA), Composite Rigid Body Algorithm (CRBA), Articulated Body Algorithm (ABA), and Jacobians, as composable PyTorch operators with full torch.compile com-patibility. Fig. 1 shows the overall architecture. Sections 3.1–3.4 describe four strategies behind this performance: tiered lazy evaluation, matmul-free Rodrigues 4 Wang et al. URDF File         
+
+> Parser
+> Model (immutable)
+> tree topology spatial inertias Rodrigues const. level groupings
+> update_kinematics()
+> Preparation (once)
+> Pre-allocated Data (mutable)
+> FK
+> Spatial Accel.
+> Jacobian
+> RNEA
+> CRBA
+> ABA
+> Cache Evaluation Results
+> Tier 1 parent-child transforms
+> Tier 2 spatial transforms
+> Tier 3 world-frame poses
+> link velocities
+> Runtime (each step)
+> Tiered Lazy Evaluation
+> Dynamics & Kinematics
+
+Fig. 1. Architecture of bard . A URDF is parsed once into an immutable model stor-ing tree topology, spatial inertias, and pre-computed constants. All mutable state for 
+
+B parallel environments resides in a pre-allocated workspace sized at initialisation. Downstream algorithms materialise only the kinematic quantities they require through a tiered lazy evaluation scheme. 
+
+transforms, level-parallel tree propagation, and direct Jacobian column construc-tion. Section 3.5 covers the underlying memory layout. 
+
+3.1 Tiered Lazy Evaluation 
+
+Different algorithms require different subsets of kinematic data. FK and Jacobian evaluation need only world-frame poses {0Ti}, whereas RNEA, CRBA, and ABA operate on 6 × 6 spatial transforms {Xup ,i } and joint motion subspaces {Si}.Computing all of these variables on every call would waste computation on values that are never read. bard therefore splits the kinematic state into three tiers, each guarded by a validity flag and materialized only on the first downstream query that requires it: 1. Local transforms {Tpc ,i }: per-joint 4 × 4 parent-child transforms from q,shared by all downstream algorithms. 2. Spatial adjoints {Xup ,i , X ⊤
+
+> up ,i
+
+, S i}: 6 × 6 Plücker-frame transforms derived from the local transforms. Required only by dynamics algorithms (RNEA, CRBA, ABA). 3. World-frame poses {0Ti}: full kinematics propagation. Required only by Jacobian or FK queries over the full tree. As a result, an RL loop that calls only RNEA never computes world-frame prop-agation, and one that calls only FK never constructs spatial adjoints. Standalone FK and Jacobian functions are also provided for cases where only a single kine-matic chain (e.g. root to end-effector) is needed, and these traverse only the relevant path without populating the full cache. Batched Differentiable Rigid Body Dynamics in PyTorch 5
+
+3.2 Matrix-Multiplication-Free Joint Transforms 
+
+The parent-child transform for a revolute joint composes two static geometric offsets with an axis rotation: 
+
+Tpc ,i = Tjoint ,i · Raxis (qi) · Tlink ,i , (1) which requires two 4 × 4 matrix multiplications per joint. However, for batched computing on a GPU, dispatching thousands of these small matmuls incurs launch overhead that far exceeds the arithmetic cost. The key observation is that the geometric offsets Tjoint ,i and Tlink ,i are fixed for a given robot and do not change across time or batch elements. By absorbing these constants into the Rodrigues rotation formula at model build time, we can replace the runtime matmuls with cheap element-wise operations. Concretely, for each revolute joint with normalised axis ˆai and skew matrix 
+
+Ki = [ˆ ai]×, we pre-compute six constant matrices from the static rotations 
+
+Rpre , t pre (of Tjoint ) and Rpost , t post (of Tlink ): 
+
+R(0)  
+
+> i
+
+= Rpre ,i Rpost ,i , Ai = Rpre ,i Ki Rpost ,i , Bi = Rpre ,i K2 
+
+> i
+
+Rpost ,i ,
+
+(2) 
+
+t(0)  
+
+> i
+
+= Rpre ,i tpost ,i + tpre ,i , ai = Rpre ,i Ki tpost ,i , bi = Rpre ,i K2 
+
+> i
+
+tpost ,i .
+
+(3) At runtime, the full parent-child transform is recovered using only sin( qi) and 
+
+cos( qi):
+
+Rpc ,i = R(0)  
+
+> i
+
++ sin( qi) Ai + (1 − cos( qi)) Bi, (4) 
+
+tpc ,i = t(0)  
+
+> i
+
++ sin( qi) ai + (1 − cos( qi)) bi. (5) The resulting expressions contain only scalar-matrix multiplies, allowing the PyTorch compiler to fuse all nb joints and B environments into a single kernel launch. Prismatic and fixed joints are handled analogously with their own pre-computed constants. 
+
+3.3 Level-Parallel Tree Propagation 
+
+Featherstone’s algorithms traverse the kinematic tree sequentially from parent to child (or child to parent), creating a data dependency chain of length nb
+
+(the number of bodies). Although a straightforward implementation processes one node at a time, sibling links at the same tree depth are in fact completely independent and can be evaluated in parallel. For example, all four hips of a quadruped can be processed simultaneously once the torso is done. 
+
+bard exploits this by pre-computing a level-order grouping at build time: all nodes at the same depth are collected into a single index set, together with the memory locations of their respective parents. At runtime, each depth level is pro-cessed as one batched operation. For example, the forward velocity propagation becomes: 
+
+v[ℓ] = Xup ,[ℓ] · vparent([ ℓ]) + S[ℓ] · ˙q[ℓ], (6) 6 Wang et al. 
+
+where [ℓ] denotes all joints at depth ℓ. This reduces nb sequential operations to 
+
+d (tree depth) batched ones. The same grouping is reused by RNEA’s forward pass, ABA’s forward acceleration pass, and the spatial-adjoint propagation in the cache. Backward passes (force and inertia accumulation from leaves to root) remain sequential in reverse topological order, since multiple children may accu-mulate into the same parent and cannot be safely parallelized without serializing memory access. Nevertheless, all B environments are still processed simultane-ously at every node, so the sequential traversal adds only nb serial steps regardless of batch size. 
+
+3.4 Direct Jacobian Column Construction 
+
+The standard approach to geometric Jacobian computation forms the 6 × 6 ad-joint Ad( 0Tk) and multiplies by the joint motion subspace Sk for each joint along the chain. For single-DOF joints—the vast majority in practice—this produces a single 6 × 1 column, making the full adjoint construction wasteful. For a revolute joint with axis ˆak, the Jacobian column can be written directly as: 
+
+Jk =
+
+pwk × (Rwk ˆa′
+
+> k
+
+)
+
+Rwk ˆa′
+
+> k
+
+
+
+, (7) where ˆa′ 
+
+> k
+
+= Roffset ,k ˆak is pre-computed at build time, and Rwk and pwk are the world-frame rotation and position already available in the FK cache. This re-places n adjoint constructions with cross products and matrix-vector multiplies. 
+
+3.5 Memory Layout and Compiler Compatibility 
+
+All workspace tensors use a batch-first (B, n b, . . . ) layout for coalesced GPU memory access. The transpose X⊤
+
+> up ,i
+
+, which appears in every dynamics back-ward pass, is stored contiguously alongside Xup ,i rather than computed as a non-contiguous view, avoiding a common source of cache-line waste. For the bottleneck 6 × 6 update Out += X⊤ 
+
+> i
+
+MiXi that dominates CRBA and ABA, an optional fused Triton [24] kernel replaces two separate bmm calls with a single kernel launch, keeping all intermediates in registers. 
+
+bard is fully compatible with torch.compile . To achieve this, tree metadata is stored as constant index tensors rather than Python data structures, all con-trol flow is static (no data-dependent branching, no .item() calls), and critical helpers are pre-compiled. These constraints ensure that the PyTorch compiler can trace the entire forward pass as a single fused graph, enabling cross-operator optimization that would be blocked by graph breaks. For RL rollouts where gra-dients are not needed, bard uses an in-place code path that skips gradient tracking for maximum throughput. When gradients are required (e.g. for system identification), the same algorithms switch to a functional mode that supports full automatic differentiation through all computations. Batched Differentiable Rigid Body Dynamics in PyTorch 7                                  
+
+> Table 1. Maximum absolute discrepancy between bard and Pinocchio in float64 .Both libraries evaluate 1000 random configurations per model. Algorithm xArm7 (7) SPARC (11) Go2 (12) H1 (19) G1 (23) FK 7.8e −16 8.9e −16 7.8e −16 1.0e −15 1.3e −15
+> Jacobian 2.4e −15 2.1e −15 1.8e −15 3.1e −15 2.2e −15
+> RNEA 1.6e −14 5.0e −14 1.4e −13 5.1e −13 4.6e −13
+> CRBA 2.0e −15 1.8e −15 3.6e −15 1.4e −14 1.4e −14
+> ABA 2.9e −11 1.2e −10 2.3e −12 6.4e −12 5.8e −11
+
+## 4 Experiments 
+
+We evaluate bard in four stages: numerical agreement with Pinocchio (Sec-tion 4.1), computational throughput across batch sizes and hardware (Section 4.2), gradient-based system identification (Section 4.3), and integration into a large-scale RL training pipeline (Section 4.4). 
+
+4.1 Numerical Agreement 
+
+To verify correctness, we compare bard against Pinocchio across all five al-gorithms in float64 , using five robot models of varying complexity: xArm7 (7-DOF), SPARC [25] (11-DOF), Go2 (12-DOF), H1 (19-DOF), and G1 (23-DOF). For each model and algorithm, we generate 1000 random configurations and report the maximum absolute discrepancy. Table 1 shows the results. FK and Jacobian discrepancies are near machine epsilon ( ≈ 10 −16 ), and RNEA and CRBA remain below 10 −13 , confirming that the Rodrigues-based transform computation and level-parallel propagation intro-duce no numerical deviation beyond floating-point rounding. ABA shows slightly larger discrepancies (up to 10 −10 ) due to its three-pass structure accumulating more rounding error, but still within acceptable bounds for all practical appli-cations. 
+
+4.2 Computational Throughput 
+
+All throughput experiments use PyTorch 2.8 (CUDA 12.9) on an NVIDIA H200 GPU, with Pinocchio 3.7 as the CPU baseline running single-threaded in a se-quential loop, which is how it is typically called within PyTorch pipelines. We benchmark bard against four baselines across batch sizes from 64 to 65,536: (1) Pinocchio C++ with NumPy I/O (raw C++ performance as a reference), (2) Pinocchio with PyTorch tensor conversion (realistic pipeline cost), (3) ADAM [12], the closest PyTorch-based dynamics library, and (4) the proposed bard .Fig. 2 shows speedups at batch size 4096 on the H200. bard outperforms both Pinocchio and ADAM across all algorithms, with the largest gains in kinematics: up to 64 × for FK and 63 × for Jacobian over the Pinocchio PyTorch wrapper. 8 Wang et al. xArm7 SPARC Go2 H1                    
+
+> 1×
+> 2×
+> 5×
+> 10×
+> 20×
+> 50×
+> Speedup
+> Forward Kinematics
+> xArm7 SPARC Go2 H1
+> 1×
+> 2×
+> 5×
+> 10×
+> 20×
+> 50×
+> 100×
+> Jacobian
+> xArm7 SPARC Go2 H1
+> 1×
+> 2×
+> 5×
+> RNEA
+> xArm7 SPARC Go2 H1
+> 1×
+> 2×
+> 5×
+> Speedup
+> CRBA
+> xArm7 SPARC Go2 H1
+> 1×
+> 2×
+> 5×
+> 10×
+> ABA
+> xArm7 SPARC Go2 H1
+> 1×
+> 2×
+> 5×
+> Full Pipeline
+> Pinocchio (PyTorch) ADAM BARD (Ours) BARD -compiled (Ours)
+
+Fig. 2. Speedup over Pinocchio (PyTorch) at batch size 4096 on NVIDIA H200. bard 
+
+consistently outperforms ADAM across all algorithms, with the largest gains in FK (64 ×) and Jacobian ( 63 ×). 
+
+For dynamics algorithms the speedup is smaller but still consistent, ranging from 
+
+3× to 7× depending on the robot and algorithm. Fig. 3 shows scaling behavior on the Go2 robot. Pinocchio’s wall-clock time grows linearly with batch size due to sequential CPU evaluation. bard ’s execu-tion time remains nearly constant from batch size 64 to 4096 for kinematics, and rises gradually for dynamics algorithms as the computation per call is heavier. Beyond batch size 4096, all bard timings begin to increase but remain over an order of magnitude faster than Pinocchio. ADAM’s execution time is stable across batch sizes, but at a consistently higher level than bard due to the lack of caching and kernel-level optimizations. Notably, torch.compile has different effects depending on the algorithm class. For kinematics (FK, Jacobian), compilation consistently improves through-put across all GPUs and robot models we tested, as the compiler fuses the chain of element-wise Rodrigues operations into fewer kernel launches. For dynamics (RNEA, CRBA, ABA), the picture is different. On the H200, compilation pro-duces marginal speedup for low-DOF robots (e.g. 3.5× → 3.4× for RNEA on the 7-DOF xArm7) and no meaningful change for higher-DOF models. On the L4, compilation actively degrades dynamics performance: for example, RNEA on the Go2 drops from 3.0× to 1.1× speedup over Pinocchio, and the full pipeline drops from 4.3× to 0.6×, making compiled bard slower than the Pinocchio baseline. This occurs because the Triton backend attempts to fuse across the sequential tree traversals in dynamics algorithms, producing kernels that exceed the L4’s register file and spill to slower memory. The L4 has significantly fewer streaming multiprocessors than the H200 (58 vs. 132) and an order of magnitude less memory bandwidth (300 GB/s vs. 4.8 TB/s), making it particularly sensi-tive to such register pressure. In contrast, bard ’s eager-mode dynamics already Batched Differentiable Rigid Body Dynamics in PyTorch 910 0   
+
+> 10 1
+> 10 2
+> Time (ms)
+> Forward Kinematics
+> 10 0
+> 10 1
+> 10 2
+> Jacobian
+> 10 0
+> 10 1
+> 10 2
+> RNEA
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> 65536
+> Batch Size
+> 10 0
+> 10 1
+> 10 2
+> Time (ms)
+> CRBA
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> 65536
+> Batch Size
+> 10 0
+> 10 1
+> 10 2
+> ABA
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> 65536
+> Batch Size
+> 10 0
+> 10 1
+> 10 2
+> Full Pipeline
+> Pinocchio (PyTorch) ADAM BARD BARD-compiled
+
+Fig. 3. Absolute wall-clock time vs. batch size for the Go2 (12-DOF) on NVIDIA H200. Pinocchio’s execution time scales linearly with batch size, while bard remains nearly flat up to batch size 4096. 
+
+use hand-written Triton kernels sized for the 6 × 6 updates, avoiding this prob-lem. In practice, we recommend eager mode for dynamics-heavy workloads on lower-bandwidth GPUs and compiled mode for kinematics-heavy workloads. 
+
+4.3 System Identification 
+
+To validate bard ’s differentiability, we apply it to gradient-based system identi-fication, recovering link masses of the KUKA LBR iiwa (7-DOF) by minimizing 
+
+min 
+
+> θ
+
+X 
+
+> k
+
+∥RNEA (q(k), ˙q(k), ¨q(k); θ) − τ (k)
+
+> meas
+
+∥2.
+
+Ground-truth torques are generated by Pinocchio from 10,000 random config-urations with 5% Gaussian noise. All link masses are perturbed by ±30% and registered as learnable parameters, with spatial inertias rebuilt at each iteration so that autograd can differentiate through the entire pipeline from mass pa-rameters to predicted torques without requiring explicit derivation of gradients. optimization uses L-BFGS over 10 random seeds. Table 2 reports the results. Convergence takes 5–10 L-BFGS iterations, yield-ing 1.24% ±0.78% mean mass error across all links and seeds. The proximal link 2 shows the highest variance, consistent with classical identifiability analysis where base-proximal parameters are harder to isolate. 
+
+4.4 RL Training with In-Loop Dynamics 
+
+To demonstrate practical integration, we embed bard into an Adversarial Mo-tion Priors (AMP) [19] training pipeline in Isaac Lab 5.1 [14] for the SPARC 10 Wang et al.                                                   
+
+> Table 2. System identification results on the KUKA iiwa (7-DOF). Link masses per-turbed by ±30% are recovered via gradient-based optimization through bard ’s differ-entiable RNEA. Results averaged over 10 random seeds. Link True Mass (kg) Identified Mass (kg) Error (%) link_2 4.000 3.879 ±0.224 4.99 ±3.73
+> link_3 3.000 3.014 ±0.018 0.55 ±0.54
+> link_4 2.700 2.708 ±0.019 0.57 ±0.49
+> link_5 1.700 1.697 ±0.013 0.50 ±0.54
+> link_6 1.800 1.800 ±0.010 0.41 ±0.37
+> link_7 0.300 0.300 ±0.002 0.42 ±0.27
+> Overall mean error 1.24 ±0.78
+
+quadruped. The robot features a 3-DOF actuated spine driven by a model-based task-space impedance controller. The controller calls FK, Jacobian, and RNEA at every environment step to compute spine torques, while the RL policy learns leg joint actions and spine impedance parameters. We train with 4096 paral-lel environments on a single NVIDIA L40S GPU and compare three dynamics backends: Pinocchio with a PyTorch wrapper, ADAM, and bard . bard achieves 16.75 it/s, a 2.0× speedup over ADAM (8.2 it/s) and 8.5× over the Pinocchio with PyTorch wrapper (1.96 it/s). The three backends are numerically equivalent for the computed torques, so the choice of dynamics library affects only train-ing wall-clock time, confirming that bard is a drop-in replacement requiring no algorithmic changes. 
+
+## 5 Conclusion 
+
+We presented bard , a pure-PyTorch library for batched, differentiable rigid-body dynamics. By restructuring Featherstone’s algorithms for GPU execution through lazy evaluation, level-parallel tree traversal, and matmul-free joint trans-forms, bard achieves numerical accuracy matching Pinocchio while delivering up to 64 × throughput improvement at batch size 4096. Gradient-based sys-tem identification recovers link masses to 1.24% error, and integration into an Isaac Lab AMP pipeline for the SPARC robot achieves 2.0× higher training throughput than ADAM and 8.5× over Pinocchio, making large-scale RL train-ing with in-loop dynamics practical on a single GPU. The throughput advan-tage is largest for kinematics-dominated workloads at large batch sizes; for small kinematic chains (e.g. 3-DOF), per-kernel launch overhead narrows the gap, as reflected by the more modest 2× speedup over ADAM in the RL experiment compared with the 64 × seen in pure-kinematics benchmarks. Additionally, as shown in Section 4.2, torch.compile can degrade dynamics performance on smaller GPUs due to register spilling, so users should profile before enabling compilation for dynamics-heavy workloads. Future work includes contact dy-Batched Differentiable Rigid Body Dynamics in PyTorch 11 
+
+namics and PyTorch-native trajectory optimization, where bard ’s differentiable RNEA could serve as the dynamics backend for trajectory optimization solvers. 
+
+## References 
+
+1. Bledt, G., Powell, M.J., Katz, B., Di Carlo, J., Wensing, P.M., Kim, S.: Mit cheetah 3: Design and control of a robust, dynamic quadruped robot. In: 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). pp. 2245– 2252. IEEE (2018) 2. Carpentier, J., Mansard, N.: Analytical derivatives of rigid body dynamics algo-rithms. In: Robotics: Science and Systems (RSS) (2018) 3. Carpentier, J., Saurel, G., Buondonno, G., Mirabel, J., Lamiraux, F., Stasse, O., Mansard, N.: The Pinocchio C++ library: A fast and flexible implementation of rigid body dynamics algorithms and their analytical derivatives. In: IEEE Inter-national Symposium on System Integration (SII). pp. 614–619. IEEE (2019) 4. Degrave, J., Hermans, M., Dambre, J., et al.: A differentiable physics engine for deep learning in robotics. Frontiers in neurorobotics 13 , 406386 (2019) 5. Featherstone, R.: Rigid Body Dynamics Algorithms. Springer, New York (2008) 6. Felis, M.L.: RBDL: An efficient rigid-body dynamics library using recursive algo-rithms. Autonomous Robots 41 (2), 495–511 (2017) 7. Freeman, C.D., Frey, E., Raichuk, A., Girgin, S., Mordatch, I., Bachem, O.: Brax – a differentiable physics engine for large scale rigid body simulation. In: Conference on Neural Information Processing Systems, Datasets and Benchmarks Track (2021) 8. Hu, Y., Anderson, L., Li, T.M., Sun, Q., Carr, N., Ragan-Kelley, J., Durand, F.: Difftaichi: Differentiable programming for physical simulation. arXiv preprint arXiv:1910.00935 (2019) 9. Hwangbo, J., Lee, J., Dosovitskiy, A., Bellicoso, D., Tsounis, V., Koltun, V., Hutter, M.: Learning agile and dynamic motor skills for legged robots. Science Robotics 
+
+4(26), eaau5872 (2019) 10. Kashiri, N., Baccelliere, L., Muratore, L., Laurenzi, A., Ren, Z., Hoffman, E.M., Kamedula, M., Rigano, G.F., Malzahn, J., Cordasco, S., Guria, P., Margan, A., Tsagarakis, N.G.: Centauro: A hybrid locomotion and high power resilient manip-ulation platform. IEEE Robotics and Automation Letters 4(2), 1595–1602 (2019) 11. Le Lidec, Q., Kalevatykh, I., Laptev, I., Schmid, C., Carpentier, J.: Differentiable simulation for physical system identification. IEEE Robotics and Automation Let-ters 6(2), 3413–3420 (2021) 12. L’Erario, G., Traversaro, S., Sartore, C., Grieco, R., Dafarra, S., Romualdi, G., Fer-retti, F.L., Pucci, D.: ADAM: Automatic differentiation for rigid-body-dynamics algorithms and models. https://github.com/ami-iit/adam (2025) 13. Li, Z., Wang, Y., Wu, W., Xu, Y., Stein, S.: Hmcf: A human-in-the-loop multi-robot collaboration framework based on large language models. In: International Conference on Principles and Practice of Multi-Agent Systems. pp. 150–167 (2025) 14. Makoviychuk, V., Wawrzyniak, L., Guo, Y., Lu, M., Storey, K., Macklin, M., Hoeller, D., Rudin, N., Allshire, A., Handa, A., State, G.: Isaac Gym: High perfor-mance GPU-based physics simulation for robot learning. In: Conference on Neural Information Processing Systems, Datasets and Benchmarks Track (2021) 15. Mastalli, C., Budhiraja, R., Merkt, W., Saurel, G., Hammoud, B., Naveau, M., Carpentier, J., Righetti, L., Vijayakumar, S., Mansard, N.: Crocoddyl: An efficient and versatile framework for multi-contact optimal control. In: IEEE International Conference on Robotics and Automation (ICRA). pp. 2536–2542. IEEE (2020) 12 Wang et al. 16. Mattamala, M., Frey, J., Libera, P., Chebrolu, N., Martius, G., Cadena, C., Hutter, M., Fallon, M.: Wild visual navigation: Fast traversability learning via pre-trained models and online self-supervision. Autonomous Robots 49 (3), 19 (2025) 17. Meier, F., Wang, A., Sutanto, G., Lin, Y., Shah, P.: Differentiable and learnable robot models. arXiv preprint arXiv:2202.11217 (2022) 18. Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga, L., et al.: PyTorch: An imperative style, high-performance deep learning library. Advances in Neural Information Processing Sys-tems 32 (2019) 19. Peng, X.B., Ma, Z., Abbeel, P., Levine, S., Kanazawa, A.: AMP: Adversarial motion priors for stylized physics-based character animation. In: ACM SIGGRAPH. pp. 1–15 (2021) 20. Plancher, B., Neuman, S.M., Ghosal, R., Kuindersma, S., Reddi, V.J.: GRiD: GPU-accelerated rigid body dynamics with analytical gradients. In: IEEE International Conference on Robotics and Automation (ICRA). pp. 3728–3734. IEEE (2022) 21. Rudin, N., Hoeller, D., Reist, P., Hutter, M.: Learning to walk in minutes using massively parallel deep reinforcement learning. In: Conference on Robot Learning (CoRL). pp. 91–100. PMLR (2021) 22. Sathyamoorthy, A.J., Weerakoon, K., Guan, T., Russell, M., Conover, D., Pusey, J., Manocha, D.: Vern: Vegetation-aware robot navigation in dense unstructured outdoor environments. In: 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). pp. 11233–11240. IEEE (2023) 23. Tedrake, R., the Drake Development Team: Drake: Model-based design and verifi-cation for robotics. https://drake.mit.edu (2019) 24. Tillet, P., Kung, H.T., Cox, D.: Triton: an intermediate language and compiler for tiled neural network computations. In: Proceedings of the 3rd ACM SIGPLAN International Workshop on Machine Learning and Programming Languages. pp. 10–19 (2019) 25. Wang, Y.: SPARC: Spine with prismatic and revolute compliance for quadruped robot. arXiv preprint arXiv:2510.01984 (2025) 26. Wang, Y., Wang, H., Li, Z.: Quattro: transformer-accelerated iterative linear quadratic regulator framework for fast trajectory optimization. In: 2025 IEEE 64th Conference on Decision and Control (CDC). pp. 6629–6636. IEEE (2025) 27. Werling, K., Omens, D., Lee, J., Exarchos, I., Liu, C.K.: Fast and feature-complete differentiable physics for articulated rigid bodies with contact. arXiv preprint arXiv:2103.16021 (2021) 28. Xu, Y., Zauner, K.P., Tarapore, D.: Blind-wayfarer: A minimalist, probing-driven framework for resilient navigation in perception-degraded environments. In: 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). pp. 19340–19345. IEEE (2025) 29. Zakka, K., Tabanpour, B., Liao, Q., Haiderbhai, M., Holt, S., Luo, J.Y., Allshire, A., Frey, E., Sreenath, K., Kahrs, L.A., et al.: MuJoCo Playground. arXiv preprint arXiv:2502.08844 (2025) 30. Zhong, S., Power, T., Gupta, A., Mitrano, P.: pytorch_kinematics: A PyTorch library for differentiable kinematics. https://github.com/UM-ARM-Lab/pytorch_ kinematics (2024) 31. Zhou, X., Wen, X., Wang, Z., Gao, Y., Li, H., Wang, Q., Yang, T., Lu, H., Cao, Y., Xu, C., et al.: Swarm of micro flying robots in the wild. Science robotics 7(66), eabm5954 (2022) 32. Zhuang, Z., Yao, S., Zhao, H.: Humanoid parkour learning. In: Conference on Robot Learning. pp. 1975–1991. PMLR (2025) Batched Differentiable Rigid Body Dynamics in PyTorch 13 
+
+## Supplementary Material 
+
+This appendix provides extended benchmark results for bard across four NVIDIA GPUs: H100 80GB HBM3, A100 80GB PCIe, L40S, and L4. All timings use the same protocol as the main paper: median of 100 runs at batch size 4096, with five robot models of increasing DOF. Methods compared: Pinocchio C++ (with NumPy I/O), Pinocchio with PyTorch tensor conversion (baseline for speedup), ADAM [12], bard (eager), and bard with torch.compile (bard -compiled). ADAM results for the G1 robot are unavailable due to compatibility issues with ADAM’s URDF parser. 
+
+## A Cross-GPU Throughput Benchmarks 
+
+Tables 3–6 report speedup over the Pinocchio (PyTorch) baseline at batch size 4096 across all five robots and six algorithm categories. Each value is the median of 100 paired-sample ratios; brackets show the interquartile range [Q1–Q3] where it exceeds 5% of the median (most entries have negligible variance). Shaded cells indicate cases where torch.compile produces slower execution than eager mode (see Section C for analysis). Bold entries denote speedups ≥ 10 ×.
+
+## B Scaling Behavior Across GPUs 
+
+Figures 4–7 show wall-clock time versus batch size for the Go2 robot (12-DOF) on each GPU. On all four GPUs, bard ’s execution time is nearly flat from batch size 1 to 4096, after which it rises as GPU occupancy is exceeded. Pinocchio (Py-Torch) scales linearly in all cases because it processes configurations sequentially on CPU. 14 Wang et al. 
+
+Table 3. Speedup over Pinocchio (PyTorch) at batch size 4096 on NVIDIA H100 80GB HBM3. Brackets show [Q1–Q3] when IQR exceeds 5% of the median. Shaded cells indicate torch.compile regression. Robot Method FK Jac. RNEA CRBA ABA Full KUKA iiwa (7) Pin. C++ 4.0 × 1.7 × 1.7 × 2.1 × 1.2 × 2.1 ×
+
+ADAM 2.6 × 0.8 × 1.0 × 1.1 × 2.0 × 1.0 ×
+
+BARD 12 × 8.8 × 3.5 × 4.2 × 5.7 × 5.4 ×
+
+BARD-c 23 × 23 × 3.4 × 4.1 × 5.6 × 6.0 ×
+
+SPARC (11) Pin. C++ 4.2 × 2.0 × 2.0 × 2.6 × 1.3 × 2.1 ×
+
+ADAM 5.7 × 1.8 × 1.2 × 1.4 × 2.3 × 1.4 ×
+
+BARD 21 × 15 × 5.6 × 6.4 × 7.7 × 7.0 ×
+
+BARD-c 17 × 15 × 5.4 × 6.1 × 7.6 × 6.7 ×
+
+Go2 (12) Pin. C++ 3.0 × 1.8 × 1.9 × 2.8 × 1.3 × 1.9 ×
+
+ADAM 11 × 3.4 × 0.5 × 0.8 × 1.2 × 1.0 ×
+
+BARD 34 × 25 × 5.7 × 6.5 × 7.1 × 6.7 ×
+
+BARD-c 68 × 73 × 5.2 × 6.3 × 6.8 × 5.2 ×
+
+H1 (19) Pin. C++ 2.8 × 1.7 × 1.6 × 2.2 × 1.3 × 1.7 ×
+
+ADAM 6.8 × 2.5 × 0.9 × 1.2 × 2.0 × 1.3 ×
+
+BARD 25 × 22 × 6.2 × 5.1 × 8.3 × 7.5 ×
+
+BARD-c 52 × 55 × 6.0 × 5.0 × 8.2 × 6.9 ×
+
+G1 (23) Pin. C++ 2.5 × 1.6 × 1.6 × 2.1 [2 .0–2.2] × 1.2 × 1.6 ×
+
+ADAM — — — — — —BARD 24 × 21 × 6.1 × 4.7 [4 .4–4.8] × 8.2 × 7.0 ×
+
+BARD-c 50 × 52 × 6.0 × 4.6 [4 .4–4.7] × 8.1 × 5.6 ×10 1         
+
+> 10 0
+> 10 1
+> 10 2
+> Time (ms)
+> Forward Kinematics
+> 10 1
+> 10 0
+> 10 1
+> 10 2Jacobian
+> 10 1
+> 10 0
+> 10 1
+> RNEA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Time (ms)
+> CRBA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> ABA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Full Pipeline
+> Pinocchio (PyTorch) ADAM BARD BARD-compiled
+
+Fig. 4. Wall-clock time vs. batch size on NVIDIA H100 80GB HBM3 (Go2, 12-DOF). Batched Differentiable Rigid Body Dynamics in PyTorch 15 
+
+Table 4. Speedup over Pinocchio (PyTorch) at batch size 4096 on NVIDIA A100 80GB PCIe. Brackets show [Q1–Q3] when IQR exceeds 5% of the median. Shaded cells indicate torch.compile regression. Robot Method FK Jac. RNEA CRBA ABA Full KUKA iiwa (7) Pin. C++ 4.7 × 1.7 × 1.7 × 2.2 × 1.3 × 2.2 ×
+
+ADAM 2.3 × 0.7 × 0.9 × 1.0 × 1.5 × 0.8 ×
+
+BARD 9.8 × 7.2 × 2.9 × 3.4 × 4.3 × 4.6 ×
+
+BARD-c 21 × 21 × 2.9 × 3.3 × 4.3 × 5.5 ×
+
+SPARC (11) Pin. C++ 5.0 × 2.0 × 2.0 × 2.6 × 1.4 × 2.1 ×
+
+ADAM 4.9 × 1.5 × 1.0 × 1.3 × 1.8 × 1.1 ×
+
+BARD 17 × 13 × 4.7 × 5.1 × 5.9 × 5.8 ×
+
+BARD-c 16 × 13 × 4.7 × 5.0 × 5.9 × 5.7 ×
+
+Go2 (12) Pin. C++ 3.8 × 1.9 × 1.9 × 2.7 × 1.3 × 2.0 ×
+
+ADAM 8.6 × 2.7 × 0.4 × 0.7 × 0.9 × 0.8 ×
+
+BARD 26 × 20 × 4.8 × 4.9 × 5.2 × 5.2 ×
+
+BARD-c 55 × 59 × 4.3 × 4.9 × 4.9 × 4.1 ×
+
+H1 (19) Pin. C++ 3.3 × 1.7 × 1.7 × 2.5 [2 .3–2.5] × 1.3 × 1.8 ×
+
+ADAM 5.5 × 2.0 × 0.7 × 1.1 × 1.5 × 1.1 ×
+
+BARD 20 × 17 × 5.2 × 4.3 × 6.0 × 6.1 ×
+
+BARD-c 44 × 45 × 5.1 × 4.3 × 5.9 × 5.7 ×
+
+G1 (23) Pin. C++ 2.9 × 1.7 × 1.6 × 2.4 [2 .2–2.4] × 1.2 × 1.7 ×
+
+ADAM — — — — — —BARD 19 × 17 × 5.0 × 3.9 [3 .6–4.0] × 5.8 × 5.6 ×
+
+BARD-c 43 × 43 × 4.9 × 3.8 [3 .6–3.9] × 5.8 × 4.6 ×10 1          
+
+> 10 0
+> 10 1
+> 10 2
+> Time (ms)
+> Forward Kinematics
+> 10 1
+> 10 0
+> 10 1
+> 10 2Jacobian
+> 10 1
+> 10 0
+> 10 1
+> 10 2RNEA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Time (ms)
+> CRBA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> ABA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Full Pipeline
+> Pinocchio (PyTorch) ADAM BARD BARD-compiled
+
+Fig. 5. Wall-clock time vs. batch size on NVIDIA A100 80GB PCIe (Go2, 12-DOF). 16 Wang et al. 
+
+Table 5. Speedup over Pinocchio (PyTorch) at batch size 4096 on NVIDIA L40S. Brackets show [Q1–Q3] when IQR exceeds 5% of the median. Shaded cells indicate 
+
+torch.compile regression. Robot Method FK Jac. RNEA CRBA ABA Full KUKA iiwa (7) Pin. C++ 4.3 × 1.6 × 1.6 × 2.1 × 1.3 × 2.0 ×
+
+ADAM 3.4 × 1.1 × 1.4 × 1.4 × 2.4 × 1.3 ×
+
+BARD 14 × 12 × 4.5 × 5.4 × 7.2 × 6.7 ×
+
+BARD-c 26 × 31 × 4.5 × 5.2 × 7.1 × 7.8 ×
+
+SPARC (11) Pin. C++ 4.5 × 1.9 × 1.9 × 2.3 × 1.3 × 2.0 ×
+
+ADAM 7.3 × 2.4 × 1.6 × 1.8 × 2.8 × 1.8 ×
+
+BARD 25 × 19 × 7.1 × 7.9 × 9.2 × 8.5 ×
+
+BARD-c 22 × 19 × 7.0 × 7.6 × 9.1 × 8.3 ×
+
+Go2 (12) Pin. C++ 3.4 × 1.8 × 1.8 × 2.3 × 1.3 × 1.8 ×
+
+ADAM 13 × 4.2 × 0.7 × 0.9 × 1.3 × 1.2 ×
+
+BARD 38 × 30 × 6.9 × 5.5 × 8.1 × 7.8 ×
+
+BARD-c 73 × 90 × 3.2 × 5.5 × 5.1 × 2.2 ×
+
+H1 (19) Pin. C++ 3.0 × 1.6 × 1.6 × 2.2 × 1.2 × 1.7 ×
+
+ADAM 8.6 × 3.2 × 1.2 × 1.6 × 2.4 × 1.7 ×
+
+BARD 30 × 26 × 8.3 × 6.8 × 10 × 9.3 ×
+
+BARD-c 59 × 65 × 4.5 × 6.7 × 7.3 × 4.1 ×
+
+G1 (23) Pin. C++ 2.6 × 1.6 × 1.5 × 2.0 × 1.2 × 1.5 ×
+
+ADAM — — — — — —BARD 28 × 25 × 7.4 × 5.6 × 9.7 × 8.5 ×
+
+BARD-c 54 × 60 × 7.4 × 5.5 × 9.6 × 2.8 ×10 2           
+
+> 10 1
+> 10 0
+> 10 1
+> Time (ms)
+> Forward Kinematics
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Jacobian
+> 10 1
+> 10 0
+> 10 1
+> RNEA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Time (ms)
+> CRBA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> ABA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Full Pipeline
+> Pinocchio (PyTorch) ADAM BARD BARD-compiled
+
+Fig. 6. Wall-clock time vs. batch size on NVIDIA L40S (Go2, 12-DOF). Batched Differentiable Rigid Body Dynamics in PyTorch 17 
+
+Table 6. Speedup over Pinocchio (PyTorch) at batch size 4096 on NVIDIA L4. Brackets show [Q1–Q3] when IQR exceeds 5% of the median. Shaded cells indicate 
+
+torch.compile regression. Robot Method FK Jac. RNEA CRBA ABA Full KUKA iiwa (7) Pin. C++ 4.1 × 1.6 × 1.6 × 2.0 × 1.2 × 2.0 ×
+
+ADAM 3.3 × 1.1 × 1.4 × 0.9 × 2.0 × 1.2 ×
+
+BARD 12 × 8.8 × 4.1 × 4.6 × 6.8 × 6.4 ×
+
+BARD-c 14 × 15 × 4.1 × 4.6 × 6.7 × 5.5 ×
+
+SPARC (11) Pin. C++ 4.4 × 1.9 × 1.9 × 2.3 × 1.3 × 1.9 ×
+
+ADAM 7.2 × 2.4 × 1.6 × 1.3 × 2.4 × 1.7 ×
+
+BARD 23 × 16 × 6.1 × 5.9 × 8.3 × 7.9 ×
+
+BARD-c 21 × 16 × 6.1 × 5.8 × 8.2 × 7.8 ×
+
+Go2 (12) Pin. C++ 3.4 × 1.8 × 1.8 × 2.3 × 1.3 × 1.8 ×
+
+ADAM 13 × 4.2 × 0.7 × 0.6 × 1.1 × 1.2 ×
+
+BARD 35 × 25 × 3.0 × 2.8 × 4.2 × 4.3 ×
+
+BARD-c 43 × 37 × 1.1 × 2.8 × 2.1 × 0.6 ×
+
+H1 (19) Pin. C++ 2.9 × 1.6 × 1.6 × 2.1 × 1.2 × 1.6 ×
+
+ADAM 8.6 × 3.2 × 1.2 × 1.1 × 2.1 × 1.7 ×
+
+BARD 27 × 22 × 4.3 × 3.7 × 6.6 × 6.2 ×
+
+BARD-c 33 × 26 × 1.6 × 3.7 × 3.4 × 1.0 ×
+
+G1 (23) Pin. C++ 2.6 × 1.6 × 1.5 × 2.0 × 1.2 × 1.6 ×
+
+ADAM — — — — — —BARD 26 × 21 × 3.6 × 3.2 × 5.9 × 5.1 ×
+
+BARD-c 31 × 23 × 3.6 × 3.2 × 5.9 × 0.8 ×10 2           
+
+> 10 1
+> 10 0
+> 10 1
+> Time (ms)
+> Forward Kinematics
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Jacobian
+> 10 1
+> 10 0
+> 10 1
+> RNEA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Time (ms)
+> CRBA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> ABA
+> 1
+> 16
+> 64
+> 256
+> 1024
+> 4096
+> 16384
+> Batch Size
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Full Pipeline
+> Pinocchio (PyTorch) ADAM BARD BARD-compiled
+
+Fig. 7. Wall-clock time vs. batch size on NVIDIA L4 (Go2, 12-DOF). 18 Wang et al. 
+
+## C Analysis of torch.compile Performance 
+
+The main text discusses the general pattern: compilation helps kinematics but can hurt dynamics on lower-end GPUs. This section quantifies the severity across all four GPUs. On the L4, bard -compiled is up to 7.4× slower than eager mode for the full pipeline on the Go2 (Table 6: 0.6× vs. 4.3× over baseline). RNEA shows up to 
+
+2.7× regression, and ABA up to 2.0×. On the L40S, the full pipeline regression reaches 3.6× (Table 5). On the H100 and A100, regression is mild and confined to the full pipeline, where compilation overhead marginally exceeds the benefit for algorithms that already have high GPU utilisation in eager mode. The worst case is the full pipeline, which chains FK + Jacobian + RNEA + CRBA + ABA in a single compiled graph. The compiler attempts to fuse across algorithm boundaries, producing kernels too large for the L4’s register file.

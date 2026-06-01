@@ -1,0 +1,4591 @@
+Title: Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion
+
+URL Source: https://arxiv.org/pdf/2605.31388v1
+
+Published Time: Mon, 01 Jun 2026 01:48:26 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+# Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Giseung Park 1 * Hyunyoung Nam 2 * Woohyeon Byeon 2 Amir Leshem 3 Youngchul Sung 2
+
+## Abstract 
+
+Multi-Objective Reinforcement Learning (MORL) extends standard RL by optimizing policies with respect to multiple, often conflicting, objectives. While max-min MORL has emerged as an effective approach for promoting fairness, its applicability remains limited, particularly when constraints must be incorporated. In this paper, we propose a MORL framework that integrates the max-min criterion with explicit constraint satisfaction. We establish a theoretical foundation for the proposed framework and vali-date the resulting algorithm through convergence analysis and experiments in tabular settings. We further demonstrate the practical relevance of our approach in simulated building thermal control, multi-objective locomotion control, and greenhouse-gas-emission-aware traffic management. Across these domains, our method effectively balances fairness and constraint satisfaction in multi-objective decision-making. 
+
+## 1. Introduction 
+
+Reinforcement Learning (RL) is a powerful machine learn-ing framework that enables an agent to derive effective decision-making policies by actively engaging with a given environment. In recent years, Multi-Objective Reinforce-ment Learning (MORL) has gained significant interest be-cause many real-world control problems inherently involve multiple, often conflicting objectives (Roijers et al., 2013; Yang et al., 2019; Hayes et al., 2022; Alegre et al., 2023; Teoh et al., 2025; Liu et al., 2025; Kim et al., 2025a;b; Li et al., 2025). MORL extends standard RL to handle simulta-neous optimization of multiple objectives. 
+
+> *
+
+Equal contribution 1Robotics Institute, University of Toronto, 55 St George St, Toronto, Canada. 2School of Electical Engi-neering, KAIST, Daejeon 34141, Republic of Korea. 3Faculty of Engineering, Bar-Ilan University, Ramat Gan 52900, Israel. Correspondence to: Youngchul Sung <ycsung@kaist.ac.kr >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). 
+
+The central objective of MORL is to identify a policy that yields an expected cumulative return vector lying on the Pareto frontier of the set of achievable return vec-tors. A common strategy involves optimizing a scalarized function defined over multiple objective returns (Roijers et al., 2013; Hayes et al., 2022). This framework seeks to identify a policy π that maximizes a scalarized value 
+
+f (J1(π), . . . , J K (π)) , where each Jk(π) represents the expected discounted return for the k-th objective among 
+
+K(≥ 2) objectives, and f : RK → R is a non-decreasing scalarization function such that Jk(π) ≥ Jk(π′), 1 ≤ k ≤
+
+K ⇒ f (J(π)) ≥ f (J(π′)) . Thus, f plays a key role in im-posing the designer’s preference among multiple objectives (Siddique et al., 2020; Cousins et al., 2024). Although much of the MORL literature employs a linear 
+
+f (that is, the weighted sum: max π
+
+PKk=1 wkJk(π) with fixed {wk}Kk=1 ) due to its simplicity, the weighted sum does not always accurately represent the preference of a designer, especially regarding fairness among objectives (Hayes et al., 2022; Park et al., 2024). For instance, imagine a traffic light system managing an intersection where several roads converge with asymmetric arrival rates. Instead of simply aiming to reduce the total sum waiting time for all vehicles across the roads, the designer could prioritize fairness by minimizing the longest individual waiting time among the roads. This helps reduce localized congestion (Raeis & Leon-Garcia, 2021) and avoid severe delays for individual drivers. As such, fairness-driven objectives frequently arise in real-world scenarios and are addressed beyond the standard weighted sum, such as max-min optimization (Zehavi et al., 2013) or proportionally fair optimization (Khan et al., 2016) in MORL. Specifically, if the Pareto frontier contains an equalization point at which J1(π) = J2(π) = · · · = JK (π)
+
+is satisfied, the max-min solution attains this point (Zehavi et al., 2013). This notion of max-min fairness is valuable in many applications (Regan & Boutilier, 2010; Zehavi et al., 2013; Saifullah et al., 2014; Wang et al., 2019; Chakraborty et al., 2024; Eaton et al., 2025), such as mitigating bot-tlenecks in cloud and edge resource management systems (Saifullah et al., 2014; Wang et al., 2019) and analyzing societal fairness across diverse demographic groups (Eaton et al., 2025). 1
+
+> arXiv:2605.31388v1 [cs.LG] 29 May 2026 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion
+
+However, because the standard max-min MORL framework is formulated as an unconstrained optimization problem, it cannot address many real-world problems that involve con-straints which must be satisfied. For example, in resource allocation, a MORL-based scheduler may seek to maximize throughput and fairness across task queues while operating under a strict power consumption constraint (Chen et al., 2020; Jiang et al., 2020). Similarly, in traffic management systems, a controller must minimize the maximum total wait-ing time across lanes while maintaining low greenhouse-gas emissions to ensure regional sustainability. Incorporating constraints into the max-min MORL framework therefore substantially broadens its practical applicability. Despite this motivation, incorporating constraints into un-constrained max-min MORL is not straightforward. On the one hand, existing max-min MORL algorithms may lack solution exactness, for example by optimizing a lower bound of the original max-min objective (Fan et al., 2023; Peng et al., 2025) or by being susceptible to inexact gradient estimates (Park et al., 2024). On the other hand, existing constrained single-objective RL methods (Liu et al., 2019; Ha et al., 2020; Vaswani et al., 2022; Calvo-Fullana et al., 2023; M ¨uller et al., 2024) do not account for multi-objective reward settings with K ≥ 2 and fairness across those objec-tives. Moreover, their analyses are not directly applicable to our setting due to the non-differentiability of the max-min objective. In this paper, we propose a MORL framework that max-imizes max-min fairness among homogeneous objectives while simultaneously incorporating additional quantities as constraints. To address the non-differentiability and nonlin-earity of the max-min objective, we reformulate the problem as a convex optimization over occupancy measures (Puter-man, 1994) and derive a convex program admitted by the dual problem. This reformulation enables us to handle the max-min criterion and the constraints in a unified manner. We further provide a detailed theoretical foundation, includ-ing convergence guarantees for the proposed algorithm. Our main contributions are as follows: 
+
+• We introduce a MORL framework that integrates the max-min criterion into constrained optimization and show that fairness and constraint satisfaction can be addressed in a unified manner. 
+
+• We propose an iterative algorithm for constrained max-min MORL and establish its theoretical foundations, accom-panied by a formal convergence analysis. We also empiri-cally evaluate its behavior in tabular settings. 
+
+• We demonstrate the practical relevance of our method through applications to simulated building thermal control, multi-objective locomotion control, and greenhouse-gas-emission-aware traffic management. Our approach consis-tently achieves a better balance between max-min fairness and constraint satisfaction than the considered baselines. 
+
+## 2. Background 
+
+A multi-objective Markov decision process (MOMDP) is represented as ⟨S , A, T, μ 0, r, γ ⟩, where S and A are the sets of states and actions, respectively, T represents the transition probability distribution, μ0 specifies the initial state distribution, and γ ∈ [0 , 1) is the discount factor. The reward function r : S × A → RK+L, K ≥ 1, L ≥ 0 is vector-valued with its k-th element denoted by r(k) (1 ≤
+
+k ≤ K + L) such that |r(k)| ≤ r(k)
+
+> max
+
+, where K + L is the total number of objectives. For simplicity, we abbreviate 
+
+∀s ∈ S , ∀a ∈ A and ∀(s, a ) ∈ S × A as ∀s, ∀a and 
+
+∀(s, a ), respectively. At each timestep, the agent selects an action a in the current state s according to its (stationary) policy π : S → P (A),where P(A) represents the set of probability distributions in the action space A. The occupancy measure is defined as ρ(s, a ) := P 
+
+> s′
+
+μ0(s′) P∞ 
+
+> t=0
+
+γtPr (st = s, a t = a|s0 =
+
+s′, π ρ) where πρ is the corresponding stationary policy in-duced by ρ, expressed as πρ(a|s) = ρ(s,a )P  
+
+> a′ρ(s,a ′)
+
+(Puterman, 1994). Then, the vector return evaluated by πρ is given by 
+
+J(πρ) := [J1(πρ), · · · , J K+L(πρ)] ⊤ ∈ RK+L
+
+= Eπρ
+
+" ∞X
+
+> t=0
+
+γtrt
+
+#
+
+= X
+
+> (s,a )
+
+r(s, a )ρ(s, a ). (1) In this paper, we define RL 
+
+> +
+
+:= {u ∈ RL|ul ≥ 0, 1 ≤ l ≤
+
+L} and ∆K := {w ∈ RK | PKk=1 wk = 1; wk ≥ 0, 1 ≤
+
+k ≤ K}, i.e., the (K − 1) -dimensional simplex. 
+
+## 3. Constrained Max-Min MORL Framework 
+
+3.1. Theoretical Foundation 
+
+We consider the MORL setting where the last L of the total 
+
+K + L objectives should satisfy certain constraints. For theoretical development in this section, we assume that S
+
+and A are finite. The problem is formulated as follows: 
+
+max  
+
+> πρ
+
+f (J1(πρ), · · · , J K (πρ)) + β X
+
+> s
+
+Hρ(s)ρ(s) (2) s.t. JK+l(πρ) ≥ C(l), l = 1 , · · · , L (3) where Hρ(s) := − P 
+
+> a
+
+πρ(a|s) log πρ(a|s) is the entropy of πρ(·| s), ρ(s) := P 
+
+> a
+
+ρ(s, a ) is the stationary state distri-bution in S, β > 0 is a balancing coefficient, and {C(l)}Ll=1 
+
+is a set of threshold values. We assume a mild condition that the set {C(l)}Ll=1 is chosen by the designer such that the optimization in (2) and (3) is feasible, an assumption 2Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+commonly made in the constrained MDP literature (Tessler et al., 2018; Ha et al., 2020). In this paper, we set f the minimum function, i.e., 
+
+f (J1(πρ), · · · , J K (πρ)) = min 1≤k≤K Jk(πρ). We note that the entropy term is required to eliminate the indeter-minacy of the max-min solution without any regularization (Park et al., 2024). The problem reduces to the unregularized formulation as β → 0, with the optimality gap decreasing linearly: 
+
+Proposition 3.1. The gap between the optimal max-min value of the unregularized problem and that of the regular-ized problem in (2) and (3) with f = min is upper bounded by β log |A|  
+
+> 1−γ
+
+. (Proof: See Appendix A.) 
+
+Proposition 3.1 shows that the regularized problem is a valid approximation of the unregularized criterion. Since directly optimizing (2) and (3) with f = min and 
+
+Jk(πρ) = Eπρ [P∞ 
+
+> t=0
+
+γtr(k) 
+
+> t
+
+] is non-trivial due to its non-differentiable and nonlinear structure, we address this chal-lenge using the occupancy measure (i.e., stationary distribu-tion (Puterman, 1994)) formulation. The above optimization problem with f = min can be rewritten as 
+
+max  
+
+> ρ≥0
+
+min 
+
+> 1≤k≤K
+
+ X
+
+> (s,a )
+
+r(k)(s, a )ρ(s, a )
+
+
+
++ β X
+
+> s
+
+Hρ(s)ρ(s)
+
+(4) 
+
+X
+
+> a′
+
+ρ(s′, a ′) = μ0(s′) + γ X
+
+> (s,a )
+
+T (s′|s, a )ρ(s, a ), ∀s′ (5) 
+
+X
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) ≥ C(l), l = 1 , · · · , L (6) where (5) is the Bellman flow equation for the occupancy measure (Puterman, 1994). Here, we use the notation 
+
+c(l)(s, a ) := r(K+l)(s, a ), l = 1 , · · · , L to explicitly rep-resent the dimensions associated with the constraint. For example, these quantities can be negative of some costs. Then the formulation in (4) , (5) , and (6) constitutes a con-vex optimization problem. Now we derive a convex optimization problem admitted by the dual of (4) , (5) , and (6) , which forms the foundation of our algorithm. Given (u, w ), let v∗ 
+
+> u,w
+
+be the fixed point of the operator Tu,w :
+
+[Tu,w v]( s) = β log X
+
+> a
+
+exp[ 1
+
+β {
+
+> L
+
+X
+
+> l=1
+
+ulc(l)(s, a )+
+
+> K
+
+X
+
+> k=1
+
+wkr(k)(s, a ) + γX
+
+> s′
+
+T (s′|s, a )v(s′)}], ∀s. 
+
+(7) 
+
+Proposition 3.2. The dual problem of (4) , (5) , and (6) 
+
+admits the following convex optimization formulation: 
+
+min 
+
+> u∈RL
+> +,w ∈∆K
+
+L(u, w ) = X
+
+> s
+
+μ0(s)v∗
+
+> u,w
+
+(s) −
+
+> L
+
+X
+
+> l=1
+
+ulC(l).
+
+(8) 
+
+(Proof: See Appendix B.) 
+
+We emphasize that the optimization problem in (8) is not the dual per se of (4) , (5) , and (6) , since the dual problem itself does not involve the fixed point v∗ 
+
+> u,w
+
+in the objective. Con-sequently, establishing the convexity of (8) requires proving the convexity of v∗ 
+
+> u,w
+
+with respect to (u, w ), as explained in Appendix B. Throughout our analysis, we assume that Slater condition holds (Boyd & Vandenberghe, 2004; Lee et al., 2021), which encompasses the standard constraint feasibility assumption (Tessler et al., 2018; Ha et al., 2020). Proposition 3.2 hints that v∗ 
+
+> u,w
+
+can be obtained via (7) and the weights (u, w ) can be obtained by minimizing the loss 
+
+L(u, w ) in (8) by some method. However, solving the opti-mization problem (8) is non-trivial because the fixed point 
+
+v∗ 
+
+> u,w
+
+does not have a closed-form expression in terms of 
+
+(u, w ). To address this issue, we derive the key properties of v∗
+
+> u,w
+
+. We define a policy π∗ 
+
+> u,w
+
+as 
+
+π∗
+
+> u,w
+
+(a|s) := exp( 1 
+
+> β
+
+Q∗
+
+> u,w
+
+(s, a )) 
+
+P 
+
+> a′
+
+exp( 1 
+
+> β
+
+Q∗
+
+> u,w
+
+(s, a ′)) (9) where 
+
+Q∗
+
+> u,w
+
+(s, a ) := 
+
+> L
+
+X
+
+> l=1
+
+ulc(l)(s, a ) + 
+
+> K
+
+X
+
+> k=1
+
+wkr(k)(s, a )+ γX
+
+> s′
+
+T (s′|s, a )v∗
+
+> u,w
+
+(s′). (10) Then, π∗ 
+
+> u,w
+
+is an optimal policy for the entropy-regularized RL (Haarnoja et al., 2017) with a scalar reward PLl=1 ulc(l)(s, a ) + PKk=1 wkr(k)(s, a ), ∀(s, a ). We derive the following theorem characterizing the relationship be-tween π∗ 
+
+> u,w
+
+and the gradient of v∗
+
+> u,w
+
+:
+
+Theorem 3.3. For each s, v∗
+
+> u,w
+
+(s) is differentiable in (u, w ) ∈ RL+K , and its gradient ∇v∗
+
+> u,w
+
+(s) =[∇uv∗
+
+> u,w
+
+(s)⊤, ∇wv∗
+
+> u,w
+
+(s)⊤]⊤ has the form of 
+
+∇uv∗
+
+> u,w
+
+(s) = vπ∗ 
+
+> u,w
+> c
+
+(s) and ∇wv∗
+
+> u,w
+
+(s) = vπ∗ 
+
+> u,w
+> r
+
+(s),
+
+(11) 
+
+where vπ∗ 
+
+> u,w
+> c
+
+(s) ∈ RL and vπ∗ 
+
+> u,w
+> r
+
+(s) ∈ RK are the value functions evaluated with the policy π∗ 
+
+> u,w
+
+for the constrained reward {c(l)}Ll=1 and the unconstrained reward {r(k)}Kk=1 ,respectively. (Proof: See Appendix C.) 
+
+The main advantage of Theorem 3.3 lies not only in the simplicity of its gradient expression, but also in the fact that 3Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+the gradient components corresponding to the unconstrained (w) and constrained ( u) parts are obtained in a unified man-ner and are directly linked to the value function evaluated under π∗
+
+> u,w
+
+. This unified form enables us to apply gradi-ent descent to the optimization problem using the gradient 
+
+(∇v v∗
+
+> u,w
+
+(s), ∇wv∗
+
+> u,w
+
+(s)) combined with value iteration. First, consider the unconstrained part. From (8) , ∇wL(u, w )
+
+is given by Es∼μ0 [vπ∗ 
+
+> u,w
+> r
+
+(s)] ∈ RK . Consequently, di-mensions with smaller values of Es∼μ0 [vπ∗ 
+
+> u,w
+> r
+
+(s)] undergo smaller decreases in wk under gradient descent, resulting in larger wk relative to other dimensions after update with projection onto ∆K . As a result, dimensions with smaller values receive larger updated weights, thereby realizing the max-min principle. The constrained component follows a similar logic to enforce feasibility, enabling the simul-taneous achievement of max-min fairness and constraint satisfaction. In addition, our framework encompasses un-constrained max-min MORL ( L = 0 with learned w) as well as both constrained and unconstrained RL with fixed w
+
+such as max-average RL ( w = [1 /K, · · · , 1/K ] ∈ ∆K ). A natural approach to solving the convex optimization prob-lem in (8) , using Theorem 3.3, is projected gradient descent, since the variables (u, w ) lie in the convex set RL 
+
+> +
+
+× ∆K .The convergence of projected gradient descent depends on the smoothness of the objective function (Boyd & Vanden-berghe, 2004; Bubeck, 2015). In our setting, L(u, w ) satis-fies the following smoothness property, which is essential for establishing the convergence guarantee in Section 3.2: 
+
+Theorem 3.4. For each s, v ∗
+
+> u,w
+
+(s) is smooth with respect to ∥ · ∥ 2 in (u, w ) ∈ RL+K . Furthermore, L(u, w ) is α-smooth with respect to ∥ · ∥ 2 in (u, w ) ∈ RL+K with α := 
+
+> 1
+> β(1 −γ)
+
+PL+Km=1 
+
+ r(m)
+
+> max
+> 1−γ
+
+2
+
+. (Proof: See Appendix D.) 
+
+In other words, ∇(u,w )L(u, w ) is α-Lipschitz continuous in ∥ · ∥ 2. For the proof of Theorem 3.4, we first show that 
+
+∇v∗ 
+
+> u,w
+
+is differentiable in (u, w ) ∈ RL+K (equivalently, that v∗ 
+
+> u,w
+
+is twice-differentiable) in Proposition 3.5. Then incorporating the closed-form expression of the Hessian of 
+
+v∗
+
+> u,w
+
+(s) for each s into the generalized mean value inequal-ity constitutes a key ingredient in the proof. Let Qπ∗ 
+
+> u,w
+
+(s, a ) ∈ RL+K be the action-value function evaluated with the policy π∗
+
+> u,w
+
+, and de-fine Bπ∗ 
+
+> u,w
+
+(s) := Ea∼π∗ 
+
+> u,w (·| s)
+
+
+
+(Qπ∗ 
+
+> u,w
+
+(s, a ) −
+
+Ea′∼π∗ 
+
+> u,w (·| s)
+
+[Qπ∗ 
+
+> u,w
+
+(s, a ′)])( Qπ∗ 
+
+> u,w
+
+(s, a ) −
+
+Ea′∼π∗ 
+
+> u,w (·| s)
+
+[Qπ∗ 
+
+> u,w
+
+(s, a ′)]) ⊤
+
+
+
+∈ R(L+K)×(L+K).
+
+Proposition 3.5. For each s, v ∗
+
+> u,w
+
+(s) is twice-differentiable in (u, w ) ∈ RL+K . Let |S| = p, and suppose the states are enumerated as {s1, · · · , s p}. Then, the (L + K) × (L + K)
+
+Hessian matrix H[v∗
+
+> u,w
+
+(sk)] , 1 ≤ k ≤ p, has the form of 
+
+H[v∗
+
+> u,w
+
+(sk)] = 1
+
+β
+
+> p
+
+X
+
+> l=1
+
+[( Ip − γT π∗ 
+
+> u,w
+
+)−1]kl Bπ∗ 
+
+> u,w
+
+(sl).
+
+(12) 
+
+Here, Ip is the p × p identity matrix; T π∗ 
+
+> u,w
+
+is a p × p
+
+matrix of which i-th row and j-th column element is given by 
+
+[T π∗ 
+
+> u,w
+
+]ij = Ea∼π∗ 
+
+> u,w (·| si)
+
+[T (sj |si, a )] (1 ≤ i, j ≤ p); and 
+
+[( Ip − γT π∗ 
+
+> u,w
+
+)−1]kl denotes the k-th row and l-th column element of (Ip − γT π∗ 
+
+> u,w
+
+)−1. (Proof: See Appendix E.) 
+
+This result reflects the fact that the optimization prob-lem in (8) is a convex program, as established in Propo-sition 3.2, owing to the positive semidefiniteness of (12) from (Ip − γT π∗ 
+
+> u,w
+
+)−1 = P∞
+
+> i=0
+
+(γT π∗ 
+
+> u,w
+
+)i and the relation 
+
+H[L(u, w )] = Es∼μ0 [H[v∗
+
+> u,w
+
+(s)]] .Note that Qπ∗ 
+
+> u,w
+
+(s, a ) in Proposition 3.5 is different from 
+
+Q∗
+
+> u,w
+
+(s, a ) in (10) . By definition in the entropy-regularized RL, Q∗
+
+> u,w
+
+(s, a ) ∈ R is the cumulative scalarized return plus the cumulative entropy sum from π∗
+
+> u,w
+
+. On the other hand, Qπ∗ 
+
+> u,w
+
+(s, a ) ∈ RL+K is a cumulative sum of uncon-strained rewards and constrained rewards from π∗ 
+
+> u,w
+
+without the entropy sum. Therefore, [u; w]⊤Qπ∗ 
+
+> u,w
+
+(s, a ) equals to 
+
+Q∗
+
+> u,w
+
+(s, a ) minus the cumulative entropy sum of π∗
+
+> u,w
+
+.
+
+3.2. Algorithm and Convergence Analysis 
+
+Based on the foundation built in the previous section, we propose an algorithm for constrained MORL with max-min fairness. Note that we need to jointly update the weights 
+
+(u, w ) and the value function, which approximates v∗
+
+> u,w
+
+.We adopt the following update method alternating between update of the value function and the weights (u, w ).First, given a weight (u, w ), we update the value function to realize (7) . For this, we use an action value function 
+
+Q, which approximates Q∗
+
+> u,w
+
+. If we plug (10) into the right-hand side of (7) , we have v∗
+
+> u,w
+
+(s) = [ Tu,w v∗
+
+> u,w
+
+]( s) = 
+
+β log P 
+
+> a
+
+exp 
+
+ Q∗ 
+
+> u,w (s,a )
+> β
+
+
+
+for each s. Using this form of 
+
+v∗
+
+> u,w
+
+(s), we implement applying Tu,w as updating the Q-function with the following: 
+
+Q(s, a ) ← [u; w]⊤[c; r]+ γ X
+
+> s′
+
+T (s′|s, a ) β log X
+
+> a′
+
+exp 
+
+ Q(s′, a ′)
+
+β
+
+
+
+,
+
+(13) for all (s, a ). In practice, (13) is iterated until the maximum change in the Q-function across successive iterations is below a given threshold. Next, we compute an estimated gradient of ∇(u,w )L(u, w )
+
+at the current weight (u, w ) = ( um, w m) where m =1, 2, · · · is the iteration index. We have shown that 4Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+∇uv∗
+
+> u,w
+
+(s) = vπ∗ 
+
+> u,w
+> c
+
+(s), ∇wv∗
+
+> u,w
+
+(s) = vπ∗ 
+
+> u,w
+> r
+
+(s) for each 
+
+s, where we denote vπ∗ 
+
+> u,w
+> c
+
+(s) ∈ RL, vπ∗ 
+
+> u,w
+> r
+
+(s) ∈ RK as the value functions evaluated with the policy π∗ 
+
+> u,w
+
+for con-strained reward c and unconstrained reward r, respectively. Note that the policy is extracted from the updated Q-function in (13) based on the form of (9). We then update (u, w ) us-ing projected gradient descent: 
+
+(um+1 , w m+1 ) = PK,L [( um, w m)−lw∇(u,w )L(um, w m)] 
+
+(14) where lw is a learning rate for (u, w ) and PK,L [·] is the projection onto the RL 
+
+> +
+
+× ∆K . We use the convex opti-mization method from Wang & Carreira-Perpi ˜n ´an (2013) to project onto the simplex ∆K , and apply non-negativity clipping for projection onto RL
+
+> +
+
+. Note that the projection onto ∆K is numerically stable as it is fully deterministic and avoids randomized procedures. In addition, its complexity is O(K log K) (Wang & Carreira-Perpi ˜n ´an, 2013) which is lightweight due to the logarithmic term. We iterate this process for each m, and Algorithm 1 presents the pseudocode of our algorithm. 
+
+Algorithm 1 Constrained Max-Min MORL Algorithm 
+
+1: Q0 ∈ R|S||A| : initialized Q-function, ITER : total itera-tion number, lw: learning rate for the weights (u, w )
+
+2: Initialize weights u0 ∈ RL 
+
+> +
+
+and w0 ∈ ∆K .
+
+3: for m = 1 , 2, · · · , ITER do 
+
+4: Q = Qm−1
+
+5: while not terminated do 
+
+6: Update Q in (13) with [u; w] = [ um; wm].
+
+7: end while 
+
+8: Qm = Q
+
+9: Compute ˜∇(u,w )L(um, v m), an estimated gra-dient of ∇(u,w )L(um, w m) using πm(·| s) =
+
+softmax {Qm(s, ·)/β } based on (11). 
+
+10: (um+1 , w m+1 ) = PK,L [( um, w m) −
+
+lw ˜∇(u,w )L(um, w m)] .
+
+11: end for 
+
+12: return π(·| s) = softmax {QITER (s, ·)/β }, ∀s.We now provide our convergence analysis under the fol-lowing assumption. Let ρπ∗ 
+
+> u,w
+
+(s) = P∞ 
+
+> t=0
+
+γtPr (st =
+
+s|π∗
+
+> u,w
+
+, T, μ 0) be the discounted state visitation frequency of policy π∗ 
+
+> u,w
+
+at state s (Puterman, 1994). 
+
+Assumption There exists at least one state s ∈ S such that ρπ∗ 
+
+> u,w
+
+(s) > 0 and the centered action-value vectors  Qπ∗ 
+
+> u,w
+
+(s, a ) − Ea′∼π∗ 
+
+> u,w (·| s)
+
+[ Qπ∗ 
+
+> u,w
+
+(s, a ′) ] : a ∈ A 
+
+span RK+L.This condition fails only in degenerate multi-objective set-tings when for every state s ∈ S with ρπ∗ 
+
+> u,w
+
+(s) > 0, the set Scenter (s) lies entirely within an affine subspace of di-mension less than K + L. Under Assumption , the Hessian 
+
+H[L(u, w )] is positive definite. We note that the property 
+
+π∗
+
+> u,w
+
+(a|s) > 0 for all (s, a ), implied by (9) , plays an essen-tial role in ensuring the positive definiteness of H[L(u, w )] ,which constitutes an additional technical benefit of the en-tropy regularization in (4) . (See Appendix F.1 for more details.) Moreover, under Slater condition with strict feasibility of the L constraints, we can restrict u ∈ RL 
+
+> +
+
+to a compact set C (M ¨uller et al., 2024), ensuring the existence of λ := min (u,w )∈C× ∆K λmin (H[L(u, w )]) , where λmin (·) denotes the minimum eigenvalue of a real symmetric matrix. (See Appendix F.2 for more details.) Furthermore, λ satisfies 
+
+0 < λ ≤ α (Bubeck, 2015). Theorem 3.6 provides a formal guarantee of convergence for Algorithm 1 under approximate Q-updates. 
+
+Theorem 3.6. Let (u∗, w ∗) denote an optimal solution to 
+
+(8) and lw = 1 /α . For each outer-loop index m ≥ 1 in Algorithm 1, let Q∗ 
+
+> um,w m
+
+denote the fixed point of (13) with 
+
+[u; w] = [ um; wm], and let Qm denote the Q-function after completing the m-th inner-loop update. For each m, assume 
+
+∥Qm − Q∗ 
+
+> um,w m
+
+∥∞ < ϵ for some ϵ > 0. Then for m ≥ 1,
+
+∥[um; wm] − [u∗; w∗]∥2 ≤ (1 − λα )m∥[u0; w0] − [u∗; w∗]∥2
+
++
+
+p|S| 
+
+λ
+
+vuutK+LX
+
+> i=1
+
+{r(i)
+
+> max
+
+}2 1 + γ
+
+(1 − γ)2 ϵ. 
+
+(15) 
+
+(Proof: See Appendix F.3.) 
+
+Theorem 3.6 establishes that the error decreases geometri-cally at rate O  (1 − λα )m, up to O(ϵ). For completeness, Appendix F.4 provides an analysis of the case without As-sumption , supporting the practical implementation of our algorithm beyond Assumption in Section 5.2. 
+
+## 4. Related Work 
+
+MORL The dominant approach in MORL is utility-based (Roijers et al., 2013; Hayes et al., 2022), where the goal is to find an optimal policy π∗ = arg max π f (J(π)) given a non-decreasing scalarization function f : RK → R. When f is linear, each non-negative weight vector defines a scalarized MDP (Boutilier et al., 1999), motivating work on learning a single model capable of generating policies across a con-tinuum of preferences (Abels et al., 2019; Yang et al., 2019; Basaklar et al., 2023; Hung et al., 2023; Lu et al., 2023; Park & Sung, 2025; Li et al., 2025). This family of approaches is known as multi-policy MORL (Roijers et al., 2013; Hayes et al., 2022). For nonlinear scalarization functions, however, Bellman op-timality no longer holds in its standard form due to the loss 5Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+of linearity, making optimization substantially more diffi-cult (Roijers et al., 2013; Hayes et al., 2022). Algorithms that directly optimize a given nonlinear scalarized objec-tive fall under the single-policy MORL category (Roijers et al., 2013; Hayes et al., 2022). Most work in this category considers a welfare function (Siddique et al., 2020; Cousins et al., 2024; Kim et al., 2025b) as the nonlinear scalarization 
+
+f . Note that single-policy and multi-policy methods are complementary rather than interchangeable (Roijers et al., 2013; Hayes et al., 2022). 
+
+Unconstrained Max-min MORL Max-min MORL stud-ies the case where f = min , aiming to enforce max-min fairness. This formulation is useful in many ap-plications such as mitigating bottlenecks in cloud and edge resource management systems (Saifullah et al., 2014; Wang et al., 2019). Several studies optimize proxy ob-jectives related to the unconstrained max-min formula-tion, for example, maximizing a conservative lower bound of Eπ
+
+h
+
+min 1≤k≤K (P∞ 
+
+> t=0
+
+γtr(k) 
+
+> t
+
+)
+
+i
+
+(Fan et al., 2023; Peng et al., 2025), or maximizing the total return while enforcing per-group performance constraints (Eaton et al., 2025). Park et al. (2024) proposed a tractable approach for exact unconstrained max-min MORL using Gaussian smoothing to estimate gradients. However, this approach requires main-taining multiple network copies, increasing computational overhead. Furthermore, the gradient estimates are inherently inexact, as Gaussian smoothing of a convex function yields a convex upper bound rather than the true function (Nesterov & Spokoiny, 2017). In contrast, our method produces di-rect, theoretically grounded gradient estimates and extends naturally to constrained MORL. Recently, Byeon et al. (2025) introduced an alternative unconstrained max-min MORL formulation based on a game-theoretic framework (Daskalakis & Panageas, 2018; Miryoosefi et al., 2019). However, their method does not address the incorporation of constraints. 
+
+Constrained RL Many approaches to constrained MDPs reformulate the problem with a scalar reward (i.e., a special case of (2) and (3) with K = 1 and without f ) into an uncon-strained one by augmenting the objective with a weighted sum of constraint violations, typically via a Lagrangian for-mulation (Achiam et al., 2017; Tessler et al., 2018; Paternain et al., 2019; Ha et al., 2020; Vaswani et al., 2022; Calvo-Fullana et al., 2023; M ¨uller et al., 2024). The motivation for this line of work is that the Lagrangian relaxation exhibits no duality gap, even when the original problem is non-convex with respect to the policy (Paternain et al., 2019). However, these approaches do not consider the multi-objective reward setting in (2) and (3) with K ≥ 2. Moreover, applying them directly to our setting is non-trivial, since f = min 
+
+introduces non-differentiability in (2). To resolve this, we reformulate our problem as a convex program using occupancy measures and then derive another convex program admitted by the dual problem. In particular, we show that both the max-min criterion and the constraints can be satisfied by jointly updating the weights u and w,a simple yet effective approach that to our knowledge has not been explored in the constrained MDP literature. Al-though Lee et al. (2022) also leverages convex analysis with occupancy measures, its focus is on constrained single-objective RL with a scalar reward (i.e., K = 1 ) in an offline setting. Unlike our work, it neither addresses max-min fair-ness across multiple objectives nor provides a convergence analysis. Several recent works have incorporated constraints into MORL, but under settings that differ from our framework which explicitly integrates max-min optimization. Some approaches learn preference-vector-conditioned policies to explore trade-offs among objectives (Huang et al., 2021; Kim et al., 2025a). While complementary to our work, it re-mains unclear how to select a preference vector such that the resulting policy exactly corresponds to the optimal solution under nonlinear scalarizations, such as the max-min crite-rion. In contrast, our approach directly solves a single-policy constrained max-min optimization problem, mirroring the distinction between single- and multi-policy methods in un-constrained MORL (Roijers et al., 2013; Hayes et al., 2022). Lin et al. (2024) study offline constrained MORL, where policies are trained on offline data and adapted to target preferences using additional demonstrations. In contrast, our work focuses on online learning and does not rely on offline data or demonstrations. Liu et al. (2025) improve Pareto frontier coverage in unconstrained MORL by train-ing multiple policies via constrained optimization, rather than directly addressing constrained MORL. 
+
+## 5. Experiments 
+
+In this section, we present experimental validations of our theoretical analysis and algorithm. Section 5.1 examines the convergence behavior of our method in tabular settings. In Section 5.2, we further demonstrate the practical rele-vance of our approach through applications beyond tabular settings including building thermal control, multi-objective locomotion control, and greenhouse-gas-emission-aware traffic management. 
+
+5.1. Tabular Settings 
+
+We conducted experiments in tabular settings to evaluate the convergence of our algorithm. Constrained MOMDPs were randomly generated, after a feasibility check, within two widely used classes of structured MDPs. (See Appendix G for details on the experimental setup, feasibility check, and baselines.) First, bipartite state graphs partition the 6Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+state space into two disjoint subsets, enforcing transitions between them at alternating time steps. This structure cap-tures temporal dynamics in systems with role alternation or interleaving phases (Littman, 1994). Second, hierarchi-cal MDPs organize the state space into multiple levels or stages, where transitions flow sequentially from one level to the next. This reflects tasks with subgoals or temporal abstraction (Dietterich, 2000). The optimal value for each constrained MOMDP was com-puted by solving (4) , (5) , and (6) with β = 0 via linear programming (LP), and performance was evaluated as the error relative to these LP-optimal values. The goal of this experiment is to verify that our algorithm, which simulta-neously accounts for both max-min fairness and constraint satisfaction, achieves near-optimal performance compared to methods that lack either max-min fairness or constraint en-forcement. We compare our constrained max-min algorithm against unconstrained max-min, constrained max-average which does not enforce max-min fairness, and unconstrained max-average baselines.  
+
+> Table 1. Optimal value error in tabular constrained MOMDPs
+
+Algorithm Optimal value error (↓)
+
+Constrained max-min 0.004 
+
+Unconstrained max-min 0.325 
+
+Constrained max-average 0.657 
+
+Unconstrained max-average 1.008   
+
+> Table 2. Optimal value errors of the constrained max-min MORL algorithm for different values of β
+
+β 0.1 0.03 0.01 0.003 0.001 Error (↓) 0.061 0.004 0.009 0.020 0.021 
+
+Table 1 shows that the constrained max-min approach achieves near-optimal values compared to the other meth-ods. Baselines that incorporate neither max-min fairness nor constraint satisfaction exhibit the largest optimal value errors. We further analyze the effect of β on convergence. As shown in Table 2, β = 0 .03 and 0.01 yield the small-est errors. The slight increase in optimal value error when 
+
+β < 0.01 may be attributed to the first term in (15) to con-verge more slowly as the iteration count m → ITER , the maximum number of iterations used in Algorithm 1. 
+
+5.2. Extension to Applications 
+
+In this section, we extend our algorithm to practical ap-plications, demonstrating that our method is not limited to tabular settings. The Building (Section 5.2.1) and MoAnt (Section 5.2.2) environments have continuous state and action spaces, while the Traffic environment (Section 5.2.3) has a continuous state space and a discrete action space. To ensure stable gradient estimation of our algo-rithm in continuous state spaces, we parameterize a gra-dient network gθ (s) ∈ RL+K to estimate ∇uv∗
+
+> u,w
+
+(s) and 
+
+∇wv∗
+
+> u,w
+
+(s), following Theorem 3.3. Implementation de-tails for deep neural network policies, including gradient estimation and our constrained max-min algorithm for prac-tical applications, are provided in Appendix H.1. Our sourcecode can be found in https://github.com/ Giseung-Park/Constrained-Maxmin-MORL .5.2.1. B UILDING THERMAL CONTROL 
+
+We consider a thermal control environment for a building from SustainGym (Yeh et al., 2023). The environment mod-els a large commercial building with Nzone = 23 thermal zones, where the system controls the zone temperatures un-der changing outside conditions and occupancy. At each timestep, the system observes the current temperatures of the Nzone zones together with additional indicators (e.g., outdoor temperature, global horizontal irradiance, ground temperature, occupancy power, carbon intensity, and elec-tricity price). Then the system outputs a continuous action that controls the heating/cooling power of each zone. The zones are grouped into K = 3 categories correspond-ing to the bottom, middle, and top floors of the building. The unconstrained reward is a K-dimensional vector, where each component quantifies the comfort of the corresponding group based on the proximity of the zone temperatures to their target values. The cost is defined as the total power consumption of the system, normalized by the environ-ment. The system’s objective is to control the building so as to maximize the minimum cumulative comfort across all groups, while satisfying the energy constraint with its designed threshold value Cth = 180 .We consider five baselines: (i) a random policy that samples a continuous action at each timestep (Random), (ii) un-constrained max-average SAC (MA-SAC) (Haarnoja et al., 2018), (iii) max-average SAC with a Lagrangian relaxation (MA-SAC-L) (Ha et al., 2020; Yang et al., 2021), (iv) uncon-strained max-min MORL algorithm with Gaussian smooth-ing (Max-min GS) (Park et al., 2024), and (v) unconstrained max-min MORL algorithm based on a two-player zero-sum game (ARAM) (Byeon et al., 2025). Each of the baselines lacks either max-min fairness ((iii)), constraint handling ((iv),(v)), or both ((i), (ii)). We report the mean performance computed across five random seeds. (See Appendices H.2 and H.3 for the implementation of the max-min GS baseline and for details on the environment and the hyperparameters, respectively.) Table 3 presents the cumulative cost sum and the worst-group comfort return. Compared to the Random baseline, MA-SAC increases the worst-group comfort return but still fails to satisfy the power consumption constraint, with its 7Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion   
+
+> Table 3. Cumulative cost sum and worst-group comfort return in the building thermal control environment, with the two constraint-satisfying algorithms highlighted in bold
+
+Algorithm Cost sum 
+
+(Cth = 180) 
+
+Minimum return (↑)
+
+Random 227 .8 433 .9
+
+MA-SAC 203 .7 641 .5
+
+MA-SAC-L 171.4 620 .9
+
+Ours 178.7 639 .8
+
+Max-min GS 202 .1 653 .6
+
+ARAM 276 .9 664 .3 
+
+> Table 4. Ablation study on the impact of weight learning
+
+Algorithm Cost sum 
+
+(Cth = 180) 
+
+Minimum return (↑)
+
+Ours 178 .7 639 .8
+
+w/o w update 178 .1 626 .7
+
+w/o u update 200 .7 653 .5
+
+w/o (u, w ) upd. 222 .0 646 .9
+
+cost sum exceeding the threshold Cth = 180 . While MA-SAC-L satisfies the power constraint, it does so at the cost of a lower worst-group comfort return compared to MA-SAC. However, our method achieves a higher worst-group comfort return relative to MA-SAC-L, while still adhering to the power constraint. We note that both Max-min GS and ARAM violate the power constraint. Table 4 shows that removing the max-min-related w up-date reduces the worst-group comfort return, while ablating the constraint-related u update causes constraint violations. These results confirm that our method effectively balances max-min performance with constraint satisfaction. (For further analysis of the effect of β and the computational complexity, see Appendix H.4.) 5.2.2. M ULTI -OBJECTIVE LOCOMOTION CONTROL   
+
+> Table 5. MoAnt-v5 results over five seeds, with the two constraint-satisfying algorithms highlighted in bold
+
+Algorithm Cost sum 
+
+(Cth = 50) 
+
+Minimum return (↑)
+
+Random 146.5 48.2 MA-SAC 275.3 98.8 MA-SAC-L 47.8 83.0 Ours 28.3 92.2 Max-min GS 111.7 92.7 ARAM 620.7 101.3 We include MoAnt-v5 environment (Felten et al., 2023), where the agent learns locomotion to maximize x and y
+
+velocities while keeping energy consumption under a thresh-old. We consider an asymmetric case where movement in the x direction is attenuated by friction at rate 0.3. The velocities (vx, v y ), combined with bonus terms, constitute a two-dimensional reward, while the control cost is treated as a constraint. (See Appendix H.5 for details on hyperparam-eters.) Table 5 shows that both our method and MA-SAC-L satisfy the constraints, but our method achieves superior max-min performance. In contrast, the other four algorithms severely violate the constraints, as they do not explicitly account for constraint satisfaction. Overall, our algorithm balances constraint satisfaction and max-min fairness. (See Appendix H.6 for the result with Cth = 40 .) 5.2.3. G REENHOUSE -GAS -EMISSION -AWARE TRAFFIC 
+
+MANAGEMENT 
+
+We extend our method to an environment with a larger objec-tive space. We note that MORL benchmark environments, particularly those with more than four objectives, remain limited (Hayes et al., 2022). Recently, Park & Sung (2025) proposed a traffic signal control environment with a 16-dimensional objective vector to evaluate scalability in the MORL setting. We modify this environment to incorporate a setting aimed at reducing greenhouse-gas emissions while maintaining max-min fairness. In a simulated 16-lane four-way intersection, the agent re-ceives a 37-dimensional continuous state encoding traffic information at each timestep. The agent manages the traffic lights by choosing the traffic signal phase as its action. The feedback signal consists of a 16-dimensional reward vector, where each component represents the negative total waiting time for a corresponding lane. Following prior work (Park & Sung, 2025), we evaluate performance in an asymmetric traffic flow scenario. Vehicles enter from each direction ac-cording to predefined inflow proportions and may proceed straight or make left or right turns.   
+
+> Table 6. Traffic signal control results over five seeds, with the two constraint-satisfying algorithms highlighted in bold
+
+Algorithm Cost sum 
+
+(Cth = 70 ,000) 
+
+Minimum return (↑)
+
+Random 82,698 −27 ,523 
+
+MA-PGO 77,757 −20 ,434 
+
+MA-CPGO 67,887 −27 ,830 
+
+Ours 69,147 −25 ,229 
+
+Max-min GS 73,162 −21 ,527 
+
+ARAM 88,748 −19 ,700 
+
+Our goal is to achieve fair traffic flow across all lanes while 8Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+enforcing a constraint on total CO 2 emissions, contribut-ing to a more sustainable traffic control system. Since this environment operates with a discrete action space, we re-placed the MA-SAC and MA-SAC-L baselines with policy-gradient-optimization (PGO) variants, namely MA-PGO and MA-CPGO, respectively. (See Appendix H.7 for imple-mentation details.) As shown in Table 6, both our method and MA-CPGO sat-isfy the constraints; however, our approach achieves better max-min performance. In contrast, the remaining four al-gorithms exhibit constraint violations. Overall, our method consistently balances max-min fairness with constraint sat-isfaction. 
+
+## 6. Conclusion 
+
+We have proposed a MORL framework that integrates max-min fairness with constraint satisfaction. Our approach offers flexibility in modeling problems that satisfy fairness and operational constraints. We establish a theoretical foun-dation and develop an algorithm that achieves a balance between max-min fairness and constraint satisfaction, as demonstrated in our experiments. A discussion of limita-tions and future work is provided in Appendix I. 
+
+## Acknowledgment 
+
+We sincerely thank anonymous reviewers for their valu-able feedback during the review process. This work was supported by the Institute of Information & Communica-tions Technology Planning & Evaluation (IITP) under Grant No. RS-2024-00457882 (AI Research Hub Project) and the National Research Foundation of Korea (NRF) grant (2022K1A3A1A31093462) funded by the Korea govern-ment (MSIT), and by the Israel Ministry of Innovation, Science & Technology, under Grant No. 1001556423 and the ISF grant 2197/22. 
+
+## Impact Statement 
+
+In this work, we propose a MORL algorithm that integrates max-min fairness with constraint satisfaction. First, max-min MORL plays a critical role in promoting fairness across objectives in domains such as traffic management and re-source allocation. Unfair results can lead to user dissatis-faction and, in turn, degrade overall system performance, for example, by contributing to traffic congestion. Second, incorporating constraints into RL systems is essential for the responsible development of AI systems, especially given real-world limitations on resources such as electricity, power consumption, and fossil fuels. Our work advances the goal of sustainable AI by simulta-neously incorporating fairness and resource constraints into decision-making. This contrasts to traditional methods that prioritize performance alone, often overlooking concerns of equity and efficient resource use. We believe our frame-work has the potential to make a meaningful and positive impact on the broader AI community, not only in resource allocation but also in emerging areas such as fair and safe alignment of large language models. 
+
+## References 
+
+Abels, A., Roijers, D. M., Lenaerts, T., Now ´e, A., and Steck-elmacher, D. Dynamic weights in multi-objective deep reinforcement learning. In Chaudhuri, K. and Salakhut-dinov, R. (eds.), Proceedings of the 36th International Conference on Machine Learning, ICML 2019, 9-15 June 2019, Long Beach, California, USA , volume 97 of Proceedings of Machine Learning Research , pp. 11– 20. PMLR, 2019. URL http://proceedings.mlr. press/v97/abels19a.html .Achiam, J., Held, D., Tamar, A., and Abbeel, P. Constrained policy optimization. In International conference on ma-chine learning , pp. 22–31. PMLR, 2017. Alegre, L. N., Bazzan, A. L., Roijers, D. M., Now ´e, A., and da Silva, B. C. Sample-efficient multi-objective learning via generalized policy improvement prioritization. arXiv preprint arXiv:2301.07784 , 2023. Basaklar, T., Gumussoy, S., and Ogras, ¨U. Y. PD-MORL: preference-driven multi-objective reinforcement learning algorithm. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 . OpenReview.net, 2023. URL https: //openreview.net/pdf?id=zS9sRyaPFlJ .Boutilier, C., Dean, T. L., and Hanks, S. Decision-theoretic planning: Structural assumptions and compu-tational leverage. J. Artif. Intell. Res. , 11:1–94, 1999. doi: 10.1613/JAIR.575. URL https://doi.org/ 10.1613/jair.575 .Boyd, S. P. and Vandenberghe, L. Convex optimization .Cambridge university press, 2004. Bubeck, S. Convex optimization: Algorithms and complex-ity. 2015. URL https://arxiv.org/abs/1405. 4980 .Byeon, W., Park, G., Chae, J., Leshem, A., and Sung, Y. Multi-objective reinforcement learning with max-min cri-terion: A game-theoretic approach. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https://openreview.net/ forum?id=YFb7KFE39x .9Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Calvo-Fullana, M., Paternain, S., Chamon, L. F., and Ribeiro, A. State augmented constrained reinforcement learning: Overcoming the limitations of learning with rewards. IEEE Transactions on Automatic Control , 69(7): 4275–4290, 2023. Chakraborty, S., Qiu, J., Yuan, H., Koppel, A., Manocha, D., Huang, F., Bedi, A. S., and Wang, M. Maxmin-rlhf: Alignment with diverse human preferences. In Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 . OpenReview.net, 2024. URL https://openreview.net/forum? id=8tzjEMF0Vq .Che, F., Xiao, C., Mei, J., Dai, B., Gummadi, R., Ramirez, O. A., Harris, C. K., Mahmood, A. R., and Schuurmans, D. Target networks and over-parameterization stabi-lize off-policy bootstrapping with function approxima-tion. In Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 .OpenReview.net, 2024. URL https://openreview. net/forum?id=R6GT1UDcOW .Chen, X., Lu, Z., Ni, W., Wang, X., Wang, F., Zhang, S., and Xu, S. Cooling-aware resource allocation and load management for mobile edge computing systems. arXiv preprint arXiv:2006.10978 , 2020. Cousins, C., Asadi, K., Lobo, E., and Littman, M. On welfare-centric fair reinforcement learning. In Rein-forcement Learning Conference , 2024. URL https: //openreview.net/forum?id=aWGtAqYBie .Daskalakis, C. and Panageas, I. Last-iterate convergence: Zero-sum games and constrained min-max optimization. 
+
+arXiv preprint arXiv:1807.04252 , 2018. Dietterich, T. G. Hierarchical reinforcement learning with the maxq value function decomposition. Journal of artifi-cial intelligence research , 13:227–303, 2000. Eaton, E., Hussing, M., Kearns, M., Roth, A., Sengupta, S. B., and Sorrell, J. Intersectional fairness in rein-forcement learning with large state and constraint spaces. In Singh, A., Fazel, M., Hsu, D., Lacoste-Julien, S., Berkenkamp, F., Maharaj, T., Wagstaff, K., and Zhu, J. (eds.), Proceedings of the 42nd International Confer-ence on Machine Learning , volume 267 of Proceedings of Machine Learning Research , pp. 14918–14933. PMLR, 13–19 Jul 2025. URL https://proceedings.mlr. press/v267/eaton25a.html .Fan, Z., Peng, N., Tian, M., and Fain, B. Welfare and fairness in multi-objective reinforcement learning. In Agmon, N., An, B., Ricci, A., and Yeoh, W. (eds.), Pro-ceedings of the 2023 International Conference on Au-tonomous Agents and Multiagent Systems, AAMAS 2023, London, United Kingdom, 29 May 2023 - 2 June 2023 ,pp. 1991–1999. ACM, 2023. doi: 10.5555/3545946. 3598870. URL https://dl.acm.org/doi/10. 5555/3545946.3598870 .Felten, F., Alegre, L. N., Now ´e, A., Bazzan, A. L. C., Talbi, E. G., Danoy, G., and Silva, B. C. d. A toolkit for reliable benchmarking and research in multi-objective reinforce-ment learning. In Proceedings of the 37th Conference on Neural Information Processing Systems (NeurIPS 2023) ,2023. Fox, R., Pakman, A., and Tishby, N. Taming the noise in reinforcement learning via soft updates. In Ihler, A. and Janzing, D. (eds.), Proceedings of the Thirty-Second Conference on Uncertainty in Artificial Intelligence, UAI 2016, June 25-29, 2016, New York City, NY, USA . AUAI Press, 2016. URL http://auai.org/uai2016/ proceedings/papers/219.pdf .Ha, S., Xu, P., Tan, Z., Levine, S., and Tan, J. Learning to walk in the real world with minimal human effort. arXiv preprint arXiv:2002.08550 , 2020. Haarnoja, T., Tang, H., Abbeel, P., and Levine, S. Reinforce-ment learning with deep energy-based policies. In Precup, D. and Teh, Y. W. (eds.), Proceedings of the 34th Inter-national Conference on Machine Learning, ICML 2017, Sydney, NSW, Australia, 6-11 August 2017 , volume 70 of 
+
+Proceedings of Machine Learning Research , pp. 1352– 1361. PMLR, 2017. URL http://proceedings. mlr.press/v70/haarnoja17a.html .Haarnoja, T., Zhou, A., Abbeel, P., and Levine, S. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In Dy, J. G. and Krause, A. (eds.), Proceedings of the 35th International Conference on Machine Learn-ing, ICML 2018, Stockholmsm ¨assan, Stockholm, Swe-den, July 10-15, 2018 , volume 80 of Proceedings of Machine Learning Research , pp. 1856–1865. PMLR, 2018. URL http://proceedings.mlr.press/ v80/haarnoja18b.html .Hayes, C. F., Radulescu, R., Bargiacchi, E., K ¨allstr ¨om, J., Macfarlane, M., Reymond, M., Verstraeten, T., Zintgraf, L. M., Dazeley, R., Heintz, F., Howley, E., Irissappane, A. A., Mannion, P., Now ´e, A., de Oliveira Ramos, G., Restelli, M., Vamplew, P., and Roijers, D. M. A practi-cal guide to multi-objective reinforcement learning and planning. Auton. Agents Multi Agent Syst. , 36(1):26, 2022. doi: 10.1007/S10458-022-09552-Y. URL https: //doi.org/10.1007/s10458-022-09552-y .Horn, R. A. and Johnson, C. R. Matrix analysis . Cambridge university press, 2012. 10 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Huang, S. H., Abdolmaleki, A., Vezzani, G., Brakel, P., Mankowitz, D. J., Neunert, M., Bohez, S., Tassa, Y., Heess, N., Riedmiller, M. A., and Hadsell, R. A constrained multi-objective reinforcement learning framework. In Faust, A., Hsu, D., and Neumann, G. (eds.), Conference on Robot Learning, 8-11 Novem-ber 2021, London, UK , volume 164 of Proceedings of Machine Learning Research , pp. 883–893. PMLR, 2021. URL https://proceedings.mlr.press/ v164/huang22a.html .Hung, W., Huang, B., Hsieh, P., and Liu, X. Q-pensieve: Boosting sample efficiency of multi-objective RL through memory sharing of q-snapshots. In The Eleventh In-ternational Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 . OpenRe-view.net, 2023. URL https://openreview.net/ pdf?id=AwWaBXLIJE .Jiang, C., Fan, T., Gao, H., Shi, W., Liu, L., C ´erin, C., and Wan, J. Energy aware edge computing: A survey. 
+
+Computer Communications , 151:556–580, 2020. Jung, W., Cho, M., Park, J., and Sung, Y. Quantile constrained reinforcement learning: A reinforcement learning framework constraining outage probability. In Koyejo, S., Mohamed, S., Agarwal, A., Belgrave, D., Cho, K., and Oh, A. (eds.), Advances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - December 9, 2022 , 2022. URL http://papers. nips.cc/paper_files/paper/2022/hash/ 2a07348a6a7b2c208ab5cb1ee0e78ab5-Abstract-Conference. html .Khan, U. U., Dilshad, N., Rehmani, M. H., and Umer, T. Fairness in cognitive radio networks: Models, measure-ment methods, applications, and future research direc-tions. J. Netw. Comput. Appl. , 73:12–26, 2016. doi: 10.1016/J.JNCA.2016.07.008. URL https://doi. org/10.1016/j.jnca.2016.07.008 .Kim, D., Hong, M., Park, J., and Oh, S. Conflict-averse gradient aggregation for constrained multi-objective reinforcement learning. In The Thirteenth International Conference on Learning Representations ,2025a. URL https://openreview.net/forum? id=ogXkmugNZw .Kim, W., Lee, J., Lee, J., and Lee, B.-J. FairDICE: Fairness-driven offline multi-objective reinforcement learning. In The Thirty-ninth Annual Conference on Neural In-formation Processing Systems , 2025b. URL https: //openreview.net/forum?id=2jQJ7aNdT1 .Lee, J., Jeon, W., Lee, B., Pineau, J., and Kim, K. Op-tidice: Offline policy optimization via stationary distri-bution correction estimation. In Meila, M. and Zhang, T. (eds.), Proceedings of the 38th International Con-ference on Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event , volume 139 of Proceedings of Ma-chine Learning Research , pp. 6120–6130. PMLR, 2021. URL http://proceedings.mlr.press/v139/ lee21f.html .Lee, J., Paduraru, C., Mankowitz, D. J., Heess, N., Pre-cup, D., Kim, K.-E., and Guez, A. COptiDICE: Offline constrained reinforcement learning via stationary distri-bution correction estimation. In International Confer-ence on Learning Representations , 2022. URL https: //openreview.net/forum?id=FLA55mBee6Q .Li, P., Tang, H., Yuan, Y., HAO, J., Dong, Z., and ZHENG, Y. COLA: Towards efficient multi-objective reinforcement learning with conflict objective regularization in latent space. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. URL https: //openreview.net/forum?id=Cldpn7H3NN .Lin, Q., Liu, Z., Mo, D., and Yu, C. An offline adaptation framework for constrained multi-objective reinforcement learning. In Globersons, A., Mackey, L., Belgrave, D., Fan, A., Paquet, U., Tomczak, J. M., and Zhang, C. (eds.), 
+
+Advances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024 , 2024. Littman, M. L. Markov games as a framework for multi-agent reinforcement learning. In Machine learning pro-ceedings 1994 , pp. 157–163. Elsevier, 1994. Liu, R., Pan, Y., Xu, L., Song, L., You, P., Chen, Y., and Bian, J. Efficient discovery of pareto front for multi-objective reinforcement learning. In The Thirteenth International Conference on Learning Representations ,2025. URL https://openreview.net/forum? id=fDGPIuCdGi .Liu, Y., Ding, J., and Liu, X. Ipo: Interior-point policy optimization under constraints, 2019. URL https:// arxiv.org/abs/1910.09615 .Lu, H., Herman, D., and Yu, Y. Multi-objective reinforce-ment learning: Convexity, stationarity and pareto opti-mality. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 . OpenReview.net, 2023. URL https: //openreview.net/pdf?id=TjEzIsyEsQ6 .Malik, S., Anwar, U., Aghasi, A., and Ahmed, A. Inverse constrained reinforcement learning. In 11 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Meila, M. and Zhang, T. (eds.), Proceedings of the 38th International Conference on Machine Learn-ing , volume 139 of Proceedings of Machine Learn-ing Research , pp. 7390–7399. PMLR, 18–24 Jul 2021. URL https://proceedings.mlr.press/ v139/malik21a.html .Miryoosefi, S., Brantley, K., Daume III, H., Dudik, M., and Schapire, R. E. Reinforcement learning with convex constraints. In Wallach, H., Larochelle, H., Beygelzimer, A., d'Alch ´e-Buc, F., Fox, E., and Garnett, R. (eds.), Advances in Neural Information Processing Systems , volume 32. Curran Associates, Inc., 2019. URL https://proceedings.neurips. cc/paper_files/paper/2019/file/ 873be0705c80679f2c71fbf4d872df59-Paper. pdf .M ¨uller, A., Alatur, P., Cevher, V., Ramponi, G., and He, N. Truly no-regret learning in constrained MDPs. In Forty-first International Conference on Machine Learning ,2024. URL https://openreview.net/forum? id=hrWte3nlzr .Nesterov, Y. E. and Spokoiny, V. G. Random gradient-free minimization of convex functions. Found. Com-put. Math. , 17(2):527–566, 2017. doi: 10.1007/ S10208-015-9296-2. URL https://doi.org/10. 1007/s10208-015-9296-2 .Park, G. and Sung, Y. Reward dimension reduction for scal-able multi-objective reinforcement learning. In The Thir-teenth International Conference on Learning Represen-tations , 2025. URL https://openreview.net/ forum?id=ssRdQimeUI .Park, G., Byeon, W., Kim, S., Havakuk, E., Leshem, A., and Sung, Y. The max-min formulation of multi-objective reinforcement learning: From theory to a model-free algorithm. In Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024 . OpenReview.net, 2024. URL https:// openreview.net/forum?id=cY9g0bwiZx .Paternain, S., Chamon, L., Calvo-Fullana, M., and Ribeiro, A. Constrained reinforcement learning has zero duality gap. Advances in Neural Information Processing Systems ,32, 2019. Peng, N., Tian, M., and Fain, B. Multi-objective rein-forcement learning with nonlinear preferences: Provable approximation for maximizing expected scalarized re-turn, 2025. URL https://arxiv.org/abs/2311. 02544 .Puterman, M. L. Markov Decision Processes: Discrete Stochastic Dynamic Programming . Wiley Series in Probability and Statistics. Wiley, 1994. ISBN 978-0-47161977-2. doi: 10.1002/9780470316887. URL 
+
+https://doi.org/10.1002/9780470316887 .Raeis, M. and Leon-Garcia, A. A deep reinforcement learn-ing approach for fair traffic signal control. In 2021 IEEE international intelligent transportation systems confer-ence (ITSC) , pp. 2512–2518. IEEE, 2021. Regan, K. and Boutilier, C. Robust policy computation in reward-uncertain mdps using nondominated policies. In Fox, M. and Poole, D. (eds.), Proceedings of the Twenty-Fourth AAAI Conference on Artificial Intelligence, AAAI 2010, Atlanta, Georgia, USA, July 11-15, 2010 , pp. 1127– 1133. AAAI Press, 2010. doi: 10.1609/AAAI.V24I1. 7740. URL https://doi.org/10.1609/aaai. v24i1.7740 .Roijers, D. M., Vamplew, P., Whiteson, S., and Dazeley, R. A survey of multi-objective sequential decision-making. 
+
+J. Artif. Intell. Res. , 48:67–113, 2013. doi: 10.1613/JAIR. 3987. URL https://doi.org/10.1613/jair. 3987 .Saifullah, A., Ferry, D., Li, J., Agrawal, K., Lu, C., and Gill, C. D. Parallel real-time scheduling of dags. IEEE Trans. Parallel Distributed Syst. , 25(12):3242–3252, 2014. doi: 10.1109/TPDS.2013.2297919. Schmidt, M., Roux, N. L., and Bach, F. Convergence rates of inexact proximal-gradient methods for convex opti-mization. 2011. URL https://arxiv.org/abs/ 1109.2415 .Schulman, J., Wolski, F., Dhariwal, P., Radford, A., and Klimov, O. Proximal policy optimization algorithms. 
+
+CoRR , abs/1707.06347, 2017. URL http://arxiv. org/abs/1707.06347 .Siddique, U., Weng, P., and Zimmer, M. Learning fair policies in multi-objective (deep) reinforcement learning with average and discounted rewards. In Proceedings of the 37th International Conference on Machine Learning, ICML 2020, 13-18 July 2020, Virtual Event , volume 119 of Proceedings of Machine Learning Research , pp. 8905– 8915. PMLR, 2020. URL http://proceedings. mlr.press/v119/siddique20a.html .Silver, D. Lectures on reinforcement learning. 
+
+> URL
+
+: https://www.davidsilver.uk/ teaching/ , 2015. Subramanian, S. G., Liu, G., Elmahgiubi, M., Rezaee, K., and Poupart, P. Confidence aware inverse constrained reinforcement learning. In Forty-first International Con-ference on Machine Learning , 2024. URL https: //openreview.net/forum?id=6TCeizkLJV .12 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Sutton, R. S. and Barto, A. G. Reinforcement learning: An introduction . MIT press, 2018. Teoh, J., Varakantham, P., and Vamplew, P. On general-ization across environments in multi-objective reinforce-ment learning. In The Thirteenth International Confer-ence on Learning Representations , 2025. URL https: //openreview.net/forum?id=tuEP424UQ5 .Tessler, C., Mankowitz, D. J., and Mannor, S. Re-ward constrained policy optimization. arXiv preprint arXiv:1805.11074 , 2018. Vaswani, S., Yang, L., and Szepesvari, C. Near-optimal sample complexity bounds for constrained MDPs. In Oh, A. H., Agarwal, A., Belgrave, D., and Cho, K. (eds.), 
+
+Advances in Neural Information Processing Systems ,2022. URL https://openreview.net/forum? id=ZJ7Lrtd12x_ .Wang, K., Jiang, X., Guan, N., Liu, D., Liu, W., and Deng, Q. Real-time scheduling of DAG tasks with arbitrary deadlines. ACM Trans. Design Autom. Electr. Syst. , 24 (6):66:1–66:22, 2019. doi: 10.1145/3358603. Wang, W. and Carreira-Perpi ˜n ´an, M. ´A. Projection onto the probability simplex: An efficient algorithm with a simple proof, and an application. CoRR , abs/1309.1541, 2013. URL http://arxiv.org/abs/1309.1541 .Yang, Q., Sim ˜ao, T. D., Tindemans, S. H., and Spaan, M. T. J. WCSAC: worst-case soft actor critic for safety-constrained reinforcement learning. In Thirty-Fifth AAAI Conference on Artificial Intelligence, AAAI 2021, Thirty-Third Conference on Innovative Applications of Artifi-cial Intelligence, IAAI 2021, The Eleventh Symposium on Educational Advances in Artificial Intelligence, EAAI 2021, Virtual Event, February 2-9, 2021 , pp. 10639– 10646. AAAI Press, 2021. doi: 10.1609/AAAI.V35I12. 17272. URL https://doi.org/10.1609/aaai. v35i12.17272 .Yang, R., Sun, X., and Narasimhan, K. A generalized algorithm for multi-objective reinforcement learning and policy adaptation. In Wallach, H. M., Larochelle, H., Beygelzimer, A., d’Alch ´e-Buc, F., Fox, E. B., and Garnett, R. (eds.), Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems 2019, NeurIPS 2019, December 8-14, 2019, Vancouver, BC, Canada , pp. 14610–14621, 2019. URL https://proceedings. neurips.cc/paper/2019/hash/ 4a46fbfca3f1465a27b210f4bdfe6ab3-Abstract. html .Yang, T., Cen, S., Wei, Y., Chen, Y., and Chi, Y. Federated natural policy gradient and actor critic methods for multi-task reinforcement learning. 2024. URL https:// arxiv.org/abs/2311.00201 .Yeh, C., Li, V., Datta, R., Arroyo, J., Christianson, N., Zhang, C., Chen, Y., Hosseini, M. M., Golmohammadi, A., Shi, Y., et al. Sustaingym: Reinforcement learning environments for sustainable energy systems. Advances in Neural Information Processing Systems , 36:59464– 59476, 2023. Zehavi, E., Leshem, A., Levanda, R., and Han, Z. Weighted max-min resource allocation for frequency selective chan-nels. IEEE Trans. Signal Process. , 61(15):3723–3732, 2013. doi: 10.1109/TSP.2013.2262278. URL https: //doi.org/10.1109/TSP.2013.2262278 .13 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+## A. Proof on Optimality Gap 
+
+Proof. With a slight abuse of notation, let J(π) := [ J1(π), · · · , J K (π)] ⊤ ∈ RK and let H(π) denote the expected cumulative entropy of π. We express the optimization of (2) and (3) with f = min as follows: 
+
+max 
+
+> π∈Πfeas
+
+min  
+
+> 1≤k≤K
+
+Jk(π) + βH(π) (16) where Πfeas := 
+
+n
+
+π Eμ0,π 
+
+hP∞ 
+
+> t=0
+
+γtc(l)
+
+> t
+
+i
+
+≥ C(l), ∀l = 1 , . . . , L 
+
+o
+
+and it is assumed to be non-empty under the typical assumption in constrained RL (Tessler et al., 2018; Ha et al., 2020). Let the optimal solution to the regularized problem in (16) be π∗ 
+
+> r
+
+:= arg max π∈Πfeas min 1≤k≤K Jk(π) + βH(π) = arg max π∈Πfeas min w⟨w, J (π)⟩ + βH(π) where min w∈∆K is abbreviated as min w for brevity. Let w∗(π) := arg min w⟨w, J (π)⟩ and w∗ 
+
+> r
+
+:= w∗(π∗ 
+
+> r
+
+).Let the optimal solution to the unregularized problem be π∗ := arg max π∈Πfeas min w⟨w, J (π)⟩ and w∗ = w∗(π∗). Let the optimal max-min value of the unregularized problem be V π∗ 
+
+> w∗
+
+:= ⟨w∗, J (π∗)⟩. Similarly, let the optimal value of the regularized problem be V π∗ 
+
+> r
+> w∗
+> r
+
+:= ⟨w∗ 
+
+> r
+
+, J (π∗ 
+
+> r
+
+)⟩. For simplicity, we abbreviate max π∈Πfeas as max π below. First, we have the following: 
+
+V π∗ 
+
+> r
+> w∗
+> r
+
++βH(π∗ 
+
+> r
+
+) = max  
+
+> π
+
+min  
+
+> w
+
+⟨w, J (π)⟩+βH(π) ≥ min  
+
+> w
+
+⟨w, J (π∗)⟩+βH(π∗) = ⟨w∗, J (π∗)⟩+βH(π∗) = V π∗ 
+
+> w∗
+
++βH(π∗).
+
+(17) Since the stepwise entropy of π is upper-bounded by log |A| , we have 0 ≤ H (π) ≤ log |A|  
+
+> 1−γ
+
+and obtain 
+
+V π∗ 
+
+> w∗
+
+− V π∗ 
+
+> r
+> w∗
+> r
+
+≤ β log |A| 
+
+1 − γ . (18) Similarly, we have the following: 
+
+V π∗ 
+
+> w∗
+
+= max  
+
+> π
+
+min  
+
+> w
+
+⟨w, J (π)⟩ ≥ min  
+
+> w
+
+⟨w, J (π∗ 
+
+> r
+
+)⟩ = ⟨w∗ 
+
+> r
+
+, J (π∗ 
+
+> r
+
+)⟩ = V π∗ 
+
+> r
+> w∗
+> r
+
+. (19) Combining (18) and (19), we obtain that the optimality value gap ranges as 0 ≤ V π∗ 
+
+> w∗
+
+− V π∗ 
+
+> r
+> w∗
+> r
+
+≤ β log |A|  
+
+> 1−γ
+
+.14 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+## B. Proof on Equivalent Optimization 
+
+Proof. The dual problem of (4), (5), and (6) is rewritten as follows: 
+
+min  
+
+> u≥0
+
+min  
+
+> w≥0,v
+
+min  
+
+> ξ≥0
+
+max 
+
+> ρ,b
+
+"
+
+b(1 −
+
+> K
+
+X
+
+> k=1
+
+wk) − β X
+
+> s,a
+
+ρ(s, a )log ρ(s, a )
+
+P 
+
+> a′
+
+ρ(s, a ′)+ X
+
+> s
+
+μ0(s)v(s) + X
+
+> s,a
+
+ξ(s, a )ρ(s, a )−
+
+> L
+
+X
+
+> l=1
+
+ulC(l)
+
++ X
+
+> s,a
+
+ρ(s, a )[ 
+
+> K
+
+X
+
+> k=1
+
+wkr(k)(s, a )+ 
+
+> L
+
+X
+
+> l=1
+
+ulc(l)(s, a ) + γ X
+
+> s′
+
+T (s′|s, a )v(s′) − v(s)] 
+
+#
+
+. (20) Here b is an auxiliary variable satisfying P 
+
+> s,a
+
+r(k)(s, a )ρ(s, a ) ≥ b, 1 ≤ k ≤ K. Let ηu,v,w (s, a ) := PKk=1 wkr(k)(s, a ) + 
+
+PLl=1 ulc(l)(s, a ) + γ P 
+
+> s′
+
+T (s′|s, a )v(s′) − v(s). We apply KKT conditions. 1. Stationarity condition gives 
+
+∀(s, a ), −β log ρ(s, a )
+
+P 
+
+> a′
+
+ρ(s, a ′) + ξ(s, a ) + ηu,v,w (s, a ) = 0 (21) and 
+
+1 −
+
+> K
+
+X
+
+> k=1
+
+wk = 0 . (22) 2. Complementary slackness condition gives 
+
+∀(s, a ), ξ(s, a )ρ(s, a ) = 0 . (23) From (21), we derive 
+
+∀(s, a ), ρ(s, a )
+
+P 
+
+> a′
+
+ρ(s, a ′) = exp 
+
+ ξ(s, a ) + ηu,v,w (s, a )
+
+β
+
+
+
+(24) so ρ(s, a ) > 0 and ξ(s, a ) = 0 from (23). Therefore, 
+
+∀(s, a ), ρ(s, a )
+
+P 
+
+> a′
+
+ρ(s, a ′) = exp 
+
+ ηu,v,w (s, a )
+
+β
+
+
+
+. (25) Inserting (22) and (25), we obtain: 
+
+min 
+
+> u∈RL
+> +
+
+min 
+
+> v,w
+
+X
+
+> s
+
+μ0(s)v(s) −
+
+> L
+
+X
+
+> l=1
+
+ulC(l) (26) 
+
+∀s, v(s)= β log X
+
+> a
+
+exp[ 1
+
+β {
+
+> K
+
+X
+
+> k=1
+
+wkr(k)
+
+(s, a ) + 
+
+> L
+
+X
+
+> l=1
+
+ulc(l)(s, a ) + γX
+
+> s′
+
+T (s′|s, a )v(s′)}] := [ Tu,w v]( s) (27) 
+
+> K
+
+X
+
+> k=1
+
+wk = 1; wk ≥ 0 ∀1 ≤ k ≤ K. (28) where (27) is derived from P 
+
+> a
+
+exp 
+
+ ηu,v,w (s,a )
+
+> β
+
+
+
+= 1 , ∀s, and strong duality holds under Slater condition (Boyd & Vandenberghe, 2004). Since Tu,w is a contraction mapping (Fox et al., 2016; Haarnoja et al., 2017), it has the unique fixed point v∗
+
+> u,w
+
+. Therefore, v = v∗ 
+
+> u,w
+
+is the only feasible solution that satisfies (27) and we have the following: 
+
+min 
+
+> u∈RL
+> +,w ∈∆K
+
+L(u, w ) = X
+
+> s
+
+μ0(s)v∗
+
+> u,w
+
+(s) −
+
+> L
+
+X
+
+> l=1
+
+ulC(l). (29) 15 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Under Slater condition, this optimization attains the same optimal value as in the original convex optimization. The convexity of v∗
+
+> u,w
+
+(s) follows from the proof of Theorem 4.1 in Park et al. (2024). 
+
+## C. Proof of Differentiability 
+
+Proof. For notational simplicity, we first present the theorem for the case L = 0 (i.e., without constraints) and then extend the result to the case L ≥ 1. This holds because, given (u, w ) ∈ RL+K , the mapping Tu,w is defined by 
+
+[Tu,w v]( s) = β log P 
+
+> a
+
+exp[ 1 
+
+> β
+
+{PLl=1 ulc(l)(s, a ) + PKk=1 wkr(k)(s, a ) + γP 
+
+> s′
+
+T (s′|s, a )v(s′)}], ∀s, and we can regard the concatenation of c(s, a ) and r(s, a ) as a new vector reward of size L + K with its weight (u, w ). Therefore, we use the notation of the following mapping [Twv]( s) = β log P 
+
+> a
+
+exp[ 1 
+
+> β
+
+{PKk=1 wkr(k)(s, a ) + γP 
+
+> s′
+
+T (s′|s, a )v(s′)}], ∀s.Let |S| = p. We define F (w, v ) := v − T wv, F : RK × Rp → Rp. Let v∗ 
+
+> w
+
+be the unique fixed point of Tw. Then 
+
+F (w, v ∗
+
+> w
+
+) = v∗ 
+
+> w
+
+− T wv∗ 
+
+> w
+
+= 0 . Here v∗ 
+
+> w
+
+is implicitly expressed with respect to (w.r.t.) w, and we aim to analyze v∗ 
+
+> w
+
+using 
+
+implicit function theorem .First of all, F : RK × Rp → Rp is a continuously differentiable function. For each s, F (w, v )( s) = v(s) − [Twv]( s) = 
+
+v(s)−β log P 
+
+> a
+
+exp[ 1 
+
+> β
+
+{PKk=1 wkr(k)(s, a )+ γP 
+
+> s′
+
+T (s′|s, a )v(s′)}] which is a composition of linear, logarithm, summation, exponential, and linear functions. Now we fix w and check whether the Jacobian matrix ∂v F (w, v )|v=v∗ 
+
+> w
+
+∈ Rp×p is invertible where [∂v F (w, v )|v=v∗ 
+
+> w
+
+]ij =   
+
+> ∂F (w,v )( si)
+> ∂v (sj)
+
+|v=v∗ 
+
+> w
+
+. We have ∂v F (w, v ) = Ip − ∂v [Twv] where Ip is the p × p identity matrix. Then 
+
+∂[Twv]( si)
+
+∂v (sj ) |v=v∗ 
+
+> w
+
+= γEa∼π∗ 
+
+> w(·| si)
+
+[T (sj |si, a )] (30) where 
+
+π∗
+
+> w
+
+(a|s) = exp[ 1 
+
+> β
+
+{PKk=1 wkr(k)(s, a ) + γP 
+
+> s′
+
+T (s′|s, a )v∗
+
+> w
+
+(s′)}]
+
+P 
+
+> a′
+
+exp[ 1 
+
+> β
+
+{PKk=1 wkr(k)(s, a ′) + γP 
+
+> s′
+
+T (s′|s, a ′)v∗
+
+> w
+
+(s′)}] . (31) If we denote T (·| s, a ) := [ T (s1|s, a ) · · · T (sp|s, a )] , we have 
+
+∂v F (w, v )|v=v∗ 
+
+> w
+
+= Ip − γ
+
+
+
+Ea∼π∗ 
+
+> w(·| s1)
+
+[T (·| s1, a )] 
+
+...
+
+Ea∼π∗ 
+
+> w(·| sp)
+
+[T (·| sp, a )] 
+
+ =: Ip − γ
+
+
+
+T π∗ 
+
+> w
+
+(·| s1)
+
+...
+
+T π∗ 
+
+> w
+
+(·| sp)
+
+ (32) where T π∗ 
+
+> w
+
+(sj |si) = Ea∼π∗ 
+
+> w(·| si)
+
+[T (sj |si, a )] =: [ T π∗ 
+
+> w
+
+]ij . Then Ip − γT π∗ 
+
+> w
+
+is invertible since T π∗ 
+
+> w
+
+is a row-stochastic square matrix (Horn & Johnson, 2012). Therefore, ∂v F (w, v )|v=v∗ 
+
+> w
+
+is invertible. By implicit function theorem, there exists an open set U ⊂ RK containing w such that there exists a unique continuously differentiable function h : U → Rp such that h(w) = v∗ 
+
+> w
+
+and F (w′, h (w′)) = 0 ,i.e., h(w′) = Tw′ h(w′) for all w′ ∈ U . Since h(w′) is the unique fixed point of Tw′ , h(w′) = v∗ 
+
+> w′
+
+, ∀w′ ∈ U . If we use the implicit function theorem for all w ∈ RK , we can conclude that v = v∗ 
+
+> w
+
+is a unique continuously differentiable function in 
+
+w ∈ RK that satisfies v = Twv.Moreover, for 1 ≤ k ≤ K,
+
+∂[Twv]( si)
+
+∂w k
+
+|v=v∗ 
+
+> w
+
+= Ea∼π∗ 
+
+> w(·| si)
+
+[r(k)(si, a )] . (33) With a slight abuse of notation, if we denote r(s, a ) := [ r(1) (s, a ) · · · r(K)(s, a )] , we have 
+
+∂wF (w, v )|v=v∗ 
+
+> w
+
+= −
+
+
+
+Ea∼π∗ 
+
+> w(·| s1)
+
+[r(s1, a )] 
+
+...
+
+Ea∼π∗ 
+
+> w(·| sp)
+
+[r(sp, a )] 
+
+ =: −
+
+
+
+rπ∗ 
+
+> w
+
+(s1)
+
+...
+
+rπ∗ 
+
+> w
+
+(sp)
+
+ (34) 16 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+where rπ∗ 
+
+> w
+
+(s) = Ea∼π∗ 
+
+> w(·| s)
+
+[r(s, a )] ∈ R1×K . By implicit function theorem, we have 
+
+
+
+∇wv∗
+
+> w
+
+(s1)⊤
+
+...
+
+∇wv∗
+
+> w
+
+(sp)⊤
+
+ = −[∂v F (w, v )|v=v∗ 
+
+> w
+
+]−1∂wF (w, v )|v=v∗ 
+
+> w
+
+= ( Ip − γT π∗ 
+
+> w
+
+)−1rπ∗ 
+
+> w
+
+. (35) Note that the k-th ( 1 ≤ k ≤ K) column of (35) is equivalent to the policy evaluation of π∗ 
+
+> w
+
+considering a scalar reward function r(k) (Silver, 2015; Sutton & Barto, 2018). We denote the value function as vπ∗ 
+
+> w
+> k
+
+∈ Rp. Then 
+
+∂v ∗
+
+> w
+
+(s)
+
+∂w k
+
+= vπ∗ 
+
+> w
+> k
+
+(s), ∀s. (36) If we denote vπ∗ 
+
+> w
+
+(s) = [ vπ∗ 
+
+> w
+> 1
+
+(s), · · · , v π∗ 
+
+> w
+> K
+
+(s)] ⊤ ∈ RK for all s, then vπ∗ 
+
+> w
+
+(s) is the value function evaluated with the policy 
+
+π∗ 
+
+> w
+
+in a given MOMDP. We have 
+
+∇wv∗
+
+> w
+
+(s) = vπ∗ 
+
+> w
+
+(s), ∀s. (37) For the case of L ≥ 1, the only difference is that π∗ 
+
+> w
+
+is changed to 
+
+π∗
+
+> u,w
+
+(a|s) = exp[ 1 
+
+> β
+
+{PLl=1 ulc(l)(s, a ) + PKk=1 wkr(k)(s, a ) + γP 
+
+> s′
+
+T (s′|s, a )v∗
+
+> u,w
+
+(s′)}]
+
+P 
+
+> a′
+
+exp[ 1 
+
+> β
+
+{PLl=1 ulc(l)(s, a ′) + PKk=1 wkr(k)(s, a ′) + γP 
+
+> s′
+
+T (s′|s, a ′)v∗
+
+> u,w
+
+(s′)}] (38) where v∗ 
+
+> u,w
+
+is the fixed point of the operator Tu,w :
+
+∀s, [Tu,w v]( s) = β log X
+
+> a
+
+exp[ 1
+
+β {
+
+> L
+
+X
+
+> l=1
+
+ulc(l)(s, a ) + 
+
+> K
+
+X
+
+> k=1
+
+wkr(k)(s, a ) + γX
+
+> s′
+
+T (s′|s, a )v(s′)}] (39) and the column size of rπ∗ 
+
+> u,w
+
+is L + K, not K. We denote vπ∗ 
+
+> u,w
+> c
+
+(s) ∈ RL, vπ∗ 
+
+> u,w
+> r
+
+(s) ∈ RK as the value functions evaluated with the policy π∗ 
+
+> u,w
+
+for constrained reward c and unconstrained reward r, respectively. Finally, we have 
+
+∇uv∗
+
+> u,w
+
+(s) = vπ∗ 
+
+> u,w
+> c
+
+(s), ∇wv∗
+
+> u,w
+
+(s) = vπ∗ 
+
+> u,w
+> r
+
+(s), ∀s. (40) 
+
+## D. Proof of Smoothness 
+
+Proof. Let a = ( u′, w ′) and b = ( u′′ , w ′′ ) in RL+K and a̸ = b. By the differentiability of ∇v∗
+
+> u,w
+
+(s) for each s in Proposition 3.5, ∇v∗
+
+> u,w
+
+(s) is continuous on RL+K . Specifically, ∇v∗
+
+> u,w
+
+(s) is continuous on {a + t(b − a)|0 ≤ t ≤ 1} and differentiable on {a + t(b − a)|0 < t < 1}. Therefore, by the generalized mean value inequality, we have 
+
+∥∇ v∗
+
+> u,w
+
+(s)|(u,w )= b − ∇ v∗
+
+> u,w
+
+(s)|(u,w )= a∥2 ≤ sup 
+
+> t∈[0 ,1]
+
+∥H[v∗
+
+> u,w
+
+(s)] |(u,w )= a+t(b−a)∥2∥b − a∥2. (41) where H[v∗
+
+> u,w
+
+(s)] is the Hessian of v∗
+
+> u,w
+
+(s). Let λmax (A) be the maximum eigenvalue of a real symmetric matrix A. For each sk (1 ≤ k ≤ p), the eigenvalues of H[v∗
+
+> u,w
+
+(sk)] are nonnegative because of its positive semidefiniteness in (12) in Proposition 3.5. Since trace operator is additive, we have 
+
+∥H[v∗
+
+> u,w
+
+(sk)] ∥2 = λmax (H[v∗
+
+> u,w
+
+(sk)]) ≤ Tr (H[v∗
+
+> u,w
+
+(sk)]) = 1
+
+β
+
+> p
+
+X
+
+> l=1
+
+[( Ip − γT π∗ 
+
+> u,w
+
+)−1]kl Tr (Bπ∗ 
+
+> u,w
+
+(sl)) . (42) For each s, we also have Tr (Bπ∗ 
+
+> u,w
+
+(s)) = 
+
+> L+K
+
+X
+
+> k=1
+
+Var (Qπ∗ 
+
+> u,w
+> k
+
+(s, a )) ≤
+
+> L+K
+
+X
+
+> k=1
+
+E[|Qπ∗ 
+
+> u,w
+> k
+
+(s, ·)|2] ≤
+
+> L+K
+
+X
+
+> k=1
+
+r(k)
+
+> max
+
+1 − γ
+
+!2
+
+(43) 17 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+where Qπ∗ 
+
+> u,w
+> k
+
+(s, a ) is the k-th dimension of Qπ∗ 
+
+> u,w
+
+(s, a ) ∈ RK+L.Since (Ip − γT π∗ 
+
+> u,w
+
+)−1 = P∞
+
+> i=0
+
+(γT π∗ 
+
+> u,w
+
+)i and each (T π∗ 
+
+> u,w
+
+)i is a probability transition matrix, 
+
+∥H[v∗
+
+> u,w
+
+(sk)] ∥2 ≤ 1
+
+β
+
+> L+K
+
+X
+
+> m=1
+
+r(m)
+
+> max
+
+1 − γ
+
+!2 ∞X
+
+> i=0
+
+γipX
+
+> l=1
+
+(T π∗ 
+
+> u,w
+
+)ikl 
+
+!
+
+= 1
+
+β(1 − γ)
+
+> L+K
+
+X
+
+> m=1
+
+r(m)
+
+> max
+
+1 − γ
+
+!2
+
+. (44) Here, the summations of Ppl=1 and P∞ 
+
+> i=0
+
+are interchangable due to the absolute summability. Finally, we have 
+
+∥H[L(u, w )] ∥2 ≤ P 
+
+> s
+
+μ0(s)∥H[v∗
+
+> u,w
+
+(s)] ∥2 ≤ 1
+
+> β(1 −γ)
+
+PL+Km=1 
+
+ r(m)
+
+> max
+> 1−γ
+
+2
+
+=: α.It should be noted that ∥H[v∗
+
+> u,w
+
+(sk)] ∥2 is uniformly bounded regardless of sk and (u, w ). Therefore, from (41) , ∇L (u, w )
+
+is α-Lipschitz continuous in ∥ · ∥ 2.
+
+## E. Proof of Twice-Differentiability 
+
+Proof. Here we also use the implicit function theorem and follow a similar logic in the proof of differentiability in Appendix C. Let |S| = p. We show the theorem for the case of L = 0 to guarantee notational simplicity. For each 1 ≤ i ≤ K, we want to show that ∂v ∗ 
+
+> w
+> ∂w i
+
+:= [ ∂v ∗  
+
+> w(s1)
+> ∂w i
+
+, · · · , ∂v ∗  
+
+> w(sp)
+> ∂w i
+
+]⊤ ∈ Rp is differentiable in w ∈ RK . From the result in Appendix C, we have ∂v ∗
+
+> w
+
+∂w i
+
+= vπ∗ 
+
+> w
+> i
+
+(45) where vπ∗ 
+
+> w
+> i
+
+∈ Rp is the value function evaluated with the policy π∗ 
+
+> w
+
+in (31) with the i-th reward r(i). Let rπ∗ 
+
+> w
+> i
+
+(s) = 
+
+Ea∼π∗ 
+
+> w(·| s)
+
+[r(i)(s, a )] ∈ R. From (35), we have 
+
+vπ∗ 
+
+> w
+> i
+
+= ( Ip − γT π∗ 
+
+> w
+
+)−1rπ∗ 
+
+> w
+> i
+
+(46) or equivalently, 
+
+vπ∗ 
+
+> w
+> i
+
+= rπ∗ 
+
+> w
+> i
+
++ γT π∗ 
+
+> w
+
+vπ∗ 
+
+> w
+> i
+
+=: T ∗ 
+
+> w
+
+vπ∗ 
+
+> w
+> i
+
+. (47) We define F (w, v ) := v − T ∗ 
+
+> w
+
+v, F : RK × Rp → Rp. Then F (w, v π∗ 
+
+> w
+> i
+
+) = vπ∗ 
+
+> w
+> i
+
+− T wvπ∗ 
+
+> w
+> i
+
+= 0 . Here vπ∗ 
+
+> w
+> i
+
+is the unique fixed point of T ∗ 
+
+> w
+
+and is implicitly expressed w.r.t. w, and we aim to analyze vπ∗ 
+
+> w
+> i
+
+using implicit function theorem .First of all, F : RK × Rp → Rp is a continuously differentiable function. For each s, F (w, v )( s) = v(s) − [T ∗ 
+
+> w
+
+v]( s) = 
+
+v(s) − [rπ∗ 
+
+> w
+> i
+
+(s) + γ P 
+
+> s′
+
+T π∗ 
+
+> w
+
+(s′|s)v(s′)] = v(s) − P 
+
+> a
+
+π∗
+
+> w
+
+(a|s)[ r(i)(s, a ) + γ P 
+
+> s′
+
+T (s′|s, a )v(s′)] . As seen in (31) , π∗
+
+> w
+
+contains v∗ 
+
+> w
+
+which is continuously differentiable in w (as a result of the proof in Appendix C), and π∗ 
+
+> w
+
+is a composition of quotient, exponential, summation and linear functions of w and v∗
+
+> w
+
+.Now we fix w and check whether the Jacobian matrix ∂v F (w, v )|v=vπ∗
+
+> wi
+
+∈ Rp×p is invertible where [∂v F (w, v )|v=vπ∗
+
+> wi
+
+]ij =   
+
+> ∂F (w,v )( si)
+> ∂v (sj)
+
+|v=vπ∗
+
+> wi
+
+. We have ∂v F (w, v ) = Ip − ∂v [T ∗ 
+
+> w
+
+v] where Ip is the p × p identity matrix. Then 
+
+∂[T ∗ 
+
+> w
+
+v]( si)
+
+∂v (sj ) |v=vπ∗
+
+> wi
+
+= γEa∼π∗ 
+
+> w(·| si)
+
+[T (sj |si, a )] . (48) If we denote T (·| s, a ) := [ T (s1|s, a ) · · · T (sp|s, a )] , we have 
+
+∂v F (w, v )|v=vπ∗
+
+> wi
+
+= Ip − γ
+
+
+
+Ea∼π∗ 
+
+> w(·| s1)
+
+[T (·| s1, a )] 
+
+...
+
+Ea∼π∗ 
+
+> w(·| sp)
+
+[T (·| sp, a )] 
+
+ =: Ip − γ
+
+
+
+T π∗ 
+
+> w
+
+(·| s1)
+
+...
+
+T π∗ 
+
+> w
+
+(·| sp)
+
+ (49) where T π∗ 
+
+> w
+
+(sj |si) = Ea∼π∗ 
+
+> w(·| si)
+
+[T (sj |si, a )] =: [ T π∗ 
+
+> w
+
+]ij . Then Ip − γT π∗ 
+
+> w
+
+is invertible since T π∗ 
+
+> w
+
+is a row-stochastic square matrix (Horn & Johnson, 2012). 18 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Therefore, ∂v F (w, v )|v=vπ∗
+
+> wi
+
+is invertible. By implicit function theorem, there exists an open set U ⊂ RK containing w such that there exists a unique continuously differentiable function h : U → Rp such that h(w) = vπ∗ 
+
+> w
+> i
+
+and F (w′, h (w′)) = 0 ,i.e., h(w′) = T ∗ 
+
+> w′
+
+h(w′) for all w′ ∈ U . Since h(w′) is the unique fixed point of T ∗ 
+
+> w′
+
+, h(w′) = vπ∗ 
+
+> w′
+> i
+
+, ∀w′ ∈ U . If we use the implicit function theorem for all w ∈ RK , we can conclude that v = vπ∗ 
+
+> w
+> i
+
+is a unique continuously differentiable function in 
+
+w ∈ RK that satisfies v = T ∗ 
+
+> w
+
+v.Now, for 1 ≤ j ≤ K, we aim to calculate ∂[T ∗  
+
+> wv]( s)
+> ∂w j
+
+|v=vπ∗
+
+> wi
+
+. For notational simplicity, let Q∗
+
+> w
+
+(s, a ) := PKk=1 wkr(k)(s, a ) + 
+
+γP 
+
+> s′
+
+T (s′|s, a )v∗
+
+> w
+
+(s′). Then we express π∗ 
+
+> w
+
+as follows: 
+
+π∗
+
+> w
+
+(a|s) = exp[ 1 
+
+> β
+
+{Q∗
+
+> w
+
+(s, a )}]
+
+P 
+
+> a′
+
+exp[ 1 
+
+> β
+
+{Q∗
+
+> w
+
+(s, a ′)}] . (50) We also have 
+
+∂Q ∗ 
+
+> w
+
+(s, a )
+
+∂w j
+
+= r(j)(s, a ) + γX
+
+> s′
+
+T (s′|s, a ) ∂v ∗ 
+
+> w
+
+(s′)
+
+∂w j
+
+= r(j)(s, a ) + γX
+
+> s′
+
+T (s′|s, a )vπ∗ 
+
+> w
+> j
+
+(s′) := Qπ∗ 
+
+> w
+> j
+
+(s, a ). (51) 
+
+In other words, we denote Qπ∗ 
+
+> w
+> j
+
+as the action-value function evaluated with π∗ 
+
+> w
+
+for a scalar reward function r(j). Then 
+
+∂[T ∗ 
+
+> w
+
+v]( s)
+
+∂w j
+
+|v=vπ∗
+
+> wi
+
+= X
+
+> a
+
+Qπ∗ 
+
+> w
+> i
+
+(s, a ) ∂π ∗
+
+> w
+
+(a|s)
+
+∂w j
+
+(52) which is equivalent to 
+
+∂[T ∗ 
+
+> w
+
+v]( s)
+
+∂w j
+
+|v=vπ∗
+
+> wi
+
+= 1
+
+β
+
+X
+
+> a
+
+Qπ∗ 
+
+> w
+> i
+
+(s, a )
+
+
+
+π∗
+
+> w
+
+(a|s)Qπ∗ 
+
+> w
+> j
+
+(s, a ) − π∗
+
+> w
+
+(a|s) X
+
+> a′
+
+{π∗
+
+> w
+
+(a′|s)Qπ∗ 
+
+> w
+> j
+
+(s, a ′)}
+
+
+
+(53) and we have 
+
+∂[T ∗ 
+
+> w
+
+v]( s)
+
+∂w j
+
+|v=vπ∗
+
+> wi
+
+= 1
+
+β
+
+
+
+Ea∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+> i
+
+(s, a )Qπ∗ 
+
+> w
+> j
+
+(s, a )] − Ea∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+> i
+
+(s, a )] Ea∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+> j
+
+(s, a )] }
+
+
+
+. (54) 
+
+By implicit function theorem, we have 
+
+
+
+∇w ∂v ∗ 
+
+> w(s1)
+> ∂w i
+> ⊤
+
+...
+
+∇w ∂v ∗ 
+
+> w(sp)
+> ∂w i
+> ⊤
+
+ = −[∂v F (w, v )|v=vπ∗
+
+> wi
+
+]−1∂wF (w, v )|v=vπ∗
+
+> wi
+
+= 1
+
+β (Ip − γT π∗ 
+
+> w
+
+)−1Eπ∗ 
+
+> w
+> i
+
+(55) where Eπ∗ 
+
+> w
+> i
+
+is a p × K matrix where for each row corresponding to s, the j-th element is Ea∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+> i
+
+(s, a )Qπ∗ 
+
+> w
+> j
+
+(s, a )] −
+
+Ea∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+> i
+
+(s, a )] Ea∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+> j
+
+(s, a )] }. This formulation holds for each 1 ≤ i ≤ K.Therefore, we construct a p × K × K tensor, say Bπ∗ 
+
+> w
+
+, by stacking {Eπ∗ 
+
+> w
+> i
+
+}i along the new (third) dimension. Then along the first dimension of size p, for each s, let Bπ∗ 
+
+> w
+
+(s) ∈ RK×K be the corresponding slice of B. Let Qπ∗ 
+
+> w
+
+(s, a ) = [Qπ∗ 
+
+> w
+> 1
+
+(s, a ), · · · , Q π∗ 
+
+> w
+> K
+
+(s, a )] ⊤ ∈ RK be the action-value function evaluated with π∗ 
+
+> w
+
+for vector reward r. Then we have 
+
+Bπ∗ 
+
+> w
+
+(s) = Ea∼π∗ 
+
+> w(·| s)
+
+
+
+(Qπ∗ 
+
+> w
+
+(s, a ) − Ea′∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+
+(s, a ′)])( Qπ∗ 
+
+> w
+
+(s, a ) − Ea′∼π∗ 
+
+> w(·| s)
+
+[Qπ∗ 
+
+> w
+
+(s, a ′)]) ⊤
+
+
+
+(56) 
+
+which is the covariance matrix of Qπ∗ 
+
+> w
+
+(s, ·) over the probability distribution π∗
+
+> w
+
+(·| s). Let sk correspond to the k-th row of 
+
+T π∗ 
+
+> w
+
+(1 ≤ k ≤ p). Then we have the following Hessian formulation for sk:
+
+H[v∗
+
+> w
+
+(sk)] = 1
+
+β
+
+> p
+
+X
+
+> l=1
+
+[( Ip − γT π∗ 
+
+> w
+
+)−1]kl Bπ∗ 
+
+> w
+
+(sl). (57) 19 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+For the case of L ≥ 1, the only difference is that π∗ 
+
+> w
+
+is changed to 
+
+π∗
+
+> u,w
+
+(a|s) = exp[ 1 
+
+> β
+
+{PLl=1 ulc(l)(s, a ) + PKk=1 wkr(k)(s, a ) + γP 
+
+> s′
+
+T (s′|s, a )v∗
+
+> u,w
+
+(s′)}]
+
+P 
+
+> a′
+
+exp[ 1 
+
+> β
+
+{PLl=1 ulc(l)(s, a ′) + PKk=1 wkr(k)(s, a ′) + γP 
+
+> s′
+
+T (s′|s, a ′)v∗
+
+> u,w
+
+(s′)}] (58) where v∗ 
+
+> u,w
+
+is the fixed point of the operator Tu,w :
+
+∀s, [Tu,w v]( s) = β log X
+
+> a
+
+exp[ 1
+
+β {
+
+> L
+
+X
+
+> l=1
+
+ulc(l)(s, a ) + 
+
+> K
+
+X
+
+> k=1
+
+wkr(k)(s, a ) + γX
+
+> s′
+
+T (s′|s, a )v(s′)}] (59) and the size of Bπ∗ 
+
+> u,w
+
+(s) is (L + K) × (L + K), not K × K, defined by Qπ∗ 
+
+> u,w
+
+(s, a ) ∈ RL+K which is the action-value function evaluated with π∗ 
+
+> u,w
+
+for the concatenated vector function of constrained reward c and unconstrained reward r.Finally, we have 
+
+H[v∗
+
+> u,w
+
+(sk)] = 1
+
+β
+
+> p
+
+X
+
+> l=1
+
+[( Ip − γT π∗ 
+
+> u,w
+
+)−1]kl Bπ∗ 
+
+> u,w
+
+(sl). (60) 20 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+## F. Convergence Analysis 
+
+F.1. Assumption for Action-value Nondegeneracy 
+
+Assumption There exists at least one state s ∈ S such that ρπ∗ 
+
+> u,w
+
+(s) > 0 and the centered action-value vectors  Qπ∗ 
+
+> u,w
+
+(s, a )−
+
+Ea′∼π∗ 
+
+> u,w (·| s)
+
+[ Qπ∗ 
+
+> u,w
+
+(s, a ′) ] : a ∈ A span RK+L.This condition fails only in degenerate multi-objective settings when for every state s ∈ S with ρπ∗ 
+
+> u,w
+
+(s) > 0, the set  Qπ∗ 
+
+> u,w
+
+(s, a ) − Ea′∼π∗ 
+
+> u,w (·| s)
+
+[ Qπ∗ 
+
+> u,w
+
+(s, a ′) ] : a ∈ A lies entirely within an affine subspace of dimension less than K + L
+
+(e.g., the size of an action set is smaller than the number of objectives). Then Bπ∗ 
+
+> u,w
+
+(s) = Ea∼π∗ 
+
+> u,w (·| s)
+
+
+
+(Qπ∗ 
+
+> u,w
+
+(s, a ) − Ea′∼π∗ 
+
+> u,w (·| s)
+
+[Qπ∗ 
+
+> u,w
+
+(s, a ′)])( Qπ∗ 
+
+> u,w
+
+(s, a ) −
+
+Ea′∼π∗ 
+
+> u,w (·| s)
+
+[Qπ∗ 
+
+> u,w
+
+(s, a ′)]) ⊤
+
+
+
+∈ R(L+K)×(L+K) is positive definite. This is because (i) π∗
+
+> u,w
+
+(a|s) > 0 for all 
+
+a from (9) (which has this favorable property that facilitates analysis), and (ii) for any y ∈ RK+L with y̸ = 0,
+
+y⊤Bπ∗ 
+
+> u,w
+
+(s)y = P 
+
+> a
+
+π∗
+
+> u,w
+
+(a|s)
+
+
+
+y⊤(Qπ∗ 
+
+> u,w
+
+(s, a ) − Ea′∼π∗ 
+
+> u,w (·| s)
+
+[Qπ∗ 
+
+> u,w
+
+(s, a ′)]) 
+
+2
+
+> 0 as at least one a should satisfy 
+
+y⊤(Qπ∗ 
+
+> u,w
+
+(s, a ) − Ea′∼π∗ 
+
+> u,w (·| s)
+
+[Qπ∗ 
+
+> u,w
+
+(s, a ′)]) ̸ = 0 .By Proposition 3.5, we have the Hessian of L(u, w ) as H[L(u, w )] = 1
+
+> β
+
+Ppl=1 [μ⊤ 
+
+> 0
+
+(Ip − γT π∗ 
+
+> u,w
+
+)−1]lBπ∗ 
+
+> u,w
+
+(sl) = 
+
+> 1
+> β
+
+P 
+
+> s
+
+ρπ∗ 
+
+> u,w
+
+(s)Bπ∗ 
+
+> u,w
+
+(s) where p = |S| and ρπ∗ 
+
+> u,w
+
+(s) = P∞ 
+
+> t=0
+
+γtPr (st = s|π∗
+
+> u,w
+
+, T, μ 0). Therefore, H[L(u, w )] is positive definite under the assumption. 
+
+F.2. Existence of λ
+
+Let R = {ρ ∈ R|S||A|  
+
+> +
+
+| P 
+
+> a′
+
+ρ(s′, a ′) = μ0(s′) + γ P 
+
+> (s,a )
+
+T (s′|s, a )ρ(s, a ), ∀s′} be the set of occupancy measures, which is convex and closed. The set R is also bounded since ρ(s, a ) ≤ 11−γ ∀(s, a ) for γ ∈ [0 , 1) . Under Slater condition with strict feasibility, there exists an occupancy measure ¯ρ ∈ R and positive constants of {νl}Ll=1 such that 
+
+X
+
+> (s,a )
+
+c(l)(s, a )¯ ρ(s, a ) = JK+l(π ¯ρ) ≥ C(l) + νl, l = 1 , · · · , L. (61) Although P 
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) is linear in ρ, so that satisfying equality already implies Slater condition, assuming strict feasibility is a mild condition and is standard in prior constrained MDP literature (M¨ uller et al., 2024). Define the Lagrangian of the primal problem as: 
+
+˜L(ρ, u ) = min 
+
+> 1≤k≤K
+
+ X
+
+> (s,a )
+
+r(k)(s, a )ρ(s, a )
+
+
+
++ β X
+
+> s
+
+Hρ(s)ρ(s) + 
+
+> L
+
+X
+
+> l=1
+
+ul( X
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) − C(l)) (62) with ρ ∈ R and u ∈ RL
+
+> +
+
+. Let the Lagrangian dual be D(u) = max ρ∈R ˜L(ρ, u ). Let P ∗ =min 1≤k≤K
+
+ P 
+
+> (s,a )
+
+r(k)(s, a )ρ∗(s, a )
+
+
+
++ β P 
+
+> s
+
+Hρ∗ (s)ρ∗(s) denote the optimal value of the primal problem, where 
+
+ρ∗ ∈ R is an optimal solution that satisfies the L constraints. By strong duality, we have P ∗ = min u∈RL 
+
+> +
+
+D(u) = ˜L(ρ∗, u ∗) where u∗ ∈ RL 
+
+> +
+
+is an optimal dual variable corresponding to the constraints: P 
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) ≥ C(l), l = 1 , · · · , L . Also, 
+
+P ∗ = max 
+
+> ρ∈R
+
+˜L(ρ, u ∗) ≥ ˜L(¯ ρ, u ∗) ≥ min 
+
+> 1≤k≤K
+
+ X
+
+> (s,a )
+
+r(k)(s, a )¯ ρ(s, a )
+
+
+
++ β X
+
+> s
+
+H¯ρ(s)¯ ρ(s) + 
+
+> L
+
+X
+
+> l=1
+
+u∗ 
+
+> l
+
+νl (63) where the second inequality follows from the definition of {νl}Ll=1 . Thus, 
+
+0 ≤ u∗ 
+
+> l
+
+≤ P ∗ − (min 1≤k≤K Jk(π ¯ρ) + β P 
+
+> s
+
+H¯ρ(s)¯ ρ(s)) 
+
+νl
+
+:= ¯ ul, ∀l. (64) 21 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Therefore, it suffices to restrict attention to the compact set u ∈ ΠLl=1 [0 , ¯ul] =: C instead of RL 
+
+> +
+
+when searching for an optimal dual variable corresponding to the constraints P 
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) ≥ C(l), l = 1 , · · · , L .Next, the Hessian is explicitly written as follows: 
+
+H[L(u, w )] = 1
+
+β
+
+> p
+
+X
+
+> l=1
+
+[μ⊤ 
+
+> 0
+
+(I − γT π∗ 
+
+> u,w
+
+)−1]lBπ∗ 
+
+> u,w
+
+(sl). (65) From the differentiability of v∗ 
+
+> u,w
+
+established in Theorem 3.3, v∗ 
+
+> u,w
+
+is continuous in (u, w ). By their definitions, this continuity extends to Q∗
+
+> u,w
+
+, π∗
+
+> u,w
+
+, each entry of Bπ∗ 
+
+> u,w
+
+and H[L(u, w )] . For two real symmetric matrices A and B, the minimum eigenvalue λmin (·) satisfies: 
+
+|λmin (A) − λmin (B)| ≤ ∥ A − B∥2 ≤ ∥ A − B∥F , (66) where ∥ · ∥ F is the Frobenius norm. Therefore, λmin (H[L(u, w )]) is continuous in (u, w ) over the compact set C × ∆K . By the extreme value theorem, there exists λ = min (u,w )∈C× ∆K λmin (H[L(u, w )]) > 0 (with λ ≤ α). 
+
+F.3. Proof of Convergence Analysis 
+
+Let λmin (A) be the minimum eigenvalue of a real symmetric matrix A. For simplicity, we denote λ := λmin (H[L(u, w )]) .Then 0 < λ ≤ α (Bubeck, 2015) and L(u, w ) is λ-strongly convex. 
+
+Theorem 3.6 Let (u∗, w ∗) denote an optimal solution to (8) . For each outer-loop index m ≥ 1 in Algorithm 1, let Q∗
+
+> um,w m
+
+denote the fixed point of (13) with [u; w] = [ um; wm], and let Qm denote the Q-function after completing the m-th inner-loop update. For each m, assume ∥Qm − Q∗ 
+
+> um,w m
+
+∥∞ < ϵ for some ϵ > 0. Then for m ≥ 1,
+
+∥[um; wm] − [u∗; w∗]∥2 ≤ (1 − λα )m∥[u0; w0] − [u∗; w∗]∥2 +
+
+p|S| 
+
+λ
+
+vuutK+LX
+
+> i=1
+
+{r(i)
+
+> max
+
+}2 1 + γ
+
+(1 − γ)2 ϵ. (67) 
+
+Proof. By the definition in (9) , we have the optimal policy π∗ 
+
+> um,w m
+
+(a|s) = exp( 1       
+
+> βQ∗
+> um,w m(s,a ))
+> P
+> a′exp( 1
+> βQ∗
+> um,w m(s,a ′))
+
+when 
+
+(u, w ) = (um, w m). According to Theorem 3.3, we have ∇(u,w )L(um, v m) = [P 
+
+> s
+
+μ0(s)vπ∗ 
+
+> um,v m
+> c
+
+(s) −
+
+[C(1) , · · · , C (L)]⊤; P 
+
+> s
+
+μ0(s)vπ∗ 
+
+> um,v m
+> r
+
+(s)] ∈ RL+K .We also have ˜∇(u,w )L(um, v m) := [ P 
+
+> s
+
+μ0(s)vπm 
+
+> c
+
+(s) − [C(1) , · · · , C (L)]⊤; P 
+
+> s
+
+μ0(s)vπm 
+
+> r
+
+(s)] ∈ RL+K , an estimated gradient of ∇(u,w )L(um, w m) using πm where πm(a|s) = exp( 1     
+
+> βQm(s,a ))
+> P
+> a′exp( 1
+> βQm(s,a ′))
+
+.Let em := ˜∇(u,w )L(um, v m) − ∇ (u,w )L(um, w m). For each s, let vπr,i (s) (1 ≤ i ≤ K) and vπc,j (s) (1 ≤ j ≤ L) denote the elements of the i-th dimension of vπr (s) ∈ RK and the j-th dimension of vπc (s) ∈ RL, respectively. Then we have 
+
+∥em∥22 = ∥[X
+
+> s
+
+μ0(s)( vπm 
+
+> c
+
+(s) − vπ∗ 
+
+> um,v m
+> c
+
+(s)); X
+
+> s
+
+μ0(s)( vπm 
+
+> r
+
+(s) − vπ∗ 
+
+> um,v m
+> r
+
+(s))] ∥22
+
+=
+
+> K
+
+X
+
+> i=1
+
+X
+
+> s
+
+μ0(s)( vπm 
+
+> r,i
+
+(s) − vπ∗ 
+
+> um,w m
+> r,i
+
+(s)) 
+
+!2
+
++
+
+> L
+
+X
+
+> j=1
+
+X
+
+> s
+
+μ0(s)( vπm 
+
+> c,j
+
+(s) − vπ∗ 
+
+> um,w m
+> c,j
+
+(s)) 
+
+!2
+
+≤ ∥ μ0∥22
+
+X
+
+> s
+
+ KX
+
+> i=1
+
+(vπm 
+
+> r,i
+
+(s) − vπ∗ 
+
+> um,w m
+> r,i
+
+(s)) 2 +
+
+> L
+
+X
+
+> j=1
+
+(vπm 
+
+> c,j
+
+(s) − vπ∗ 
+
+> um,w m
+> c,j
+
+(s)) 2
+
+
+
+(68) where ∥μ0∥22 = P
+
+> s
+
+(μ0(s)) 2 and the inequality holds by Cauchy-Schwarz. Since both πm and π∗ 
+
+> um,w m
+
+use softmax parameterization with Qm and Q∗ 
+
+> um,w m
+
+, respectively, we have 
+
+∀s, |vπm 
+
+> r,i
+
+(s) − vπ∗ 
+
+> um,w m
+> r,i
+
+(s)| ≤ (1 + γ)r(i)
+
+> max
+
+(1 − γ)2 ∥Qm − Q∗ 
+
+> um,w m
+
+∥∞ (1 ≤ i ≤ K) (69) 22 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+and 
+
+∀s, |vπm 
+
+> c,j
+
+(s) − vπ∗ 
+
+> um,w m
+> c,j
+
+(s)| ≤ (1 + γ)r(K+j)
+
+> max
+
+(1 − γ)2 ∥Qm − Q∗ 
+
+> um,w m
+
+∥∞ (1 ≤ j ≤ L) (70) according to the property of equation (261) in Yang et al. (2024). Combining (69), (70), and ∥μ0∥2 ≤ 1 with (68) gives 
+
+∥em∥2 ≤ p|S| 
+
+vuutK+LX
+
+> i=1
+
+{r(i)
+
+> max
+
+}2 1 + γ
+
+(1 − γ)2 ∥Qm − Q∗ 
+
+> um,w m
+
+∥∞
+
+< p|S| 
+
+vuutK+LX
+
+> i=1
+
+{r(i)
+
+> max
+
+}2 1 + γ
+
+(1 − γ)2 ϵ. (71) Next, we view the projected gradient descent for each outer loop as a proximal gradient descent. We reformulate the optimization in (8) of 
+
+min 
+
+> u∈RL
+> +,w ∈∆K
+
+L(u, w ) (72) as follows: 
+
+min 
+
+> (u,w )∈RL+K
+
+L(u, w ) + IRL 
+
+> +×∆K
+
+(u, w ) (73) where IRL 
+
+> +×∆K
+
+(u, w ) is the indicator function with its value 0 if (u, w ) ∈ RL 
+
+> +
+
+× ∆K and +∞ otherwise. IRL 
+
+> +×∆K
+
+is convex because its epigraph {(u, w, t e)|te ≥ 0, (u, w ) ∈ RL 
+
+> +
+
+× ∆K } is convex. We note that according to Theorem 3.4, the smoothness of L(u, w ) is satisfied on RL+K , which makes (73) valid. We also note that we computed the smoothness coefficient α = 1
+
+> β(1 −γ)
+
+PK+Li=1 
+
+ r(i)
+
+> max
+> 1−γ
+
+2
+
+of L in Appendix D. Applying the error bound in (71) to the analysis of inexact proximal gradient method (Schmidt et al., 2011), we have 
+
+∥[um; wm] − [u∗; w∗]∥2 ≤ (1 − λα )m∥[u0; w0] − [u∗; w∗]∥2 + 1
+
+α
+
+> m
+
+X
+
+> i=1
+
+(1 − λα )m−i∥ei∥2
+
+≤ (1 − λα )m∥[u0; w0] − [u∗; w∗]∥2 +
+
+p|S| 
+
+λ
+
+vuutK+LX
+
+> i=1
+
+{r(i)
+
+> max
+
+}2 1 + γ
+
+(1 − γ)2 ϵ. (74) This is achieved because we use the convex optimization method from Wang & Carreira-Perpi ˜n ´an (2013) for projection onto the simplex ∆K , and apply non-negativity clipping for projection onto RL
+
+> +
+
+, both of them induce zero error in each phase of proximal objective update as it is fully deterministic and avoids randomized procedures. It remains to check whether IRL 
+
+> +×∆K
+
+in (73) is a lower semi-continuous proper convex function (Schmidt et al., 2011). 
+
+IRL 
+
+> +×∆K
+
+is lower semi-continuous because RL 
+
+> +
+
+× ∆K is closed, and it is also proper convex since IRL 
+
+> +×∆K
+
+never attains 
+
+−∞ and RL 
+
+> +
+
+× ∆K is non-empty. 
+
+F.4. Convergence Analysis for Degenerate Case Theorem F.1. Let (u∗, w ∗) denote an optimal solution to (8) . For each outer-loop index m ≥ 1 in Algorithm 1, let 
+
+Q∗ 
+
+> um,w m
+
+denote the fixed point of (13) with [u; w] = [ um; wm], and let Qm denote the Q-function after completing the 
+
+m-th inner-loop update. For each m, assume ∥Qm − Q∗ 
+
+> um,w m
+
+∥∞ < ϵ m for some ϵm > 0. Then for m ≥ 1,
+
+L( 1
+
+m
+
+> m
+
+X
+
+> i=1
+
+(ui, w i)) − L (u∗, w ∗) ≤ α
+
+2m (∥[u0; w0] − [u∗; w∗]∥2 + 2Mα
+
+> m
+
+X
+
+> i=1
+
+ϵi)2 (75) 
+
+where M = p|S| 
+
+qPK+Lj=1 {r(j)
+
+> max
+
+}2 1+ γ 
+
+> (1 −γ)2
+
+.
+
+23 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Proof. Using an analysis of inexact proximal gradient method (Schmidt et al., 2011) using the same logic in the proof of Theorem 3.6 (Appendix F.3), we have 
+
+L( 1
+
+m
+
+> m
+
+X
+
+> i=1
+
+(ui, w i)) − L (u∗, w ∗) ≤ α
+
+2m (∥[u0; w0] − [u∗; w∗]∥2 + 2
+
+α
+
+> m
+
+X
+
+> i=1
+
+∥ei∥2)2 (76) where ei := ˜∇(u,w )L(ui, w i) − ∇ (u,w )L(ui, w i) is the i-th gradient error and 
+
+∥ei∥2 < p|S| 
+
+vuutK+LX
+
+> j=1
+
+{r(j)
+
+> max
+
+}2 1 + γ
+
+(1 − γ)2 ϵi = M ϵ i (77) from (71). We note that the error of L( 1
+
+> m
+
+Pmi=1 (ui, w i)) − L (u∗, w ∗) decreases at rate O( 1 
+
+> m
+
+) when {ϵi}∞ 
+
+> i=1
+
+is summable (e.g., 
+
+ϵm = O( 1 
+
+> m1+ δ
+
+) with δ > 0). 24 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+## G. Experimental Details: Tabular Settings 
+
+When generating structured MOMDPs randomly, we first verify whether the generated instances are feasible. To do this, We first consider the following unregularized convex optimization: 
+
+max  
+
+> ρ≥0
+
+min 
+
+> 1≤k≤K
+
+ X
+
+> (s,a )
+
+r(k)(s, a )ρ(s, a )
+
+
+
+(78) 
+
+X
+
+> a′
+
+ρ(s′, a ′) = μ0(s′) + γ X
+
+> (s,a )
+
+T (s′|s, a )ρ(s, a ), ∀s′ (79) 
+
+X
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) ≥ C(l), l = 1 , · · · , L (80) which is equivalently expressed as the following LP by using additional scalar variable ˜c ∈ R:
+
+max  
+
+> ρ≥0,˜c
+
+˜c (81) 
+
+X
+
+> a′
+
+ρ(s′, a ′) = μ0(s′) + γ X
+
+> (s,a )
+
+T (s′|s, a )ρ(s, a ), ∀s′ (82) 
+
+X
+
+> (s,a )
+
+r(k)(s, a )ρ(s, a ) ≥ ˜c, k = 1 , · · · , K, (83) 
+
+X
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) ≥ C(l), l = 1 , · · · , L. (84) We want to generate μ0, T, r , and c in structured MOMDPs to satisfy feasibility and Slater condition by solving the following LP using the pywraplp function from the OR-Tools library: 
+
+max 
+
+> ρ≥ϵlow
+
+0 (85) 
+
+X
+
+> a′
+
+ρ(s′, a ′) = μ0(s′) + γ X
+
+> (s,a )
+
+T (s′|s, a )ρ(s, a ), ∀s′ (86) 
+
+X
+
+> (s,a )
+
+r(k)(s, a )ρ(s, a ) ≥ ˜c + ϵlow , k = 1 , · · · , K, (87) 
+
+X
+
+> (s,a )
+
+c(l)(s, a )ρ(s, a ) ≥ C(l) + ϵlow , l = 1 , · · · , L (88) where ϵlow is used to guarantee the strict feasibility for Slater condition, and we set ϵlow = 10 −4. If the LP solver does not find a feasible solution, we regenerate the constrained MOMDP until a feasible instance is found. Once any feasible solution is found, we solve the LP of (81), (82), (83), and (84) by using LP solver to acquire the optimal max-min value ˜c∗.Each algorithm is updated iteratively until the maximum change in the Q-function between successive iterations falls below 
+
+10 −4. We use the following settings: γ = 0 .8, lw = 0 .001 , and ITER = 3000 . For each algorithm, we independently disable the learning of u, of w, and of both (u, w ), initializing u to the zero vector and w = [1 /K, · · · , 1/K ] ∈ ∆K . Each algorithm is evaluated using three random seeds for each constrained MOMDP setting, resulting in six runs when averaged across the MOMDP classes. All experiments are conducted on an Intel Core i9-10900X CPU @ 3.70GHz. 25 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+## H. Experimental Details: Applications 
+
+H.1. Implementation of Our Algorithm for Applications 
+
+We now leverage the usage of neural network for our algorithm. If we differentiate the both side of v∗
+
+> u,w
+
+(s) = [ Tu,w v∗
+
+> u,w
+
+]( s)
+
+w.r.t. u and w for all s, then we have the following formula: 
+
+∀s, ∇wv∗
+
+> u,w
+
+(s) = X
+
+> a
+
+π∗
+
+> u,w
+
+(a|s)
+
+
+
+r(s, a ) + γX
+
+> s′
+
+T (s′|s, a )∇wv∗
+
+> u,w
+
+(s′)
+
+
+
+. (89) 
+
+∀s, ∇uv∗
+
+> u,w
+
+(s) = X
+
+> a
+
+π∗
+
+> u,w
+
+(a|s)
+
+
+
+c(s, a ) + γX
+
+> s′
+
+T (s′|s, a )∇uv∗
+
+> u,w
+
+(s′)
+
+
+
+. (90) Here, π∗
+
+> u,w
+
+(a|s) is defined as in (9) . To ensure stable gradient estimation in continuous state spaces, we parameterize a gradient network to estimate ∇uv∗
+
+> u,w
+
+(s) and ∇wv∗
+
+> u,w
+
+(s). For continuous action environments, we also employ an actor network πθ and implement Algorithm 2. To further stabilize the estimation of the gradient, we add an additional linear layer after the penultimate layer of the actor network πθ , and use its (L + K)-dimensional output as the gradient network gθ (s).We use the notation gθ to indicate that the actor network and the gradient network share parameters and jointly update their lower-layer weights. 
+
+Algorithm 2 Proposed Constrained Max-min Algorithm for Continuous Action 
+
+1: πθ : actor, Qϕ: critic, Qϕ: target critic, gθ : gradient network, gθ : target gradient network, D: replay buffer, Tinit : initial iteration number, τ : target update ratio, U : main iteration number, Us: gradient step for critic update, lg : learning rate of the gradient network, l0: initial learning rate of the weight (u, w ), K: unconstrained reward dimension, L: the number of constraints, Cth ∈ RL: threshold vector for the constraints 
+
+2: Initialize target critic ϕ ← ϕ, target gradient network ¯θ ← θ, and weights u0 ∈ RL
+
+> +
+
+, w0 ∈ ∆K .
+
+3: for j = 0 , · · · , T init − 1 do 
+
+4: Rollout sample from πθ and save it in D. Sample a batch of data B ⊂ D .
+
+5: Qϕ ← Critic Update (Qϕ, Qϕ, πθ , (u0, w 0), B) (Algorithm 3) 
+
+6: Update target critic parameter ϕ ← τ ϕ + (1 − τ )ϕ.
+
+7: πθ ← Actor Update (Qϕ, πθ , D) (Algorithm 4) 
+
+8: end for 
+
+9: for m = 0 , 1, 2, · · · , U − 1 do 
+
+10: Rollout sample from πθ and save (s, a, r, c, s ′, π θold (a|s)) in D where πθold (a|s) = πθ (a|s).
+
+11: Update the gradient network gθ as follows: 
+
+θ ← θ − lg ∇θ E(s,a,r,c,s ′,π θold (a|s)) ∼D 
+
+ πθm (a|s)  
+
+> πθold (a|s)
+
+([ c; r] + γg θ (s′)) − gθ (s) 2
+
+where θm is a frozen copy of the current parameter θ.
+
+12: Update target gradient network parameter θ ← τ θ + (1 − τ )θ.
+
+13: Update (u, w ) = ( um, w m) using the projected gradient descent: 
+
+(um+1 , w m+1 ) = PK,L [( um, w m) − lm(Es∼μ0 [gθ (s)] − [Cth ; 0K ])] .
+
+14: Schedule current learning rate of the weight lm.
+
+15: for j = 0 , · · · , U s − 1 do 
+
+16: Sample a batch of data B ⊂ D .
+
+17: Qϕ ← Critic Update (Qϕ, Qϕ, πθ , (um+1 , w m+1 ), B)
+
+18: end for 
+
+19: Update target critic parameter ϕ ← τ ϕ + (1 − τ )ϕ.
+
+20: πθ ← Actor Update (Qϕ, πθ , D)
+
+21: end for 
+
+22: Return πθ .26 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Algorithm 3 Critic Update 
+
+Input : critic Qϕ, target critic Qϕ, actor πθ , weight (u, w ), sample batch B
+
+2: Update the critic parameter ϕ as follows: 
+
+ϕ ← ϕ − lc∇ϕ
+
+1
+
+|B| 
+
+X
+
+> (s,a,r,s ′)∈B
+
+ KX
+
+> k=1
+
+wkr(k)(s, a ) + 
+
+> L
+
+X
+
+> l=1
+
+ulc(l)(s, a )+γβ log Ea′∼πθ
+
+ exp 
+
+
+
+Qϕ(s′, a ′)/β 
+
+
+
+πθ (a′|s′)
+
+ − Qϕ(s, a )
+
+2
+
+(91) where lc is a critic learning rate. 
+
+Output : Updated critic Qϕ
+
+Algorithm 4 Actor Update 
+
+Input : critic Qϕ, actor πθ , replay buffer D
+
+Sample a batch of data B ⊂ D and find the actor satisfying the following: 
+
+θ ← arg min  
+
+> θ
+
+Es∼B Ea∼πθ (·| s) [β log πθ (a|s) − Qϕ(s, a )] . (92) 
+
+3: Output : Updated actor πθ
+
+27 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+H.2. Unconstrained Max-min MORL Algorithm Algorithm 5 Max-min GS for Continuous Action (Our modification from Park et al. (2024)) 
+
+1: πθ : actor, Qϕ: critic, Qϕ: target critic, D: replay buffer, Tinit : initial iteration number, τ : target update ratio, U : main iteration number, Us: gradient step for critic update, Ns: number of perturbed samples, μ: perturbation parameter, l0:initial learning rate of the weight w, K: reward dimension 
+
+2: Initialize target critic ϕ ← ϕ and weight w0 ∈ ∆K .
+
+3: for j = 0 , · · · , T init − 1 do 
+
+4: Rollout sample from πθ and save it in D. Sample a batch of data B ⊂ D .
+
+5: Qϕ ← Critic Update (Qϕ, Qϕ, πθ , w0, B) (Algorithm 3 without the term of PLl=1 ulc(l)(s, a ))
+
+6: Update target critic parameter ϕ ← τ ϕ + (1 − τ )ϕ.
+
+7: πθ ← Actor Update (Qϕ, πθ , D) (Algorithm 4) 
+
+8: end for 
+
+9: for m = 0 , 1, 2, · · · , U − 1 do 
+
+10: Rollout sample from πθ and save it in D.
+
+11: Generate Ns perturbed weights {wm + μu mn }Ns
+
+> n=1
+
+, umn ∼ N (0 , I K ).
+
+12: Make Ns copies of Qϕ : { ˆQϕ, copy ,n }Ns
+
+> n=1
+
+. Sample a common batch of data Bc ⊂ D .
+
+13: for n = 1 , · · · , N s do 
+
+14: ˆQwm+μu mn ,copy ,n ← Critic Update ( ˆQϕ, copy ,n , Qϕ, πθ , wm + μu mn , Bc)
+
+15: end for 
+
+16: Calculate ˆL(wm + μu mn ) = Es∼μ0
+
+
+
+β log Ea∼πθ
+
+ exp[ ˆQwm+μu mn ,copy ,n (s,a )/β ] 
+
+> πθ(a|s)
+
+  
+
+.
+
+17: Conduct linear regression using {wm + μu mn , ˆL(wm + μu mn )}Ns 
+
+> n=1
+
+and calculate the linear weight am. Discard 
+
+{ ˆQwm+μu mn ,copy ,n }Ns
+
+> n=1
+
+.
+
+18: Update w = wm using the projected gradient descent: 
+
+wm+1 = proj ∆K (wm − lmam) .
+
+19: Schedule current learning rate of the weight lm.
+
+20: for j = 0 , · · · , U s − 1 do 
+
+21: Sample a batch of data B ⊂ D .
+
+22: Qϕ ← Critic Update (Qϕ, Qϕ, πθ , wm+1 , B)
+
+23: end for 
+
+24: Update target critic parameter ϕ ← τ ϕ + (1 − τ )ϕ.
+
+25: πθ ← Actor Update (Qϕ, πθ , D)
+
+26: end for 
+
+27: Return πθ .28 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+H.3. Building Thermal Control  
+
+> Table 7. Hyperparameters for algorithms in building thermal control environment
+
+Parameter Value Shared 
+
+optimizer Adam (Kingma & Ba, 2015) discount ( γ) 0.99 target smoothing ratio ( τ ) 0.001 reward dimension 3max episode step 480 replay buffer size 8 × 10 5
+
+hidden units per layer 64 minibatch size 32 activation function ReLU entropy coefficient 0.05 weight learning rate 1 × 10 −6
+
+weight scheduling 1/√t
+
+Constrained Max-min MORL (Ours) 
+
+constraint type maximize constraint dimension 1constraint epsilon 1.0 constraint threshold −180 
+
+main learning rate 7.5 × 10 −4
+
+gradient steps for critic update 3gradient estimation learning rate 5 × 10 −5
+
+gradient estimation steps 1gradient target smoothing ratio 0.001 
+
+Unconstrained Max-min MORL (Gaussian) 
+
+main learning rate 7.5 × 10 −4
+
+perturbation q learning rate 0.073 perturbation gradient steps 1gradient steps for critic update 3perturbation q-copies 10 perturbation noise std-dev 0.01 
+
+Unconstrained Max-min MORL (ARAM) 
+
+main learning rate 7.5 × 10 −4
+
+CI coefficient η 0.2 MD coefficient λ 0.03 
+
+Max-average SAC with a Lagrangian Relaxation 
+
+constraint type minimize initial lambda 1.0 main learning rate (actor/critic) 3 × 10 −4
+
+constraint threshold 180 entropy coefficient 0.05 lambda learning rate 0.005 
+
+Unconstrained Max-average SAC 
+
+main learning rate (actor/critic) 3 × 10 −4
+
+29 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+We use a building thermal control environment from SustainGym (Yeh et al., 2023), which simulates a commercial building with Nzone = 23 thermal zones. We group these zones into three sections (bottom, middle, and top) and define a comfort objective for each section. Accordingly, in our experiments we set K = 3 and L = 1 , i.e., three reward objectives and a single cost constraint. At each timestep t, the agent observes a normalized continuous state st ∈ R29 . The underlying (unnormalized) state is constructed by concatenating: (i) the temperatures of all 23 zones, (ii) outdoor temperature, (iii) global horizontal irradiance (GHI), (iv) ground temperature, (v) occupancy power, (vi) carbon intensity, and (vii) electricity price. The environment clips each component to predefined bounds and linearly rescales it to [0 , 1] before returning st.The action is a continuous vector at ∈ R23 with each component bounded in [−1, 1] , representing zone-level heating/cooling power commands (cooling is negative and heating is positive). The reward is a K-dimensional vector rt ∈ R3 that measures comfort for three zone groups. The 23 zones are partitioned into bottom (zones 1–9), middle (zones 10–16), and top (zones 17–23), and each reward entry increases when the temperatures in the corresponding group stay closer to the target temperatures. We define a single scalar energy cost signal ct from the aggregated magnitude of the zone-level power commands, specifically ct = ∥at∥1/s , where we tune the scaling factor s (set to s = 5 ) to match the reward scale, and use 
+
+ct as the cost for the energy constraint ( L = 1 ). Each episode consists of 480 timesteps. The total training budget is 8 × 10 5 timesteps, with evaluations conducted once every two training episodes. During each evaluation, one episode is run and the cumulative discounted sums of the 
+
+(L + K)-dimensional vector are computed. These experiments were conducted using an NVIDIA RTX 4000 SFF Ada GPU (20GB) across five random seeds. 
+
+H.4. Effect of β and Wall-Clock Time Comparison     
+
+> Table 8. Performance comparison with different values of βin Building environment ( Cth = 180 ).
+
+β Cost sum (Cth = 180 )Minimum return ( ↑)0.1 152.6 625.6 0.05 178.7 639.8 0.01 269.8 563.6  
+
+> Table 9. Wall-clock time comparison per episode in Building environment
+
+Algorithm Training Time (s) Random 0.2
+
+MA-SAC 7.3
+
+MA-SAC-L 13 .5
+
+Ours 18 .4
+
+Max-min GS 48 .6
+
+ARAM 1.7
+
+The entropy term is used not only to encourage exploration but also to resolve the indeterminacy issue in solving the dual of the max-min optimization problem (Park et al., 2024). The impact of β is seen in Table 8: The max-min performance in the Building environment is higher for moderate values of β (e.g., 0.1, 0.05) than for very small values (e.g., β = 0 .01 ). Table 9 reports the wall-clock training time per episode for each algorithm. Incorporating constraints increases the training time from MA-SAC to MA-SAC-L. Although our algorithm requires more computation than MA-SAC-L, it achieves a better balance between max-min fairness and constraint satisfaction, as demonstrated in Table 3. Furthermore, our algorithm requires significantly less computation than Max-min GS. 30 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+H.5. Multi-Objective Locomotion Control  
+
+> Table 10. Hyperparameters for algorithms in multi-objective locomotion control environment
+
+Parameter Value Shared 
+
+optimizer Adam (Kingma & Ba, 2015) discount ( γ) 0.99 target smoothing ratio ( τ ) 0.001 reward dimension 2max episode step 1000 replay buffer size 1 × 10 6
+
+hidden units per layer 64 minibatch size 32 activation function ReLU entropy coefficient 0.05 weight learning rate 0.001 weight scheduling 1/√t
+
+Constrained Max-min MORL (Ours) 
+
+constraint type maximize constraint dimension 1constraint epsilon 1.0 constraint threshold −50 
+
+main learning rate 7.5 × 10 −4
+
+gradient steps for critic update 3gradient estimation learning rate 2.5 × 10 −5
+
+gradient estimation steps 1gradient target smoothing ratio 0.001 
+
+Unconstrained Max-min MORL (Gaussian) 
+
+main learning rate 7.5 × 10 −4
+
+perturbation q learning rate 0.073 perturbation gradient steps 1gradient steps for critic update 3perturbation q-copies 10 perturbation noise std-dev 0.01 
+
+Unconstrained Max-min MORL (ARAM) 
+
+main learning rate 7.5 × 10 −4
+
+CI coefficient η 0.2 MD coefficient λ 0.03 
+
+Max-average SAC with a Lagrangian Relaxation 
+
+constraint type minimize initial lambda 1.0 main learning rate (actor/critic) 3 × 10 −4
+
+constraint threshold 50 entropy coefficient 0.05 lambda learning rate 0.001 
+
+Unconstrained Max-average SAC 
+
+main learning rate (actor/critic) 3 × 10 −4
+
+31 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+H.6. Evaluation with Different Cth     
+
+> Table 11. MoAnt-v5 results over five seeds, with the two constraint-satisfying algorithms highlighted in bold (Cth = 40 ).
+
+Algorithm Cost sum 
+
+(Cth = 40) 
+
+Minimum return (↑)
+
+Random 146 .5 48 .2
+
+MA-SAC 275 .3 98 .8
+
+MA-SAC-L 36 .8 78 .8
+
+Ours 36 .5 92 .9
+
+Max-min GS 111 .7 92 .7
+
+ARAM 620 .7 101 .3
+
+We set the threshold value Cth = 40 in the MoAnt environment, which is more stringent than the value Cth = 50 used in Table 5. Our method consistently balances max-min fairness with constraint satisfaction, meeting the constraint while achieving superior max-min performance compared to MA-SAC-L. 32 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+H.7. Greenhouse-gas-emission-aware Traffic Management  
+
+> Table 12. Hyperparameters for traffic signal control environment
+
+Parameter Value Shared 
+
+optimizer Adam (Kingma & Ba, 2015) discount ( γ) 0.99 target smoothing ratio ( τ ) 0.001 reward dimension 16 total seconds per episode 9000 delta time (seconds) 30 total timesteps 1 × 10 5
+
+replay buffer size 1 × 10 5
+
+hidden units per layer 64 minibatch size 32 activation function ReLU entropy coefficient 0.05 weight scheduling 1/√t
+
+Constrained Max-min MORL (Ours) 
+
+constraint type minimize constraint dimension 1constraint epsilon -1.0 constraint threshold 7.0 × 10 4
+
+main learning rate 7.5 × 10 −4
+
+weight learning rate 0.01 gradient steps for critic update 3gradient estimation learning rate 1.0 × 10 −5
+
+gradient estimation steps 1gradient target smoothing ratio 0.001 
+
+Unconstrained Max-min MORL (Gaussian) 
+
+main learning rate 7.5 × 10 −4
+
+weight learning rate 0.01 perturbation q learning rate 0.073 perturbation gradient steps 1gradient steps for critic update 3perturbation q-copies 20 perturbation noise std-dev 0.01 
+
+Unconstrained Max-min MORL (ARAM) 
+
+main learning rate 0.001 CI coefficient η 0.00202 MD coefficient λ 0.2 
+
+Constrained Max-average PGO 
+
+main learning rate 0.01 constraint type minimize constraint threshold 7.0 × 10 4
+
+constraint learning rate 0.001 
+
+Unconstrained Max-average PGO 
+
+main learning rate 0.001 33 Constrained Multi-Objective Reinforcement Learning with Max-Min Criterion 
+
+Here, |A| = 4 . MA-PGO is implemented using the PPO algorithm (Schulman et al., 2017) to maximize the average reward over K = 16 objectives. Based on MA-PGO, MA-CPGO applies clipping only to the unconstrained reward part (i.e., w · r), while leaving the constrained reward part unclipped (i.e., u · c) and applies the Lagrangian update, following Liu et al. (2019) to improve constraint satisfaction. We found that applying clipping to u · c + w · r does not guarantee constraint satisfaction. Each method is run for 100k timesteps per seed using five random seeds. 
+
+## I. Limitation, Future Work, and Discussion 
+
+In this section, we discuss several limitations of our work and related future research avenues, although our method offers a promising direction for developing constrained MORL algorithms. First, there is a lack of well-established benchmarks for MORL compared to standard RL settings (Hayes et al., 2022), and even fewer environments are specifically designed for constrained MORL. Additionally, most existing MORL environments have low-dimensional reward spaces (typically fewer than four dimensions) (Park & Sung, 2025), which limits the ability to evaluate our algorithm in high-dimensional settings. Developing practical benchmarks for both MORL and constrained MORL is therefore a critical research direction for the community. Second, while it is common in the constrained MDP literature to assume that feasibility is ensured by appropriately chosen thresholds (Tessler et al., 2018; Ha et al., 2020), determining such thresholds, that is, setting the constraint set {C(l)}Ll=1 ,is non-trivial in practice outside of simple or tabular domains. Unlike trial-and-error reward design, constraint threshold design is often infeasible or unsafe due to the potential risks and costs involved. Leveraging external sources of information, such as human demonstrations or natural language descriptions, offers a promising path for setting constraint thresholds in constrained RL and MORL. Another possible approach is to infer the constraint values from expert demonstrations, commonly referred to as inverse constrained RL (Malik et al., 2021; Subramanian et al., 2024). Third, while our setting clearly distinguishes rewards from costs, this distinction may be ambiguous in other domains. Determining which objectives should be treated as constraints versus unconstrained rewards can be challenging. As with constraint threshold design, incorporating external guidance could help better structure constrained MORL problems. Fourth, several constrained RL studies have explored more conservative formulations than those based on expected cumulative cost, for example, using outage probability or quantile-based constraints to manage rare but critical failures in domains such as finance or insurance (Yang et al., 2021; Jung et al., 2022). While our current framework and analysis rely on expected cumulative cost, extending it to support such conservative constraint formulations presents a valuable direction for future work. Lastly, although we assume the convergence of the (action) value function for each weight pair (u, w ), it is well known that the combination of function approximation, bootstrapped updates, and off-policy learning can lead to instability and even divergence during training (Sutton & Barto, 2018; Che et al., 2024). A theoretical investigation into this so-called deadly triad , along with additional convergence guarantees, would further improve the robustness of our algorithm and broaden its applicability to other domains. Scalarization-based methods are highly valuable, especially because of their interpretability and flexibility in expressing designer preferences. In particular, when incorporating constraints, these methods also make it straightforward to assess constraint satisfaction through the corresponding dual variables. However, linear scalarization cannot recover nonlinear or concave regions of the Pareto frontier, potentially missing desirable trade-off solutions (Roijers et al., 2013; Hayes et al., 2022). While mixtures of convex scalarization functions can help approximate concave regions, this often requires careful tuning and may increase computational effort. Addressing the limitations of scalarization-based approaches is indeed valuable. Finally, we note that the purpose of our theoretical analysis is not to imply that all assumptions will be checked analytically in practice, but rather to provide predictable behavior and guidance for practical usage of our algorithm. 34

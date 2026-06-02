@@ -1,0 +1,266 @@
+Title: Global-Local Attention Decomposition for Terrain Encoding in Humanoid Perceptive Locomotion
+
+URL Source: https://arxiv.org/pdf/2606.00637v1
+
+Published Time: Tue, 02 Jun 2026 00:54:00 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Global-Local Attention Decomposition for Terrain Encoding in Humanoid Perceptive Locomotion 
+
+Shengcheng Fu 1,2, Yang Zhang 3, Zhanxiang Cao 3,2, Liyun Yan 3,2, Yizhi Chen 1,2, Yunpeng Yin 4, Yue Gao 3,2∗
+
+> 1
+
+Tongji University, Shanghai, China 
+
+> 2
+
+Shanghai Innovation Institute, Shanghai, China 
+
+> 3
+
+Shanghai Jiao Tong University, Shanghai, China 
+
+> 4
+
+Humanoid Robot (Shanghai) Co., Ltd., Shanghai, China 
+
+> ∗
+
+Corresponding author: Yue Gao (email: yuegao@sjtu.edu.cn) 
+
+Abstract —Although reinforcement learning has significantly advanced humanoid locomotion, perceptive policies still struggle on sparse-foothold terrain and constrained environments. Success in these scenarios requires both broad terrain awareness and precise foothold selection, two perceptual roles that conventional encoders often entangle. To address this challenge, we propose Global-Local Attention Decomposition (GLAD) for terrain en-coding in humanoid locomotion. Realized by a coarse-to-fine encoder over a robot-centric elevation map, GLAD explicitly separates these objectives: a global attention branch utilizes attention pooling to summarize the surrounding terrain context, while a state-conditioned local attention branch sparsifies and encodes precise foothold-relevant geometry. This explicit atten-tion decomposition prevents the dilution of fine-grained spatial cues while reducing training overhead. Experiments demonstrate that GLAD enables reliable locomotion over challenging gaps, stepping stones, and stairs. Furthermore, the learned policy exhibits emergent terrain-responsive behaviors, autonomously following narrow paths and avoiding obstacles under simple velocity commands without explicit navigation planners. In real-world deployment on a Unitree G1 humanoid robot using onboard LiDAR, the proposed method achieves robust zero-shot sim-to-real transfer across diverse sparse-foothold and obstacle-rich domains. 
+
+I. INTRODUCTION Humanoid robots, owing to their anthropomorphic body plan and legged mobility, are a promising platform for op-erating in environments designed for humans and adapting to diverse terrain conditions [1], [2]. Reinforcement learning (RL) has recently driven substantial progress in humanoid locomotion, and even “blind” policies can now achieve ro-bust walking over a wide range of ground conditions [3], [4]. Nevertheless, reliable locomotion on complex terrain remains challenging because the robot must simultaneously perceive surrounding geometry, make terrain-aware decisions, and maintain robust control under limited stability margins [5], [6]. This challenge becomes especially pronounced on sparse-foothold terrain, where success depends on identifying feasible support regions and placing the feet precisely [7]. To handle such terrains, perceptive locomotion policies must incorporate exteroceptive observations such as elevation maps or depth images. While essential, these raw observations are high-dimensional and noisy, which can reduce robustness, increase computational cost, and complicate policy training [8]. They therefore need to be encoded into compact ter-rain representations before being provided to the locomotion (a) (b)     
+
+> (c) (d)
+> 70cm
+> 70cm
+> 30cm
+> Fig. 1. Real-world locomotion results on the Unitree G1 humanoid robot. A single learned policy traverses sparse stepping stones, staircase–gap composite terrain, wide gaps up to 70 cm, and dense obstacle-rich terrain.
+
+controller. However, conventional terrain encoders typically treat perception as an isolated geometric compression task, largely ignoring the robot’s immediate kinematic state [9]. Because this encoding process lacks state awareness, it tends to dilute fine-grained geometric cues, weaken the spatial cor-respondence between encoded features and reachable foothold regions, and ultimately limit foothold precision in RL-based perceptive locomotion. This limitation is particularly problematic for sparse-foothold locomotion. To compensate for imprecise terrain representations, previous learning-based approaches often rely on terrain-specific curricula, expert policies, or handcrafted foothold rewards [10], [11], [12]. Although effective, these strategies inject strong human priors and can reduce gener-alization across varied terrain layouts. Attention mechanisms offer a principled way to fuse proprioception with exterocep-tion: guided by the current motion state, they can empha-size locomotion-relevant terrain regions and thereby support general, interpretable terrain encoding [13]. Building on this idea, AME [9] introduces an attention-based map encoder that uses multi-head attention (MHA) to aggregate local terrain features conditioned on proprioception, enabling implicit and precise foothold selection; AME-2 [14] further augments this design with additional global context. However, these existing attention-based methods typically entangle multiple perceptual objectives within a single attention mechanism. They fail to explicitly separate the two essential perceptual roles required 
+
+> arXiv:2606.00637v1 [cs.RO] 30 May 2026
+
+for perceptive locomotion: capturing broad surrounding terrain context and encoding precise foothold-relevant local geometry. To address this issue, we propose Global-Local Attention Decomposition (GLAD) for terrain encoding in humanoid locomotion. Realized by a coarse-to-fine encoder, GLAD explicitly separates the extraction of broad context from fine-grained foothold selection. A convolutional neural network (CNN) first extracts spatially aligned local features from a robot-centric elevation map. Subsequently, a global attention branch utilizes attention pooling to summarize the surround-ing terrain context, while a local attention branch performs state-conditioned sparsification and MHA to encode precise, foothold-relevant local regions. Without explicit attention su-pervision, these two branches learn complementary behaviors: the global attention focuses on key terrain regions ahead of the robot, whereas the local attention highlights foothold-relevant regions. This decomposition enables GLAD to combine broad terrain-context understanding with precise foothold-oriented focus, while avoiding the dilution of fine-grained local ge-ometry and reducing the cost of applying dense attention to the entire local feature set. Beyond sparse-foothold traversal, GLAD significantly en-hances terrain-responsive locomotion in highly constrained environments. Guided solely by simple velocity commands, the learned policy interprets terrain geometry to autonomously follow narrow paths and avoid nearby obstacles, exhibiting emergent local-navigation behaviors without requiring hierar-chical planners. We extensively validate the proposed method in both simulation and real-world experiments on a Unitree G1 humanoid robot. The policy demonstrates robust zero-shot sim-to-real transfer across diverse discrete terrains and obstacle-rich domains, relying entirely on onboard LiDAR-based elevation mapping, as shown in Fig. 1. In summary, our main contributions are threefold:  
+
+> •
+
+We propose GLAD, a coarse-to-fine terrain encoder for humanoid locomotion that explicitly decomposes atten-tion into global terrain-context aggregation and state-conditioned local foothold-relevant encoding. This de-sign enables the policy to jointly reason about broad traversability cues and precise support-region geometry from robot-centric elevation maps.  
+
+> •
+
+We show that the proposed decomposition, together with state-conditioned local feature sparsification, yields com-plementary and interpretable attention behaviors while reducing the cost of dense attention over the full terrain feature set. The resulting policy improves sparse-foothold traversal and terrain-responsive velocity tracking, includ-ing emergent narrow-path following without hierarchical planning.  
+
+> •
+
+We validate GLAD in both simulation and real-world deployment on a Unitree G1 humanoid robot. Using only onboard LiDAR-based elevation mapping, without pre-mapping or external motion capture, the learned policy achieves robust zero-shot sim-to-real transfer across di-verse sparse-foothold and obstacle-rich environments. II. RELATED WORK 
+
+A. Learning-based Humanoid Locomotion 
+
+Recent advances in learning-based humanoid locomotion have been enabled in part by scalable training pipelines inherited from quadruped locomotion, which support massive simulation parallelization and reliable policy transfer to real robots [15]. With only proprioceptive sensing, “blind” policies can already achieve robust walking over uneven ground, sim-ple obstacles, and external disturbances [3], [4]. For more chal-lenging terrain, however, exteroceptive perception becomes in-creasingly important because the robot must anticipate hazards before contact and adapt its motion to surrounding geometry [16], [17], [18]. Existing perceptive locomotion methods mainly rely on depth images or elevation maps [19]. Depth images are ap-pealing for deployment, but in learning-based pipelines they often require costly rendering or additional temporal modeling to compensate for occlusion and limited field of view [6], [11], [12]. Elevation maps provide a more structured robot-centric description of local terrain geometry and can be generated efficiently in simulation or constructed on hardware from depth cameras or LiDAR [5], [8], [10], [19], [20], [21]. For sparse-foothold locomotion tasks, elevation maps are still often needed as privileged information during training or as an intermediate representation in the depth images pipeline, because they provide precise terrain geometry that is critical for accurate foothold reasoning [6], [12], [22]. 
+
+B. Locomotion on Sparse Footholds 
+
+Discrete terrains with sparse footholds highlight the mobil-ity advantage of legged robots, but they are also among the most challenging settings for perceptive locomotion, especially for humanoids. Model-based methods explicitly plan feasible foothold sequences within hierarchical perception–planning– control pipelines, achieving precise motion on sparse supports but remaining limited by model accuracy and robustness to perception and control errors [23], [24]. End-to-end RL has become a dominant direction due to its robustness and strong real-world performance, yet accurate foothold placement on complex terrain remains difficult to guarantee. A key bot-tleneck is terrain encoding: encoders based on multilayer perceptrons (MLPs), CNNs, latent-variable models directly compress elevation maps or depth images, often overlooking the terrain details and motion-state relevance required for foothold decisions. Therefore, prior learning-based methods for sparse footholds often rely on terrain-specific curricula, expert policies, or carefully designed foothold rewards [7], [22], [10], [11], [12], which are difficult to engineer, inject strong human priors, and can bias policies toward conservative or terrain-specific foothold choices. State-conditioned attention offers a promising alternative for implicit foothold planning. By fusing proprioception with exteroceptive terrain features, attention can focus on regions most relevant to the current locomotion decision and provide a more precise, general terrain representation [13]. AME [9] applies MHA to local elevation-map features to obtain foothold-relevant focus without explicit foothold supervision, Linear      
+
+> CNN Local Features Attention
+> Pooling
+> Propriocepti ve Embedding
+> Terrain Context
+> Sparsification
+> Multihead
+> Attention
+> Foothold-relevan t
+> Feature
+> Global Attentiion
+> Local Attention
+> LiDAR
+> Reality
+> Elevation Map
+> Simulation
+> Map Scans
+> Proprioception
+> QKVFig. 2. Overview of the proposed Global-Local Attention Decomposition (GLAD) architecture. A CNN first extracts spatially aligned local features from a robot-centric elevation map. A global attention branch utilizes attention pooling to summarize the surrounding terrain context. This context is then fused with a proprioceptive embedding to guide state-conditioned sparsification and MHA, selectively encoding precise foothold-relevant geometry. The resulting explicitly decomposed representation is used by the locomotion policy for terrain-aware control.
+
+and AME-2 [14] adds an MLP and global max-pooling branch for global context. However, both methods still apply a sin-gle MHA module to the full local feature set, forcing one attention mechanism to handle both global context aggregation and concentrated foothold-relevant encoding. This coupling increases computational cost and can weaken attention concen-tration and interpretability, motivating terrain representations that explicitly separate global context aggregation from state-conditioned local encoding. III. METHOD 
+
+A. Problem Formulation 
+
+We formulate humanoid perceptive locomotion as a partially observable Markov decision process (POMDP) 
+
+M = ( S, A, O, p, r, γ ), (1) where S is the state space, A is the action space, O is the observation space, p(st+1 | st, a t) denotes the system dynamics, r(st, a t) is the reward function, and γ ∈ (0 , 1) is the discount factor. The process is partially observable due to limited sensor field-of-view and measurement noise. At time t, the environment is in a latent state st ∈ S that captures both the robot state and the surrounding terrain. The policy receives an observation ot ∈ O composed of propri-oceptive measurements and exteroceptive terrain perception (e.g., an elevation map), and outputs an action at ∈ A . The policy is parameterized by θ and written as 
+
+at ∼ πθ (· | ot). (2) The learning objective is to maximize the expected dis-counted return 
+
+J(πθ ) = Eπθ
+
+" ∞X
+
+> t=0
+
+γt r(st, a t)
+
+#
+
+. (3) 
+
+B. Observation Space 
+
+The policy network observes proprioceptive information and elevation map scans in the robot-centric base frame. The actor observation includes the base angular velocity ωbt , the gravity direction vector gbt , the joint positions qt, the joint velocities ˙qt,the previous action at−1, and an elevation map mt surrounding the robot base. We denote the map scan as 
+
+mt ∈ RL×W ×3, (4) where L and W are the map length and width, respectively, and each grid cell stores 3D coordinates expressed in the robot base frame. The actor observation is written as 
+
+oactor  
+
+> t
+
+= ωbt , g bt , q t, ˙qt, a t−1, m t , (5) The critic observes the same information but without noise, and additionally receives the base linear velocity vbt :
+
+ocritic  
+
+> t
+
+= vbt , ω bt , g bt , q t, ˙qt, a t−1, m t . (6) 
+
+C. Action Space 
+
+The action at ∈ A is a 29-dimensional vector corresponding to the 29 actuated joints of the humanoid robot. For stable policy outputs, we interpret at as an offset added to a nominal standing joint configuration θstand . The target joint position is thus 
+
+θtarget = θstand + at. (7) 
+
+D. Global-Local Terrain Encoding 
+
+As illustrated in Fig. 2, the elevation-map input is first processed by the proposed GLAD encoder to form a compact terrain representation. This representation is then concatenated with proprioception and fed into the policy network. 1) Spatially Aligned Local Feature Extraction: Given the input elevation map mt ∈ RL×W ×3, we first employ a two-layer CNN to extract spatially aligned local features. The 3D coordinates at each map location serve as the three input channels. Unlike AME [9], which convolves only the height values and then concatenates the original 3D coordinates with the CNN output to inject positional information, we directly convolve the 3D coordinates so that positional cues are embedded in the learned features from the beginning. Both convolutional layers use zero padding to preserve boundary information and maintain spatial alignment with the underlying terrain map. This spatial correspondence is important because the subsequent global and local attention modules should remain grounded to physical map locations. Without zero padding, the link between learned features and terrain locations becomes weaker, which negatively affects the final policy performance [9]. The first convolutional layer performs strided downsampling with a stride of s. Unlike AME [9], which preserves a one-to-one correspondence between CNN features and the original scan points, our encoder decouples terrain sensing resolution from encoded feature resolution. The resulting features remain aligned with the original elevation map, but on a coarser grid of size (L/s ) × (W/s ). This design shortens the local feature sequence, reduces the computational cost of the subsequent attention modules, and allows higher-resolution elevation maps to be used as input while maintaining a similar encoded feature resolution for downstream processing. The second convolutional layer projects the downsampled features into a unified embedding dimension D, which is shared by the proprioceptive embedding, the surrounding terrain context vector, and the MHA components. The CNN thus outputs a feature grid Kgrid ∈ R(L/s )×(W/s )×D . These local features encode both terrain geometry and positional information around each retained map location. This is impor-tant for foothold selection, since a feasible foothold depends not only on local terrain geometry but also on whether the corresponding location is reachable by the robot. 
+
+2) Global-Local Attention Decomposition: After local fea-ture extraction, we construct the GLAD terrain encoding in three steps. First, a global attention branch utilizes attention pooling to aggregate all local features into a compact surround-ing terrain context vector. Second, a local attention branch fuses this context vector with a proprioceptive embedding to generate a state-conditioned query vector, which is used to score and sparsify the local features by retaining only the top-
+
+K candidates. Third, the local attention branch applies MHA over these retained sparse features to produce a fine-grained, foothold-relevant terrain encoding. Let {ki}Ni=1 denote the flattened local terrain features ex-tracted by the CNN, where N = (L/s ) × (W/s ) is the sequence length and ki ∈ RD . To summarize the surrounding terrain information, we apply a linear layer to each local feature to produce a global-attention logit 
+
+ui = v⊤ki + bu, (8) where v and bu are learnable parameters. The normalized global-attention weights are then computed as 
+
+αi = exp( ui)
+
+PNj=1 exp( uj ) , (9) and the surrounding terrain context feature c ∈ RD is obtained by a weighted sum: 
+
+c =
+
+> N
+
+X
+
+> i=1
+
+αiki. (10) This global branch summarizes the local terrain features into a compact representation of the surrounding terrain context. We then concatenate c with the D-dimensional propriocep-tive embedding and project the result into a state-conditioned query vector q ∈ RD via a linear layer. For each local feature 
+
+ki, we form a fused feature [q; ki] and compute a relevance score using a linear layer: 
+
+si = w⊤[q; ki] + bs, i = 1 , . . . , N, (11) where w and bs are learnable parameters. Based on the scores 
+
+{si}, we retain only the top-K local features and discard less relevant regions, thereby implementing state-conditioned sparsification over the local terrain features. The retained features are then processed by MHA as key and value, using the same query vector q to yield the fine-grained, foothold-relevant feature f ∈ RD .Finally, the surrounding terrain context c and the foothold-relevant feature f are concatenated to form the unified terrain representation fed into the locomotion policy. In this way, global attention summarizes the surrounding terrain context, while local attention focuses on a sparse set of robot-state-relevant local regions for detailed encoding. This explicit separation reduces the cost of applying MHA to the full terrain feature set, lowers training overhead, and improves the effectiveness and interpretability of the terrain representation for foothold-related decision making. IV. EXPERIMENTS 
+
+A. Training and Experimental Setup 1) Network Hyperparameters: We train the policy using proximal policy optimization (PPO) [25]. The actor and critic share the same terrain encoding module and use separate MLPs with hidden dimensions [512 , 256 , 128] . The elevation map covers a 1.6 m × 1.0 m robot-centric area at 0.05 mresolution, yielding an input grid of L = 33 and W = 21 .The proposed GLAD architecture uses a two-layer CNN with zero padding throughout; the first layer performs strided downsampling with kernel size 5, stride s = 2 , and 16 output channels, yielding a (L/s ) × (W/s ) = 17 × 11 downsampled feature grid with an effective resolution of approximately 
+
+0.1 m. The second layer uses kernel size 3 and outputs to a unified embedding dimension D = 64 . This dimension 
+
+D is consistently used for the proprioceptive embedding, the surrounding terrain context vector c, the query vector q, and the MHA feature spaces. The MHA module is configured with 
+
+16 attention heads. The sequence length of the flattened local features is thus N = 17 × 11 = 187 . During state-conditioned sparsification, we set the retention threshold to K = 32 .(a) (b) (c)            
+
+> (d) (e) (f) Fig. 3. Representative Stage-2 training terrains, exemplified at the highest curriculum difficulty level. These challenging environments, including various sparse stepping stones, rails, gaps, and randomly distributed cylindrical obstacles, are designed to concurrently train precise foothold placement and terrain-responsive motion adaptation.
+
+2) Two-Stage Training: Following prior AME-based train-ing practice, we adopt a two-stage training procedure to gradually improve both locomotion performance and terrain representation quality [9]. In the first stage, the policy is trained on basic terrains with perfect terrain perception, which initializes the terrain representation module and allows the controller to acquire fundamental locomotion skills from accu-rate terrain observations. The terrain set in this stage includes conventional perceptive-locomotion terrains such as stairs, random grid terrain, random rough terrain, and slopes, together with stepping-stone-everywhere and gaps. In the second stage, we retain stairs and gaps, while replacing the easier stepping-stone-everywhere terrain with more challenging sparse-foothold courses, as illustrated in Fig. 3. These include parallel-row, single-row, and alternating stepping-stone layouts, together with rails and terrains with randomly distributed cylindrical obstacles. As a result, the policy must learn not only precise foothold placement but also terrain-responsive motion adjustment for crossing and avoiding obstacles. Within each stage, we further employ a progressive terrain curriculum with ten difficulty levels: robots that successfully traverse their assigned terrain are promoted to a higher level, whereas failed robots are moved to a lower level. 
+
+3) Baselines and Ablations: We compare the proposed GLAD architecture with two baseline terrain encoders and two ablation variants. The first baseline is AME [9], which introduced attention-based map encoding for perceptive lo-comotion and serves as the primary reference baseline. The second baseline is AME with global context , which follows the terrain encoder design used in AME-2 [14]. In this variant, an additional MLP followed by max pooling is applied to the CNN-extracted local features to produce a global feature, which is concatenated to both the MHA query and the encoder output. The added MLP uses hidden dimensions of [256 , 128] .To isolate the contribution of each component in the pro-posed GLAD architecture, we further evaluate two ablation  
+
+> Fig. 4. Terrain-level curriculum progression during the two-stage training process for the proposed method and the two ablation variants. The full model reaches higher terrain levels earlier and exhibits the best convergence behavior.
+
+variants. GLAD w/o global attention removes the attention-pooling and retains only state-conditioned sparsification and MHA. GLAD w/o local attention removes the sparsification and MHA, and relies only on attention pooling to encode terrain features. 
+
+4) Training Details: We use only standard locomotion rewards and avoid handcrafted foothold rewards or terrain-specific shaping. Observation noise and domain randomization are introduced mainly in the second stage, including per-step observation noise, random scan drift in the terrain map, artificial pushes, and randomization of torso mass and contact friction coefficients, without terrain-specific tuning. Together, these settings highlight that sufficiently informative terrain representations can support sparse-foothold and other complex terrain locomotion without specially tailored reward design, thereby helping isolate the contribution of terrain representa-tion quality to locomotion performance. All methods are trained in simulation in NVIDIA Isaac Sim and use the same robot model, observation setting, terrain cur-riculum, reward design, domain randomization, and optimiza-tion protocol. Unless otherwise noted, encoder components common to all methods, such as the CNN feature extractor, use identical hyperparameter settings, and each method is trained through massive parallelization with 4096 robots for two stages of 10 ,000 iterations each. 
+
+B. Training Efficiency and Convergence 
+
+We first compare training performance through the terrain-level curriculum progression shown in Fig. 4. The full model consistently reaches higher terrain levels earlier than both 
+
+GLAD w/o global attention and GLAD w/o local attention ,indicating that removing either branch slows convergence. This trend suggests that global and local attention not only improve final performance, but also jointly accelerate and stabilize learning. We evaluate the computational efficiency during training on a single NVIDIA H200 GPU. Note that for a fair comparison, the baseline models are implemented using the same CNN strided downsampling as our method. Under this unified setting, the proposed GLAD method requires only 1.00 days to complete the two-stage training, compared with 1.36 days for AME and 1.50 days for AME with global context . If (a) (b)  
+
+> (c) (d)
+> 提取点级地形特征并通过注意力机制汇聚的编码方式为策略提供了精准且通用的地形表示，极大的提高了单一运动策略在复杂离散地形上的表现，我们的方法和 baseline 均可以
+> 很好的应对各类训练地形，即使是最高难度等级。因此我们设计了四种难度高于最难训练地形的长距离地形上测试各种方法的通过率，以比较差异。图 \ref{fig:test_terrain} 中为
+> 我们使用的测试地形，地形两端的直线距离为 10 米，地形 a是双列交替梅花桩与单列梅花桩的组合，沿行进方向，两个相邻梅花桩的中心前后间距 50cm ，左右间距从 40cm 逐渐
+> 过渡至 0cm 。地形 b是在单列梅花桩的基础上增加随机的 ±15cm 的左右偏移。地形 a和b均采用上表面边长 20cm 矩形柱体，这与训练中的梅花桩相关地形最难等级一致，但这种组
+> 合与随机性是训练中未曾见过的。地形 c使用了相对密集的随机分布的五边形石柱，而地形 d使用五边形石柱沿正线曲线构建了一条狭窄的曲折路径，五边形石柱半径 20cm 。地
+> 形c和d是训练中完全未见过的地形类型，特别是在地形 d上策略需要长时间在一定程度上违背给定朝向的前进速度指令，实现类似于障碍物地形中避障行为的局部导航效果。在 a
+> 和b地形中我们给定 1.0m/s 的线速度指令， c和d地形上由于策略适当需要调整方向，我们给定 0.8m/s 的线速度指令。朝向指令均指定为 x正方向，其与机器人实际朝向的差值会
+> 通过 0.5 的系数转换成角速度指令。
+> x
+> y
+
+Fig. 5. Illustration of the four test terrains used in simulation: a composite stepping-stone course, a random single-row stepping-stone course, irregular pentagonal pillars, and a sinusoidal narrow path. These terrains are designed to evaluate both precise foothold placement and terrain-responsive locomotion under different spatial constraints. TABLE I SUCCESS RATES (%) OF DIFFERENT METHODS ON THE FOUR SIMULATION TEST TERRAINS .Method Test Terrain a b c dAME [9] 94.92 93.75 83.59 25.00 AME w/ global context [14] 96.68 91.99 74.61 42.58 GLAD w/o global attention 80.08 85.94 86.91 23.98 GLAD w/o local attention 92.97 93.55 73.44 18.95 GLAD 95.51 96.88 91.21 95.90 
+
+AME were to strictly adhere to the CNN configuration from its original paper, which preserves the full scan resolution without this downsampling, its computational overhead would be significantly higher. This reduction emphasizes the effi-ciency advantage of our coarse-to-fine design, which avoids applying MHA to the full local feature set while retaining strong locomotion performance. To further investigate the impact of state-conditioned sparsi-fication, we analyze the training time across different retention thresholds K. The original sequence length extracted from the CNN is N = 187 . When increasing K from the default 32 to 
+
+64 and 128 , the total training time increases to approximately 
+
+1.12 days and 1.24 days respectively. Conversely, reducing 
+
+K to 16 marginally decreases the training time to 0.98 days. However, we observe that extracting overly sparse local fea-tures makes it difficult for the local attention branch to develop an emergent, interpretable focus on footholds. Considering that the efficiency gains also reach diminishing returns below this point, we select K = 32 as the optimal balance between representation expressiveness and computational efficiency. 
+
+C. Simulation Experiments 1) Unseen Terrain Performance: Since the proposed method and the baselines solve the training terrains reli-ably, we evaluate them on four strictly unseen, 10 m long-horizon test terrains as shown in Fig. 5. Terrains (a) and (b) are composite and randomized single-row stepping-stone courses with a top surface area of 20 × 20 cm 2, tested at a commanded forward velocity of 1.0 m/s. Terrain (c) contains randomly distributed pentagonal pillars, imposing a heavier burden on identifying precise foothold candidates from cluttered geometry. Terrain (d) forms a narrow sinusoidal path requiring extended deviation from the nominal heading to remain traversable. In all terrains, the desired heading points along the positive x direction, and the yaw-rate command is generated by multiplying the heading error between the robot and the desired heading by 0.5. For Terrains (c) and (d), the commanded forward velocity is reduced to 0.8 m/s to allow more directional adjustment. Table I reports the overall success rates, averaged over 64 parallel terrain instances and 
+
+512 robots for each terrain type. On stepping stones such as Terrains (a) and (b), all methods generally perform well. However, GLAD w/o global attention 
+
+falls below 90% , confirming that relying solely on fine-grained foothold-relevant features is insufficient. Removing the surrounding terrain context degrades performance even on terrain layouts that are structurally similar to the training set. A bigger performance gap emerges on Terrains (c) and (d). In Terrain (c), where feasible support regions are dense but ambiguous, the full GLAD model seamlessly combines foothold-level precision with surrounding terrain context to maintain a success rate above 90% . By contrast, AME with global context performs noticeably worse because its single MHA module forces the entanglement of the surrounding terrain context and precise foothold-relevant geometry, which dilutes attention concentration. Similarly, GLAD w/o local attention suffers a severe performance drop, demonstrating that surrounding terrain context alone is insufficient to resolve the precise foothold geometry required in highly cluttered environments. Terrain (d) represents the most demanding setting, requiring anticipatory directional adjustments prior to reaching infeasi-ble regions. Under this scenario, GLAD substantially outper-forms all baselines. The ablation results show that removing the local attention branch fails to yield sharp foothold cues, while removing the global attention branch strips away the contextual forward traversability needed for sustained path following. These findings confirm that the surrounding terrain context feature c and the foothold-relevant feature f fulfill complementary roles. By explicitly decomposing them, GLAD avoids architectural entanglement and leads to more robust, terrain-responsive legged locomotion. 
+
+2) Attention–Foothold Alignment: To quantify whether lo-cal attention is both concentrated and aligned with actual footholds, we record the MHA attention weights at touchdown events and compare each attended local feature position pi
+
+with the realized foothold position pf . We report three metrics: 
+
+Dattn = X
+
+i
+
+αi∥pi − pf ∥,Dpeak = ∥parg max i αi − pf ∥,Apeak = max 
+
+i αi,
+
+(12) where αi is the attention weight assigned to the i-th local feature. Dattn measures the overall attention-weighted dis-tance to the foothold, Dpeak measures the localization error of the most attended feature, and Apeak measures attention concentration. We group flat ground, obstacles, and stairs as continuous terrains, and gaps, stepping stones, and pentagonal pillars as discrete terrains. In Table II, AME-GC denotes AME w/ global context , and values are reported as mean ± standard Global Attention Local Attention Global Attention Local Attention Global Attention Local Attention                                         
+
+> Global Attention Local Attention Global Attention Local Attention Global Attention Local Attention
+> Flat Stair sGap
+> Stepping Stone sObstacle sPath Fig. 6. Visualization of global and local attention weights. The displayed scan locations correspond to the spatially aligned local features, where yellow and red markers with higher intensity and larger size indicate larger global-attention and local-attention weights, respectively. TABLE II ATTENTION –FOOTHOLD ALIGNMENT AND CONCENTRATION .
+> Method Terrain Dattn ↓Dpeak ↓Apeak ↑
+> GLAD Cont. 0.137 ±0.006 0.103 ±0.006 0.257 ±0.029
+> GLAD Disc. 0.133 ±0.006 0.113 ±0.006 0.447 ±0.035
+> AME[9] Cont. 0.400 ±0.000 0.107 ±0.012 0.073 ±0.006
+> AME[9] Disc. 0.410 ±0.010 0.090 ±0.000 0.077 ±0.015
+> AME-GC[14] Cont. 0.530 ±0.010 0.140 ±0.030 0.023 ±0.006
+> AME-GC[14] Disc. 0.527 ±0.006 0.177 ±0.055 0.037 ±0.012
+
+deviation over terrain categories, with distances measured in meters. Table II shows that GLAD achieves the smallest attention-weighted distance in both terrain groups, indicating that its full local-attention distribution is better aligned with the realized foothold rather than merely placing a single peak nearby. The peak-distance metric is comparable between GLAD and AME, but GLAD assigns much larger peak weights, demonstrating a sharper attention profile. More importantly, GLAD exhibits terrain-adaptive concentration: its peak attention weight in-creases from 0.257 on continuous terrains to 0.447 on discrete terrains, whereas AME remains nearly unchanged. AME w/ global context also shows a terrain-adaptive change after introducing global context, but its absolute peak weights are the smallest among the compared methods and its attention-weighted distance is the largest. This indicates that injecting global context into a single attention pathway can further dilute attention around foothold regions; in contrast, GLAD dele-gates surrounding terrain understanding to the global attention branch, allowing the local branch to focus more specifically on foothold-relevant regions. 
+
+3) Interpretable Attention Decomposition: To better un-derstand the attention mechanism, we visualize the global and local attention weights across various terrain layouts in Fig. 6. The resulting distributions exhibit a distinct functional separation between the two branches. The global attention produces terrain-dependent, broadly receptive patterns. On flat ground, the weights lean toward the far end of the observation map. On stairs, gaps, and obstacle-rich environments, the attention maintains distant awareness while increasingly highlighting geometric edges with signifi-cant height variations. On more constrained terrains, such as stepping stones and narrow paths, it concentrates on nearby forward-traversable regions. This adaptability demonstrates that the surrounding terrain context feature c effectively cap-tures anticipatory cues regarding upcoming geometric changes and forward traversability. Conversely, the local attention yields strictly concentrated spatial patterns. Guided by state-conditioned sparsification, the retained local features concentrate primarily on feasible foothold regions relevant to the robot’s current motion state. The subsequent MHA weights typically peak at the robot’s current or next foothold locations. This highly localized be-havior confirms that the fine-grained, foothold-relevant feature 
+
+f directly provides the spatial geometry required for precise foot placement. Collectively, the quantitative alignment analysis and visu-alizations validate the architectural motivation of GLAD and elucidate its performance gains. Compared to AME [9] and 
+
+AME w/ global context , the explicit global-local decomposition yields more concentrated, terrain-adaptive, and interpretable attention profiles while preserving the surrounding terrain context needed for robust locomotion. 
+
+D. Real-world Deployment 
+
+We deploy the proposed method on a Unitree G1 humanoid robot. The robot weighs 35 kg, stands 1.32 m tall, and has 29 
+
+actuated degrees of freedom. For exteroceptive perception, it is equipped with a Livox Mid-360 LiDAR that provides point clouds together with synchronized inertial measurement unit (IMU) measurements. For deployment, we use FAST-LIO [26] to fuse LiDAR and IMU measurements for state estimation, and construct a robot-centric gridded elevation map from the fused point cloud [27]. The system runs on a laptop equipped with an RTX 5090 Laptop GPU, where both the elevation-mapping module and the control policy operate at 50 Hz. We test the policy on four representative real-world terrains. The first is an alternating stepping-stone terrain, where each stone has a top surface of 20 ×25 cm and the spacing between two same-side stones is 70 cm. The second is a staircase terrain, where each step has a tread depth of 30 cm and a height of 12 cm; a 30 cm gap is inserted between the ascending and descending stair segments to form an unseen composite terrain. The third is a wide-gap terrain with a gap width of 
+
+70 cm, which exceeds the maximum training gap of 50 cm and approaches the forward sensing limit of the elevation map. The fourth is an obstacle-rich terrain, where wooden blocks and suitcases are placed along the route, requiring the policy to adjust its motion online over a short horizon to avoid collisions while maintaining forward progress. As shown in Fig. 1, the proposed method achieves zero-shot sim-to-real transfer and generalizes successfully across all tested scenarios. V. CONCLUSIONS We proposed GLAD, a coarse-to-fine terrain encoder for humanoid perceptive locomotion. By separating global terrain-context aggregation from state-conditioned local foothold en-coding, GLAD reduces attention entanglement, lowers compu-tational cost, and yields interpretable attention patterns aligned with support regions. Simulation and real-world deployment on a Unitree G1 humanoid show that GLAD enables robust locomotion over sparse stepping stones, wide gaps, and obstacle-rich terrains, with zero-shot sim-to-real transfer using only onboard LiDAR-based elevation mapping. The learned policy also exhibits terrain-responsive behaviors such as narrow-path following and obstacle avoidance under simple velocity commands. Limitations remain in the local elevation-map sensing range, reconstruction noise, and the computational overhead of real-time elevation mapping. Future work will investigate more efficient mapping pipelines, temporally extended perception, and multi-scale terrain representations. REFERENCES [1] Z. Wu, K. Zheng, Z. Ding, and H. Gao, “A survey on legged robots: Advances, technologies and applications,” Engineering Applications of Artificial Intelligence , vol. 138, p. 109418, 2024. [2] Y. Tong, H. Liu, and Z. Zhang, “Advancements in humanoid robots: A comprehensive review and future prospects,” IEEE/CAA Journal of Automatica Sinica , vol. 11, no. 2, pp. 301–328, 2024. [3] I. Radosavovic, T. Xiao, B. Zhang, T. Darrell, J. Malik, and K. Sreenath, “Real-world humanoid locomotion with reinforcement learning,” Sci-ence Robotics , vol. 9, no. 89, p. eadi9579, 2024. [4] I. Radosavovic, S. Kamat, T. Darrell, and J. Malik, “Learning humanoid locomotion over challenging terrain,” arXiv preprint arXiv:2410.03654 ,2024. [5] H. Duan, B. Pandit, M. S. Gadde, B. Van Marum, J. Dao, C. Kim, and A. Fern, “Learning vision-based bipedal locomotion for challeng-ing terrain,” in 2024 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2024, pp. 56–62. [6] M. S. Gadde, P. Dugar, A. Malik, and A. Fern, “No more blind spots: Learning vision-based omnidirectional bipedal locomotion for challenging terrain,” in 2025 IEEE-RAS 24th International Conference on Humanoid Robots (Humanoids) . IEEE, 2025, pp. 601–608. [7] C. Zhang, N. Rudin, D. Hoeller, and M. Hutter, “Learning agile locomo-tion on risky terrains,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024, pp. 11 864–11 871. [8] J. Long, J. Ren, M. Shi, Z. Wang, T. Huang, P. Luo, and J. Pang, “Learn-ing humanoid locomotion with perceptive internal model,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025, pp. 9997–10 003. [9] J. He, C. Zhang, F. Jenelten, R. Grandia, M. B¨ acher, and M. Hutter, “Attention-based map encoding for learning generalized legged locomo-tion,” Science Robotics , vol. 10, no. 105, p. eadv3604, 2025. [10] H. Wang, Z. Wang, J. Ren, Q. Ben, T. Huang, W. Zhang, and J. Pang, “Beamdojo: Learning agile humanoid locomotion on sparse footholds,” 
+
+arXiv preprint arXiv:2502.10363 , 2025. [11] S. Zhu, Z. Zhuang, M. Zhao, K.-Y. Lee, and H. Zhao, “Hiking in the wild: A scalable perceptive parkour framework for humanoids,” arXiv preprint arXiv:2601.07718 , 2026. [12] Y. Zhang, Y. Seo, J. Chen, Y. Yuan, K. Sreenath, P. Abbeel, C. Sferrazza, K. Liu, R. Duan, and G. Shi, “Rpl: Learning robust humanoid perceptive locomotion on challenging terrains,” arXiv preprint arXiv:2602.03002 ,2026. [13] R. Yang, M. Zhang, N. Hansen, H. Xu, and X. Wang, “Learning vision-guided quadrupedal locomotion end-to-end with cross-modal transform-ers,” arXiv preprint arXiv:2107.03996 , 2021. [14] C. Zhang, V. Klemm, F. Yang, and M. Hutter, “Ame-2: Agile and gen-eralized legged locomotion via attention-based neural map encoding,” 
+
+arXiv preprint arXiv:2601.08485 , 2026. [15] N. Rudin, D. Hoeller, P. Reist, and M. Hutter, “Learning to walk in minutes using massively parallel deep reinforcement learning,” in 
+
+Conference on Robot Learning . PMLR, 2022, pp. 91–100. [16] A. Roychoudhury, S. Khorshidi, S. Agrawal, and M. Bennewitz, “Per-ception for humanoid robots,” Current Robotics Reports , vol. 4, no. 4, pp. 127–140, 2023. [17] C. R. de Lima, S. G. Khan, M. Tufail, S. H. Shah, and M. R. Maximo, “Humanoid robot motion planning approaches: a survey,” Journal of Intelligent & Robotic Systems , vol. 110, no. 2, p. 86, 2024. [18] S. Luo, S. Li, R. Yu, Z. Wang, J. Wu, and Q. Zhu, “Pie: Parkour with implicit-explicit learning framework for legged robots,” IEEE Robotics and Automation Letters , 2024. [19] J. Sun, G. Han, P. Sun, W. Zhao, J. Cao, J. Wang, Y. Guo, and Q. Zhang, “Dpl: Depth-only perceptive humanoid locomotion via realistic depth synthesis and cross-attention terrain reconstruction,” arXiv preprint arXiv:2510.07152 , 2025. [20] W. Sun, B. Cao, L. Chen, Y. Su, Y. Liu, Z. Xie, and H. Liu, “Learn-ing perceptive humanoid locomotion over challenging terrain,” arXiv preprint arXiv:2503.00692 , 2025. [21] H. Song, H. Zhu, T. Yu, Y. Liu, M. Yuan, W. Zhou, H. Chen, and H. Li, “Gait-adaptive perceptive humanoid locomotion with real-time under-base terrain reconstruction,” arXiv preprint arXiv:2512.07464 , 2025. [22] R. Yu, Q. Wang, Y. Wang, Z. Wang, J. Wu, and Q. Zhu, “Walking with terrain reconstruction: Learning to traverse risky sparse footholds,” 
+
+arXiv preprint arXiv:2409.15692 , 2024. [23] F. Jenelten, R. Grandia, F. Farshidian, and M. Hutter, “Tamols: Terrain-aware motion optimization for legged systems,” IEEE Transactions on Robotics , vol. 38, no. 6, pp. 3395–3413, 2022. [24] R. Grandia, F. Jenelten, S. Yang, F. Farshidian, and M. Hutter, “Per-ceptive locomotion through nonlinear model-predictive control,” IEEE Transactions on Robotics , vol. 39, no. 5, pp. 3402–3421, 2023. [25] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Prox-imal policy optimization algorithms,” arXiv preprint arXiv:1707.06347 ,2017. [26] W. Xu and F. Zhang, “Fast-lio: A fast, robust lidar-inertial odometry package by tightly-coupled iterated kalman filter,” IEEE Robotics and Automation Letters , vol. 6, no. 2, pp. 3317–3324, 2021. [27] T. Miki, L. Wellhausen, R. Grandia, F. Jenelten, T. Homberger, and M. Hutter, “Elevation mapping for locomotion and navigation using gpu,” in 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2022, pp. 2273–2280.

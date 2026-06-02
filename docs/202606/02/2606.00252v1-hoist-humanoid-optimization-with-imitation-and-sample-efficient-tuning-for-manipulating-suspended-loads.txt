@@ -1,0 +1,285 @@
+Title: HOIST: Humanoid Optimization with Imitation and Sample-efficient Tuning for Manipulating Suspended Loads
+
+URL Source: https://arxiv.org/pdf/2606.00252v1
+
+Published Time: Tue, 02 Jun 2026 00:12:23 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# HOIST: Humanoid Optimization with Imitation and Sample-efficient Tuning for Manipulating Suspended Loads 
+
+Songyang Liu ∗
+
+Department of Civil and Coastal Engineering University of Florida United States 
+
+liusongyang@ufl.edu 
+
+Shunyu Yao ∗
+
+Department of Civil and Coastal Engineering University of Florida United States 
+
+shunyu.yao@ufl.edu 
+
+Dingyuan Huang 
+
+Department of Civil and Coastal Engineering University of Florida United States 
+
+dingyuanhuang@ufl.edu 
+
+Shuai Li 
+
+Department of Civil and Coastal Engineering University of Florida United States 
+
+shuai.li@ufl.edu 
+
+> †
+
+Corresponding author 
+
+Abstract: Manipulating suspended payloads with humanoid robots is challeng-ing because the robot can only influence an underactuated, oscillatory load through whole-body motion and intermittent contact. Imitation learning pro-vides safe initial behavior but does not directly optimize final placement, while reinforcement learning from scratch is unsafe and sample-inefficient on real hu-manoids. We present HOIST– Humanoid Optimized with Imitation and Sample-efficient Tuning for manipulating suspended loads. HOIST first finetunes a high-level vision-language-action (VLA) policy from virtual-reality (VR) teleoperation demonstrations and executes its commands through a whole-body controller. It then uses VLA rollouts and iterative batched RL to improve placement accuracy and stopping behavior. Experiments in simulation and on a real humanoid show that HOIST improves over imitation-only and additional-demonstration base-lines; compared with pure VLA rollouts, HOIST reduces translational placement error by 19.9 cm and raw angular error by 3.56 ◦, demonstrating the potential of humanoids for underactuated material-handling tasks. 
+
+Keywords: Robot manipulation, Reinforcement learning for physical robot con-trol 
+
+> ∗
+
+Equal contribution. 
+
+> arXiv:2606.00252v1 [cs.RO] 29 May 2026
+
+Figure 1: Motivation and task setup for humanoid hoisting. Left: workers manually guide a sus-pended payload during construction hoisting, exposing them to struck-by and caught-between haz-ards. Right: our lab setup studies a humanoid robot pushing an externally suspended payload toward a target region, requiring whole-body balance, contact-rich pushing, and accurate stopping. Left im-age adapted from online material [1]. 
+
+## 1 Introduction 
+
+Material handling often involves underactuated systems: payloads are not rigidly grasped or directly actuated, but are influenced through cables, hooks, slings, cranes, carts, or intermittent human con-tact. Such systems are common in construction, manufacturing, shipbuilding, logistics, and ware-housing, where heavy payloads are transported by lifting equipment and then manually guided into their final positions. Hoisting is a representative example. Although cranes provide the primary lift-ing capability, final placement often still requires workers to stand near suspended loads and guide, stabilize, or push them by hand. Because suspended payloads can swing, respond with delay, and keep moving after contact, this stage creates struck-by and caught-between hazards [2, 3, 4, 5]. Fig. 1 illustrates both real hoisting operations and our lab setup, motivating the question: can humanoid robots safely operate around underactuated material-handling systems that are currently handled by human workers? We study this question through humanoid hoisting : using a humanoid robot to position an externally suspended payload through whole-body motion and contact-rich manipulation. Unlike standard pick-and-place or tabletop manipulation, the robot cannot directly control the payload pose or ve-locity; it can only influence the payload through base motion, arm motion, body posture, and contact forces. The payload therefore behaves like an underactuated pendulum, a structure widely studied in crane modeling and anti-sway control [6, 7, 8, 9]. It may continue moving after the robot stops, overshoot the target, or retain residual oscillation. We therefore position humanoid hoisting as a new whole-body loco-manipulation problem, where success depends not only on feasible humanoid motion, but also on contact timing and stopping behavior for a dynamically active payload. VR tele-operation offers a practical way to collect demonstrations for initializing humanoid hoisting behav-iors [10, 11, 12]. However, imitation learning does not directly optimize final placement accuracy and may accumulate errors during closed-loop execution [13]. Conversely, training from scratch with RL on a real humanoid is unsafe and sample-inefficient in this contact-rich setting [14, 15]. We present HOIST– Humanoid Optimized with Imitation and Sample-efficient Tuning for manipu-lating suspended loads. HOIST first uses VR whole body teleoperation collected demonstrations to finetune a high-level vision-language-action (VLA) policy, whose planner-level commands are exe-cuted by a whole-body controller. It then collects autonomous rollouts and applies iterative batched RL refinement with hoisting-specific rewards to improve placement accuracy and stopping behav-ior. This combines safe imitation initialization with task-level reward optimization, avoiding unsafe tabula-rasa exploration while addressing objectives not captured by imitation alone. Our contribu-tions are: • We introduce humanoid hoisting , a whole-body loco-manipulation problem involving an externally suspended, indirectly driven, and oscillatory payload, opening a direction for humanoids to operate underactuated material-handling systems. • We present HOIST, which combines VR teleoperation, supervised VLA finetuning, fixed whole-body execution, and sample-efficient RL refinement for suspended-payload manip-ulation. • We evaluate suspended-payload positioning in simulation and on a real humanoid, com-paring additional demonstrations with RL refinement and analyzing how rollout count and input modalities affect placement accuracy. 22 Related Work 
+
+Robotic hoisting and suspended-payload control. Robotic systems have been widely studied for construction automation and material handling [16, 17], where hoisting heavy payloads is com-mon. Because suspended loads exhibit pendulum-like dynamics, prior work has studied model-ing, trajectory planning, input shaping, and anti-sway control for crane and cable-suspended sys-tems [6, 7, 8, 18]. These methods typically control the lifting mechanism directly, whereas humanoid hoisting can only influence an externally suspended payload through intermittent whole-body con-tact. Our work therefore reformulates suspended-payload positioning as humanoid-assisted local manipulation, where the robot acts as an external contact-rich agent rather than part of the crane controller. 
+
+Humanoid whole-body control and loco-manipulation. Humanoid whole-body control has ad-vanced from motion tracking to real humanoid systems with richer high-level interfaces [19, 20, 21, 22, 23, 24]. Humanoid loco-manipulation further studies coordinated locomotion, bal-ance, and contact-rich interaction through motion priors, residual policies, and compliance regu-lation [25, 26, 27, 28]. However, most prior tasks involve rigid or quasi-static objects whose motion is constrained by the robot or environment. In contrast, suspended payloads remain dynamically active after contact, making success depend on contact timing, accurate placement, and stopping behavior. 
+
+Reinforcement learning for robot control. Reinforcement learning can optimize robot behavior from task rewards and environment interaction, including high-dimensional contact-rich manipula-tion [14, 29]. However, applying RL directly to humanoid hoisting is unsafe and sample-inefficient: early exploration may cause unstable motion, hard contacts, over-pushing, or large residual swing, motivating safety-aware and demonstration-guided learning [30, 31]. Our approach avoids tabula-rasa exploration by starting from a teleoperation-finetuned VLA policy and using RL to refine high-level commands from limited rollouts, optimizing placement and stopping while preserving safe demonstrated behavior [15]. 
+
+## 3 Methodology 
+
+This section describes the technical formulation and implementation of HOIST. We first define the humanoid hoisting problem, then present the teleoperation data collection, high-level VLA policy, whole-body controller, and RL refinement procedure used to improve final payload placement. 
+
+3.1 Problem Formulation 
+
+We consider humanoid hoisting , where a humanoid robot assists the local positioning of an exter-nally suspended payload. Given a task instruction and visual observations, the robot must approach the payload, establish physical interaction, push it toward a target region, and stop without inducing excessive residual swing. The robot does not actuate the crane or suspension mechanism. Instead, it can only influence the payload through whole-body motion and intermittent contact forces. There-fore, the task couples humanoid locomotion and balance, contact timing, payload displacement, and delayed pendulum-like swing. We model humanoid hoisting as a task-conditioned, partially observed, closed-loop control problem. At each high-level decision step t, the policy receives the observation 
+
+ot =
+
+n
+
+Iego ,rgb  
+
+> t
+
+, Dego  
+
+> t
+
+, Iside ,rgb  
+
+> t
+
+, xrt , ℓ, cnav 
+
+> t−1
+
+o
+
+, (1) where Iego ,rgb  
+
+> t
+
+and Dego  
+
+> t
+
+are the humanoid onboard RGB and depth observations, Iside ,rgb  
+
+> t
+
+is an external side-view image that captures the payload-target relationship, xrt denotes the humanoid proprioceptive state, ℓ is the language instruction, and cnav  
+
+> t−1
+
+is the previous navigation command. 3Figure 2: Overview of humanoid hoisting. Left: in standard pick-and-place, the robot directly actuates the object and receives an immediate object response. Middle: in humanoid hoisting, the payload is externally suspended and underactuated, so the robot can only influence it through whole-body contact; this introduces delayed motion, overshoot, and residual swing near the target. Right: HOIST addresses this setting by learning high-level hoisting commands from teleoperation and refining them with iterative batched RL, improving final placement accuracy while reducing residual sway. 
+
+Figure 3: Motivation for imitation-initialized RL. Pure imitation yields safe motions but may leave large placement errors, while pure RL from scratch is unsafe and hard to converge on real hu-manoids. HOIST starts from an imitation-learned policy and uses iterative batched RL refinement to improve task-level placement while preserving safe behavior. The proprioceptive state xrt include joint states and base/IMU information. We do not assume direct contact-force sensing or explicit payload-state input to the policy. The high-level policy does not output joint torques. Instead, it predicts the next H high-level planner-command increments: 
+
+∆Ut = πθ (ot) = (∆ ut, ∆ut+1 , . . . , ∆ut+H−1) , (2) where πθ is the learned high-level VLA policy with parameters θ, H is the action-chunk horizon, and ∆Ut is the predicted command-increment chunk at time t.Each single-step command increment ∆uτ updates the head target, left-hand target, right-hand tar-get, navigation command, and desired base height: 
+
+∆uτ = ∆yhead  
+
+> τ
+
+, ∆yLτ , ∆yRτ , ∆cnav  
+
+> τ
+
+, ∆hbase 
+
+> τ
+
+ , τ = t, . . . , t + H − 1. (3) 4Figure 4: Overview of the HOIST pipeline. VR teleoperation provides hoisting demonstrations to finetune a high-level VLA policy, which predicts short-horizon planner-command chunks. A fixed whole-body controller executes these commands as stable humanoid motion. Autonomous VLA rollouts are then used for iterative batched RL with hoisting-specific rewards to improve placement accuracy, residual swing, and stopping behavior. Here, τ indexes a future high-level step within the predicted command chunk, yhead  
+
+> τ
+
+is the head tracking target, yLτ and yRτ are the left- and right-hand tracking targets, cnav  
+
+> τ
+
+is the navigation com-mand, and hbase  
+
+> τ
+
+is the desired base-height command. The corresponding full planner command at time t is 
+
+ut = yhead  
+
+> t
+
+, yLt , yRt , cnav  
+
+> t
+
+, h base 
+
+> t
+
+ . (4) In words, the VLA policy only decides short-horizon task-level motions, such as where the hands and body should move next; the low-level controller converts these commands into balanced whole-body motion. The execution stack maintains the previous full planner command ut−1, while the policy receives only the previous navigation command cnav  
+
+> t−1
+
+as an explicit command-history input. At execution time, we apply the first increment in the chunk to update the current planner command: 
+
+ut = ut−1 + ∆ ut. (5) The updated command is then executed by a humanoid whole-body control stack: 
+
+amotor  
+
+> t
+
+= πwbc (xrt , ut) , (6) where πwbc is a fixed decoupled whole-body controller [22], and amotor  
+
+> t
+
+denotes the low-level motor command. This hierarchy lets the learned policy operate at the task-command level, while whole-body tracking, balance, and joint-level stabilization are handled by the fixed execution stack. 
+
+3.2 Overview of HOIST 
+
+Our method consists of three stages: teleoperation data collection, supervised VLA finetuning, and RL refinement. First, a human operator uses a VR headset and controllers to teleoperate the hu-manoid robot through the hoisting task. Second, we use the collected teleoperation data to finetune A high-level VLA policy, so that the humanoid can autonomously generate hoisting-related planner commands from visual observations and task instructions. Third, we deploy the finetuned VLA pol-icy to collect autonomous rollouts and use these rollouts for iterative batched flow-matching-steering RL [15] refinement. 5Teleoperation data collection. We collect demonstrations using a PICO VR headset and con-trollers. The operator guides the humanoid through the full hoisting sequence: approach, contact, push, and stop. Each trajectory is stored as 
+
+τi =
+
+ot, udemo  
+
+> t
+
+, amotor  
+
+> t
+> Ti
+> t=1
+
+, y i
+
+
+
+, (7) where udemo  
+
+> t
+
+is the planner command produced during teleoperation and yi denotes trajectory-level outcomes such as final placement error and residual motion. We construct the supervised action-chunk target as 
+
+∆Udemo  
+
+> t
+
+=  ∆udemo  
+
+> t
+
+, . . . , ∆udemo 
+
+> t+H−1
+
+ , ∆udemo  
+
+> τ
+
+= udemo  
+
+> τ
+
+− udemo   
+
+> τ−1
+
+. (8) These demonstrations initialize the high-level policy with safe approach, pushing, and stopping behavior. 
+
+High-level VLA policy. We build the high-level policy by modifying GR00T N1.6 [23] for hu-manoid hoisting. The policy takes multimodal observations and task instructions as input and out-puts a short sequence of relative commands for both hands, the navigation command, the head pose, and the base height. To make the policy better aware of the robot’s current motion, we add the navigation command as an additional modality to the vision-language model. We also add depth images and robot ego-velocity to the flow-matching based action expert, so that the action expert can condition on both scene geometry and the humanoid’s current physical state. During super-vised finetuning, most VLM layers are frozen; we finetune only the final four layers of VLM, the diffusion-transformer action expert, and the encoders for the newly introduced modalities. This de-sign adapts the foundation policy to humanoid hoisting while preserving the general visual-language and action priors learned by the pretrained model. 
+
+Humanoid whole-body controller. We use the GR00T Whole-Body Control deployment stack as a fixed execution layer. The high-level VLA policy outputs planner-level command updates, which are accumulated into inputs as target velocities, hand/head tracking targets, and base height. We do not train or finetune the planner or low-level controller for the hoisting task. This design keeps the low-level motion prior fixed and shifts task adaptation to the high-level VLA policy and RL refinement module. Thus, HOIST learns how to command hoisting-relevant motion without learning joint-level actuation or modifying the whole-body controller. 
+
+Reinforcement-learning refinement. After supervised finetuning, we refine the high-level com-mand generator using VLA rollouts. In each domain, we deploy the finetuned VLA policy together with the fixed whole-body controller to collect a small batch of autonomous hoisting rollouts. These rollouts are added to a refinement dataset and labeled with hoisting-specific rewards. In our current implementation, the reward is a simple weighted combination of translational placement errors and the raw angular error, rather than a learned or heavily shaped reward model. We then perform an offline actor-critic update on the accumulated rollout dataset. The updated refinement module is redeployed to collect the next batch of rollouts, and the same collect-train cycle is repeated. During rollouts, we record the initial noise used by the flow-matching action expert and train an actor-critic module to predict which initial-noise vector should be used for a given state. The actor outputs this steering vector deterministically rather than predicting a mean and variance and then sampling from them. Throughout RL, the VLA policy itself remains frozen; only the noise-steering actor-critic module is updated. For efficiency, we store VLM features from the frozen policy and reuse them to avoid repeated encoding of the same visual-language observations. This batched flywheel allows the refinement stage to improve placement accuracy with a small number of task rollouts while preserving the behavior learned from teleoperation. 63.3 Metrics 
+
+Let (xT , y T , ψ T ) denote the final planar pose of the payload center and (x⋆, y ⋆, ψ ⋆) denote the target pose. We evaluate placement accuracy using absolute translational and yaw errors: 
+
+eplace = [∆ x ∆y ∆ψ] = [ |xT − x⋆| | yT − y⋆| | wrap( ψT − ψ⋆)|] . (9) Here, ∆x and ∆y measure the terminal center offset of the payload along the x- and y-directions, respectively, while ∆ψ measures its terminal rotational error about the vertical z-axis. In the result tables, we report ∆x, ∆y, ∆ψ, and the Manhattan terminal position error ∆x + ∆ y.
+
+## 4 Experiments and Results 
+
+4.1 Experiment Setup 
+
+We evaluate HOIST in simulation and on a real humanoid platform. Each trial starts with the payload away from the target; the humanoid must position it through contact without actuating the suspension mechanism. In each domain, VLA-50 is finetuned on 50 teleoperated demonstrations, VLA-80 uses 80 demonstrations, and HOIST starts from VLA-50 before applying up to 30 same-domain RL rollouts. All methods use the same frozen GR00T whole-body execution stack, isolating changes to the high-level command policy. 
+
+4.2 Reinforcement-Learning Progression 
+
+Table 1 reports placement accuracy after each batch of RL rollouts. The resulting trend shows whether same-domain refinement steadily improves the VLA-50 initialization. A decreasing error trend indicates that rollout feedback corrects placement bias left by imitation learning. Table 1: Placement accuracy with increasing numbers of RL rollouts. 
+
+Domain Method ∆x(cm) ↓ ∆y (cm) ↓ ∆ψ (deg) ↓ |∆x| + |∆y| (cm) ↓
+
+Simulation Human Expert Teleop 4.35 3.00 8.48 7.35 Simulation VLA-50 21.56 0.88 3.85 22.44 Simulation VLA-50 + 10 RL rollouts 15.09 1.83 4.58 16.92 Simulation VLA-50 + 20 RL rollouts 1.72 0.82 0.29 2.54 
+
+Simulation VLA-50 + 30 RL rollouts 5.16 1.09 2.76 6.25 Real platform VLA-50 1.60 7.68 14.5 9.28 Real platform VLA-50 + 10 RL rollouts 2.15 5.22 21.0 7.37 Real platform VLA-50 + 20 RL rollouts 4.20 2.49 12.1 6.69 Real platform VLA-50 + 30 RL rollouts 1.64 4.74 28.9 6.38 
+
+4.3 Reinforcement Learning versus Additional Demonstrations 
+
+Table 2 compares additional demonstrations with same-domain RL rollouts after the initial 50 
+
+demonstrations. HOIST achieves better performance than VLA-80, showing that optimizing closed-loop placement rewards is more effective than adding demonstrations alone. This supports using RL to correct final-position errors that remain after imitation learning. Table 2: Additional demonstrations versus RL refinement.                                                        
+
+> Domain Method Demos RL rollouts ∆x(cm) ↓∆y(cm) ↓∆ψ(deg) |∆x|+|∆y|(cm) ↓
+> Simulation VLA-50 50 021.56 0.88 3.85 22.44 Simulation VLA-80 80 015.69 2.89 12.14 18.58 Simulation HOIST (O URS )50 30 5.16 1.09 2.76 6.25
+> Real platform VLA-50 50 01.60 7.68 14.5 9.28 Real platform VLA-80 80 00.54 8.03 27.0 8.57 Real platform HOIST (O URS )50 30 1.64 4.74 28.9 6.38
+
+74.4 Observation-Modality Ablation 
+
+Table 3 evaluates the VLA policy before RL refinement under different input modalities. The goal is to measure whether depth and navigation-command conditioning improve the imitation-learned initialization. All rows use the same number of demonstrations and no RL rollouts. Table 3: Ablation of VLA input modalities before RL refinement.                                     
+
+> VLA variant Depth Nav command ∆x(cm) ↓∆y(cm) ↓∆ψ(deg) ↓|∆x|+|∆y|(cm) ↓
+> Base VLA ––1.54 10.52 26.6 12.06 + Depth ✓–0.78 8.78 14.8 9.57 + Nav command –✓1.30 9.90 32.5 11.20 + Nav command + Depth ✓✓1.60 7.68 14.5 9.28
+
+Depth improves contact-geometry awareness, while navigation-command conditioning improves the use of current base motion. The combined variant performs best, supporting the use of both modalities before RL refinement. 
+
+4.5 Residual Motion Analysis 
+
+Figure 5: Residual-motion analysis from an IMU mounted on the suspended payload. We further analyze payload dynamics throughout the lifting process using an IMU mounted on the suspended load. As shown in Fig. 5, compared with the imitation-only policy, HOIST yields higher accelerometer readings but reduces gyroscope responses by approximately half, suggesting reduced angular motion with more active corrective adjustments during lifting. Meanwhile, both learned policies exhibit lower accelerometer and gyroscope readings than human teleoperation demonstra-tions, which may reflect the more frequent closed-loop corrections performed by human operators. 
+
+## 5 Discussion 
+
+The improvement from 30 RL rollouts suggests that the imitation-learned VLA policy has systematic deployment bias. Supervised finetuning matches expert actions on the demonstration distribution, but the learned policy is not executed under that same distribution: once deployed, its own prediction errors affect contact timing, pushing strength, and stopping behavior, producing a different closed-loop rollout distribution. Thus, the policy may consistently under-push, over-push, or stop at a biased terminal position. Additional demonstrations add more expert-distribution data, but they do not directly identify this deployment-time bias. In contrast, autonomous rollouts reveal the biased trajectories generated by the current VLA policy itself. HOIST can then use task-level rewards to learn an initial-noise correction that steers the frozen policy away from these systematic errors. This makes RL rollouts more useful than extra demonstrations for correcting final placement accuracy. 86 Limitation 
+
+The primary limitation of the current system lies in the low-level whole-body controller, which has not been fine-tuned for interaction with suspended payloads. Specifically, the policy can only influence robot execution through a limited interface consisting of navigation commands, head pose, base height, and bimanual hand poses, without explicitly adapting the applied force to different payload weights. Consequently, the system struggles to generate sufficiently large and adaptive forces when manipulating heavier objects, limiting its ability to handle heavy payloads. 
+
+## 7 Conclusion 
+
+We presented HOIST, which initializes humanoid hoisting from teleoperated demonstrations and improves final placement through rollout-level RL while keeping the whole-body controller fixed. The learned initial-noise correction changes command sequences, which propagate through humanoid-payload contact dynamics to reduce final placement error and residual swing. Future work will expand payload and suspension conditions, add explicit safety constraints, and study co-ordinated humanoid-hoist control. 9Acknowledgments 
+
+If a paper is accepted, the final camera-ready version will (and probably should) include acknowl-edgments. All acknowledgments go at the end of the paper, including thanks to reviewers who gave useful comments, to colleagues who contributed to the ideas, and to funding agencies and corporate sponsors that provided financial support. 
+
+## References 
+
+[1] Holy maker. The construction process for a modular concrete home takes just two weeks. Precast Concrete (PC) Factory. YouTube video, 2026. URL https://www.youtube.com/ watch?v=GXIMQnndCVU&t=1133s . Screenshot captured at 18:53. Accessed: 2026-05-28. [2] National Institute for Occupational Safety and Health. Preventing struck-by injuries in con-struction: Lift zone safety. CDC/NIOSH Science Blog, 2021. Accessed 2026-05-07. [3] U.S. Bureau of Labor Statistics. Fatal occupational injuries involving cranes, 2011–17. BLS Injuries, Illnesses, and Fatalities Factsheet, 2023. Accessed 2026-05-07. [4] National Institute for Occupational Safety and Health. Niosh alert: Preventing worker injuries and deaths from mobile crane tip-over, boom collapse, and uncontrolled hoisted loads. Techni-cal Report DHHS (NIOSH) Publication No. 2006-142, U.S. Department of Health and Human Services, Centers for Disease Control and Prevention, 2006. [5] Occupational Safety and Health Administration. Construction focus four: Struck-by hazards. OSHA Training Material, 2011. [6] E. M. Abdel-Rahman, A. H. Nayfeh, and Z. N. Masoud. Dynamics and control of cranes: A review. Journal of Vibration and control , 9(7):863–908, 2003. [7] L. Ramli, Z. Mohamed, A. M. Abdullahi, H. I. Jaafar, and I. M. Lazim. Control strategies for crane systems: A comprehensive review. Mechanical Systems and Signal Processing , 95: 1–23, 2017. [8] H.-y. Qiang, Y.-g. Sun, J.-c. Lyu, and D.-s. Dong. Anti-sway and positioning adaptive control of a double-pendulum effect crane system with neural network compensation. Frontiers in Robotics and AI , 8:639734, 2021. [9] M. R. Mojallizadeh, B. Brogliato, and C. Prieur. Modeling and control of overhead cranes: A tutorial overview and perspectives. Annual Reviews in Control , 56:100877, 2023. [10] T. Zhang, Z. McCarthy, O. Jow, D. Lee, X. Chen, K. Goldberg, and P. Abbeel. Deep imita-tion learning for complex manipulation tasks from virtual reality teleoperation. In 2018 IEEE international conference on robotics and automation (ICRA) , pages 5628–5635. Ieee, 2018. [11] E. Rosen, D. Whitney, E. Phillips, D. Ullman, and S. Tellex. Testing robot teleoperation using a virtual reality interface with ros reality. In Proceedings of the 1st International Workshop on Virtual, Augmented, and Mixed Reality for HRI (VAM-HRI) , pages 1–4, 2018. [12] S. Han. VR teleoperation interface for learning loco-manipulation of humanoid robots . PhD thesis, 2023. [13] S. Ross, G. Gordon, and D. Bagnell. A reduction of imitation learning and structured predic-tion to no-regret online learning. In Proceedings of the fourteenth international conference on artificial intelligence and statistics , pages 627–635. JMLR Workshop and Conference Pro-ceedings, 2011. [14] A. Rajeswaran, V. Kumar, A. Gupta, G. Vezzani, J. Schulman, E. Todorov, and S. Levine. Learning complex dexterous manipulation with deep reinforcement learning and demonstra-tions. arXiv preprint arXiv:1709.10087 , 2017. 10 [15] A. Wagenmaker, M. Nakamoto, Y. Zhang, S. Park, W. Yagoub, A. Nagabandi, A. Gupta, and S. Levine. Steering your diffusion policy with latent space reinforcement learning. arXiv preprint arXiv:2506.15799 , 2025. [16] T. Bock and T. Linner. Construction robots: Elementary technologies and single-task con-struction robots . Cambridge University Press, 2016. [17] X. Xu and B. G. De Soto. On-site autonomous construction robots: A review of research areas, technologies, and suggestions for advancement. In ISARC. Proceedings of the International Symposium on Automation and Robotics in Construction , volume 37, pages 385–392. IAARC Publications, 2020. [18] R. Hoffman and H. H. Asada. Precision assembly of heavy objects suspended with multiple cables from a crane. IEEE Robotics and Automation Letters , 5(4):6876–6883, 2020. [19] X. B. Peng, P. Abbeel, S. Levine, and M. Van de Panne. Deepmimic: Example-guided deep re-inforcement learning of physics-based character skills. ACM Transactions On Graphics (TOG) ,37(4):1–14, 2018. [20] X. B. Peng, A. Kanazawa, J. Malik, P. Abbeel, and S. Levine. Sfv: Reinforcement learning of physical skills from videos. ACM Transactions On Graphics (TOG) , 37(6):1–14, 2018. [21] A. Allshire, H. Choi, J. Zhang, D. McAllister, A. Zhang, C. M. Kim, T. Darrell, P. Abbeel, J. Malik, and A. Kanazawa. Visual imitation enables contextual humanoid control. arXiv preprint arXiv:2505.03729 , 2025. [22] Z. Luo, Y. Yuan, T. Wang, C. Li, S. Chen, F. Castaneda, Z.-A. Cao, J. Li, D. Minor, Q. Ben, et al. Sonic: Supersizing motion tracking for natural humanoid whole-body control. arXiv preprint arXiv:2511.07820 , 2025. [23] J. Bjorck, F. Casta˜ neda, N. Cherniadev, X. Da, R. Ding, L. Fan, Y. Fang, D. Fox, F. Hu, S. Huang, et al. Gr00t n1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 , 2025. [24] Z. Luo, Y. Yuan, T. Wang, C. Li, S. Chen, F. Casta˜ neda, Z.-A. Cao, J. Li, and Y. Zhu. GR00T Whole-Body Control, 2025. URL https://github.com/NVlabs/ GR00T-WholeBodyControl . Software repository. [25] E. Yoshida, V. Hugel, P. Blazevic, K. Yokoi, and K. Harada. Dexterous humanoid whole-body manipulation by pivoting. Humanoid Robots, Human-like Machines , 2007. [26] Y. Zhang, Y. Yuan, P. Gurunath, I. Gupta, S. Omidshafiei, A.-a. Agha-mohammadi, M. Vazquez-Chanlatte, L. Pedersen, T. He, and G. Shi. Falcon: Learning force-adaptive hu-manoid loco-manipulation. arXiv preprint arXiv:2505.06776 , 2025. [27] S. Zhao, Y. Ze, Y. Wang, C. K. Liu, P. Abbeel, G. Shi, and R. Duan. Resmimic: From gen-eral motion tracking to humanoid whole-body loco-manipulation via residual learning. arXiv preprint arXiv:2510.05070 , 2025. [28] S. Chen, Z.-a. Cao, Z. Luo, F. Casta˜ neda, C. Li, T. Wang, Y. Yuan, L. Fan, C. K. Liu, Y. Zhu, et al. Chip: Adaptive compliance for humanoid control through hindsight perturbation. arXiv preprint arXiv:2512.14689 , 2025. [29] ´ I. Elguea-Aguinaco, A. Serrano-Mu˜ noz, D. Chrysostomou, I. Inziarte-Hidalgo, S. Bøgh, and N. Arana-Arexolaleiba. A review on reinforcement learning for contact-rich robotic manipu-lation tasks. Robotics and Computer-Integrated Manufacturing , 81:102517, 2023. [30] J. Garcıa and F. Fern´ andez. A comprehensive survey on safe reinforcement learning. Journal of Machine Learning Research , 16(1):1437–1480, 2015. 11 [31] S. Gu, A. Kshirsagar, Y. Du, G. Chen, J. Peters, and A. Knoll. A human-centered safe robot reinforcement learning framework with interactive behaviors. Frontiers in Neurorobotics , 17: 1280341, 2023. 12

@@ -1,0 +1,1579 @@
+Title: Autopilot-Preserving Residual Q-Learning with HJB-Inspired Finite-Action Risk Filtering for Fixed-Wing UAV Command Supervision
+
+URL Source: https://arxiv.org/pdf/2606.01397v1
+
+Published Time: Tue, 02 Jun 2026 02:11:35 GMT
+
+Number of Pages: 47
+
+Markdown Content:
+# Autopilot-Preserving Residual Q-Learning with HJB-Inspired Finite-Action Risk Filtering for Fixed-Wing UAV Command Supervision 
+
+## Mehmet ISCAN ∗1 and Batuhan Temiz 21PythaLab, Yildiz Technical University, Istanbul, Turkey 
+
+2Autopilot Systems Chief Engineer, Turkish Aerospace (TUSAŞ), Ankara, Turkey, batuhan.temiz@tai.com.tr 
+
+Running title: HJB-inspired residual UAV command supervision 
+
+Corresponding author: Mehmet ISCAN, PythaLab, Yildiz Technical University, Istanbul, Turkey. Email: miscan@yildiz.edu.tr 
+
+Abstract 
+
+A fixed-wing unmanned aerial vehicle (UAV) must hold airspeed, altitude, and heading references under wind, gusts, and turbulence, where these channels are coupled so that a correction improving one can degrade another, and classical autopilots stabilize the airframe well yet adapt poorly when a hard crosswind coincides with an aggressive turn, while reinforcement-learning (RL) policies that act directly on the flight surfaces concentrate exploration risk at the actuator interface. We place a learned supervisor above an unchanged autopilot rather than inside it: the supervisor selects a residual from a finite, bounded action set on the commanded airspeed, altitude, and heading, the modified reference is projected into an admissible command envelope before it reaches the autopilot, and the autopilot remains the only actuator-facing controller. What is new is how the residual is chosen: HJB residual scores candidate residuals with a semi-discrete value-iteration critic in the spirit of the Hamilton-Jacobi-Bellman (HJB) equation, ranks them by a no-op-relative Hamiltonian advantage, and passes them through a control-Lyapunov- and control-barrier-inspired finite-action shield that always retains a no-op fallback. On a shared 12-state simulation runtime that holds the plant, autopilot, and actuator model fixed, so the comparison is at the level of the whole command-supervision package, HJB residual lowers mean root-mean-square path-tracking error to 44.809 m, against 338.617 m for the baseline autopilot and 88.809 m for a tabular-Q residual supervisor, an 86.77% reduction relative to the baseline and a 49.54% reduction relative to Q-learning; evaluated per scenario, this gain is concentrated 
+
+> ∗
+
+Corresponding author: miscan@yildiz.edu.tr 
+
+1 
+
+> arXiv:2606.01397v1 [cs.RO] 31 May 2026 HJB-inspired residual UAV command supervision 2where the baseline fails worst and comes with a measured rise in airspeed error, so no method dominates every metric. We formulate reference tracking as autopilot-preserving residual command supervision, design the HJB residual critic-and-filter supervisor that selects residuals only on airspeed, altitude, and heading, and evaluate it against a classical autopilot and a Q-only supervisor in one fixed-wing runtime with its trade-offs reported intact.
+
+Keywords: fixed-wing UAV, residual reinforcement learning, command supervision, Hamilton-Jacobi-Bellman, Q-learning, control barrier functions, autopilot, safety-aware reinforcement learning, simulation benchmark, reference tracking. 
+
+# 1 Introduction 
+
+A fixed-wing UAV cannot decouple path tracking from speed, load factor, and energy state. A heading or altitude correction that improves spatial tracking also changes airspeed regulation, throttle usage, and saturation exposure, and this coupling tightens for small and miniature aircraft. The Beard–McLain modeling basis used here separates air-relative variables, inertial motion, and ground-track behavior over a 12-state rigid body with nested longitudinal and lateral loops (Beard and McLain, 2010), and wind studies show that the disturbance reshapes which paths a fixed-wing platform can fly at all: steady wind changes which maneuvers and timings are feasible (Ayhan and Kwan, 2018), while low-altitude wind shear degrades curved-path following enough to motivate dedicated guidance or estimation structure (Zhang et al., 2024). Holding airspeed, altitude, and heading references under wind, gusts, and turbulence is therefore a coupled control problem, not a set of independent loops. Classical autopilots address this problem with interpretable, stability-oriented, actuator-facing feedback. The small-UAV architecture of Beard and McLain (2010) separates guidance, path following, autopilot, airframe, and state estimation, and its successive-loop-closure design makes saturation limits and bandwidth separation explicit. Contemporary fixed-wing work keeps fixed or gain-scheduled proportional-integral-derivative structures so that controllers stay interpretable and re-tunable across airspeed regimes and remain compatible with the actuators (Poksawat et al., 2018, Liu et al., 2015). Such controllers give a credible plant-facing baseline, but their adaptation is scheduled on operating point rather than on the disturbance and reference combination at hand, so they leave little room to react when a hard crosswind coincides with an aggressive turn. The baseline autopilot in this study is such an engineering reference, with authority worth preserving rather than a degraded or intentionally weak baseline. When the conditions turn hard, both purely nominal and purely learned control reach their limits, and this is where the serious problems lie. Studies that push tracking under turbulence tend to act on the inner loop, through segmented control surfaces and retuning (Sattar et al., 2022) or a redesigned robust nonlinear law (Meharie and Lemma, 2024); they predict the trade-offs among reference error, airspeed, energy, and load that we later observe, but they reach them by altering the low-level controller. RL policies, meanwhile, are brittle under dynamics variation and parameter uncertainty unless backed by adaptive or robust control structure (Annaswamy et al., 2023, Cheng et al., 2022), and the safe-RL literature identifies exploratory actions as a direct source of constraint-violation risk in real engineering HJB-inspired residual UAV command supervision 3
+
+systems (Li et al., 2018). A controller scheduled on operating point cannot adapt to the worst disturbance-and-reference mixtures, and an actuator-level learner that could adapt puts its exploration exactly where a fixed-wing aircraft can least afford it. These observations point to an intermediate architecture: add adaptation above an existing autopilot, but keep exploratory authority away from the elevator, aileron, rudder, and throttle. Residual and supervisory learning offer that middle path between a frozen controller and end-to-end actuator-level RL. Residual RL splits a task into a conventional feedback component and a learned correction, keeping model-based structure while learning what is hard to model exactly, although its canonical formulation injects the correction at the torque or actuator interface (Johannink et al., 2019); aerospace residual learning carries this idea into flight while arguing for explicit safety machinery around the learned term (Jayarathne et al., 2023), and supervisory RL in another safety-critical plant places the learned decision above the plant-facing loop rather than inside it (Sun et al., 2024). A separate control-theoretic strand treats the reference and command signals themselves as the design surface, through command filtering, modified command and reference models, and command limiting (Dong et al., 2012, Na et al., 2020, Sun et al., 2021). Together these strands justify intervening at the command layer, yet none combines a finite residual on commanded airspeed, altitude, and heading with a shared-runtime comparison against both a classical autopilot and a Q-only residual, and none reports the airspeed and control-activity cost such an intervention incurs. Safe RL and value-guided control supply the vocabulary for filtering a finite set of residual actions while drawing their own claim boundaries. Constraint-admissible safe RL restricts exploration to a supervised action set (Li et al., 2018), control Lyapunov and control barrier functions formalize stabilization and safety as pointwise conditions enforced through optimization-based filters (Ames et al., 2017, Cohen and Belta, 2020, Gurriet et al., 2020, Zhao et al., 2023), Hamilton-Jacobi safety analysis gives rigorous value-based safety concepts that scale poorly with state dimension (Fisac et al., 2019), and Hamiltonian-driven approximate dynamic programming motivates scoring candidate actions by a value function and a Hamiltonian residual under assumptions stronger than those available here (Yang et al., 2017, 2022, 2024, Lutter et al., 2020), with learned safe-value functions extending this to critics that act as constraints under verification assumptions stronger than a coarse simulation runtime supplies (Tan et al., 2024). We borrow the admissible-action, no-op-fallback, value-proxy, and risk-gate ideas from this literature as design elements without inheriting its certificates, because an exact barrier or reachability solution over a 12-state aircraft is not what a finite-grid critic delivers. The space we work in lies between a controller too rigid to adapt and a solver too expensive to run at flight dimension: no cited study jointly provides a bounded, autopilot-preserving, finite-action residual command supervisor evaluated, with its costs disclosed, against both a classical autopilot and a Q-only supervisor in one runtime. We close that space with the HJB residual supervisor. Learning acts only on the commanded airspeed, altitude, and heading; every modified command is projected into an admissible envelope before it reaches the unchanged autopilot; and a semi-discrete value-iteration critic, inspired by the HJB and Bellman equations, ranks the finite residual candidates that a control-Lyapunov- and control-barrier-style filter admits, scoring them by a no-op-relative Hamiltonian advantage and always retaining a no-op fallback. External literature motivates and contrasts the architecture, while the numerical claims rest on the HJB-inspired residual UAV command supervision 4
+
+simulation reported here: across a shared 12-state runtime, residual supervision lowers spatial and altitude tracking error while raising airspeed error, the HJB residual critic recovers the scenarios where a Q-only residual diverges, and no method wins on every metric. This paper makes the following contributions. We formulate fixed-wing UAV reference tracking as an autopilot-preserving residual command-supervision problem in which learning reshapes only the commanded airspeed, altitude, and heading; we design the HJB residual supervisor, which scores candidate residuals with a semi-discrete HJB- and Bellman-inspired value critic, ranks them by a no-op-relative Hamiltonian advantage, and filters them through control-Lyapunov- and control-barrier-style gates that always retain a no-op fallback; and we evaluate the baseline autopilot, a tabular-Q residual supervisor, and HJB residual in a shared 12-state fixed-wing runtime that holds the plant, autopilot, and actuator model common across methods, so the comparison is at the level of the controller package as a whole (the two residual supervisors also share a deterministic energy-allocation helper absent from the baseline), reporting the comparison with its trade-offs intact, so that residual supervision is shown to lower spatial and altitude tracking error while raising airspeed error, with no method dominating every metric. 
+
+# 2 System model 
+
+## 2.1 Modeling basis 
+
+The plant is a nonlinear six-degree-of-freedom fixed-wing rigid-body model with a twelve-component state. Its state definition, coordinate frames, body–inertial transformations, force and moment decomposition, wind-relative air-data, and successive-loop-closure autopilot follow the small-UAV framework of Beard and McLain (2010). On that basis we instantiate a coefficient-based simulation, fixing a small set of well-defined choices that the rest of this section makes explicit. Air density varies with altitude through an ISA-like ratio rather than being held at its sea-level value. The steady-wind and gust components are combined in the body frame through the textbook transformation. The motor gain and the nominal trim airspeed take stress-test values that we treat as an operating point rather than as aircraft limits. The runtime moment vector equals the aerodynamic moment, so neither propeller reaction torque nor a gyroscopic term enters the body-rate dynamics. The state vector is 
+
+x = [
+
+pn pe pd u v w ϕ θ ψ p q r]⊤
+
+, (2.1) ordered as the north, east, and down inertial coordinates pn, p e, p d, the body-frame trans-lational velocities u, v, w , the roll, pitch, and yaw Euler angles ϕ, θ, ψ , and the body-frame angular rates p, q, r . The attitude follows the 321 (yaw–pitch–roll) Euler convention, and the down coordinate fixes altitude through 
+
+h = −pd. (2.2) The rotation Rvb (ϕ, θ, ψ ) maps a vector resolved in the vehicle frame, aligned with NED, into body-frame components, so ab = Rvb av. With cϕ = cos ϕ, sϕ = sin ϕ, and analogous HJB-inspired residual UAV command supervision 5
+
+notation for θ and ψ,
+
+Rvb =
+
+> 
+
+cθcψ cθsψ −sθ
+
+sϕsθcψ − cϕsψ sϕsθsψ + cϕcψ sϕcθ
+
+cϕsθcψ + sϕsψ cϕsθsψ − sϕcψ cϕcθ 
+
+> 
+
+, (2.3) and Rbv = ( Rvb )⊤. The translational kinematics are 
+
+> 
+
+˙pn
+
+˙pe
+
+˙pd 
+
+> 
+
+= Rbv(ϕ, θ, ψ )
+
+> 
+
+uvw 
+
+> 
+
+, (2.4) and the Euler-angle kinematics are 
+
+> 
+
+˙ϕ
+
+˙θ
+
+˙ψ 
+
+> 
+
+=
+
+> 
+
+1 sϕ tan θ cϕ tan θ
+
+0 cϕ −sϕ
+
+0 sϕ sec θ cϕ sec θ
+
+> 
+
+pqr 
+
+> 
+
+. (2.5) Equations (2.3) –(2.5) are nonlinear through the trigonometric attitude coupling, and the 321 parameterization carries the standard singularity at |θ| = π/ 2. The benchmark trajectories stay away from this pitch attitude. 
+
+## 2.2 Rigid-body dynamics 
+
+The translational and rotational dynamics close the kinematics by relating accelerations to the applied wrench. Let ma denote mass, Fb = [ Fx, F y, F z ]⊤ the total applied force expressed in the body frame, and ωb = [ p, q, r ]⊤. Newton’s translational equation in the rotating body frame gives 
+
+˙u
+
+˙v
+
+˙w 
+
+> 
+
+=
+
+> 
+
+rv − qw pw − ru qu − pv  
+
+> 
+
++ 1
+
+ma
+
+> 
+
+Fx
+
+Fy
+
+Fz 
+
+> 
+
+. (2.6) The first vector on the right side is the rotating-frame coupling −ωb × [u, v, w ]⊤, and the second is the acceleration produced by the applied body forces. Let Mb = [ ℓ, m y, n ]⊤ be the externally applied roll, pitch, and yaw moment vector. For a vehicle approximately symmetric about the body xb − zb plane, 
+
+J =
+
+> 
+
+Jx 0 −Jxz 
+
+0 Jy 0
+
+−Jxz 0 Jz 
+
+> 
+
+, Γ = JxJz − J2 
+
+> xz
+
+. (2.7) The body-rate dynamics are 
+
+> 
+
+˙p
+
+˙q
+
+˙r 
+
+> 
+
+=
+
+> 
+
+Γ1pq − Γ2qr + Γ 3ℓ + Γ 4n
+
+Γ5pr − Γ6(p2 − r2) + my/J y
+
+Γ7pq − Γ1qr + Γ 4ℓ + Γ 8n 
+
+> 
+
+, (2.8) HJB-inspired residual UAV command supervision 6
+
+with 
+
+Γ1 = Jxz (Jx − Jy + Jz )Γ , Γ2 = Jz (Jz − Jy) + J2
+
+> xz
+
+Γ , Γ3 = Jz
+
+Γ , Γ4 = Jxz 
+
+Γ ,
+
+(2.9) 
+
+Γ5 = Jz − Jx
+
+Jy
+
+, Γ6 = Jxz 
+
+Jy
+
+, Γ7 = (Jx − Jy)Jx + J2
+
+> xz
+
+Γ , Γ8 = Jx
+
+Γ .
+
+(2.10) These equations are nonlinear in several distinct ways. Gravity enters through the attitude, the angular-rate coupling is quadratic, the aerodynamic coefficients depend on the wind-relative flow, and throttle enters thrust quadratically. The autopilot then couples the speed, altitude, and heading channels through the closed loop. This coupling is what makes a single per-channel reference adjustment propagate across the tracked outputs, and it motivates the wind-relative description that follows. 
+
+## 2.3 Wind-relative air-data and atmosphere 
+
+Aerodynamic forces act on the velocity relative to the surrounding air mass, not on the inertial velocity. The wind is decomposed into a steady part and a gust part, ordered as 
+
+[wn,s , w e,s , w d,s , u w,g , v w,g , w w,g ]. The steady component resolves in the vehicle frame as 
+
+Vvw,s = [
+
+wn,s we,s wd,s 
+
+> ]⊤
+
+, (2.11) and the body-frame gust component is 
+
+Vbw,g = [
+
+uw,g vw,g ww,g 
+
+> ]⊤
+
+. (2.12) The gust is generated by a discrete-time Dryden turbulence filter driven by white noise, so the air-data signals carry the spectral content the autopilot and supervisor must reject. The total body-frame wind combines the rotated steady component with the gust, 
+
+Vbw = Rvb (ϕ, θ, ψ )Vvw,s + Vbw,g . (2.13) Subtracting this wind from the body-frame inertial velocity gives the wind-relative velocity, 
+
+Vba =
+
+> 
+
+ur
+
+vr
+
+wr 
+
+> 
+
+=
+
+> 
+
+uvw 
+
+> 
+
+−
+
+> 
+
+uw
+
+vw
+
+ww 
+
+> 
+
+. (2.14) HJB-inspired residual UAV command supervision 7
+
+The airspeed, angle of attack, and sideslip angle follow from Vba = [ ur, v r, w r]⊤ as 
+
+Va =
+
+> √
+
+u2 
+
+> r
+
++ v2 
+
+> r
+
++ w2 
+
+> r
+
+, (2.15) 
+
+α = atan2( wr, u r), (2.16) 
+
+β = atan2 
+
+> (
+
+vr,
+
+> √
+
+u2 
+
+> r
+
++ w2
+
+> r
+> )
+
+. (2.17) The runtime density is scaled with altitude through 
+
+ρ(h) = max (
+
+0.05 , ρ 0 Θ( h)g/ (Rair L)−1)
+
+, Θ( h) = max(216 .65 , 288 .15 − 0.0065 h)288 .15 , (2.18) over the low-altitude tropospheric regime that the benchmark exercises, with ρ0 the sea-level reference density, L the temperature lapse rate, Rair the specific gas constant, and Θ( h) the ISA temperature ratio. The density enters every aerodynamic and propulsion term through the dynamic pressure, which carries the wind-relative quantities into the forces and moments below. 
+
+## 2.4 Forces and moments 
+
+The applied wrench [Fx, F y, F z , ℓ, m y, n ] gathers gravity, aerodynamics, and propulsion. The total force and moment decompose as 
+
+Fb = Fg + Fa + Fp, (2.19) 
+
+Mb = Ma. (2.20) Equation (2.20) sets the applied moment equal to the aerodynamic moment, with no propeller reaction torque or gyroscopic contribution. Gravity in body axes is 
+
+Fg =
+
+> 
+
+−mag sin θmag cos θ sin ϕmag cos θ cos ϕ 
+
+> 
+
+. (2.21) Let ¯q = 12 ρ(h)V 2 
+
+> a
+
+be the dynamic pressure, S the wing area, b the wingspan, and c the mean aerodynamic chord. The lift and drag coefficients use the Beard–McLain sigmoid stall blend, which interpolates between the linear pre-stall regime and a flat-plate post-stall model through the blending function σ(α):
+
+σ(α) = 1 + exp[ −M (α − α0)] + exp[ M (α + α0)] (1 + exp[ −M (α − α0)])(1 + exp[ M (α + α0)]) , (2.22) 
+
+CL(α) = (1 − σ(α))( CL0 + CLα α) + σ(α) 2 sgn( α) sin 2 α cos α, (2.23) 
+
+CD(α) = CD0 + (1 − σ(α)) ϵ(CL0 + CLα α)2 + σ(α) 2 sgn( α) sin 3 α. (2.24) HJB-inspired residual UAV command supervision 8
+
+Rotating lift and drag through the angle of attack gives the body-axis force coefficients 
+
+CX (α) = −CD(α) cos α + CL(α) sin α, (2.25) 
+
+CZ (α) = −CD(α) sin α − CL(α) cos α. (2.26) The aerodynamic force vector is 
+
+Fa = ¯ qS 
+
+
+
+CX (α) + ( −CDq cos α + CLq sin α) c 
+
+> 2Va
+
+q + ( −CDδ e cos α + CLδ e sin α)δe
+
+CY 0 + CY β β + ( CY p p + CY r r) b 
+
+> 2Va
+
++ CY δ a δa + CY δ r δr
+
+CZ (α) + ( −CDq sin α − CLq cos α) c 
+
+> 2Va
+
+q + ( −CDδ e sin α − CLδ e cos α)δe
+
+ . (2.27) The aerodynamic moment vector is 
+
+Ma = ¯ qS 
+
+
+
+b (
+
+Cℓ0 + Cℓβ β + ( Cℓp p + Cℓr r) b 
+
+> 2Va
+
++ Cℓδ a δa + Cℓδ r δr
+
+)
+
+c (
+
+CM 0 + CM α α + CM q c 
+
+> 2Va
+
+q + CM δ e δe
+
+)
+
+b (
+
+Cn0 + Cnβ β + ( Cnp p + Cnr r) b 
+
+> 2Va
+
++ Cnδ a δa + Cnδ r δr
+
+) . (2.28) A momentum-disk propeller contributes thrust along the body x-axis, 
+
+Fp = 12ρ(h)Sprop Cprop 
+
+
+
+(kmotor δt)2 − V 2
+
+> a
+
+00
+
+ . (2.29) The actuator vector is δ = [ δe, δ a, δ r, δ t]⊤, collecting elevator, aileron, rudder, and throttle. The rate-dependent terms in 1/(2 Va) are set to zero when Va falls numerically near zero, which removes the low-speed singularity. The force and moment equations use the coefficients in Tables 1 and 2. 
+
+Table 1: Physical, geometric, propulsion, and state-machine parameters of the small-MAV configuration, with symbols, values, units, and origin. The model structure follows the Beard–McLain small-UAV framework. 
+
+Symbol Value Meaning Origin/status 
+
+g 9.8 m/s 2 gravitational acceleration project parameter 
+
+ma 1.56 kg airframe mass Beard-McLain App. C 
+
+Jx 0.1147 kg m 2 roll inertia Beard-McLain App. C 
+
+Jy 0.0576 kg m 2 pitch inertia Beard-McLain App. C 
+
+Jz 0.1712 kg m 2 yaw inertia Beard-McLain App. C 
+
+Jxz 0.0015 kg m 2 roll-yaw product of inertia Beard-McLain App. C 
+
+S 0.2589 m 2 wing planform area Beard-McLain App. C 
+
+b 1.4224 m wingspan Beard-McLain App. C 
+
+c 0.3302 m mean aerodynamic chord Beard-McLain App. C 
+
+Sprop 0.0314 m 2 propeller disk area Beard-McLain App. C 
+
+ρ0 1.2682 kg/m 3 nominal sea-level density Beard-McLain App. C, altitude-scaled at runtime 
+
+M 50.0 stall-blending transition rate Beard-McLain App. C HJB-inspired residual UAV command supervision 9
+
+Symbol Value Meaning Origin/status 
+
+ϵ 0.1592 induced-drag coefficient in nonlinear drag model Beard-McLain App. C 
+
+α0 0.4712 rad stall-blending cutoff angle Beard-McLain App. C 
+
+Cprop 1.0 propeller force coefficient Beard-McLain App. C 
+
+kmotor 240.0 motor/propulsion gain used by runtime project override for high-speed trim margin 
+
+Ts 0.01 s autopilot sample time project runtime setting 
+
+τf 5.0 s PID derivative filter time constant project runtime setting 
+
+Va, 0 140.0 m/s nominal trim/initial airspeed for benchmark runtime project benchmark set-ting 
+
+hT O 10.0 m takeoff-zone altitude threshold project longitudinal state machine 
+
+hhold 10.0 m altitude-hold deadband project longitudinal state machine 
+
+Vrot 65.0 m/s takeoff rotation-speed threshold project longitudinal state machine 
+
+VLO 78.0 m/s liftoff-speed threshold project longitudinal state machine 
+
+hclimbout 25.0 m climbout transition altitude project longitudinal state machine 
+
+Table 2: Aerodynamic coefficients of the small-MAV configuration entering the force and moment equations, with symbols, dimensionless values, and origin. The coefficient set follows the Beard–McLain small-UAV framework. 
+
+Symbol Value Meaning Origin/status 
+
+CL0 0.28 zero-lift lift coefficient Beard-McLain App. C 
+
+CLα 3.45 lift slope Beard-McLain App. C 
+
+CLq 0.0 pitch-rate lift derivative Beard-McLain App. C 
+
+CLδ e -0.36 elevator lift derivative Beard-McLain App. C 
+
+CD0 0.03 zero-lift drag coefficient Beard-McLain App. C 
+
+CDq 0.0 pitch-rate drag derivative Beard-McLain App. C 
+
+CDδ e 0.0 elevator drag derivative Beard-McLain App. C 
+
+CM 0 0.0 zero-angle pitching moment Beard-McLain App. C 
+
+CM α -0.38 pitch static stability derivative Beard-McLain App. C 
+
+CM q -3.6 pitch damping derivative Beard-McLain App. C 
+
+CM δ e -0.5 elevator pitching-moment derivative Beard-McLain App. C 
+
+CY 0 0.0 zero-sideslip side-force coefficient Beard-McLain App. C 
+
+CY β -0.98 side-force sideslip derivative Beard-McLain App. C 
+
+CY p -0.26 roll-rate side-force derivative project-specific value 
+
+CY r 0.0 yaw-rate side-force derivative Beard-McLain App. C 
+
+CY δ a 0.0 aileron side-force derivative Beard-McLain App. C 
+
+CY δ r -0.17 rudder side-force derivative Beard-McLain App. C 
+
+Cℓ0 0.0 zero-sideslip roll moment Beard-McLain App. C 
+
+Cℓβ -0.12 roll static stability derivative Beard-McLain App. C 
+
+Cℓp -0.26 roll damping derivative Beard-McLain App. C 
+
+Cℓr 0.14 yaw-rate roll-moment derivative Beard-McLain App. C HJB-inspired residual UAV command supervision 10 
+
+Symbol Value Meaning Origin/status 
+
+Cℓδ a 0.08 aileron roll-moment derivative Beard-McLain App. C 
+
+Cℓδ r 0.105 rudder roll-moment derivative Beard-McLain App. C 
+
+Cn0 0.0 zero-sideslip yaw moment Beard-McLain App. C 
+
+Cnβ 0.25 yaw static stability derivative Beard-McLain App. C 
+
+Cnp 0.022 roll-rate yaw-moment derivative Beard-McLain App. C 
+
+Cnr -0.35 yaw damping derivative Beard-McLain App. C 
+
+Cnδ a 0.06 aileron yaw-moment derivative Beard-McLain App. C 
+
+Cnδ r -0.032 rudder yaw-moment derivative Beard-McLain App. C 
+
+## 2.5 Actuators, integration, and command interface 
+
+The autopilot command δc,k does not reach the airframe directly. It first passes through an actuator model that saturates the command, limits its rate, and applies a first-order lag, 
+
+δclip  
+
+> c,k
+
+= clip( δc,k , δ min , δ max ), (2.30) 
+
+˙δcmd  
+
+> k
+
+= clip 
+
+ δclip  
+
+> c,k
+
+− δk
+
+τδ
+
+, − ˙δmax , ˙δmax 
+
+ , (2.31) 
+
+δk+1 = clip( δk + ∆ t ˙δcmd  
+
+> k
+
+, δ min , δ max ). (2.32) The position limits are δe, δ a ∈ [−45 ◦, 45 ◦], δr ∈ [−30 ◦, 30 ◦], and δt ∈ [0 , 1] . The corresponding rate limits are 120 ◦/s , 160 ◦/s , 120 ◦/s , and 1.8/s , and the lag time constant is τδ = 0 .08 
+
+s. With the actuator and wind values held constant across the substeps, the twelve-state differential equation advances by fourth-order Runge–Kutta integration, 
+
+xk+1 = xk + ∆t
+
+6 (k1 + 2 k2 + 2 k3 + k4), (2.33) where the ki are the standard intermediate slopes of ˙x = f (x, δ, w ) across a substep. The default step is Ts = 0 .01 s with five Runge–Kutta substeps. Every controller mode in the benchmark shares this actuator and plant update, so the modes differ only in how they shape the reference command. That reference command originates with the mission generator, which at decision step k
+
+provides 
+
+rk = [
+
+Va,c,k hc,k ψc,k 
+
+]⊤
+
+, (2.34) where Va,c,k is the commanded airspeed, hc,k the commanded altitude, and ψc,k the commanded heading. The heading command is held in degrees and converted to radians inside the autopilot, which tracks the yaw heading ψ rather than the ground-track course. A residual action 
+
+ak ∈ A r maps to the command increment 
+
+∆r(ak) = [
+
+∆Va(ak) ∆h(ak) ∆ψ(ak)]⊤
+
+. (2.35) HJB-inspired residual UAV command supervision 11 
+
+The command passed to the autopilot is 
+
+˜rk = Π C (rk + ∆ r(ak)) , (2.36) with 
+
+C = [20 , 140] m /s × [0 , 450] m × [−180 ◦, 180 ◦). (2.37) The projection in Eq. (2.36) keeps the residual-adjusted command inside C, and both residual supervisors share the same bounds. The operating point fixes the nominal trim airspeed at 
+
+Va, 0 = 140 m/s and the motor gain at kmotor = 240 . Because the projection constrains the reference command alone, the realized trajectory still follows from the plant, the disturbances, the actuator limits, and the autopilot response. The residual supervisor shapes this command against several competing objectives, sum-marized by 
+
+J = E 
+
+> [T∑
+> k=0
+
+γk (
+
+wre2ref ,k + whe2 
+
+> h,k
+
++ wV e2 
+
+> V,k
+
++ wu∥∆r(ak)∥1 + wsσk + wnρn,k 
+
+> )]
+
+, (2.38) where eref ,k is the spatial reference error, eh,k = hk − hc,k the altitude error, and eV,k =
+
+Va,k − Va,c,k the airspeed error. The terms σk and ρn,k penalize saturation and load risk, the weights wr, w h, w V , w u, w s, w n trade these objectives against one another, and γ ∈ (0 , 1] 
+
+discounts future stages. Equation (2.38) expresses the design pressure that the residual layer balances; the supervisor that resolves it is specified in the next section. 
+
+# 3 Proposed Q-learning strategy 
+
+## 3.1 The proposed structure 
+
+The residual supervisor reshapes the reference command and never touches the actuators directly. Figure 1 shows the three roles that the framework keeps separate. The main closed-loop path runs from the mission generator, which produces the nominal command 
+
+rk = [ Va,c , h c, ψ c]⊤, through an optional residual that modifies only that command, then through the projection operator that enforces the admissible command envelope, and finally into the fixed (gain-scheduled) autopilot that remains the only actuator-facing feedback controller. Inside the supervisor, telemetry is encoded into features, seven bounded residual candidates are scored, tabular Q and a semi-discrete value-iteration term are combined, a finite-action shield removes hard-blocked candidates, and a no-op fallback stays available. A separate telemetry and learning loop updates the reward, the Q values, the value-iteration diagnostics, and the logged shield flags. Three source-supported choices shape this layout. Learned authority sits at the command layer rather than the actuator layer. The Beard–McLain monograph basis and gain-scheduled autopilot studies support preserving nested actuator-facing stabilization loops with explicit saturation and bandwidth handling (Beard and McLain, 2010, Poksawat et al., 2018, Liu et al., 2015), while command-filtering and command-limiting work shows that modifying the reference can shape transients and reduce envelope exposure without replacing the lower-level HJB-inspired residual UAV command supervision 12 
+
+controller (Dong et al., 2012, Na et al., 2020, Sun et al., 2021). The learned correction therefore stays confined to the residual ∆r(ak), not to elevator, aileron, rudder, or throttle. The tabular-Q branch and the value-guided branch differ only in how they rank candidates; both pass through the same projection and the same classical autopilot. The learning that we add is finite and auditable. Residual RL motivates wrapping learned corrections around a nominal controller (Johannink et al., 2019, Jayarathne et al., 2023), and finite-abstraction work supports compact state and action summaries when interpretability and bounded computation matter more than high-dimensional approximation (Taherian and Shiri, 2014). We follow that line with a seven-action residual set and a discretized state, so every candidate residual and its value are inspectable at each step. The shield layer is a filter rather than a certificate. Constraint-admissible supervision, CBF/CLF control, HJ safety analysis, and learned safe-value methods support action restriction and value-based risk reasoning (Li et al., 2018, Ames et al., 2017, Fisac et al., 2019, Tan et al., 2024, Zhao et al., 2023), and we adapt that vocabulary to a finite residual set. A deterministic energy-allocation helper may assist longitudinal energy management in the residual modes, but it is an auxiliary part of the controller package rather than a learned actuator policy. The equations that follow define an auditable residual command supervisor with fallback behavior.    
+
+> Figure 1: Layered command-supervision framework shared by all controller modes. The mission reference passes through an optional residual supervisor and the command-projection operator into the fixed gain-scheduled autopilot, the actuator model, and the plant. The learned intervention is the bounded command residual ∆r(ak)only; the autopilot is the sole actuator-facing controller.
+
+All controller modes share the same plant, wind, actuator, and autopilot code path, 
+
+xk+1 = F∆t(xk, δ k, w k), (3.1) HJB-inspired residual UAV command supervision 13 
+
+where F∆t is the RK4 plant update and wk denotes environmental disturbance inputs. The command entering the autopilot is 
+
+˜rk =
+
+> 
+
+rk, baseline ,
+
+ΠC (rk + ∆ r(aQk )) , tabular Q residual ,
+
+ΠC (rk + ∆ r(aHk )) , HJB residual .
+
+(3.2) The actuator-facing command is then 
+
+δAP  
+
+> c,k
+
+= κAP (xk, ˜rk), (3.3) 
+
+δc,k =
+
+> 
+
+δAP  
+
+> c,k
+
+, baseline ,
+
+Eeng (δAP  
+
+> c,k
+
+, x k, ˜rk, w k), residual modes when the energy-allocation helper is active ,δAP  
+
+> c,k
+
+, residual modes otherwise ,
+
+(3.4) 
+
+δk = Dact (δc,k ), (3.5) where κAP is the baseline autopilot, Dact is the actuator lag/rate/saturation operator, and 
+
+Eeng is the residual-mode energy-allocation helper. Because the plant, disturbances, actuator dynamics, autopilot, and metrics are common across modes, the benchmark compares controller packages whose only difference is the bounded command residual and its energy-allocation helper. The implementation modules behind each operator are listed in the Code availability statement. 
+
+## 3.2 Baseline autopilot and energy-allocation helper 
+
+The baseline autopilot follows the successive-loop-closure small-UAV control architecture of the Beard–McLain monograph (Beard and McLain, 2010). Its command input is ˜rk =[Va,c,k , h c,k , ψ ◦
+
+> c,k
+
+]⊤, with the heading entry stored in degrees. The lateral loops regulate yaw heading through commanded roll, roll-rate damping, and a sideslip rudder loop; the longitudinal loops use a state machine to select takeoff, climb, descend, or altitude-hold behavior. In compact form, 
+
+δc = κAP (xk, ˜rk, θ AP ), (3.6) where θAP denotes the fixed (gain-scheduled) gains and δc = [ δe,c , δ a,c , δ r,c , δ t,c ]⊤ contains elevator, aileron, rudder, and throttle commands before the downstream actuator operator. The controller tracks yaw heading ψ, not ground-track course χ. This is a project-specific simplification relative to path-following formulations under wind, where small-UAV guidance separates air-relative from inertial quantities and low-altitude wind-shear path-following often adds ground-velocity estimation or vector-field logic (Beard and McLain, 2010, Zhang et al., 2024). We state the simplification explicitly because wind can separate heading from ground track. The heading error is wrapped as 
+
+eψ,k = wrap [−π,π ](ψc,k − ψk), (3.7) which avoids a discontinuity at ±π.HJB-inspired residual UAV command supervision 14 
+
+The heading and roll loops are 
+
+ϕc,k = sat [−45 ◦,45 ◦]
+
+> 
+
+kpψ eψ,k + kiψ 
+
+> ∑
+> j≤k
+
+eψ,j Ts − kdψ ryaw ,k  
+
+> 
+
+, (3.8) 
+
+δa,c,k = sat [−45 ◦,45 ◦]
+
+> 
+
+kpϕ (ϕc,k − ϕk) + kiϕ 
+
+> ∑
+> j≤k
+
+(ϕc,j − ϕj )Ts − kdϕ pk 
+
+> 
+
+. (3.9) Here ryaw ,k denotes the body yaw rate, not the command vector rk = [ Va,c,k , h c,k , ψ c,k ]⊤. The pitch loop is 
+
+δe,c,k = sat [−45 ◦,45 ◦]
+
+> 
+
+δ∗ 
+
+> e
+
++ kpθ (θc,k − θk) + kiθ 
+
+> ∑
+> j≤k
+
+(θc,j − θj )Ts − kdθ qk 
+
+> 
+
+, (3.10) where δ∗ 
+
+> e
+
+is the trim elevator component. Airspeed regulation with throttle in altitude-hold mode is 
+
+δt,c,k = sat [0 ,1] 
+
+> 
+
+δ∗ 
+
+> t
+
++ kpV (Va,c,k − Va,k ) + kiV 
+
+> ∑
+> j≤k
+
+(Va,c,j − Va,j )Ts + kdV ˙eV,k  
+
+> 
+
+. (3.11) The longitudinal state machine is 
+
+qAP k =
+
+> 
+
+1, hk ≤ hT O ,
+
+2, hk ≤ hc,k − hhold ,
+
+3, hk ≥ hc,k + hhold ,
+
+4, otherwise ,
+
+(3.12) where hT O is the takeoff-zone altitude threshold and hhold is the altitude-hold deadband. The four branches are runway/takeoff, climb/acceleration, descend, and altitude hold, with bumpless-transfer logic to reduce pitch-command steps at transitions. In the climb branch the throttle is held near a climb-biased value and θc is limited by speed-error-dependent caps; in the descend branch the throttle is reduced and airspeed is regulated through pitch; in altitude hold the throttle regulates airspeed while commanded pitch regulates altitude. These rules follow the energy-coupled logic of classical small-UAV autopilots, which balance speed, altitude, and actuator feasibility rather than minimize a single tracking metric. The resulting actuator command is clipped, rate-limited, and lagged by the common actuator operator, so baseline and residual modes share the same downstream actuator dynamics. A lightweight energy-allocation helper runs in the residual controller modes. It activates when a residual is active or when the disturbance-energy summary Dk = ∥wk∥ + 2 σturb ,k 
+
+reaches the threshold Dk ≥ 4.0. The helper computes total and balance energy errors 
+
+eT,k = g(hc,k − hk) + 12(V 2 
+
+> a,c,k
+
+− V 2
+
+> a,k
+
+), (3.13) 
+
+eB,k = g(hc,k − hk) − 12(V 2 
+
+> a,c,k
+
+− V 2
+
+> a,k
+
+), (3.14) HJB-inspired residual UAV command supervision 15 
+
+and applies clipped throttle, pitch-command, and small elevator-bias assistance before the actuator dynamics. The throttle term can raise the autopilot throttle command, the pitch term can override commanded pitch outside takeoff, and the elevator bias is added before the actuator operator. The helper is not a full total-energy-control design and not an adaptive controller. Because it belongs to the residual-mode package, the reported improvements are system-level evidence for the residual-supervision architecture and not an ablation-isolated effect of the value-iteration term alone. 
+
+## 3.3 Finite residual command interface 
+
+The residual action set is finite and shared by both supervisors, and the same projection is applied before commands reach the autopilot. The set is 
+
+Ar = {a0, a V +, a V −, a h+, a h−, a ψ+, a ψ−}, (3.15) with no-op 
+
+∆r(a0) = [
+
+0 0 0]⊤
+
+. (3.16) Each residual is a small command increment, not an actuator increment. Table 3 lists the seven increments and the projection bounds. 
+
+Table 3: Finite residual action set and command-projection bounds.                                         
+
+> Action Residual increment Function in the supervisor
+> a0[0 ,0,0] ⊤no-op, preserve nominal mission command
+> aV+[+2 m /s,0,0] ⊤request more speed/energy margin
+> aV−[−2 m /s,0,0] ⊤reduce commanded airspeed when excess speed is present
+> ah+[0 ,+10 m ,0] ⊤bias toward climb/altitude recovery
+> ah−[0 ,−10 m ,0] ⊤reduce altitude command for energy relief or overshoot recovery
+> aψ+[0 ,0,+3 ◦]⊤small positive heading correction
+> aψ−[0 ,0,−3◦]⊤small negative heading correction Projection Va∈[20 ,140] m/s,h∈
+> [0 ,450] m , heading wrapped command-interface admissibility
+
+## 3.4 Tabular Q residual supervisor 
+
+The Q residual supervisor maps telemetry into a finite state abstraction 
+
+sk = η(eV,k , e h,k , e ref ,k , e ⊥,k , e r,k , V w,k , σ turb ,k ) ∈ S Q, (3.17) where e⊥,k is cross-track error for straight legs, er,k is radial error for orbit-like references, Vw,k 
+
+is the wind-vector norm, and σturb ,k is the turbulence standard-deviation setting. The encoder discretizes seven components: airspeed error, altitude error, reference error, cross-track error, radial error, wind/turbulence stress, and a low-energy flag. This is a pragmatic finite abstraction for an auditable supervisor; its bins and hyperparameters remain part of the HJB-inspired residual UAV command supervision 16 
+
+empirical design space (Taherian and Shiri, 2014, Eimer et al., 2023). The hard-condition score combines tracking, disturbance, saturation σk, and post-step load-factor telemetry nz,k :
+
+χk = max {| eV,k |/10 , |eh,k |/35 , |eref ,k |/75 , |e⊥,k |/20 , |er,k |/35 ,
+
+|Vw,k |/8, |σturb ,k |, max( σk − 0.65 , 0) /0.2, max( |nz,k | − 3.5, 0) /1.5}. (3.18) If χk < 1, the supervisor returns the no-op candidate set, which keeps the nominal command in calm flight. The same no-op-only set is used for large calm-air horizontal reference error, treated as possible mission-geometry mismatch rather than a disturbance-rejection opportunity. Otherwise the supervisor builds a finite valid subset that favors speed/energy recovery, altitude correction, or lateral correction depending on the error pattern and risk level. Near high load or saturation risk, the valid set narrows to no-op, positive airspeed, and altitude-relief candidates. The tabular Bellman update is 
+
+Qk+1 (sk, a k) = Qk(sk, a k) + αQ
+
+> [
+
+ρk + γQ max 
+
+> a′∈A r
+
+Qk(sk+1 , a ′) − Qk(sk, a k)
+
+> ]
+
+, (3.19) with αQ = 0 .12 , γQ = 0 .95 , and exploration rate ϵQ = 0 .05 decaying toward 0.01 when training is enabled. The reward is 
+
+ρQk = − 
+
+> (
+
+|eV,k |
+
+22 + |eh,k |
+
+110 + |eref ,k |
+
+150 + 0 .5 max( σk − 0.75 , 0) + ca(ak)
+
+> )
+
+− 0.25 ρrisk,k − 21viol ,k , (3.20) with action cost 
+
+ca(ak) = 0 .02 |∆Va(ak)|
+
+2 + 0 .02 |∆h(ak)|
+
+10 + 0 .04 |∆ψ(ak)|
+
+3 , (3.21) and risk score 
+
+ρrisk,k = max  
+
+> (
+
+max( |nz,k | − 3.5, 0) 2.5 , max( σk − 0.70 , 0) 0.28 
+
+> )
+
+. (3.22) The violation indicator 1viol ,k fires only after takeoff-like conditions, under high load factor or extreme saturation. The reward exposes the trade-off among reference tracking, speed and altitude tracking, residual action cost, saturation, load risk, and violation events. Logged Q diagnostics include reward, episode return, temporal-difference error, action index, exploration flag, state key, selected Q value, next-state maximum Q value, residual activity, hard-condition score, load factor, and risk score. The HJB residual mode keeps this reward structure but applies the HJB advantage adjustment of Algorithm 1 and a stronger risk penalty coefficient 
+
+0.35 ρrisk,k in the shielded residual mode. HJB-inspired residual UAV command supervision 17 
+
+## 3.5 Value-iteration critic and Hamiltonian advantage 
+
+HJB residual inherits the finite action set, state encoder, reward interface, and projection from the tabular Q supervisor and changes only the candidate-ranking stage. It adds normalized features 
+
+zk = Φ( xk, r k, w k, δ k) ∈ R7, (3.23) with the scaling 
+
+zk =
+
+> 
+
+eV,k /18 
+
+eh,k /80 
+
+eref ,k /180 
+
+eℓ,k /80 (Vw,k + 2 σturb ,k )/16 max( σk − 0.55 , 0) /0.45 max( |nz,k | − 3, 0) /3
+
+> 
+
+, (3.24) where eℓ,k is cross-track error on straight legs and radial error on orbit legs. The value proxy blends a quadratic term with a discrete value-iteration term, ̂
+
+VH (z) = (1 − λd)z⊤PH z + λd̂ Vd(g(z)) , (3.25) where PH ⪰ 0 is a fixed diagonal weight, g(z) maps the continuous features to a small finite grid, and ̂ Vd is computed by value iteration over that grid. Concretely, g(z) assigns each of the seven normalized features to its nearest center in a fixed set— {− 1.5, 0, 1.5} for the airspeed, altitude, and lateral-error features, {0, 0.7, 1.8, 4.0} for the reference-error feature, {0, 0.8, 1.6}
+
+for the wind/turbulence-stress feature, and {0, 1} for the saturation- and load-stress flags—so the value-iteration grid has 3 × 3 × 4 × 3 × 3 × 2 × 2 = 1296 cells; the tabular Q-table uses a separate, finer bin-edge encoder over the same signals. The iteration is ̂
+
+V (i+1)  
+
+> d
+
+(g) = min 
+
+> a∈A r
+> [
+
+ℓd(Ψ( g, a ), a ) + γQ̂ V (i) 
+
+> d
+
+(g(Ψ( g, a ))) ]
+
+,
+
+initialized from the quadratic proxy and run for five sweeps, with the result cached and reused at runtime. The blend uses λd = 0 .38 . The grid object is a local critic for ranking seven residual commands, motivated by Hamiltonian-driven ADP, which treats Hamiltonian quantities as continuous-time temporal-difference objects and approximates HJB solutions under explicit assumptions (Yang et al., 2017, 2022, 2024, Lutter et al., 2020). For a candidate action a, the supervisor predicts a short-horizon feature transition 
+
+ˆzak+1 = Ψ( zk, a ), (3.26) using Ψ( zk, a ), a hand-coded and deliberately conservative one-step predictor that applies direction-dependent coupling rules to the un-normalized error and stress signals—for example, lowering the altitude command under an energy deficit is credited as energy recovery, while a heading residual raises the predicted load—and then renormalizes, passing the wind and turbulence stress features through unchanged. The predictor encodes qualitative directionality rather than a high-fidelity aerodynamic model. It then computes a composite next-state HJB-inspired residual UAV command supervision 18 
+
+penalty 
+
+ℓH (ˆ zak+1 , a ) = ̂ VH (ˆ zak+1 ) + 0 .045  
+
+> (
+
+|∆Va(a)|
+
+2 + |∆h(a)|
+
+10 + 1 .35 |∆ψ(a)|
+
+3
+
+> )
+
+. (3.27) Here ℓH is not a classical instantaneous stage cost: it evaluates the value proxy at the predicted next state ˆzak+1 rather than at the current state. The heuristic candidate-ranking score is 
+
+H(zk, a ) = ℓH (ˆ zak+1 , a ) + γĤ VH (ˆ zak+1 ) − (1 − βH )̂ VH (zk), (3.28) with γH = γQ = 0 .95 and βH = 0 .035 . Because the same predicted next-state value ̂ VH ( ˆzak+1 )
+
+appears both inside ℓH and in the explicit γĤ VH ( ˆzak+1 ) term, it enters H with total weight 
+
+(1 + γH ) = 1 .95 ; H is therefore a heuristic ranking score that emphasizes the predicted next-state value, not a literal one-step Hamiltonian or discrete Bellman residual. The no-op-relative advantage is 
+
+AH (zk, a ) = H(zk, a ) − H (zk, a 0). (3.29) A negative AH marks a candidate as locally better than no-op under the proxy. 
+
+## 3.6 Finite-action shield and no-op fallback 
+
+The finite-action shield adapts the vocabulary of safe action filtering to the residual layer. Where a CBF-QP enforces forward invariance over continuous controls and an HJ reachability computation builds a continuous safety value function, this filter evaluates only the finite residual candidates present at the current step (Li et al., 2018, Ames et al., 2017, Fisac et al., 2019). Let Dk = Vw,k + 2 σturb ,k , let ρrisk,k be the risk score of Eq. (3.22) , and let ∆h(a) and 
+
+∆ψ(a) be the altitude and heading components of the residual. The hard block is 
+
+Bhard (k, a ) = 1[eref ,k > 10 ∧ Dk > 10 ∧ | ∆ψ(a)| > 0] . (3.30) The CLF-style value-growth test is 
+
+GCLF (k, a ) = 1 [̂ 
+
+VH (ˆ zak+1 ) ≤ (1 + 0 .32) ̂VH (zk) + 0 .08 max(1 , χ k)]
+
+. (3.31) The CBF-style runtime predicate is the finite-action rule 
+
+GCBF (k, a ) = 1[¬(eV,k > 10 ∧ Dk > 10 ∧ ∆h(a) > 0) 
+
+∧ (ρrisk,k ≤ 0.65 ∨ a ∈ { a0, a V +, a h−})
+
+∧ (ρrisk,k ≤ 0.95 ∨ a = a0)] .
+
+(3.32) The filtered set is 
+
+Fk = {a ∈ A valid (sk) : Bhard (k, a ) = 0 ,
+
+[( GCLF (k, a ) = 1 ∧ G CBF (k, a ) = 1) ∨ AH (zk, a ) ≤ 0] } ∪ { a0}. (3.33) A nonzero candidate is admitted when it passes both gates or when it improves the no-op-relative Hamiltonian score, unless a hard block is active. No-op is added unconditionally, so HJB-inspired residual UAV command supervision 19 
+
+the filtered set is never empty. The admissible set Avalid (sk) from which the filter starts is itself state-dependent: it collapses to {a0} when the hard-condition score is below its gate or when the reference error exceeds 100 m in calm air, and otherwise opens from {a0, a V +}, admitting a speed-decrease, altitude-climb, altitude-relief, or single heading-correction action only when the corresponding error and energy conditions hold, and narrowing to {a0, a V +, a h−} near high risk ( ρrisk,k > 0.65 ). The combined score is 
+
+Sk(a) = Q(sk, a ) + λH [−AH (zk, a )] − 0.01 ℓH (ˆ zak+1 , a ) − λρρrisk,k (a) + brec (zk, a ), (3.34) with λH = 0 .85 and a small recovery bonus brec for high-reference-error or low-energy cases. The selected action is 
+
+aHk = arg max 
+
+> a∈F k
+
+Sk(a). (3.35) If every nonzero residual is rejected, a0 remains in Fk and the nominal command is preserved. The value proxy does not dominate every regime, so the supervisor delegates to the plain tabular-Q policy under severe disturbance. When Dk > 10 and the situation shows large reference error ( eref ,k > 25 ), severe energy capture ( eV,k > 8 and eh,k > 80 on a straight leg), or a near-capture condition ( eref ,k < 25 , |eh,k | < 10 , and |eV,k | < 5 under Dk > 10 ), the value-scoring and shield stage is bypassed and the residual is taken from the tabular-Q supervisor of Eq. (3.19) . This keeps behavior anchored to the simpler learned policy when the hand-designed feature predictor is least reliable. Across the benchmark the supervisor logs the selected candidate’s value, advantage, stage cost, whether any candidate was removed by the shield, the surviving candidate count, residual activity, load factor, and risk score. 
+
+Figure 2: HJB residual finite-candidate pipeline. The supervisor encodes state and context, enumerates the seven bounded residual candidates Ar = {a0, . . . , a 6}, predicts one-step feature consequences, scores each candidate with the tabular Q term and the value-iteration guidance term, applies the finite-action shield, and dispatches the selected residual with no-op fallback. 
+
+## 3.7 Online learning loop 
+
+Algorithm 1 states the runtime loop and Figure 2 is its graphical counterpart. The loop computes errors and risk summaries from telemetry, gates learning out of nominal flight HJB-inspired residual UAV command supervision 20 
+
+through the hard-condition score, evaluates every finite residual, selects only among candidates not removed by the shield while keeping no-op available, and updates the tabular critic when training is enabled. Under severe disturbance it delegates the residual decision to the tabular-Q supervisor. Evaluating the full candidate list once per step gives candidate-ranking complexity O(|A r|) for a fixed feature dimension and value table. 
+
+Training and evaluation status. The value-iteration table ̂ Vd is computed once at the start of a run, by five Bellman sweeps on the 1296-cell grid, and is then cached and reused unchanged. The tabular Q-values of both residual supervisors, by contrast, are updated online during the benchmark episodes: no separate pre-training phase precedes the benchmark, and the benchmark scenarios serve simultaneously as the learning environment, so the reported residual-method metrics reflect online adaptation rather than held-out evaluation of a frozen policy. The baseline receives no online updates. This is a deliberate choice that lets the residual supervisors adapt to each scenario’s disturbance profile, but it means the residual-method numbers conflate within-run adaptation with tracking quality. HJB-inspired residual UAV command supervision 21 
+
+Algorithm 1 HJB residual command supervision loop 
+
+Require: state xk, nominal command rk, wind/disturbance telemetry wk, actuator/load telemetry, Q table Q, value proxy ̂ VH , action set Ar, command set C
+
+Ensure: projected command ˜rk, reward ρk, logged diagnostics  
+
+> 1:
+
+Compute Va,k , hk, ψk, eV,k , eh,k , eref ,k , lateral error eℓ,k , saturation ratio σk, and load factor nz,k . 
+
+> 2:
+
+Encode sk ← η(·) using Eq. (3.17), encode zk ← Φ( ·) using Eq. (3.24).  
+
+> 3:
+
+Compute disturbance summary Dk ← Vw,k + 2 σturb ,k . 
+
+> 4:
+
+if Dk > 10 and (eref ,k > 25 or severe energy capture or near-capture condition) then  
+
+> 5:
+
+Take aHk from the tabular-Q supervisor (Eq. (3.19)); go to command projection.  
+
+> 6:
+
+end if  
+
+> 7:
+
+Compute hard-condition score χk using Eq. (3.18).  
+
+> 8:
+
+if χk < 1 then  
+
+> 9:
+
+Set Avalid ← { a0}. 
+
+> 10:
+
+else  
+
+> 11:
+
+Build Avalid ⊆ A r from energy, altitude, lateral, wind, saturation, and load-risk gates.  
+
+> 12:
+
+end if  
+
+> 13:
+
+Compute no-op prediction ˆza0
+
+> k+1
+
+, H(zk, a 0), and ̂ VH (ˆ za0
+
+> k+1
+
+). 
+
+> 14:
+
+for a ∈ A valid do  
+
+> 15:
+
+Predict ˆzak+1 ← Ψ( zk, a ). 
+
+> 16:
+
+Evaluate ̂ VH (ˆ zak+1 ), ℓH (ˆ zak+1 , a ), H(zk, a ), and AH (zk, a ). 
+
+> 17:
+
+Evaluate CLF-style value-growth test Eq. (3.31) and CBF-style risk test Eq. (3.32).  
+
+> 18:
+
+Mark a as shielded if a hard block applies, or if it fails the CLF/CBF-style gates and does not improve the Hamiltonian relative to no-op.  
+
+> 19:
+
+Compute Sk(a) using Eq. (3.34).  
+
+> 20:
+
+end for  
+
+> 21:
+
+Form Fk using Eq. (3.33), include a0 unconditionally.  
+
+> 22:
+
+Select aHk ← arg max a∈F k Sk(a). 
+
+> 23:
+
+Project ˜rk ← ΠC (rk + ∆ r(aHk )) . 
+
+> 24:
+
+Send ˜rk to the fixed (gain-scheduled) autopilot, execute plant/actuator step.  
+
+> 25:
+
+Compute reward using the Eq. (3.20) structure with the HJB residual risk coefficient and HJB reward adjustment 0.04 max(0 , −AH ) − 0.02 max(0 , A H ). 
+
+> 26:
+
+Update Q by Eq. (3.19) , log reward, TD error, residual activity, candidate count, shield status, HJB value, HJB advantage, saturation, load factor, and violation flag. 
+
+## 3.8 Structural properties 
+
+Four properties follow from the design. Every projected command satisfies ˜rk ∈ C because projection is applied after the residual is added. The baseline command stays available because a0 ∈ A r and is retained unconditionally in Fk. The online candidate evaluation is finite because |A r| = 7 . All comparisons run in a shared runtime: Eq. (3.2) captures the command-layer difference before the common autopilot, and the residual modes also pass through the energy-allocation helper before the common actuator and plant update. Table 4 summarizes how the three modes differ in authority and decision logic. HJB-inspired residual UAV command supervision 22 
+
+Table 4: Controller modes compared by command authority and decision logic.     
+
+> Method Authority and interface Decision logic Baseline autopilot (Beard and McLain, 2010, Poksawat et al., 2018, Liu et al., 2015) Only the classical autopilot com-mands actuators; no learned resid-ual is present. Fixed (gain-scheduled) lateral and lon-gitudinal loops with actuator saturation and rate logic. Tabular Q residual (Johannink et al., 2019, Taherian and Shiri, 2014, Zah-matkesh et al., 2022) Autopilot remains the actuator-facing controller; Q modifies only
+> Va,c ,hc, and ψc, with energy-allocation helper support when active. Finite tabular Q-learning over dis-cretized tracking, wind, lateral/path, and risk features. HJB residual (Fisac et al., 2019, Yang et al., 2017, 2022, 2024, Ames et al., 2017, Li et al., 2018) Autopilot remains the actuator-facing controller; value-guided logic ranks finite command residuals through the same helper path. Q score plus semi-discrete value proxy, Hamiltonian advantage, finite-action shielding, no-op fallback, and tabular-Q delegation under severe disturbance.
+
+# 4 Experiment and results 
+
+We ran every test in one shared software-in-the-loop simulation runtime and compared three controller packages inside it. The first package is the classical autopilot alone, which sends the mission reference rk directly to the inner loop. The second adds a tabular-Q residual supervisor that selects a bounded residual command and projects it back into the admissible envelope. The third, HJB residual, uses the same residual interface but ranks candidates with an HJB/Bellman-inspired value, a no-op-relative Hamiltonian advantage, and a CLF/CBF-style filter, and keeps the no-op action as an always-available fallback. The three packages share the plant, autopilot, and actuator model and are compared as whole controller packages. They share the nonlinear 12-state plant, the wind-relative forces and moments, the altitude-dependent density model, the actuator lag/rate/saturation model, the classical autopilot, the mission generator, the wind, gust, and turbulence inputs, the integration step, and the metric definitions. Holding everything but the decision layer fixed is what lets us attribute the differences we report to the controller package rather than to the simulation. The two residual packages also activate the energy-allocation helper of Section 3 when residual activity or disturbance energy is high, whereas the baseline does not. Because that helper is part of every residual mode, the difference between baseline and residual packages reflects the residual-decision layer together with this helper, so the comparison is at the level of the controller package as a whole. The primary evidence is a full-duration 20-scenario benchmark. Each controller package runs one full-duration episode per scenario, for 60 controller-scenario runs in total. Scenario durations range from 45 to 60 s, and seeds run from 4101 to 4120, one seed per scenario. The scenarios span loiter and tight orbits, racetrack and figure-eight references, straight climbs, runway-takeoff acceleration and climbout cases, and fight-mode S-turns. The disturbance fields combine steady north, east, and down wind components with body-axis gusts, turbulence, crosswind, headwind, tailwind, and mixed diagonal stressors. Appendix C lists the geometry HJB-inspired residual UAV command supervision 23 
+
+and disturbance values for each scenario. A coarse 20 × 50 sweep provides short-horizon evidence. It evaluates the three packages over the 20 scenarios with 50 repetitions each, for 3000 early-phase episodes. Because these episodes are early-phase rather than full missions, the sweep examines short-horizon seed and repetition sensitivity; it is not merged with the primary benchmark. A single 60 s fight-mode run provides a longer-horizon check that the controllers remain numerically well-behaved. Together the full-duration benchmark, the coarse sweep, and the fight-mode run form three evidence tiers, ordered from full-mission tracking through short-horizon sensitivity to numerical sanity. The evaluation metrics are scalar episode summaries. Let N be the number of finite runtime samples retained for an episode and Ts the runtime sample time. At sample k the runtime gives altitude hk = −pd,k , altitude error eh,k = hc,k − hk, airspeed error eV,k = Va,c,k − Va,k ,and horizontal reference error eref ,k = √
+
+(pn,k − pref 
+
+> n,k
+
+)2 + ( pe,k − pref 
+
+> e,k
+
+)2. The three tracking metrics are root-mean-square errors, 
+
+RMS ref = 
+
+> √√√√
+
+1
+
+N
+
+> N∑
+> k=1
+
+e2ref ,k , (4.1) 
+
+RMS h = 
+
+> √√√√
+
+1
+
+N
+
+> N∑
+> k=1
+
+e2
+
+> h,k
+
+, (4.2) 
+
+RMS V = 
+
+> √√√√
+
+1
+
+N
+
+> N∑
+> k=1
+
+e2
+
+> V,k
+
+. (4.3) The control-activity index is the integral of the squared actuator vector, 
+
+Eu =
+
+> N∑
+> k=1
+
+δ⊤ 
+
+> k
+
+δkTs, (4.4) where δk is the four-channel actuator vector after lag, rate limiting, and saturation. Because 
+
+δk mixes control-surface deflections and throttle in runtime command units, Eu measures control activity rather than physical propulsion, battery, or fuel energy. The safety-violation fraction counts the share of airborne samples that exceed a load or saturation threshold, 
+
+fviol = 1
+
+N
+
+> N∑
+> k=1
+
+1[
+
+tk > 2, h k > 5, (|nz,k | > 6 ∨ sk > 0.98) ]
+
+, (4.5) where sk is the actuator saturation ratio. Table 5 states the runtime flag. This fraction is an empirical simulator metric. HJB-inspired residual UAV command supervision 24 
+
+Table 5: How the runtime decides a sample is a safety violation, and how those samples become an episode score.                                        
+
+> Runtime quantity Threshold or logic Role in the episode score Altitude hk=−pd,k hk>5mFirst part of the airborne gate. Runtime time after the step
+> tk>2sSecond part of the airborne gate. Load factor nz,k |nz,k |>6One violation source once the airborne gate holds. Actuator saturation ratio
+> sk
+> sk>0.98 Alternative violation source once the airborne gate holds. Per-sample safety flag 1[( tk>2) ∧(hk>5) ∧(( |nz,k |>
+> 6) ∨(sk>0.98))]
+> Counted once per retained sample. Safety-time fraction
+
+( ∑  
+
+> k1[·]
+
+)/ max( N, 1) Fraction of retained samples. 
+
+The peak load factor is 
+
+nz, max = max  
+
+> 1≤k≤N
+
+|nz,k |, (4.6) with the per-sample load factor clipped to the runtime range, 
+
+nz,k = clip(1 − ˙wk/g, −8, 8) . (4.7) Residual and shield activity are sample-fraction counters, 
+
+fres = 1
+
+N
+
+> N
+
+∑
+
+> k=1
+
+1[residual _active k], fsh = 1
+
+N
+
+> N
+
+∑
+
+> k=1
+
+1[shield _active k], (4.8) giving the fraction of samples with a nonzero residual and the fraction at which the finite-action shield removed a candidate (the shield-active counter logged by the runtime). The hard-condition score read by both residual supervisors is the max-normalized stress measure 
+
+ck = max {| eV,k |/10 , |eh,k |/35 , |eref ,k |/75 , |ext ,k |/20 , |erad ,k |/35 , |wk|/8, |σk|,
+
+max( sk − 0.65 , 0) /0.2, max( |nz,k | − 3.5, 0) /1.5}. (4.9) The HJB value proxy and advantage are selected-candidate diagnostics reported by HJB residual at each step and then averaged over the episode. For a selected candidate the runtime stores the predicted value ̂ VH,k and the no-op-relative advantage ̂ AH,k = Hi,k − H0,k , where 
+
+Hi,k = gi,k + γ̂ Vi,k − (1 − β)̂Vcur ,k . For the baseline and tabular-Q packages these diagnostics stay at their default values, since neither evaluates HJB candidates. Table 6 collects each reported metric with its symbol, how it is computed, and the unit and reading it carries. A methodological note on the altitude and airspeed columns: for the residual supervisors, 
+
+hc and Va,c are the post-residual commands the supervisor dispatched to the autopilot, not the nominal mission commands, so these columns measure how well the autopilot tracked the supervisor’s own (possibly energy-relief-adjusted) command, whereas the reference/path RMS column measures deviation from the nominal geometric mission path for every method. Altitude and airspeed error against the pre-residual nominal command are not logged, which limits reading the altitude and airspeed columns as a pure tracking-quality comparison against a fixed target. These metrics make the comparison a package-level one. The stored episodes support HJB-inspired residual UAV command supervision 25 
+
+Table 6: The metrics we report: symbol, how each is computed, and how to read its value. 
+
+Metric and symbol How it is computed Unit and reading Reference RMS, RMS ref RMS of the horizontal distance to the nominal geometric mission path, √mean( e2ref ); unaffected by the residual. m; nominal mission-path tracking. Altitude RMS, RMS h RMS of hc − h, with h = −pd and hc
+
+the command actually sent to the au-topilot (post-residual for the residual methods, nominal for the baseline). m; tracking of the adjusted com-mand, not the nominal mission alti-tude; the nominal-command altitude error is not separately logged. Airspeed RMS, RMS V RMS of Va,c − Va, with Va,c the com-mand actually sent to the autopilot (post-residual for the residual meth-ods, nominal for the baseline). m s −1; tracking of the adjusted com-mand; when a residual lowers Va,c 
+
+for energy recovery this metric re-flects the reduced command. Control activity, Eu Integral ∑ 
+
+> k
+
+δ⊤ 
+
+> k
+
+δkTs of the squared actuator vector. actuator-command 2 s; a runtime ac-tivity index, not physical propulsion or battery energy. Safety-violation fraction, fviol Fraction of samples with t > 2, h > 
+
+5, and either |nz | > 6 or s > 0.98 .dimensionless fraction; a runtime threshold metric. Max absolute load factor, nz, max max |nz | of the clipped nz = 1 − ˙w/g . g units; nonuniform and tie-heavy across methods. Residual active fraction, fres Fraction of samples with a nonzero residual action index. dimensionless fraction; a residual-usage diagnostic. Shield active fraction, fsh Fraction of samples at which any can-didate residual was shielded. dimensionless fraction; a filter-activity diagnostic. HJB value proxy, ¯VH Episode mean of the selected-candidate predicted value. dimensionless normalized critic diag-nostic. HJB advantage, ¯AH Episode mean of the selected Hamil-tonian difference relative to no-op. dimensionless diagnostic; negative is favorable relative to no-op under the proxy. Hard-condition score, ¯c Episode mean of the max-normalized score of Eq. (4.9). dimensionless stress gate, a heuristic runtime diagnostic. 
+
+claims about the baseline, tabular-Q, and HJB residual packages under the shared runtime at the package level. The benchmark scores reference tracking together with the airspeed and energy cost of achieving it, because in these episodes better spatial tracking is not free: altitude and heading corrections draw on energy, speed margin, and actuator authority. The numerical claims throughout the paper derive from these simulated episodes; external literature motivates the modeling, control, residual-learning, safe-filtering, and HJB/ADP choices. 
+
+## 4.1 Results 
+
+The full-duration 20-scenario aggregate in Table 7 is the primary result, computed from one full episode per scenario across all 20 scenarios. HJB residual attains the lowest mean spatial reference/path RMS at 44.809 m, against 88.809 m for the Q residual package and 338.617 m for the baseline. HJB residual also attains the lowest mean altitude RMS at 64.710 m, against 65.819 m for Q and 114.137 m for the baseline. The baseline attains the lowest mean airspeed HJB-inspired residual UAV command supervision 26 
+
+Table 7: Full-duration 20-scenario aggregate metrics ( N = 20 episodes per method, one episode per scenario). Lower is better for every listed metric. Ctrl. idx. is the runtime control-activity index and Viol. frac. is the safety-violation fraction. Interval columns are across-scenario descriptive 95% intervals in the same units as the adjacent metric (m, m/s).                                              
+
+> Method Episodes Ref./path RMS Interval Alt. RMS Interval Airspeed RMS Interval Ctrl. idx. Viol. frac. Max |nz|
+> (m) (m) (m) (m) (m/s) (m/s) Baseline 20 338.617 129.248 114.137 11.312 10.546 0.626 5.665 0.004802 7.414 Q residual 20 88.809 76.550 65.819 6.059 15.086 0.711 6.524 0.003090 6.844 HJB residual 20 44.809 32.781 64.710 5.808 15.191 0.694 6.346 0.003332 6.800
+
+RMS at 10.546 m/s, while Q reaches 15.086 m/s and HJB residual reaches 15.191 m/s. The baseline also has the lowest mean control-activity index at 5.665, against 6.524 for Q and 6.346 for HJB residual. Mean safety-violation fraction is 0.004802 for the baseline, 0.003090 for Q, and 0.003332 for HJB residual, and mean maximum |nz | is 7.414, 6.844, and 6.800 respectively. 
+
+Table 8: Reduction in mean spatial reference/path RMS over the full-duration benchmark ( N = 20 
+
+episodes per method), in percent. Each value is computed from the aggregate means in Table 7. 
+
+Comparison Reduction in mean spatial reference/path RMS Q residual vs baseline 73.77% HJB residual vs baseline 86.77% HJB residual vs Q residual 49.54% Table 8 converts the aggregate means of Table 7 into percentage reductions in mean spatial reference/path RMS. The Q residual package lowers the mean by 73.77% relative to the baseline. HJB residual lowers the mean by 86.77% relative to the baseline and by 49.54% relative to Q. The reduction in the mean does not hold at the median. The median spatial reference/path RMS, computed from the full-precision per-scenario episode values, is 0.802 m for both Q and HJB residual and 170.746 m for the baseline. Across the 20 scenarios, Q and HJB residual produce equal medians, and the difference between their means comes from two high-disturbance scenarios in which Q diverges and HJB residual recovers. In the fight crosswind-and-turbulence scenario, Q reaches 493.08 m while HJB residual reaches 57.41 m; in the fight tailwind-and-lateral-gust scenario, Q reaches 620.02 m while HJB residual reaches 214.96 m. Table 9 counts, metric by metric, how many of the 20 scenarios each method wins outright. For spatial reference/path RMS, HJB residual wins 15 of 20 scenarios, the baseline wins 4, and Q wins 1. For altitude RMS, HJB residual wins 18, Q wins 2, and the baseline wins 0. For airspeed RMS, the baseline wins all 20. For the control-activity index, the baseline wins 16, HJB residual wins 3, and Q wins 1. Safety-violation fraction has 16 exact ties, with 3 baseline wins, 1 HJB residual win, and 0 Q wins among the remainder; maximum absolute load factor has 6 exact ties, with 8 HJB residual wins, 4 baseline wins, and 2 Q wins. Table 10 restates the same aggregate means as ratios to the baseline, so a value below one is lower than the baseline and a value above one is higher. Both residual packages are HJB-inspired residual UAV command supervision 27   
+
+> Table 9: Per-scenario strict winner counts over the 20-scenario full-duration benchmark ( N= 20
+> scenarios). A method wins a scenario when it holds the unique minimum of the listed metric; exact ties are counted separately and listed in the tie column.
+
+Metric minimized Baseline Q residual HJB residual Tie note Spatial reference/path RMS 4 1 15 strict minima Altitude RMS 0 2 18 strict minima Airspeed RMS 20 0 0 strict minima Control-activity index 16 1 3 strict minima Safety-violation fraction 3 0 1 16 exact ties Max absolute load factor 4 2 8 6 exact ties                          
+
+> Table 10: Full-duration aggregate metrics normalized to the baseline ( N= 20 episodes per method, dimensionless ratios). A ratio below one is lower than the baseline; a ratio above one is higher. Viol. frac. is the safety-violation fraction and Ctrl. idx. is the runtime control-activity index.
+> Method Ref./path RMS Alt. RMS Airspeed RMS Ctrl. idx. Viol. frac. Max |nz|
+> Baseline 1.000 1.000 1.000 1.000 1.000 1.000 Q residual 0.262 0.577 1.431 1.152 0.643 0.923 HJB residual 0.132 0.567 1.440 1.120 0.694 0.917
+
+below one for spatial reference/path and altitude RMS and above one for airspeed RMS and the control-activity index. Airspeed RMS rises from 10.5 m/s under the baseline to 15.1 m/s under Q and 15.2 m/s under HJB residual, and the control-activity index rises from 5.665 to 6.524 under Q and 6.346 under HJB residual. No single package has the lowest value on every metric. Figure 3 plots the mean spatial reference/path RMS of Table 7 as a bar per method, with across-scenario descriptive 95% intervals as error bars. The bars rank HJB residual at 44.809 m below Q at 88.809 m and the baseline at 338.617 m, the 86.77% and 49.54% reductions reported above. Figure 4 draws the baseline-normalized ratios of Table 10 as a grouped bar chart. HJB residual sits at 0.132 for spatial reference/path RMS and 0.567 for altitude RMS, both below one, while airspeed RMS reaches 1.440 and the control-activity index 1.120, both above one; the Q residual package follows the same below-and-above pattern at 0.262, 0.577, 1.431, and 1.152. Figure 5 places each method on the spatial reference/path RMS axis against the airspeed RMS axis, with bubble area scaling with the control-activity index. The baseline sits at the lowest airspeed RMS of 10.546 m/s but the highest spatial reference/path RMS of 338.617 m, while HJB residual moves to 44.809 m spatial RMS at 15.191 m/s airspeed RMS and Q to 88.809 m at 15.086 m/s, so the spatial gain comes alongside a higher airspeed error. Figure 6 shows the per-scenario winner counts of Table 9 as stacked bars per metric. The spatial reference/path and altitude bars are dominated by HJB residual at 15 and 18 wins, the airspeed bar is entirely baseline at 20 wins, the control-activity bar is mostly baseline at 16 wins, and the safety-violation and load-factor bars are short because 16 and 6 scenarios HJB-inspired residual UAV command supervision 28 
+
+Figure 3: Mean RMS spatial reference/path error over the 20-scenario full-duration benchmark (N = 20 episodes per method, one episode per scenario), in metres. Lower is better. Bars rank baseline 338.617, Q residual 88.809, and HJB residual 44.809. Error bars are across-scenario descriptive 95% intervals. 
+
+end in exact ties. Figure 7 lays out the spatial reference/path RMS of all 20 scenarios as a method-by-scenario heatmap. The baseline row carries the darkest cells, including the high-disturbance scenarios where its error reaches the hundreds of metres, and these fall under residual supervision, while a smaller set of scenarios keeps the baseline or Q cells comparable to HJB residual, matching the 4 baseline and 1 Q spatial wins of Table 9. 
+
+Table 11: Mean spatial reference/path RMS (m) by mission profile over the full-duration benchmark. Lower is better. The N column gives the number of scenarios in each profile group, which differs across groups.                                     
+
+> Profile NBaseline Q residual HJB residual fight mode 4682.42 278.64 68.46 figure eight 2133.74 0.78 0.77 high speed climb s turn 200 2334.68 76.25 75.38 loiter orbit 3120.07 44.60 38.94 racetrack 3294.70 70.87 64.41 runway takeoff accel 200 2355.52 0.83 0.83 straight climb altitude hold 2364.06 79.06 78.42 takeoff climbout 200 2211.18 0.68 0.74
+
+Table 11 groups mean spatial reference/path RMS by mission profile, averaging the scenarios in each group as counted in the N column. The residual packages have lower mean HJB-inspired residual UAV command supervision 29    
+
+> Figure 4: Full-duration aggregate metrics normalized to the baseline ( N= 20 episodes per method). A ratio below one is lower than the baseline. HJB residual is lowest for spatial reference/path and altitude error; both residual packages exceed the baseline for airspeed RMS and control-activity index.
+
+spatial reference/path RMS than the baseline in the orbit, racetrack, climb, and fight-mode profile groups; in the fight-mode group the mean falls from 682.42 m for the baseline to 278.64 m for Q and 68.46 m for HJB residual. In the takeoff-climbout group, Q reaches 0.68 m and HJB residual reaches 0.74 m, so Q is marginally lower than HJB residual there. Figure 8 draws the per-profile means of Table 11 as grouped bars. The baseline bar is tallest in every profile group, the residual bars are far shorter in the fight-mode, racetrack, and climb groups, and the figure-eight, runway-takeoff, and takeoff-climbout groups collapse HJB-inspired residual UAV command supervision 30 
+
+Figure 5: Mean spatial reference/path RMS (m) versus mean airspeed RMS (m/s) over the full-duration benchmark ( N = 20 episodes per method); bubble area scales with the control-activity index. The baseline holds the lowest airspeed error, and the residual packages hold lower spatial reference/path error at higher airspeed error. 
+
+Figure 6: Per-scenario strict winner counts over the 20-scenario full-duration benchmark ( N = 20 
+
+scenarios). Spatial reference/path and altitude wins favour the residual packages; airspeed and control-activity wins favour the baseline; safety-violation and load-factor metrics are tie-heavy. HJB-inspired residual UAV command supervision 31    
+
+> Figure 7: Per-scenario spatial reference/path RMS (m) for the three methods over the full-duration benchmark ( N= 20 scenarios). Lower is better. Several high-disturbance scenarios carry large baseline errors that fall under residual supervision; a smaller set keeps the baseline or Q competitive.
+
+to under 1 m for both residual packages. Table 12 reports the mean residual-supervisor diagnostics logged during the full-duration benchmark. The Q residual package is active in a mean 0.913 fraction of the timeline and HJB residual in 0.888, and HJB residual logs shield activity in 0.120 of samples. The mean HJB advantage for HJB residual is −0.326 and the mean HJB value proxy is 2.642. These quantities are zero for the baseline and for Q, which carry no HJB layer. HJB-inspired residual UAV command supervision 32 
+
+Figure 8: Mean spatial reference/path RMS (m) by mission profile over the full-duration benchmark, with unequal scenario counts per profile group. Lower is better. The residual packages have lower mean spatial reference/path RMS than the baseline across several profile families. 
+
+Table 12: Mean residual-supervisor diagnostics over the full-duration benchmark ( N = 20 episodes per method). Residual-active and shield-active fractions are dimensionless; the hard-condition score, HJB value proxy, and HJB advantage are dimensionless surrogate quantities. The baseline and the Q residual package carry no HJB layer, so their HJB columns are zero. Method Residual active frac. Hard-condition score HJB value HJB advantage Shield active frac. Baseline 0.000 0.000 0.000 0.000 0.000 Q residual 0.913 2.959 0.000 0.000 0.000 HJB residual 0.888 2.534 2.642 -0.326 0.120 
+
+Figure 9 groups the diagnostic columns of Table 12 into a bar chart per method. The residual-active bars sit at 0.913 for Q and 0.888 for HJB residual, the hard-condition bars at 2.959 and 2.534, and the HJB value, HJB advantage, and shield-active bars are nonzero only for HJB residual, at 2.642, −0.326 , and 0.120. 
+
+Table 13: Coarse 20 × 50 short-horizon sweep ( N = 1000 episodes per method, 8 s each). Lower is better. Ref./path and altitude columns are in metres, airspeed in m/s, and Viol. frac. (safety-violation fraction) and Ctrl. idx. (runtime control-activity index) are dimensionless.                     
+
+> Method Episodes Ref./path RMS Alt. RMS Airspeed RMS Ctrl. idx. Viol. frac. Baseline 1000 0.866 221.417 18.944 0.732 0.002223 Q residual 1000 1.183 156.781 35.169 0.833 0.000447 HJB residual 1000 1.174 155.149 35.303 0.822 0.000378
+
+Table 13 reports the coarse 20 × 50 short-horizon sweep, averaging 1000 eight-second HJB-inspired residual UAV command supervision 33 
+
+Figure 9: Residual-supervisor diagnostics over the full-duration benchmark ( N = 20 episodes per method): residual-active fraction, hard-condition score, HJB value proxy, HJB advantage, and shield-active fraction. HJB columns are nonzero only for HJB residual. 
+
+episodes per method. Here the ranking on mean spatial reference/path RMS inverts: the baseline is lowest at 0.866 m, HJB residual is 1.174 m, and Q is 1.183 m. In the same sweep, mean altitude RMS falls from 221.417 m under the baseline to 156.781 m under Q and 155.149 m under HJB residual, and mean airspeed RMS rises from 18.944 m/s under the baseline to 35.169 m/s under Q and 35.303 m/s under HJB residual. 
+
+Figure 10: Coarse 20 × 50 short-horizon sweep ( N = 1000 episodes per method, 8 s each). Lower is better. On mean spatial reference/path RMS the baseline is lowest (0.866 m), ahead of HJB residual (1.174 m) and Q residual (1.183 m); altitude RMS falls under residual supervision and airspeed RMS rises. 
+
+Figure 10 plots the coarse-sweep means of Table 13 as bars per metric. On spatial HJB-inspired residual UAV command supervision 34 
+
+reference/path RMS the baseline bar is shortest at 0.866 m, with HJB residual at 1.174 m and Q at 1.183 m, while the altitude bars fall from 221.417 m to 155.149 m under HJB residual and the airspeed bars rise from 18.944 m/s to 35.303 m/s. 
+
+Table 14: Fight-mode 60 s smoke run ( N = 1 run per method). Lower is better. Ref./path and altitude columns are in metres, airspeed in m/s, and Viol. frac. (safety-violation fraction), Ctrl. idx. (runtime control-activity index), and residual-active fraction are dimensionless.                         
+
+> Method Ref./path RMS Alt. RMS Airspeed RMS Ctrl. idx. Viol. frac. Residual active frac. Baseline 177.140 100.880 8.703 13.532 0.003500 0.000 Q residual 185.854 77.780 11.156 14.244 0.005000 0.078 HJB residual 189.378 68.204 14.742 15.109 0.003333 0.194
+
+Table 14 reports the single 60 s fight-mode smoke run per method. The baseline has the lowest spatial reference/path RMS at 177.140 m, followed by Q at 185.854 m and HJB residual at 189.378 m. HJB residual has the lowest altitude RMS at 68.204 m, while its airspeed RMS is 14.742 m/s and its control-activity index is 15.109, both above the baseline values of 8.703 m/s and 13.532. 
+
+Figure 11: Fight-mode 60 s smoke run ( N = 1 run per method). Lower is better. The baseline has the lowest spatial reference/path RMS (177.140 m), followed by Q residual (185.854 m) and HJB residual (189.378 m); HJB residual has the lowest altitude RMS. 
+
+Figure 11 plots the fight-mode smoke metrics of Table 14 as bars per method. The spatial reference/path bars rank the baseline lowest at 177.140 m, then Q at 185.854 m and HJB residual at 189.378 m, while the altitude bars run the other way, with HJB residual lowest at 68.204 m. HJB-inspired residual UAV command supervision 35  
+
+> Figure 12: Representative time series for one low-altitude crosswind/turbulence orbit scenario, showing reference error, altitude error, airspeed error, load factor, residual activity, and shield activity against time for the three methods. This is a single trace, not an aggregate.
+
+Figure 12 traces one low-altitude crosswind-and-turbulence orbit scenario over time, with reference error, altitude error, airspeed error, load factor, residual activity, and shield activity drawn for each method. The baseline reference-error trace stays large for the whole run, the two residual traces collapse toward zero once residual activity engages, and the residual and shield channels are nonzero only for the residual packages. HJB-inspired residual UAV command supervision 36 
+
+# 5 Discussion 
+
+The benefit of residual command supervision is concentrated in long-horizon, high-disturbance flight, and it is small or absent elsewhere. Over the full-duration benchmark, HJB residual lowers mean RMS reference error to 44.809 m against 338.617 m for the baseline and 88.809 m for the Q residual, an 86.77% reduction relative to the baseline and a 49.54% reduction relative to Q. The strength of this framing is that the gain comes from reshaping a reference rather than rewriting a controller: the airframe is still flown by the same inner loop, so the learner inherits the autopilot’s stabilization, rate handling, and saturation behavior instead of having to relearn them. The corresponding weakness is that the aggregate gain is not a broad per-scenario win. The median reference error is a near-tie between Q and HJB residual at 0.802 m, and most of the HJB residual-over-Q mean gap traces to two adversarial fight scenarios in which the Q residual diverges while HJB residual recovers: crosswind-with-turbulence and tailwind-with-lateral-gust, where Q reaches several hundred metres of reference error and the value-guided variant recovers the closed-loop trajectory. In the coarse early-phase sweep and the fight-mode smoke run the ranking inverts and the baseline tracks the reference best, with airspeed rising from 10.5 to 15.2 m/s once the residual engages. The picture the numbers support is narrow: when the mission is long, the disturbance is strong, and the baseline autopilot would otherwise drift far from its reference, a bounded value-guided residual reduces the closed-loop reference error; when the horizon is short or the air is nominal, the residual adds little and can track slightly worse. That asymmetry has a mechanism, and the same mechanism explains both the gain and its cost. The residual never touches elevator, aileron, rudder, or throttle; it biases the airspeed, altitude, and heading reference the classical autopilot already tracks, toward energy recovery, altitude correction, or lateral recovery. Decoupling adaptive error reduction from low-level stabilization is the central reason small command-level corrections can move a path under disturbance: the learner targets the reference while the robust base controller absorbs the fast dynamics, an arrangement that constrained residual reinforcement learning has used to refine a nominal controller without taking on actuator-scale exploration risk, and that aircraft disturbance-rejection work motivates whenever compound aerodynamic effects accumulate against a fixed trajectory. When that bias is well aimed in a hard scenario, spatial and altitude error fall because the autopilot is no longer asked to hold only the nominal mission command. Speed, altitude, lateral motion, throttle, pitch, and load are coupled, so the same reference bias spends pitch and throttle authority that would otherwise regulate airspeed. The residual modes therefore trade reduced path and altitude error for increased airspeed error and higher control activity: airspeed RMS rises from 10.546 m/s at the baseline to 15.086 m/s under Q and 15.191 m/s under HJB residual, and the control-activity index rises with it. This is a physical trade-off rather than a tuning artifact. Aggressive flight-path and altitude correction couples directly into thrust use, so a controller that prioritizes path tends to saturate the energy channel that would otherwise hold speed, which is why classical designs reach for total-energy management and anti-windup structure to keep the two channels balanced. The cost is visible directly in the per-scenario winner counts, where the baseline wins every scenario on airspeed. The advantage of the value layer over a purely tabular residual is that it scores each candidate against doing nothing, and that scoring is what separates HJB residual from Q HJB-inspired residual UAV command supervision 37 
+
+in the hardest cases. A raw Q estimate ranks actions by absolute value and can mis-rank when the useful signal is small relative to the table’s noise; anchoring the decision to a no-op-relative advantage makes the comparison sharper, in the spirit of advantage-based action selection. The diagnostics show where this engages without certifying why it helps. The residual-active fraction near 0.9 shows the supervisor selects a nonzero residual on most steps once the hard-condition gate opens; the shield-active fraction of about 0.12 under HJB residual shows the finite-action shield removing candidates on roughly one step in eight. The mean Hamiltonian advantage of −0.326 is a no-op-relative score: selected residuals scored better than preserving the nominal command under the value proxy, on average. These quantities confirm that the value and filtering machinery was exercised; they are surrogate signals over a hand-designed predictor, not evidence of forward invariance or optimality. Tabular residual supervision over discretized tracking, wind, and energy features is itself a reasonable design, with finite-state abstraction and Q-learning attitude control on agile aircraft as precedent (Taherian and Shiri, 2014, Zahmatkesh et al., 2022), but the benchmark shows its ceiling: the Q residual without the shield is the variant that diverges in the two fight scenarios that the value-guided selector survives. The baseline remains a strong reference precisely on the channels the residual sacrifices, and it should be read that way. The small-UAV modeling and control basis it follows keeps nested actuator-facing loops with bandwidth separation and saturation handling intact (Beard and McLain, 2010), and gain-scheduled fixed-wing autopilots carry that structure across flight conditions while staying re-tunable (Poksawat et al., 2018), an approach that also extends to airframes with minimal control surfaces (Liu et al., 2015). Because the baseline does not chase residual geometric corrections, it is less aggressive on difficult path cases but protects airspeed regulation and uses less control activity. The same wind and turbulence literature that drives our hard scenarios reaches the trade-offs we observe by altering the low-level controller instead of the reference: steady-wind trajectory design shows that wind reshapes which maneuvers are feasible at all (Ayhan and Kwan, 2018), low-altitude wind shear degrades curved-path following enough to justify dedicated guidance (Zhang et al., 2024), and turbulence-mitigation work redesigns the inner loop through segmented surfaces or a robust nonlinear law (Sattar et al., 2022, Meharie and Lemma, 2024). Our contribution is to ask whether bounded reshaping of the reference alone can recover difficult tracking cases while that inner loop stays fixed, and the answer is a qualified yes confined to the long-horizon regime. Against actuator-level residual RL, HJB residual is deliberately more conservative. The canonical formulation injects the learned correction at the torque or actuator interface (Johannink et al., 2019), and aerospace residual learning carries that idea into flight while arguing for explicit safety machinery around the learned term (Jayarathne et al., 2023); supervisory RL in another safety-critical plant places the learned decision above the plant-facing loop rather than inside it (Sun et al., 2024), which is the posture we adopt. By correcting only the reference, each intervention is bounded by command projection, inspectable at every step, and disengageable through the no-op action, at the cost of authority limited by the autopilot and actuator response. This command-layer view is shared with control-theoretic methods that treat the reference itself as the design surface, through command-filtered backstepping (Dong et al., 2012), modified command and reference models (Na et al., 2020), and command limiting (Sun et al., 2021); what we add is a finite residual on HJB-inspired residual UAV command supervision 38 
+
+commanded airspeed, altitude, and heading with a shared-runtime comparison against both a classical autopilot and a Q-only residual, reporting the airspeed and control-activity cost the intervention incurs. The broader case for keeping a robust base controller and layering learning above it, rather than replacing it, is also made by work that integrates adaptive control with reinforcement learning (Annaswamy et al., 2023) and that hardens learned policies with an adaptive inner controller (Cheng et al., 2022). The relationship to safe RL, control barrier functions, and HJB or ADP methods is one of inspiration, not equivalence. The admissible-action restriction follows constraint-admissible safe RL (Li et al., 2018). The value-growth and risk gates borrow the pointwise stability-and-safety conditions that control-barrier-function quadratic programs enforce (Ames et al., 2017), with the approximate optimal and scalable variants of that filtering as further precedent (Cohen and Belta, 2020, Gurriet et al., 2020), and the barrier-Lyapunov actor-critic showing how such conditions enter a learned critic (Zhao et al., 2023). The value-based safety reasoning is motivated by Hamilton-Jacobi reachability bridged with RL (Fisac et al., 2019), whose exactness scales poorly with state dimension. The Hamiltonian advantage and the semi-discrete value iteration draw on Hamiltonian-driven approximate dynamic programming (Yang et al., 2017), including its treatment of approximation error (Yang et al., 2022) and its experience-replay extension (Yang et al., 2024), and on HJB optimal feedback with explicit action constraints (Lutter et al., 2020). The notion of a learned critic acting as a hard constraint comes from safe-value functions (Tan et al., 2024). In all of these our construction operates as a finite-action shield over predicted features rather than a solved continuous HJB partial differential equation or a certified barrier; the negative mean advantage and the nonzero shield fraction are surrogate diagnostics, and the tie-heavy, nonuniform safety-violation fraction across scenarios discourages any overbroad safety reading of the aggregate result. These results are bounded in ways that shape how far they can be carried. The study is entirely in simulation, with no real-flight, hardware-in-the-loop, software-timing, or wind-tunnel evidence, and the aircraft is a coefficient-based small-UAV model rather than a calibrated airframe, its nominal trim speed and motor constant set as repository stress-test values rather than certified limits; simulation environments are known to yield more optimistic robustness than physical flight, which is why we treat the digital twin as an engineering reference and not a high-fidelity aerodynamic surrogate. There is no formal stability or safety certificate: the value-iteration critic and the CLF- and CBF-inspired finite-action shield are heuristic constructions over normalized features, not a continuous HJB solution or a certified forward-invariant barrier, so command boundedness from projection and nominal baseline invariance under the hard-condition gate are the only structural properties we assert. The comparison is at the level of the controller package rather than a component ablation, because a deterministic energy-allocation helper is active in both residual modes but not in the baseline, so the residual-versus-baseline gain cannot be attributed to the value or critic layer alone, and the individual contributions of the Q table, the value proxy, the Hamiltonian advantage, the finite-action shield, the hard-condition gate, the action set, the reward shaping, and the energy helper are not separately isolated. The primary full-duration benchmark uses a single seed per scenario, so its across-scenario intervals are descriptive rather than repeated-seed confidence intervals, and the only multi-run evidence is the short early-phase sweep and a single fight-mode run; the seed-sensitivity literature is explicit that HJB-inspired residual UAV command supervision 39 
+
+this is supplementary robustness evidence, not full-mission validation (Eimer et al., 2023). Within these bounds the benchmark is useful because it is code-traceable and reports the cost of residual supervision alongside its benefit, which is what makes the long-horizon, high-disturbance gain interpretable rather than incidental, and it points at the obvious next steps: per-component ablation of the helper, shield, advantage, and reward terms, full-duration multi-seed trials, and a path toward hardware-in-the-loop and flight evidence. 
+
+# 6 Conclusion 
+
+We presented HJB residual, an autopilot-preserving command supervisor that leaves a classical fixed-wing autopilot as the actuator-facing controller and confines learning to bounded residuals on the commanded airspeed, altitude, and heading. The residual is drawn from a finite action set and scored by a tabular Q-value, a semi-discrete HJB/Bellman value proxy, a no-op-relative Hamiltonian advantage, and a CLF/CBF-inspired finite-action shield, with the no-op action always retained as a fallback. The supervisor never reaches the elevator, aileron, rudder, or throttle; it only reshapes the reference the autopilot already tracks. We evaluated the method in a shared simulation runtime in which the baseline autopilot, the tabular Q residual, and HJB residual pass through the same nonlinear plant, actuator model, mission generator, and disturbance and metric definitions, so that the comparison is at the level of the whole controller package; the two residual supervisors also share a deterministic energy-allocation helper that the baseline lacks, so the baseline-versus-residual gain reflects the residual package as a whole rather than the residual-decision layer in isolation. The primary evidence is a full-duration 20-scenario benchmark; a short-horizon early-phase sweep and a fight-mode 60 s run provide supporting context for seed sensitivity and finite-runtime behavior rather than additional performance claims. On the full-duration benchmark, HJB residual attains a mean RMS reference error of 44.809 m, against 338.617 m for the baseline autopilot and 88.809 m for the tabular Q residual. This is an 86.77% reduction relative to the classical baseline and a 49.54% reduction relative to Q. The improvement is concentrated in spatial and altitude tracking under disturbance and does not extend to every metric: airspeed RMS error and control activity rise rather than fall, so the supervisor reshapes the trade-off rather than dominating it. Relative to the classical autopilot it preserves the inner loop while lowering long-horizon, high-disturbance reference error; the claim is therefore narrow, that bounded value-guided shielded supervision improves difficult reference tracking in this benchmark without replacing the underlying controller. Several directions would strengthen and sharpen this evidence. Repeating the full-duration benchmark with multiple seeds per scenario would turn the reported intervals from descriptive into inferential. A component ablation that isolates the value-iteration critic and the finite-action shield from the deterministic energy-allocation helper active in the residual modes would attribute the observed gain to its sources. Beyond the present coefficient-based model, higher-fidelity dynamics and software- and hardware-in-the-loop studies would test the supervisor under more realistic actuation and sensing, and controlled flight trials would assess transfer to physical aircraft. HJB-inspired residual UAV command supervision 40 
+
+# Acknowledgements 
+
+This article was carried out within the scope of the TÜBİTAK 3501 project numbered 225M067, titled “A Next-Generation Flight Control Architecture for Fixed-Wing UAVs: Online Uncertainty and Parameter Adaptation with Hardware-in-the-Loop Integrated HJB-SAC Control.” 
+
+# Data availability statement 
+
+The tables and figures in this paper are derived from the simulation artifacts produced by the benchmark runs. The CSV, JSON, and JSONL files identified in the figure captions and appendices contain the per-method aggregates, per-scenario results, and diagnostic logs underlying every reported number. 
+
+# Code availability statement 
+
+The implementation is openly available in the GitHub repository at https://github.com/ PhiniteLab/pythalab-sharq-hjb-uav-command-supervision (PhiniteLab, 2026), with a companion demonstration video at https://youtu.be/CIf4Dxo5INg . The repository con-tains the nonlinear fixed-wing plant and atmosphere model, the classical autopilot and actuator model, the shared simulation runtime, the tabular residual Q-learning supervisor, the HJB-inspired value-iteration critic and Hamiltonian-advantage scoring, the CLF/CBF-style finite-action shield, the deterministic energy-allocation helper, the scenario and mission generators, and the experiment runner and metric definitions used to produce the reported artifacts. Readers may use the repository for testing, reproduction, and derivative research provided that the repository and this paper are cited. 
+
+# Declaration on the use of generative AI tools 
+
+The authors used a generative-AI assistant solely to improve the English-language quality of the manuscript, that is, to correct grammar and refine the phrasing and clarity of text written by the authors. It was not used to generate, design, or analyze any of the methods, code, experiments, data, or results. The underlying technical work was carried out by the authors and can be independently examined in the public GitHub repository and the companion demonstration video cited in the Code availability statement. 
+
+# Conflict of interest statement 
+
+The authors declare no conflict of interest. HJB-inspired residual UAV command supervision 41 
+
+# References 
+
+Ames, A. D., Xu, X., Grizzle, J. W., & Tabuada, P. (2017). Control barrier function based quadratic programs for safety critical systems. IEEE Transactions on Automatic Control, 62 (8), 3861–3876. 
+
+https://doi.org/10.1109/TAC.2016.2638961 
+
+Annaswamy, A. M., Guha, A., Cui, Y., Tang, S., Fisher, P. A., & Gaudio, J. E. (2023). Integration of adaptive control and reinforcement learning for real-time control and learning. IEEE Transactions on Automatic Control, 68 (12), 7740–7755. https://doi.org/10.1109/TAC.2023.3290037 
+
+Ayhan, B., & Kwan, C. (2018). Time-constrained extremal trajectory design for fixed-wing unmanned aerial vehicles in steady wind. Journal of Guidance, Control, and Dynamics, 41 (7), 1569–1576. 
+
+https://doi.org/10.2514/1.G003353 
+
+Beard, R. W., & McLain, T. W. (2010). Navigation, guidance, and control of small and miniature air vehicles . Brigham Young University. https://www.et.byu.edu/~beard/classes/ece674/ uavbook.pdf 
+
+Cheng, Y., Zhao, P., Wang, F., Block, D. J., & Hovakimyan, N. (2022). Improving the robustness of reinforcement learning policies with L1 adaptive control. IEEE Robotics and Automation Letters, 7 (3), 6574–6581. https://doi.org/10.1109/LRA.2022.3169309 
+
+Cohen, M. H., & Belta, C. (2020). Approximate optimal control for safety-critical systems with control barrier functions. In 2020 59th IEEE Conference on Decision and Control (CDC) (pp. 2062–2067). IEEE. https://doi.org/10.1109/CDC42340.2020.9303896 
+
+Dong, W., Farrell, J. A., Polycarpou, M. M., Djapic, V., & Sharma, M. (2012). Command filtered adaptive backstepping. IEEE Transactions on Control Systems Technology, 20 (3), 566–580. 
+
+https://doi.org/10.1109/TCST.2011.2121907 
+
+Eimer, T., Lindauer, M., & Raileanu, R. (2023). Hyperparameters in reinforcement learning and how to tune them. In Proceedings of the 40th International Conference on Machine Learning (pp. 9104–9149). PMLR. https://proceedings.mlr.press/v202/eimer23a.html 
+
+Fisac, J. F., Lugovoy, N. F., Rubies-Royo, V., Ghosh, S., & Tomlin, C. J. (2019). Bridging Hamilton-Jacobi safety analysis and reinforcement learning. In 2019 International Conference on Robotics and Automation (ICRA) (pp. 8550–8556). IEEE. https://doi.org/10.1109/ICRA. 2019.8794107 
+
+Gurriet, T., Mote, M., Singletary, A., Nilsson, P., Feron, E., & Ames, A. D. (2020). A scalable safety critical control framework for nonlinear systems. IEEE Access, 8 , 187249–187275. https: //doi.org/10.1109/ACCESS.2020.3025248 
+
+Jayarathne, D., Paternain, S., & Mishra, S. (2023). Safe residual reinforcement learning for helicopter aerial refueling. In 2023 IEEE/ASME International Conference on Advanced Intelligent Mecha-tronics (AIM) (pp. 263–269). IEEE. https://doi.org/10.1109/AIM46323.2023.10196137 
+
+Johannink, T., Bahl, S., Nair, A., Luo, J., Kumar, A., Loskyll, M., Ojea, J. A., Solowjow, E., & Levine, S. (2019). Residual reinforcement learning for robot control. In 2019 International Conference on Robotics and Automation (ICRA) (pp. 6023–6029). IEEE. https://doi.org/10. 1109/ICRA.2019.8794127 HJB-inspired residual UAV command supervision 42 Li, Z., Kalabić, U., & Chu, T. (2018). Safe reinforcement learning: Learning with supervision using a constraint-admissible set. In 2018 Annual American Control Conference (ACC) (pp. 6390–6395). IEEE. https://doi.org/10.23919/ACC.2018.8430770 
+
+Liu, M., Egan, G. K., & Santoso, F. (2015). Modeling, autopilot design, and field tuning of a UAV with minimum control surfaces. IEEE Transactions on Control Systems Technology, 23 (6), 2353–2360. https://doi.org/10.1109/TCST.2015.2398316 
+
+Lutter, M., Belousov, B., Listmann, K., Clever, D., & Peters, J. (2020). HJB optimal feedback control with deep differential value functions and action constraints. In Proceedings of the Conference on Robot Learning (pp. 640–650). PMLR. https://proceedings.mlr.press/v100/lutter20a. html 
+
+Meharie, H. B., & Lemma, L. N. (2024). Optimized robust fuzzy twisting sliding mode control design for fixed wing UAV. IEEE Access, 12 , 170112–170134. https://doi.org/10.1109/ACCESS.2024. 3497723 
+
+Na, J., Yang, J., & Gao, G. (2020). Reinforcing transient response of adaptive control systems using modified command and reference model. IEEE Transactions on Aerospace and Electronic Systems, 56 (3), 2005–2017. https://doi.org/10.1109/TAES.2019.2939612 
+
+Poksawat, P., Wang, L., & Mohamed, A. (2018). Gain scheduled attitude control of fixed-wing UAV with automatic controller tuning. IEEE Transactions on Control Systems Technology, 26 (4), 1192–1203. https://doi.org/10.1109/TCST.2017.2709274 
+
+PhiniteLab. (2026). pythalab-sharq-hjb-uav-command-supervision: Open-source SHARQ-HJB command-supervision implementation, tests, and usage materials . GitHub repository. https: //github.com/PhiniteLab/pythalab-sharq-hjb-uav-command-supervision 
+
+Sattar, A., Wang, L., Hoshu, A. A., Ansari, S., Karar, H.-e., & Mohamed, A. (2022). Automatic tuning and turbulence mitigation for fixed-wing UAV with segmented control surfaces. Drones, 6 (10), Article 302. https://doi.org/10.3390/drones6100302 
+
+Sun, D., Hovakimyan, N., & Jafarnejadsani, H. (2021). Design of command limiting control law using exponential potential functions. Journal of Guidance, Control, and Dynamics, 44 (2), 441–448. 
+
+https://doi.org/10.2514/1.G004972 
+
+Sun, Y., Khairy, S., Vilim, R. B., Hu, R., & Dave, A. J. (2024). A safe reinforcement learning algorithm for supervisory control of power plants. Knowledge-Based Systems, 301 , Article 112312. 
+
+https://doi.org/10.1016/j.knosys.2024.112312 
+
+Taherian, N., & Shiri, M. E. (2014). Q*-based state abstraction and knowledge discovery in reinforcement learning. Intelligent Data Analysis, 18 (6), 1153–1175. https://doi.org/10.3233/ IDA-140689 
+
+Tan, D. C. H., McCarthy, R., Acero, F., Delfaki, A. M., Li, Z., & Kanoulas, D. (2024). Safe value functions: Learned critics as hard safety constraints. In 2024 IEEE 20th International Conference on Automation Science and Engineering (CASE) (pp. 2441–2448). IEEE. https: //doi.org/10.1109/CASE59546.2024.10711661 HJB-inspired residual UAV command supervision 43 Yang, Y., Wunsch, D. C., & Yin, Y. (2017). Hamiltonian-driven adaptive dynamic programming for continuous nonlinear dynamical systems. IEEE Transactions on Neural Networks and Learning Systems, 28 (8), 1929–1940. https://doi.org/10.1109/TNNLS.2017.2654324 
+
+Yang, Y., Modares, H., Vamvoudakis, K. G., He, W., Xu, C.-Z., & Wunsch, D. C. (2022). Hamiltonian-driven adaptive dynamic programming with approximation errors. IEEE Transactions on Cyber-netics, 52 (12), 13762–13773. https://doi.org/10.1109/TCYB.2021.3108034 
+
+Yang, Y., Pan, Y., Xu, C.-Z., & Wunsch, D. C., II. (2024). Hamiltonian-driven adaptive dynamic programming with efficient experience replay. IEEE Transactions on Neural Networks and Learning Systems, 35 (3), 3278–3290. https://doi.org/10.1109/TNNLS.2022.3213566 
+
+Zahmatkesh, M., Emami, S. A., Banazadeh, A., & Castaldi, P. (2022). Robust attitude control of an agile aircraft using improved Q-learning. Actuators, 11 (12), Article 374. https://doi.org/ 10.3390/act11120374 
+
+Zhang, Z., He, C., Chen, H., Zhang, Y., Wang, H., Cai, Y., Chen, L., Li, H., & Lu, T. (2024). Small fixed-wing unmanned aerial vehicle path following under low altitude wind shear disturbance. 
+
+IEEE Transactions on Intelligent Transportation Systems, 25 (10), 13991–14003. https://doi. org/10.1109/TITS.2024.3391869 
+
+Zhao, L., Gatsis, K., & Papachristodoulou, A. (2023). Stable and safe reinforcement learning via a barrier-Lyapunov actor-critic approach. In 2023 62nd IEEE Conference on Decision and Control (CDC) (pp. 1320–1325). IEEE. https://doi.org/10.1109/CDC49753.2023.10383742 
+
+# A Metric implementation trace 
+
+All metrics are computed from the same telemetry definitions for every method. The spatial reference/path RMS aggregates the position and reference-tracking error of the benchmark, the altitude and airspeed RMS terms report channel-specific tracking error, the control-activity index is an episode integral of the runtime control effort, and the maximum load factor is the largest absolute logged nz . The safety-violation fraction is the fraction of simulated time in which the runtime safety-condition check is active. Episode summaries are written by the runtime execution path and then aggregated by method for the manuscript tables. The diagnostic metrics, including residual-active fraction, shield-active fraction, HJB value, HJB advantage, HJB stage cost, hard-condition score, and candidate count, are runtime-reported quantities from the residual supervisors. A zero under a method that lacks the corresponding layer marks the absence of that layer, not a measured physical zero. 
+
+# B Software regression and artifact-generation checks 
+
+The repository test suite documents the software conditions under which the artifacts were generated. The core tests in backend/tests/test_uavsim_core.py exercise deterministic reproduction of the plant, atmosphere, and wind model, consistency of the actuator, telemetry, HJB-inspired residual UAV command supervision 44 
+
+and command interfaces, and end-to-end benchmark execution with the expected summary outputs. The server tests in backend/tests/test_uavsim_server.py check request han-dling, rejection of non-finite or invalid configurations, profile-reset state clearing, and stable streaming of simulation frames. These tests are smoke and integration checks for traceability and regression control. They confirm that the artifacts come from a finite, shared software pipeline with explicit clamps and schema checks. Higher-fidelity aerodynamic validation, hardware-in-the-loop testing, flight testing, and formal verification are outside their scope. 
+
+# C Scenario catalog 
+
+The scenario catalog lists the geometry and the environmental stressors of each benchmark scenario so that the conditions are fully traceable. Every full-duration scenario is fixed by a mission-profile label, a random seed, a duration, commanded airspeed and altitude, geometry parameters such as orbit diameter where applicable, and a disturbance block of steady north, east, and down wind components, body-axis gusts, and turbulence intensity. The same scenario definition is reused for the baseline autopilot, the tabular-Q residual supervisor, and HJB residual. Because the conditions are matched, differences across the tables and figures reflect controller behavior under identical scenarios rather than different disturbances or episode lengths. The two stress mechanisms are listed separately. Mission geometry stresses lateral and longitudinal tracking through tight turns, racetrack segments, climb and descent transitions, low-altitude recovery, and fight-mode S-turns, while the environmental fields stress robustness through crosswind, headwind, tailwind, vertical gusts, diagonal gusts, and turbulence. The main text reports the aggregate results; the tables below give the scenario-level inputs behind them. The per-scenario comparisons are paired comparisons of the three controller packages in a common runtime, not independent flights or separate aerodynamic models. 
+
+Table 15: Mission geometry and timing of the 20 benchmark scenarios: seed, duration (s), commanded altitude hc (m), orbit diameter (m), and commanded airspeed Va,c (m s −1).                                                                                                            
+
+> #Scenario Profile Seed Dur. hcDiam. Va,c
+> 1orbit crosswind turbulence low alt loiter orbit 4101 45 180 200 30 2tight orbit tailwind gust high speed climb s turn 200 4102 45 210 160 34 3wide orbit headwind energy racetrack 4103 50 240 320 45 4reverse orbit shear figure eight 4104 45 200 220 32 5high altitude headwind climb straight climb altitude hold 4105 55 300 260 40 6low alt vertical gust recovery takeoff climbout 200 4106 45 140 180 28 7fast circle mixed crosswind runway takeoff accel 200 4107 50 250 300 55 8small radius crosswind orbit loiter orbit 4108 45 200 140 32 9fight vertical gust fight mode 4109 55 240 480 112 10 fight crosswind turbulence fight mode 4110 55 240 480 112 11 oblique takeoff crosswind runway takeoff accel 200 4111 45 170 240 34 12 steep climb headwind turbu-lence takeoff climbout 200 4112 60 340 280 42 13 long straight crosswind rejoin straight climb altitude hold 4113 55 220 260 38 14 reverse fast orbit tailwind racetrack 4114 50 230 260 52 15 low speed vertical shear hold loiter orbit 4115 45 190 220 24
+
+HJB-inspired residual UAV command supervision 45 
+
+# Scenario Profile Seed Dur. hc Diam. Va,c 
+
+16 compact circle windshift figure eight 4116 45 210 150 30 17 high speed climb crosswind high speed climb s turn 200 4117 55 280 300 58 18 fight tailwind lateral gust fight mode 4118 55 240 480 112 19 fight diagonal max turbulence fight mode 4119 55 240 480 112 20 racetrack reverse vertical mixed racetrack 4120 50 260 240 44 
+
+Table 16: Environmental stressors of the 20 benchmark scenarios: steady wind components 
+
+wN , w E , w D (m s −1) and body-axis gust components gu, g v, g w (m s −1), with a short scenario description. 
+
+# Scenario wN wE wD gu gv gw Description 1 orbit crosswind turbulence low alt 0.0 10.0 0.0 0.0 3.0 0.0 Low-altitude 200 m orbit with maxi-mum crosswind and turbulence. 2 tight orbit tailwind gust 10.0 0.0 0.0 0.0 4.0 0.0 Tighter orbit and tailwind/gust stress after climb-out. 3 wide orbit headwind energy -10.0 0.0 0.0 -3.5 0.0 0.0 Wide faster orbit under strong head-wind to stress total-energy recovery. 4 reverse orbit shear 0.0 -10.0 3.0 0.0 -4.0 0.0 Reverse-turn orbit with vertical wind component and lateral shear proxy. 5 high altitude headwind climb -8.0 0.0 0.0 -4.0 0.0 2.5 Higher target altitude and headwind during climb/straight/orbit transi-tion. 6 low alt vertical gust recov-ery 0.0 0.0 0.0 -2.0 0.0 4.0 Lower-altitude reference with maxi-mum vertical gust and turbulence. 7 fast circle mixed crosswind 8.0 -8.0 0.0 3.0 -3.0 0.0 Fast 300 m circle with diagonal wind and gust coupling. 8 small radius crosswind orbit 0.0 10.0 0.0 0.0 -4.0 0.0 Small-radius orbit under lateral gusts, intentionally lateral-error dominated. 9 fight vertical gust -9.0 0.0 0.0 0.0 0.0 4.0 Fight-mode S-turn with vertical gusts and headwind. 10 fight crosswind turbulence 0.0 -10.0 0.0 -3.0 4.0 0.0 Fight-mode S-turn with maximum crosswind/turbulence and mixed gusts. 11 oblique takeoff crosswind 6.0 9.0 0.0 0.0 0.0 2.5 Runway takeoff with diagonal cross-wind and mild vertical gust before orbit capture. 12 steep climb headwind turbulence -10.0 0.0 0.0 -4.0 0.0 3.0 Higher climb target under head-wind/turbulence to stress energy allocation. 13 long straight crosswind rejoin 0.0 10.0 0.0 0.0 3.5 0.0 Long straight leg before orbit entry with sustained crosswind rejoin demand. 14 reverse fast orbit tailwind 9.0 0.0 0.0 0.0 -4.0 0.0 Reverse fast orbit with tailwind and lateral gust forcing. 15 low speed vertical shear hold 0.0 0.0 -4.0 0.0 0.0 4.0 Lower-speed orbit with vertical shear proxy and high turbulence. 16 compact circle windshift -7.0 7.0 0.0 4.0 -4.0 0.0 Compact circle under mixed north/east wind and opposing body gusts. 17 high speed climb crosswind 0.0 -10.0 0.0 0.0 3.0 -3.5 Fast climb/orbit entry with strong crosswind and positive vertical gust. 18 fight tailwind lateral gust 10.0 0.0 0.0 0.0 -4.0 2.5 Fight-mode S-turn with tailwind and alternating lateral gust stress. 19 fight diagonal max turbu-lence -8.0 8.0 0.0 -4.0 4.0 4.0 Fight-mode S-turn with diagonal wind, mixed gusts, and maximum turbulence. 20 racetrack reverse vertical mixed -6.0 -6.0 4.0 3.0 0.0 -3.0 Reverse-turn racetrack-like orbit with vertical wind and mixed gusts. HJB-inspired residual UAV command supervision 46 
+
+# D Per-scenario full-duration results 
+
+The tables below give the scenario-level tracking and operational metrics behind the full-duration aggregate and are read together with the Results section. 
+
+Table 17: Per-scenario tracking metrics over the full-duration benchmark ( N = 20 scenarios, one episode each). Ref./path and altitude columns are in metres, airspeed columns in m/s. Lower is better. B = baseline, Q = tabular Q residual, SH = HJB residual. 
+
+# Scenario Ref./path B Ref./path Q Ref./path SH Alt. B Alt. Q Alt. SH Air B Air Q Air SH 1 orbit crosswind turbu-lence low alt 108.88 0.77 0.77 79.89 49.34 47.07 9.37 12.39 12.47 2 tight orbit tailwind gust 124.15 151.67 149.95 96.32 57.19 56.84 8.98 14.74 14.73 3 wide orbit headwind energy 640.77 0.74 0.67 107.30 69.27 66.83 9.41 15.11 15.15 4 reverse orbit shear 98.94 0.79 0.79 99.76 59.56 57.23 10.84 14.28 14.30 5 high altitude headwind climb 643.54 0.65 0.65 156.88 91.46 88.91 11.44 18.02 18.13 6 low alt vertical gust recov-ery 92.20 0.71 0.69 79.02 47.90 49.19 12.30 13.96 15.02 7 fast circle mixed cross-wind 538.10 0.86 0.86 114.03 67.04 66.82 8.87 15.38 15.32 8 small radius crosswind orbit 142.68 0.77 0.76 124.08 62.23 59.95 12.74 14.97 14.99 9 fight vertical gust 1213.68 0.67 0.67 130.44 68.61 68.58 12.09 15.43 15.42 10 fight crosswind turbulence 420.69 493.08 57.41 140.15 69.60 69.12 11.99 15.80 15.74 11 oblique takeoff crosswind 172.95 0.80 0.80 93.27 49.24 48.98 11.75 13.30 13.35 12 steep climb headwind turbulence 330.15 0.66 0.78 177.61 102.84 100.24 11.46 19.22 19.40 13 long straight crosswind rejoin 84.58 157.47 156.19 93.00 55.38 55.03 8.89 13.30 13.36 14 reverse fast orbit tailwind 155.03 211.07 191.74 101.69 60.64 60.57 8.61 14.60 14.46 15 low speed vertical shear hold 108.65 132.25 115.29 86.23 53.81 54.32 9.31 13.28 14.08 16 compact circle windshift 168.55 0.77 0.75 117.72 64.35 61.79 12.25 14.99 15.11 17 high speed climb cross-wind 545.21 0.82 0.82 126.16 79.37 76.93 9.06 16.36 16.35 18 fight tailwind lateral gust 559.20 620.02 214.96 114.00 67.27 64.77 9.82 15.15 14.99 19 fight diagonal max turbu-lence 536.10 0.81 0.81 104.33 65.16 65.02 9.98 14.71 14.72 20 racetrack reverse vertical mixed 88.31 0.80 0.80 140.86 76.11 76.03 11.72 16.72 16.71 
+
+Table 18: Per-scenario operational metrics over the full-duration benchmark ( N = 20 scenarios, one episode each). Lower is better. B = baseline, Q = tabular Q residual, SH = HJB residual, Viol. = safety-violation fraction (dimensionless), Ctrl. = runtime control-activity index, and |nz | =maximum absolute load factor. 
+
+# Scenario Ctrl. B Ctrl. Q Ctrl. SH Viol. B Viol. Q Viol. SH |nz | B |nz | Q |nz | SH 1 orbit crosswind turbu-lence low alt 4.24 5.30 5.30 0.0040 0.0000 0.0000 8.00 6.53 6.51 2 tight orbit tailwind gust 3.38 3.51 3.43 0.0011 0.0000 0.0000 8.00 6.59 6.31 3 wide orbit headwind energy 4.76 6.42 6.29 0.0000 0.0000 0.0000 5.85 5.61 5.52 4 reverse orbit shear 3.70 5.42 5.39 0.0011 0.0000 0.0000 8.00 6.68 6.87 5 high altitude headwind climb 5.61 7.55 7.50 0.0004 0.0000 0.0000 6.62 6.69 6.35 6 low alt vertical gust recov-ery 2.90 5.51 5.30 0.0004 0.0013 0.0013 6.64 7.54 7.52 7 fast circle mixed cross-wind 4.45 6.26 6.24 0.0024 0.0000 0.0000 8.00 6.61 6.61 HJB-inspired residual UAV command supervision 47 
+
+# Scenario Ctrl. B Ctrl. Q Ctrl. SH Viol. B Viol. Q Viol. SH |nz | B |nz | Q |nz | SH 8 small radius crosswind orbit 3.71 5.65 5.54 0.0020 0.0011 0.0002 7.40 7.42 6.81 9 fight vertical gust 12.74 7.36 7.36 0.0435 0.0000 0.0000 8.00 5.93 5.84 10 fight crosswind turbulence 11.19 11.72 8.95 0.0040 0.0189 0.0153 8.00 8.00 8.00 11 oblique takeoff crosswind 3.92 5.37 5.36 0.0020 0.0000 0.0000 8.00 8.00 8.00 12 steep climb headwind turbulence 4.96 8.74 8.78 0.0018 0.0000 0.0000 8.00 8.00 8.00 13 long straight crosswind rejoin 4.38 4.28 4.41 0.0035 0.0000 0.0000 8.00 7.19 7.19 14 reverse fast orbit tailwind 3.85 4.25 4.18 0.0010 0.0000 0.0000 8.00 5.40 6.09 15 low speed vertical shear hold 2.53 2.72 2.62 0.0004 0.0000 0.0000 6.39 7.07 7.02 16 compact circle windshift 3.62 5.56 5.53 0.0000 0.0004 0.0000 5.92 6.27 6.13 17 high speed climb cross-wind 4.74 7.42 7.37 0.0018 0.0000 0.0000 7.21 7.41 7.41 18 fight tailwind lateral gust 11.83 13.60 13.51 0.0051 0.0400 0.0498 8.00 8.00 8.00 19 fight diagonal max turbu-lence 12.72 7.29 7.29 0.0209 0.0000 0.0000 8.00 6.64 6.64 20 racetrack reverse vertical mixed 4.04 6.55 6.55 0.0006 0.0000 0.0000 6.25 5.30 5.19 
+
+# E Coarse early-phase sweep and fight-mode smoke evi-dence 
+
+The coarse 20 × 50 sweep and the 60 s fight-mode run are repeated here for completeness. The sweep reports short-horizon early-phase repetition behavior, and the fight-mode run is a finite-runtime smoke check. 
+
+Table 19: Supplementary coarse 20 × 50 short-horizon sweep ( N = 1000 episodes per method, 8 s each). Lower is better. Ref./path and altitude columns are in metres, airspeed in m/s, and Viol. frac. (safety-violation fraction) and Ctrl. idx. (runtime control-activity index) are dimensionless. 
+
+Method Episodes Ref./path RMS Alt. RMS Airspeed RMS Ctrl. idx. Viol. frac. Baseline 1000 0.866 221.417 18.944 0.732 0.002223 Q residual 1000 1.183 156.781 35.169 0.833 0.000447 HJB residual 1000 1.174 155.149 35.303 0.822 0.000378 
+
+Table 20: Supplementary fight-mode 60 s smoke run ( N = 1 run per method). Lower is better. Ref./path and altitude columns are in metres, airspeed in m/s, and Viol. frac. (safety-violation fraction), Ctrl. idx. (runtime control-activity index), and residual-active fraction are dimensionless. 
+
+Method Ref./path RMS Alt. RMS Airspeed RMS Ctrl. idx. Viol. frac. Residual active frac. Baseline 177.140 100.880 8.703 13.532 0.003500 0.000 Q residual 185.854 77.780 11.156 14.244 0.005000 0.078 HJB residual 189.378 68.204 14.742 15.109 0.003333 0.194

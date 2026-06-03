@@ -6,59 +6,61 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-02
-- 运行时间：2026-06-02 22:33:41 UTC
+- 最新运行日期：2026-06-03
+- 运行时间：2026-06-03 22:45:06 UTC
 - 运行状态：成功
 - 本次总论文数：13
-- 精读区：6
-- 速读区：7
+- 精读区：5
+- 速读区：8
 
 ### 今日简报（AI）
-今日聚焦人形机器人感知运动与固定翼无人机自主控制两大前沿。精读《全局-局部注意力分解》提升地形编码，《残差Q学习与HJB风险滤波》保障无人机安全。建议关注人形机器人地形适应与无人机安全控制的交叉应用潜力。
-- 详情：[/202606/02/README](/202606/02/README)
+今日精选13篇前沿动态，聚焦人形机器人的开放世界穿越与视觉导航强化学习两大高分突破。  
+最值得精读的是《SSR: Scaling Surefooted and Symmetric Humanoid Traversal to the Open World》与《Self-Refining Agentic Reinforcement Learning for Vision-Conditioned UAV Navigation》，均获9.0/10分。  
+对于普通读者，建议重点关注自主体态控制与自优化智能体的协同发展，这将是未来机器人从实验室走向复杂环境的核心路径。
+- 详情：[/202606/03/README](/202606/03/README)
 
 ### 精读区论文标签
-1. [Global-Local Attention Decomposition for Terrain Encoding in Humanoid Perceptive Locomotion](/202606/02/2606.00637v1-global-local-attention-decomposition-for-terrain-encoding-in-humanoid-perceptive-locomotion)  
+1. [SSR: Scaling Surefooted and Symmetric Humanoid Traversal to the Open World](/202606/03/2605.30770v1-ssr-scaling-surefooted-and-symmetric-humanoid-traversal-to-the-open-world)  
    标签：评分：9.0/10、query:rl-robotics
-   evidence：针对人形机器人运动的强化学习地形注意力
-2. [Autopilot-Preserving Residual Q-Learning with HJB-Inspired Finite-Action Risk Filtering for Fixed-Wing UAV Command Supervision](/202606/02/2606.01397v1-autopilot-preserving-residual-q-learning-with-hjb-inspired-finite-action-risk-filtering-for-fixed-wing-uav-command-supervision)  
+   evidence：基于想象落脚点引导的端到端人形机器人穿越
+2. [Self-Refining Agentic Reinforcement Learning for Vision-Conditioned UAV Navigation](/202606/03/2606.03963v1-self-refining-agentic-reinforcement-learning-for-vision-conditioned-uav-navigation)  
    标签：评分：9.0/10、query:rl-robotics
-   evidence：基于残差Q学习的固定翼无人机指令监督
-3. [Network Distributed Multi-Agent Reinforcement Learning for Consensus Control of Quadcopters](/202606/02/2606.02107v1-network-distributed-multi-agent-reinforcement-learning-for-consensus-control-of-quadcopters)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：多智能体强化学习用于四旋翼一致性控制
-4. [Towards Precise Intent-Aligned VLA Aerial Navigation via Expert-Guided GRPO](/202606/02/2606.02313v1-towards-precise-intent-aligned-vla-aerial-navigation-via-expert-guided-grpo)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：基于强化学习的视觉-语言-动作无人机空中导航
-5. [DRL-Based Pose Control for Double-Ackermann Robots Under Actuation Uncertainties](/202606/02/2606.00313v1-drl-based-pose-control-for-double-ackermann-robots-under-actuation-uncertainties)  
+   evidence：自精炼智能体强化学习用于视觉条件无人机导航
+3. [Teacher-Student Representational Alignment for Reinforcement Learning-Driven Imitation Learning](/202606/03/2605.28372v1-teacher-student-representational-alignment-for-reinforcement-learning-driven-imitation-learning)  
    标签：评分：8.0/10、query:rl-robotics
-   evidence：双阿克曼移动机器人的深度强化学习姿态控制用于导航
-6. [Constrained Whole-Body Tracking for Humanoid Robots](/202606/02/2606.00374v1-constrained-whole-body-tracking-for-humanoid-robots)  
+   evidence：教师-学生表征对齐用于强化学习驱动的模仿学习，可应用于机器人控制
+4. [Learning Terrain-Aware Whole-Body Control for Perceptive Legged Loco-Manipulation](/202606/03/2605.31343v1-learning-terrain-aware-whole-body-control-for-perceptive-legged-loco-manipulation)  
    标签：评分：8.0/10、query:rl-robotics
-   evidence：基于强化学习的人形机器人全身跟踪控制与约束满足
+   evidence：面向四足机器人导航的地形感知全身控制
+5. [SEArch: Optimistic Policy Selection Between Scene Noise and Drift for UAV Radar Search](/202606/03/2606.01325v1-search-optimistic-policy-selection-between-scene-noise-and-drift-for-uav-radar-search)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：基于在线强化学习策略选择的无人机雷达搜索
 
 ### 速读区论文标签
-1. [Generative Multi-Robot Motion Planning via Diffusion Modeling with Multi-Agent Reinforcement Learning Guidance](/202606/02/2606.00933v1-generative-multi-robot-motion-planning-via-diffusion-modeling-with-multi-agent-reinforcement-learning-guidance)  
-   标签：评分：8.0/10、query:rl-robotics
-   evidence：多智能体RL在多机器人运动规划中的应用
-2. [PHASOR: Phase-Anchored Universal Action Representations for Humanoid Embodiments](/202606/02/2606.01851v1-phasor-phase-anchored-universal-action-representations-for-humanoid-embodiments)  
-   标签：评分：8.0/10、query:rl-robotics
-   evidence：人形机器人动作表示用于运动
-3. [Physics-informed Goal-Conditioned Reinforcement Learning under Hybrid Contact Dynamics](/202606/02/2605.30503v1-physics-informed-goal-conditioned-reinforcement-learning-under-hybrid-contact-dynamics)  
+1. [VE2VF: Vision-Enabled to Vision-Free Distillation via Real-world Reinforcement Learning for Robust Contact-Rich Manipulation](/202606/03/2605.29564v1-ve2vf-vision-enabled-to-vision-free-distillation-via-real-world-reinforcement-learning-for-robust-contact-rich-manipulation)  
    标签：评分：7.0/10、query:rl-robotics
-   evidence：物理信息的目标条件强化学习方法适用于混合动力学下的导航
-4. [HOIST: Humanoid Optimization with Imitation and Sample-efficient Tuning for Manipulating Suspended Loads](/202606/02/2606.00252v1-hoist-humanoid-optimization-with-imitation-and-sample-efficient-tuning-for-manipulating-suspended-loads)  
+   evidence：真实世界强化学习用于接触丰富的机器人操作，含知识蒸馏
+2. [RDGen: Demonstration Generation for High-Quality Robot Learning via Reinforcement Learning](/202606/03/2605.30957v1-rdgen-demonstration-generation-for-high-quality-robot-learning-via-reinforcement-learning)  
    标签：评分：7.0/10、query:rl-robotics
-   evidence：人形机器人强化学习用于操作和运动
-5. [Dynamics Are Learned, Not Told: Semi-Supervised Discovery of Latent Dynamics Geometries For Zero-Shot Policy Adaptation](/202606/02/2606.02280v1-dynamics-are-learned-not-told-semi-supervised-discovery-of-latent-dynamics-geometries-for-zero-shot-policy-adaptation)  
+   evidence：利用强化学习生成机器人演示数据，用于训练通用控制模型
+3. [Shape Your Body: Value Gradients for Multi-Embodiment Robot Design](/202606/03/2606.00702v1-shape-your-body-value-gradients-for-multi-embodiment-robot-design)  
    标签：评分：7.0/10、query:rl-robotics
-   evidence：面向机器人的强化学习动力学自适应方法
-6. [Emergence of Exploration in Policy Gradient Reinforcement Learning via Retrying](/202606/02/2606.00151v1-emergence-of-exploration-in-policy-gradient-reinforcement-learning-via-retrying)  
+   evidence：基于价值梯度的多形态机器人设计方法，属于强化学习与机器人结合的核心主题
+4. [All Models are Wrong, Knowing Where is Useful: On Model Uncertainty in Reinforcement Learning](/202606/03/2606.01363v1-all-models-are-wrong-knowing-where-is-useful-on-model-uncertainty-in-reinforcement-learning)  
+   标签：评分：7.0/10、query:rl-robotics
+   evidence：面向机器人学的基于模型的强化学习框架，处理模型不确定性
+5. [Dynamics Are Learned, Not Told: Semi-Supervised Discovery of Latent Dynamics Geometries For Zero-Shot Policy Adaptation](/202606/03/2606.02280v1-dynamics-are-learned-not-told-semi-supervised-discovery-of-latent-dynamics-geometries-for-zero-shot-policy-adaptation)  
+   标签：评分：7.0/10、query:rl-robotics
+   evidence：半监督潜在动力学发现用于机器人零样本RL策略自适应
+6. [Preference-Calibrated Human-in-the-Loop Reinforcement Learning for Robotic Manipulation](/202606/03/2606.03949v1-preference-calibrated-human-in-the-loop-reinforcement-learning-for-robotic-manipulation)  
+   标签：评分：7.0/10、query:rl-robotics
+   evidence：人类在环强化学习用于机器人操作，属于强化学习与机器人控制结合
+7. [LLM-Guided Future Hypotheses for Horizon-Aware Exploration in Multi-Step Robot Manipulation](/202606/03/2605.29864v1-llm-guided-future-hypotheses-for-horizon-aware-exploration-in-multi-step-robot-manipulation)  
    标签：评分：6.0/10、query:rl-robotics
-   evidence：通用的强化学习探索方法，可应用于机器人导航任务
-7. [Lagrangian Perturbation Diffusion Steering: Latent Reinforcement Learning for Generative Policies](/202606/02/2606.01151v1-lagrangian-perturbation-diffusion-steering-latent-reinforcement-learning-for-generative-policies)  
+   evidence：LLM引导的未来视频条件化用于机器人操作中的强化学习微调
+8. [ImagineUAV: Aerial Vision-Language Navigation via World-Action Modeling and Kinodynamic Planning](/202606/03/2606.01205v1-imagineuav-aerial-vision-language-navigation-via-world-action-modeling-and-kinodynamic-planning)  
    标签：评分：6.0/10、query:rl-robotics
-   evidence：潜空间强化学习用于运动控制，使用生成式策略
+   evidence：无人机视觉语言导航与动力学规划
 
 
 <div class="dpr-home-promo-card">

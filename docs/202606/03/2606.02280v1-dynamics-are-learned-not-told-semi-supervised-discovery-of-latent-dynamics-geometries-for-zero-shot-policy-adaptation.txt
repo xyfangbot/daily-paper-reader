@@ -1,0 +1,2058 @@
+Title: Dynamics Are Learned, Not Told: Semi-Supervised Discovery of Latent Dynamics Geometries For Zero-Shot Policy Adaptation
+
+URL Source: https://arxiv.org/pdf/2606.02280v1
+
+Published Time: Tue, 02 Jun 2026 02:49:28 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# Dynamics Are Learned, Not Told: Semi-Supervised Discovery of Latent Dynamics Geometries For Zero-Shot Policy Adaptation 
+
+Zhiming Xu 1 Weitao Zhou 2 3 Xianghui Pan 4 Nanshan Deng 2 5 Chengju Liu 4 Qijun Chen 4 Chenpeng Yao 4
+
+## Abstract 
+
+Real-world dynamics shifts pose a critical chal-lenge for reinforcement learning in robotics, as policies tightly coupled to nominal environments often fail catastrophically when physical condi-tions change. Most existing methods rely on encoding explicitly identified physical parame-ters into a latent context, a parameter-centric paradigm that depends on pre-specified axes of variation and becomes brittle under unmodeled or compound dynamics changes. We revisit dy-namics adaptation from an outcome-centric per-spective: rather than telling policies what the dy-namics are, we enable them to learn how dy-namics affect interaction outcomes. Theoreti-cally, this is grounded in a monotonic relation-ship between target-domain regret and the Lips-chitz constant of a trajectory dynamics encoder. Practically, this constant can be upper-bounded through contrastive learning, yielding a smooth, task-relevant latent topology without privileged dynamics information. On MuJoCo benchmarks, our method consistently outperforms parameter-centric baselines under severe dynamics shifts, including unmodeled and time-varying parame-ters, while also improving in-distribution stabil-ity and latent interpretability. Overall, these re-sults validate that controlling latent geometry is a principled mechanism for robust adaptation. 
+
+## 1. Introduction 
+
+Model-free Deep Reinforcement Learning (DRL) excels at mastering complex control tasks by exploiting the specific 
+
+> 1
+
+School of Computer Science and Engineering, Tongji Uni-versity, Shanghai, China 2School of Vehicle and Mobility, Ts-inghua University, Beijing, China 3Simple AI, Beijing, China 
+
+> 4
+
+Department of Electronics and Information Engineering, Tongji University, Shanghai, China 5Rimbot, Beijing, China. Correspon-dence to: Weitao Zhou, Chenpeng Yao <zhouwt801@gmail.com, yaochenpeng@tongji.edu.cn >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). Explicit Parameters  
+
+> (Phase 1 Oracle) [M=1.5, D=1] [M=1, D=2.5]
+> Latent Regressor  RMA Latent Space
+> Local Consistency Arbitrarily Far
+> (a) Rapid Motor Adaptation (RMA)
+> targets  inputs inputs
+> (b) Latent Dynamics Geometries (LDG)
+> LDG Latent Space
+> Local Consistency
+> Bridge Sample Global Uniformity
+> Trajectory 2 Trajectory 1
+> Trajectory 2 Trajectory 1
+
+Figure 1. Conceptual comparison of adaptation paradigms. (a) RMA (parameter-centric) uses a trajectory encoder to regress or-acle output ( z1 and z2), which are functionally similar trajectories but are mapped to arbitrary distances since their parameters differ. (b) Our method LDG (outcome-centric) learns a latent dynamics geometry directly from trajectory outcomes. By enforcing local consistency ( δe) and global uniformity via contrastive learning, we construct a smooth manifold (characterized by bounded small 
+
+LE ) that enables robust zero-shot adaptation. 
+
+transition dynamics of the training environment. Through trial and error, agents internalize precise correlations be-tween actions and state evolution, for instance, exactly how much momentum is required to brake safely. How-ever, this specialization becomes a liability when physi-cal properties shift, such as when a robot carries an un-known payload or suffers mechanical wear. In these Out-Of-Distribution (OOD) scenarios, policies optimized for the nominal dynamics often fail catastrophically; a brak-ing maneuver valid for a light robot may result in collision for a heavier one. A prominent line of work, represented by Rapid Motor Adaptation (RMA (Kumar et al., 2021)), addresses this challenge by conditioning policies on a compression of sys-tem dynamics parameters. During deployment, this latent context is inferred from short interaction histories by an adaptation module (Kumar et al., 2021; 2022; Qi et al., 2023; Liang et al., 2024). While effective in practice, this paradigm is inherently parameter-centric : rather than al-lowing the policy to learn to select the most relevant fea-tures end-to-end, this approach imposes a manual inductive bias that effectively hard-codes the feature space to pre-specified axes of variation. We argue this parameter-centric view obscures two funda-mental intricacies. First, real robotic systems are subject 1
+
+> arXiv:2606.02280v1 [cs.RO] 1 Jun 2026 Latent Dynamics Geometries
+
+to a wide range of unmodeled, coupled (Eysenbach et al., 2021; Guo et al., 2024), and time-varying factors (Zhu et al., 2025), for which no fixed set of physical parameters provides a complete description. Moreover, distinct phys-ical phenomena often induce indistinguishable effects on motion; for example, increased payload and higher friction all manifest similarly as “resistance to acceleration”. Con-sequently, the quantities most relevant to adaptation are not the physical parameters themselves, but their realized ef-fects on interaction outcomes. Motivated by this observation, we adopt an outcome-centric approach to adaptation. By integrating contrastive learning (Chen et al., 2020) into a variational inference framework (Higgins et al., 2017a), we explicitly enforce invariance within the same interaction regime while pre-serving separability across regimes that demand different control responses. We further investigate how latent space perturbations translate to output instability, and show theo-retically that controlling representation sensitivity, charac-terized by the encoder’s Lipschitz constant, upper-bounds the sub-optimality of cross-domain adaptation. Crucially, naively enforcing smoothness is insufficient; successful adaptation requires simultaneous enforcement of smooth-ness and topological structure within the latent space. We show that contrastive learning naturally promotes such a topology, characterized by local consistency and global uniformity (Fig. 1(b)). From a practical perspective, con-trastive learning effectively filters nuisance variables via gradient orthogonality, ensuring the latent space encodes only task-relevant dynamics, a desired property for latent-conditioned policies (Zhang et al., 2021; Liu et al., 2023) but often absent in purely reconstructive baselines. Empir-ically, this geometry-aware representation improves both In-Distribution (ID) stability and zero-shot generalization across diverse OOD environments, including settings with unmodeled and time-varying physical variations. 
+
+## 2. Related Work 
+
+Dynamics Adaptation. Adaptation to dynamics shifts is a central challenge in robotics, where transition dynam-ics in the target environment differ from the training do-main. Domain Randomization (DR (Tobin et al., 2017; Peng et al., 2018)) trains a single policy across diverse dy-namics but may sacrifice optimality. Off-Dynamics Rein-forcement Learning (Eysenbach et al., 2021) utilizes lim-ited target domain interactions to amend the source pol-icy, often via domain classifiers that discourage reliance on source-specific dynamics (Eysenbach et al., 2021; Guo et al., 2024). Meta-RL approaches learn dynamics priors for rapid adaptation (Nagabandi et al., 2019), but require online gradient updates at deployment. Beyond robustness, another line of work seeks stronger zero-shot target per-formance under physical-parameter shifts by adapting the policy using a compact context that captures the underlying dynamics variation. A representative explicit paradigm, ex-emplified by Rapid Motor Adaptation (RMA (Kumar et al., 2021)), uses supervision over dynamics parameters (e.g., mass and friction) and maps them to latent variables to modulate the policy. Generation of these latent variables during deployment are often achieved via an adaptation module that estimates latents from trajectory histories (Ku-mar et al., 2021; 2022; Qi et al., 2023; Liang et al., 2024) or test-time optimization (Yu et al., 2019; Hu et al., 2025). This parameter-centric design can become brittle when dy-namics shifts are unmodeled (Eysenbach et al., 2021; Guo et al., 2024) or time-varying (Zhu et al., 2025), moreover this reliance on privileged information proves complicated or even infeasible when external objects exists (Qi et al., 2023; Liang et al., 2024; He et al., 2023). In contrast, im-plicit approaches infer dynamics-relevant context directly from interaction histories, for example, via trajectory dy-namics encoders (Lee et al., 2020b) or latent optimiza-tion (Yu et al., 2020). Building upon implicit approaches, we further investigate how latent space perturbations trans-late to output instability, drawing parallels to stability chal-lenges in image generation (Yoshida & Miyato, 2017; Miy-ato et al., 2018; Brock et al., 2018; Song et al., 2023). Ex-tending this framework to policy learning, we reveal that controlling network smoothness is a fundamental principle shared across generative vision and policy adaptation. Cru-cially, our method simultaneously enforces smoothness and latent geometry for robust adaptation. 
+
+Latent Inference For Control. Many implicit adaptation methods rely on variational inference (Kingma & Welling, 2014) to construct a compact context for decision mak-ing, following the success of latent dynamics models in image-based domains (Watter et al., 2015; Hafner et al., 2019). While our work also learns latent dynamics mod-els, the latent variables in our setting represent dynamics variation rather than low-dimensional image compression. In this sense, our formulation is closer to skill-based la-tent representations (Eysenbach et al., 2019; Sharma et al., 2020), where each latent conditions a distinct expert behav-ior, and recent works have further extended these ideas to-ward dynamics-aware formulations (Liu et al., 2021; 2025). Related ideas also appear in interaction settings, where la-tent variables encode beliefs over intent from histories (He et al., 2023; Xie et al., 2021; Parekh et al., 2022). Similarly, Meta-RL uses inference networks to summarize interaction histories into latent belief states for faster adaptation (Finn et al., 2017; Rakelly et al., 2019; Zintgraf et al., 2020). In-spired by these trajectory-based inference frameworks, we adopt a probabilistic latent approach for modeling dynam-ics variation, which exhibits longer temporal dependencies and substantially higher intrinsic dimensionality than intent 2Latent Dynamics Geometries 
+
+or task context. This highlights the need to go beyond in-ference alone for dynamics adaptation. 
+
+Geometry-Regularized Representations. Representation smoothness and consistency is a well-investigated topic in the field of image generation to enhance training stabil-ity and sample quality (Yoshida & Miyato, 2017; Miy-ato et al., 2018; Brock et al., 2018; Song et al., 2023). In the context of dynamics adaptation, latent sensitiv-ity governs how trajectory-level distribution shifts map to latent perturbations and thus closed-loop policy devia-tion, making objectives that regularize neighborhood struc-ture and smoothness crucial for robust adaptation (Hig-gins et al., 2017b; Van der Pol et al., 2020; Zhang et al., 2021). While Variational AutoEncoders (VAEs (Kingma & Welling, 2014)) provide a tractable framework, the stan-dard variational lower bound primarily optimizes for re-construction fidelity and may overlook global latent topol-ogy (Wang & Isola, 2020). This limitation has motivated a shift toward objectives that more directly shape latent structure. CURL (Laskin et al., 2020) demonstrates that contrastive instance discrimination yields more sample-efficient control representations than generative modeling, and SPR (Schwarzer et al., 2021) shows that enforcing multi-step temporal consistency in the latent space outper-forms the standard variational objective for policy learn-ing. However, these methods mainly study representation quality and sample efficiency, and to the best of our knowl-edge do not explicitly connect latent geometry to zero-shot dynamics adaptation performance. Drawing inspira-tion from prior works that translates bisimulation metrics in state space to distances in latent space to increase policy robustness (Zhang et al., 2021; Liu et al., 2023), our work captures physical semantics to shape latent space geometry, enabling zero-shot dynamics adaptation. 
+
+## 3. Preliminaries 
+
+Throughout this paper, we use subscript T and S to de-note quantities in the target domain and source domain re-spectively, such that V πS 
+
+> S
+
+denotes the value function for source policy πS in the source domain. We consider two Markov Decision Processes (MDPs), MS and MT , that share the same state space, action space and reward func-tion but differ only in transition dynamics pS and pT , in-duced by changes in physical parameters (for a more rig-orous definition, refer to Appendix A.1.1). Given a tra-jectory τ = {si, a i}L−1 
+
+> i=1
+
+, define the length-H window 
+
+wt = {si, a i}t−1 
+
+> i=t−H
+
+, from which task-relevant represen-tations are inferred via an encoder, given by zt = E(wt).We learn in MS an encoder E and latent-conditioned pol-icy π(·| s, z S ) that generalizes to MT by utilizing the cor-responding latent dynamics context zT .Let ρt(π, p )( w) be the marginal distribution of wt and 
+
+dπ,p t (st) be the probability of being in state st at time step 
+
+t under policy π and dynamics p (see Appendix A.1.2 for their analytical forms). The following definitions are estab-lished to aid subsequent analysis. 
+
+Definition 1. Two MDPs MS and MT are ϵp-close in dy-namics, if they share the same state space, action space and reward function, but differ in transition dynamics 
+
+pS (s′|s, a ) and pT (s′|s, a ), such that: 
+
+DT V (pT (·| s, a ), p S (·| s, a )) ≤ ϵp ∀(s, a ) (1) 
+
+Definition 2. A latent-conditioned policy π(·| s, z ) is Lπ -smooth, if there exists a constant Lπ such that: 
+
+sup 
+
+> s
+
+DT V (π(·| s, z S ), π (·| s, z T )) ≤ Lπ ∥zS − zT ∥2 (2) 
+
+Definition 3. For a fixed policy π and transition dynamics 
+
+p, the time-indexed latent centroid μt(π, p ) is the expected encoding of the window at that specific time step: 
+
+μt(π, p ) = Ew∼ρt(π,p )[E(w)] (3) 
+
+Definition 4. An encoder is δe-consistent if: 
+
+sup 
+
+> t
+
+sup 
+
+> w∼ρt(π,p )
+
+∥E(w) − μt(π, p )∥2 ≤ δe (4) 
+
+Definition 5. The encoder Lipschitz constant LE with re-spect to the total variation divergence of the induced win-dow distributions is defined as: 
+
+LE = sup 
+
+> t
+
+sup  
+
+> (π,p ),(˜ π, ˜p)
+
+∥μt(π, p ) − μt(˜ π, ˜p)∥2
+
+DT V (ρt(π, p ), ρ t(˜ π, ˜p)) (5) The encoder is considered LE -smooth if LE < ∞.
+
+Definition 6. Let W be the space of trajectory windows, the support of physically feasible windows under dynamics 
+
+p and policy π is defined as: 
+
+supp( π, p ) = {w ∈ W | ∀ (s, a, s ′) ∈ w, p (s′|s, a ) > 0}
+
+(6) 
+
+## 4. Methods 
+
+4.1. Performance Gap Under Dynamics Shift 
+
+We relate the performance of an adaptive policy to that of an oracle policy optimized in the target MDP, and present the following theorem to reveal the relationship between sub-optimality gap (regret) and encoder properties. 
+
+Assumption 1. There exists a constant Cd < 1 such that 
+
+sup t DT V (dπS ,p S 
+
+> t
+
+(st), d πT ,p T 
+
+> t
+
+(st)) ≤ Cd.
+
+Remark 1. This assumption is theoretically justified by the ergodicity of the underlying MDP, where the transition op-erator induced by a fixed policy and dynamics acts as a contraction mapping on the space of probability measures. 3Latent Dynamics Geometries 
+
+Assumption 2. The latent-conditioned policy πS =
+
+π(·| s, z S ) approximates the source oracle π∗ 
+
+> S
+
+= π(·| s)
+
+within a bounded error δtrain during training. 
+
+Theorem 1 (Target Domain Regret Bound) . Let MS and 
+
+MT be two MDPs that are ϵp-close in dynamics. If policy 
+
+π is Lπ -smooth, encoder E is LE -smooth, δe-consistent in both MDPs, Assumption 1 and 2 hold, then the bound for target domain regret is monotonically increasing with respect to δe and LE .
+
+Proof is provided in Appendix A.5, within which we also derive a closed-form bound for target regret (Eq. (A.47)). We utilized the following decomposition during the proof: 
+
+V π∗ 
+
+> T
+> T
+
+− V πT  
+
+> T∞
+
+≤ V π∗ 
+
+> T
+> T
+
+− V π∗ 
+
+> S
+> S∞
+
+| {z }
+
+> (I) Oracle Difference
+
++ V π∗ 
+
+> S
+> S
+
+− V πS 
+
+> S∞
+
+| {z }
+
+> (II) Training Error
+
++ ∥V πS 
+
+> S
+
+− V πT 
+
+> T
+
+∥∞
+
+| {z }
+
+> (III) Policy Adaptation
+
+(7) which shows target regret is reduced when policy adapta-tion error (term (III)) is minimized. Furthermore, we prove that term (III) is monotonic with respect to encoder Lips-chitz constant LE , which controls how trajectory-level dis-tributional shifts translate into latent perturbations. Intu-itively, a smooth encoder (small LE ) maps trajectories gen-erated by similar dynamics to nearby regions in the rep-resentation space, ensuring that small dynamics variations induce bounded changes in the latent code. This percep-tual stability in turn promotes policy stability when the policy itself is smooth (Definition 2). For conventional VAE (Kingma & Welling, 2014), decoder reconstruction loss only force latent clusters under similar dynamics to be 
+
+different , rather than proximate , in the latent space, essen-tially causing a larger LE and thus worse in-distribution stability. The ideology of translating dynamics similar-ity into latent vector distance is consistent with contrastive learning, where representations are formed by clustering similar (positive) samples and separating dissimilar (nega-tive) samples. We elaborate this idea in the following sub-section. 
+
+4.2. Contrastive Learning For Latent Geometry 
+
+In this subsection we first prove that optimizing the In-foNCE Loss (Chen et al., 2020) upper-bounds LE , there-fore tightens the bound for target regret according to Theo-rem 1, then explain how this loss helps distilling dynamics-related information from trajectory histories. Firstly, the InfoNCE Loss for a positive pair of examples (i, j ) is de-fined as: 
+
+ℓi,j = − log exp(sim( zi, z j )/λ )
+
+P  
+
+> k̸=i
+
+exp(sim( zi, z k)/λ ) (8) where λ is the temperature coefficient, and sim( ·, ·) denotes a similarity measure, chosen as cosine similarity in this pa-per. Following the analysis by (Wang & Isola, 2020), the InfoNCE Loss asymptotically decomposes (as the number of negative samples N → ∞ ) into Alignment and Unifor-mity: 
+
+lim   
+
+> N→∞
+
+LInf oN CE ∝ E(w,w −)∼ρdata 
+
+h
+
+e−∥ E(w)−E(w−)∥22
+
+i
+
++
+
+E(w,w +)∼ρpos 
+
+∥E(w) − E(w+)∥22
+
+
+
+(9) where the first term is the Uniformity Loss Lunif orm ,which encourages features to be uniformly distributed on a unit hypersphere, and the second term is the Alignment Loss Lalign that encourages positive pair to be mapped to nearby features. Given this decomposition, we provide the following theorem stating through the optimization of In-foNCE Loss, specifically Lalign , encoder Lipschitz con-stant is effectively upper-bounded. 
+
+Theorem 2. Assume the measure of the support intersec-tion S = supp( π, p ) ∩ supp(˜ π, ˜p) satisfies P(S) > α for some α > 0, then LE is strictly upper-bounded by the square root of Lalign .
+
+Refer to Appendix A.6 for a complete proof. Intuitively, the radius of latent cluster produced under dynamics p can be bounded with Lalign . We then prove condition P(S) > α 
+
+yields a “bridge sample” among marginally different dy-namics (as shown in Fig. 1(b)), through which the dis-tance between centroids can be bounded by two times the cluster radius. Although this upper-bound only relates to 
+
+Lalign , simply minimizing the Alignment Loss yields an easy local-optimum: mapping all trajectory segments to the same latent, in which case the latent space becomes mean-ingless. We argue that it is critical to simultaneously en-force both smoothness (Lalign ) and structure (Lunif orm ), a claim we support via experiments in Subsection 5.4. From a practical perspective, InfoNCE Loss helps encoder focus on distinguishing trajectories using dynamics factors rather than nuisance variables, as stated in the following theorem. This enhancement is crucial for dynamics-related latent space learning where information distillation from long time windows is typical, causing pure reconstructive methods to fail. 
+
+Theorem 3. Let the trajectory space T be locally factor-izable into dynamics-relevant features D and nuisance fea-tures S, such that trajectory τ ≈ (μ, s ). Then minimizing the InfoNCE Loss (Eq. (9) ) implies minimizing the Frobe-nius norm of ∂E/∂s .
+
+Proof is presented in Appendix A.6. This result paral-lels the motivation in vision-based reinforcement learn-ing, where robust representations should remain invariant to task-irrelevant visual variations (Zhang et al., 2021; Liu 4Latent Dynamics Geometries 
+
+et al., 2023). Our theorem here conveys the same principle, but instead of relying on reward-based supervision as in prior work, it shows that task-relevant structure can emerge in a semi-supervised manner through contrastive learning. 
+
+4.3. Practical Algorithm 
+
+We now formalize framework into a tractable learning pro-cedure. Instead of projecting explicit dynamics parameters to latent vectors, we infer a latent probabilistic context z via a variational information bottleneck. We map a history of interactions to this latent space, maximizing the Evidence Lower Bound (ELBO (Kingma & Welling, 2014; Higgins et al., 2017a)) on p(st+1 |st, a t):
+
+LVAE = − Eqϕ(zt|wt) [log pθ (st+1 |st, a t, z t)] + βD KL (qϕ(zt|wt)|| p(zt)) (10) where qϕ is an amortized inference network mapping his-tory windows wt to the latent distribution, and pθ is the generative decoder. We impose an isotropic Gaussian prior 
+
+p(zt) = N (0 , I). Let B denote a minibatch of trajectory segments, define the set of indices P(i) as the positive set for an anchor segment i, containing all segments j ∈ B\{ i}
+
+generated under the same dynamics parameters μi:
+
+P(i) = {j ∈ B \ { i} | μj = μi} (11) Multi-Positive InfoNCE Loss (Khosla et al., 2020) is then employed to enforce a small LE (Theorem 2), as well as ensuring that the learned embedding captures the underly-ing physical properties rather than nuisance variables: 
+
+Lcontrast = 1
+
+|B| 
+
+X
+
+> i∈B |P (i)|>0
+
+1
+
+|P (i)|
+
+X
+
+> j∈P (i)
+
+ℓi,j (12) This objective provides three complementary training sig-nals (effect visualized in Fig. 1(b)): (1) Temporal Con-sistency: forcing sub-sequences from the same trajectory (e.g., the blue cluster) to map to proximate latent points, which quantitatively minimizes the local consistency met-ric δe; (2) Manifold Continuity: utilizing “bridge samples” with marginally different dynamics that share partial over-lap in behavior to pull similar clusters closer in the embed-ding space, thus bounding LE (as established in proof of Theorem 2); and (3) Global Structure: using the unifor-mity component to ensure that the latent manifold maxi-mally spans the available space (e.g., the blue vs. green cluster), thus forming global structure. The total training objective combines task performance with these representation learning auxiliary losses: 
+
+L = Lrl + λ1LVAE + λ2Lcontrast (13) where Lrl is the reinforcement learning loss. Since policy is conditioned on z, Lrl also flows back to the encoder, en-couraging the output of task-relevant latents. Pseudocode for our algorithm is provided in Appendix B.1. 
+
+## 5. Experiments 
+
+We evaluate our method on four MuJoCo continuous-control benchmarks (Todorov et al., 2012): Hopper ,
+
+Walker2d , HalfCheetah , and Ant , covering diverse loco-motion challenges (e.g., Hopper’s flight phase, planar lo-comotion for Walker2d/HalfCheetah, and 3D coordination for Ant). To induce dynamics variations, we randomize four physical properties: body mass, joint damping, slide friction, and torque scale. Each is applied as a multiplica-tive scalar across relevant body parts (e.g., mass scale 0.5
+
+halves all link masses), yielding an 8–36D randomized dy-namics space depending on morphology. Refer to Ap-pendix B.2 for parameter ranges and per-environment di-mensions. Our method is agnostic to reinforcement learning algo-rithm, but we use Soft Actor-Critic (SAC (Haarnoja et al., 2018)) for its sample and exploration efficiency. We compare the proposed method with five baselines: (1) 
+
+SAC+DR , SAC with dynamics randomization (Peng et al., 2018); (2) RMA (Phase 1) , an oracle that conditions on ground-truth dynamics parameters (i.e., system identifica-tion) (Kumar et al., 2021); (3) RMA (Phase 2) , employing an encoder to regress the Phase-1 latent from trajectory his-tory (Kumar et al., 2021); (4) SO-CMA , CMA-ES (Hansen et al., 2003) search in the RMA latent space for z maximiz-ing target return (Yu et al., 2019); and (5) VAE , our varia-tional ablation trained without Lcontrast . The source code of LDG along with baselines are available online 1.
+
+5.1. In-Distribution Stability 
+
+We evaluate in-distribution stability by testing asymptotic performance on 5 sets of dynamics parameters sampled within the training range (Table 1). LDG achieves the highest mean reward on Hopper ( 3239 .2) and Walker2d (4883 .7), and ranks second on Ant, close to the test-time oracle SO-CMA (which uses ≈ 42 k samples per setting). LDG also yields substantially lower variance across seeds (e.g., Walker2d: σ = 381 .6 vs. σ = 1382 .3 for RMA (Phase 2)), an expected stability consistent with Theorem 1 and: contrastive learning upper-bounds LE , reducing term (III) in Eq. (7). In contrast, RMA (Phase 2) can exhibit high-variance when the trajectory-to-parameter mapping is ill-posed (e.g., Hopper’s flight phase), and the VAE abla-tion suffers from latent irregularity; enforcing local consis-tency (small δe and LE ) keeps nearby histories mapped to a compact latent region and provides a stable condition-
+
+> 1https://github.com/Mr-Wonderfool/Latent-Dynamics-Geometries
+
+5Latent Dynamics Geometries 
+
+Table 1. Comparison of asymptotic in-distribution performance. Results report the mean cumulative reward ± one standard deviation over 5 sets of dynamics parameters. Bold and underline indicate top-1 and top-2 performance within the same access regime (excluding test-time optimization methods). 
+
+Test-time opt. Source-only + Zero-shot Env SO-CMA SAC+DR RMA (Phase 1) RMA (Phase 2) VAE LDG (Ours) 
+
+Hopper 635 .2 ± 489 .9 1767 .3 ± 1183 .2 1799 .6 ± 1108 .0 1677 .5 ± 1168 .2 2029 .6 ± 819 .1 3239 .2 ± 279 .3
+
+Walker2d 2281 .9 ± 1336 .7 3170 .2 ± 162 .0 3132 .4 ± 1126 .5 3193 .6 ± 1382 .3 2462 .4 ± 1126 .0 4883 .7 ± 381 .6
+
+HalfCheetah 4066 .3 ± 989 .0 4265 .9 ± 825 .5 6713 .3 ± 1521 .6 6635 .5 ± 1433 .5 5127 .6 ± 850 .4 5799 .1 ± 1053 .4
+
+Ant 5042 .9 ± 494 .3 4729 .8 ± 226 .3 3817 .7 ± 1512 .4 4107 .8 ± 1610 .9 2887 .9 ± 534 .7 5183 .9 ± 296 .9(c)  LDG  (a) RMA (b) VAE   
+
+> Walker2d (Mass Scale) Ant (Damping Scale)
+
+Figure 2. T-SNE visualization of the latent structure. In Walker2d and Ant, mass and damping scale is varied respectively, with range covering both in-distribution data (marked as circles) and out-of-distribution data (marked as triangles). (a) RMA (Phase 2) produces a scattered embedding with no clear ordering and cluster boundary. (b) VAE suffers from mode collapse or topological dis-jointedness. (c) LDG (Ours) uncovers a smooth, monotonic arc where latent coordinates correlate linearly with physical param-eters. This ordered geometry enables the encoder to extrapolate OOD dynamics (triangles) by extending the manifold structure learned from ID data. 
+
+ing signal. LDG underperforms RMA on HalfCheetah; we hypothesize the imposed stability constraint may over-regularize in highly reactive gaits that require large, imme-diate force commands. We further analyze this problem within “failure mode analysis” in subsection 5.2. This stability is reflected in the learned latent geometry. Fig. 2 illustrates the embedding space for Walker2d and Ant under controlled variations of a single physical param-eter (mass and damping respectively), while keeping others fixed. The baseline methods, particularly RMA (Phase 2), produce scattered and unstructured latents, explaining the high variance in Table 1: without a consistent mapping, small noise in the input trajectory can lead to widely differ-ent latent codes and destabilize the policy. The VAE abla-tion also suffers from topological disconnectedness, failing to capture the global continuum of the physical property. In contrast, LDG discovers a smooth, monotonic manifold (an arc) where clusters induced by similar dynamics are adja-cent, providing empirical support for our analysis: optimiz-ing InfoNCE keeps similar dynamics close and preserves parameter continuity. While Lalign alone can upper-bound the encoder’s Lip-schitz constant in theory, we find Lunif orm necessary in practice to separate clusters and avoid mode collapse, yielding the continuous arc in Fig. 2(c). This ordered ge-ometry also facilitates extrapolation: OOD dynamics (tri-angles) extend the learned manifold, indicating perception-level zero-shot generalization as a prerequisite for control-level zero-shot generalization. 
+
+5.2. Zero-Shot Generalization 
+
+We evaluate zero-shot adaptation in three regimes: (1) Un-modeled Parameter , where a property (e.g., mass or damp-ing) takes on OOD values at test time (only 1.0× is in-distribution); (2) Time-Varying Dynamics (Var. Env ), where a factor in [0 .9, 1.1) rescales dynamics parameters every 200 steps within an episode; and (3) Structural Failure 
+
+(Struct. Fail. ), where one actuator is disabled (command set to zero) mid-episode after 200 environment steps (al-lowing methods such as LDG and phase-2 RMA to infer a stable latent representation prior to the structural perturba-tion), causing a catastrophic shift not representable by con-tinuous dynamics parameters. Results are summarized in Table 2, where rewards are averaged over 5 random seeds. For structural failure setting, we only record reward after the broken joint event. We train all weights using the ran-domization ranges in Appendix Table B.2. 
+
+Robustness to Structural Shifts. Failure of SO-CMA and RMA in the Struct. Fail. scenario reveals a critical limi-tation of explicit identification methods. Since these base-6Latent Dynamics Geometries                                                                                                                                                      
+
+> Table 2. Zero-shot generalization performance across three OOD settings: (1) Unmodeled Parameter (columns 1-3), where specific physical properties not randomized during training are tested in target domain; (2) Time-Varying Dynamics (Var. Env ), where dynamics parameters shift mildly every 200 time steps; and (3) Structural Failure (Struct. Fail. ), where a joint failure is introduced mid-episode through zero-command enforcement after some delay. Bold and underline indicate top-1 and top-2 performance within the same access regime (excluding test-time optimization methods).
+> Hopper (Mass Scale) Walker2d (Damping Scale) Method 0.5×1.0×2.0×Var. Env Struct. Fail. 0.3×1.0×2.2×Var. Env Struct. Fail. Test-time Optimization:
+> SO-CMA 1121 3260 402 420 432 4214 5193 271 649 504
+> Source-only + Zero-shot:
+> SAC+DR 778 3011 809 2701 182 4734 4696 4651 3351 739 RMA (Phase 1) 625 2545 2747 2192 149 3667 3389 4237 3121 364 RMA (Phase 2) 3092 3102 563 3089 394 4117 4139 4096 4062 292 VAE 2810 2893 711 2628 255 4733 4749 4708 4673 238
+> LDG (Ours) 3154 3434 1349 3294 596 5342 5320 5349 5293 952 HalfCheetah (Mass Scale) Ant (Damping Scale) Method 0.5×1.0×2.0×Var. Env Struct. Fail. 0.3×1.0×2.2×Var. Env Struct. Fail. Test-time Optimization:
+> SO-CMA 5442 9602 2965 5574 2542 4131 4059 4963 4787 356
+> Source-only + Zero-shot:
+> SAC+DR 5375 5753 3705 5769 1593 3443 3909 4228 2044 1533
+> RMA (Phase 1) 6542 9589 5676 9407 2913 2011 3182 3122 2290 -7 RMA (Phase 2) 7123 9281 5615 9121 2862 1567 1033 666 623 72 VAE 6421 6466 4566 6399 2291 3629 2062 3602 3087 729
+> LDG (Ours) 5999 8022 5284 7849 2071 4797 4804 4789 3462 1003
+
+lines are trained to regress or search for specific latent vec-tors that correspond to some dynamics parameters, their latent vocabulary is constrained to the manifold of valid physics simulations. A “broken joint” is an OOD event that does not correspond to any valid combination of dynamics parameters, causing SO-CMA to fail catastrophically as it attempts to locate a non-existent latent. In contrast, LDG learns a functional manifold of trajectory dynamics; be-cause the broken joint produces a trajectory pattern similar to extremely high damping and mass on this joint, encoder can project it to a valid, albeit extrapolative, region of the latent space, enabling adaptation. 
+
+Adaptation to Non-Stationarity. In the Var. Env setting, RMA (Phase 2) often underperforms LDG (e.g., Ant: 623 
+
+vs. 3462 ). When dynamics switch mid-window, the input trajectory contains conflicting physical evidence, leading RMA to regress an average and less representative latent. LDG, however, is trained to enforce local consistency. A window containing a dynamics switch is simply treated as a transition between two latent clusters. The encoder is robust to these intermediate states, allowing the policy to transition smoothly between behavioral modes without be-ing constrained to a single global identification. 
+
+Failure Mode Analysis. Despite these successes, we ob-serve that LDG underperforms baselines on the HalfChee-tah environment (for Var. Env and Struct. Fail. ). HalfChee-tah requires fast, high-frequency gait cycles where opti-mal policies are often highly reactive, exerting large, im-mediate forces. Visualizations of HalfCheetah latent space (Fig. 3(a)) show that under variations of a single dynam-ics parameter, latent clusters share little overlapping re-gions. This indicates that latent distances scale dispro-portionately with dynamics differences, hindering the for-mation of “bridge samples” that leads to robust adapta-tion. We hypothesize that in such highly dynamic envi-ronments, the Lipschitz smoothness constraint imposed by our contrastive objective may induce an over-regularization effect. By penalizing sharp transitions in the latent space, the method might dampen the aggressive, high-frequency adaptation required for maximum velocity in HalfCheetah, favoring stable locomotion over the explosive reactivity ex-ploited by unconstrained baselines like RMA. 
+
+Outcome-Centric vs. Parameter-Centric Adaptation. 
+
+RMA Phase 2 (learned adaptation) often yields higher re-turns compared with RMA Phase 1 (oracle parameters) (e.g., Walker2d: 4930 vs 3389 ). This corroborates our 7Latent Dynamics Geometries (a) HalfCheetah  (b) Ant  
+
+> Figure 3. T-SNE visualization of implicit structure discovery. The encoder was trained on environments where joint damping was held fixed, yet it successfully organizes unseen damping varia-tions into a coherent, ordered manifold during testing. This in-dicates that LDG learns functional properties (i.e., resistance to motion) rather than specific parameter labels, allowing it to gen-eralize to unseen physical properties that induce similar dynamic effects.
+
+design choice to condition on interaction history rather than explicit parameters. The “ground truth” parameters are static labels that do not capture the immediate interac-tions between the robot and its environment (e.g., a foot slipping). A trajectory-based encoder (used in both RMA Phase 2 and LDG) can react to these instantaneous inter-action forces, effectively allowing the agent to adapt to the manifestation of dynamics rather than just their un-derlying values, as analyzed during method development. This observation is consistent with the student-teacher phe-nomenon reported in reinforcement learning literatures, where a student policy can surpass the performance of its teacher after distillation or imitation (Rusu et al., 2015; Lee et al., 2020a). 
+
+5.3. Structure Discovery Via Functional Equivalence 
+
+LDG holds the ability to discover the structure of physi-cal parameters even when they are not explicitly random-ized during training. As shown in Fig. 3, when training an agent on randomized mass but keeping joint damping fixed, the learned encoder still organizes damping values into a coherent, ordered manifold during testing. This can be attributed to functional equivalence : high joint damp-ing and increased mass all manifest as “resistance to mo-tion”, leading to the discovery of “resistance” manifold through LDG optimization. When LDG encounters un-seen damping variations, the encoder projects them onto this pre-existing manifold based on their functional effect. This explains the robustness observed in the OOD exper-iments: the method does not need to identify the exact physical label (e.g., “broken joint”), but rather maps the resulting trajectory dynamics to a known functional coor-dinate (e.g., “extreme resistance”). However, this transfer is not universal; it relies on the training distribution con-taining sufficient functional variance. Empirically we find if the training parameters (e.g., high damping) exert a sig-nificantly weaker influence on dynamics than the unseen test parameter (e.g., high mass), the learned manifold is too compressed to represent the new, larger variations. 
+
+5.4. Alternative Regularizer 
+
+Theorem 1 establishes that reducing the encoder’s Lip-schitz constant, LE , minimizes target domain regret. While we enforce this geometric smoothness via con-trastive learning, a natural alternative is Spectral Normal-ization (Yoshida & Miyato, 2017; Miyato et al., 2018), a technique widely proven to improve the robustness of gen-erative models. By dividing each weight matrix by its spec-tral norm, SN explicitly bounds the Lipschitz constant of each layer, thereby strictly upper-bounding LE by 1. To isolate the structural benefits of contrastive learning, we ablate our objective by replacing it with SN applied directly to the encoder layers. We evaluate the resulting policies on the Walker2d and Ant environments across In-Distribution (ID), Out-Of-Distribution (OOD) damping, time-varying (Var. Env), and structural failure (Struct. Fail) scenarios. The results are summarized in Table 3, rewards are aver-aged over 5 random seeds. While SN achieves strong ID performance on Ant environment—suggesting that explicit spectral constraints successfully minimize LE to ensure lo-cal stability—it struggles significantly in OOD and struc-tural failure scenarios across both domains. We attribute this degradation to SN’s inability to enforce a meaning-ful latent topological structure. Although SN mathemat-ically ensures encoder smoothness, it does not organize the latent manifold based on physical semantics. In con-trast, contrastive learning guarantees this organized geom-etry through the uniformity loss term in the InfoNCE de-composition, a property that proves critical for the policy to successfully extrapolate to unseen physical variations in zero-shot settings. This ablation result indicates that ad-vantage of contrastive learning stems from both smooth-ness ( Lalign ) and structure ( Lunif orm ), though theoreti-cally only Lalign is needed to upper-bound LE .
+
+5.5. Hyperparameter Sensitivity 
+
+Overall, LDG is robust to hyperparameters and does not re-quire aggressive tuning. We found LDG only sensitive to reward scale (tuned to balance Lrl in Eq. (13)), VAE en-coder β (in Eq. (10)), encoder horizon H and dimension of latent vectors dz . We provide tuning heuristics for re-ward scale and β in Appendix C, and perform an ablation in Fig. 4 to guide the selection of H and dz .
+
+Latent Dimension Capacity ( dz ). As shown in Fig. 4(a) and (c), we observe a clear trade-off between information bottlenecking and optimization complexity. Empirically, the minimum effective ratio between latent and observa-tion dimensions is approximately 3 : 16 ; below which the latent code is largely ignored relative to the observa-8Latent Dynamics Geometries 
+
+Table 3. Performance comparison of Contrastive Learning (CL) versus Spectral Normalization (SN). Rewards are averaged over 5 random seeds. 
+
+Env Method ID OOD Damping Var. Env Struct. Fail 
+
+0.3× 2.2×
+
+Walker2d SN 4384 4646 4677 4661 335 CL (Ours) 4884 5342 5349 5293 952 Ant SN 5538 3329 2612 2969 248 CL (Ours) 5184 4797 4789 3462 1003 (c) Ant latent dim ablation  (d) Ant horizon ablation      
+
+> (a)Walker2 dlatent dim ablation (b)Walker2d horizon ablation
+
+Figure 4. Training reward curves on Walker2d and Ant environ-ments. Subfigures (a) and (c) illustrate the sensitivity to the la-tent dimension ( dz ), highlighting the tradeoff between representa-tional bottlenecking and manifold sparsity. Subfigures (b) and (d) demonstrate the effect of trajectory horizon length ( H), balancing temporal context accumulation against immediate control reac-tivity. Solid lines represent the mean episode return, and shaded regions denote the variance across environments. 
+
+tions, as evidenced by the failure of dz = 2 in Walker2d and Ant. Conversely, optimization over high-dimensional Gaussian latent spaces is known to be challenging, and ex-cessive latent capacity ( dz ∈ { 7, 10 , 15 }) introduces spar-sity that destabilizes training in Walker2d. In contrast, the higher-dimensional Ant environment remains relatively in-sensitive to latent dimensions larger than 5, yielding com-parable returns across settings. 
+
+Temporal Context Horizon ( H). The choice of horizon length must balance contextual information accumulation against control reactivity. For a fair comparison, trajec-tory windows are compressed to the same output feature dimension by adjusting the stride and kernel size of the convolutional encoder accordingly. Extremely short hori-zons (e.g., H = 10 ) provide insufficient historical context for stable latent inference, leading to suboptimal or highly volatile training dynamics. In contrast, excessively long horizons ( H = 70 ) dilute the importance of recent tran-sitions. Across both environments, H = 50 consistently yields the best performance. Additional analysis on respon-siveness under dynamics shifts for different context horizon is provided in Appendix C. 
+
+## 6. Conclusion 
+
+We introduce Latent Dynamics Geometries (LDG), aframework for robust zero-shot policy adaptation that moves beyond RMA-style system identification by learn-ing a geometrically structured latent dynamics manifold. We link target-domain regret to the Lipschitz smoothness of a trajectory encoder, and instantiate this idea with a practical algorithm that uses contrastive learning to con-trol representation sensitivity. Empirically, LDG improves in-distribution stability and achieves strong zero-shot gen-eralization across diverse dynamics shifts, often matching or surpassing parameter-centric (RMA) and unstructured variational (VAE) baselines, while producing a more or-dered latent geometry. Our results further suggest that LDG can exploit functional equivalences among physical factors to handle certain unmodeled events by mapping them to meaningful regions of the learned manifold. Empirical validations also reveal a fundamental trade-off: enforcing smoothness for robust adaptation may over-regularize highly reactive tasks such as HalfCheetah. Fu-ture work will investigate mechanisms for adaptively relax-ing smoothness constraints when necessary. In addition, we aim to move toward a fully unsupervised setting that re-moves the need to explicitly determine whether dynamics parameters are shared across samples, and to extend LDG to more complex domains, including interactive tasks. 
+
+## Acknowledgements 
+
+We would like to thank Zihan Xu for insightful discussions and Haodong Yang for helping setup the initial codebase. This work was supported by the National Natural Science Foundation of China under Grants 62403358, 62333017 9Latent Dynamics Geometries 
+
+and 62233013. 
+
+## Impact Statement 
+
+This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none of which we feel must be specifically highlighted here. 
+
+## References 
+
+Ba, J. L., Kiros, J. R., and Hinton, G. E. Layer normaliza-tion. arXiv preprint arXiv:1607.06450 , 2016. Bai, S., Kolter, J. Z., and Koltun, V. An empirical evalua-tion of generic convolutional and recurrent networks for sequence modeling. arXiv preprint arXiv:1803.01271 ,2018. Bowman, S., Vilnis, L., Vinyals, O., Dai, A., Jozefowicz, R., and Bengio, S. Generating sentences from a contin-uous space. In Proceedings of the 20th SIGNLL Confer-ence on Computational Natural Language Learning , pp. 10–21, 2016. Brock, A., Donahue, J., and Simonyan, K. Large scale gan training for high fidelity natural image synthesis. In 
+
+International Conference on Learning Representations ,2018. Chen, T., Kornblith, S., Norouzi, M., and Hinton, G. Asimple framework for contrastive learning of visual rep-resentations. In International Conference on Machine Learning , pp. 1597–1607, 2020. Eysenbach, B., Gupta, A., Ibarz, J., and Levine, S. Di-versity is all you need: Learning skills without a reward function. In International Conference on Learning Rep-resentations , 2019. Eysenbach, B., Chaudhari, S., Asawa, S., Levine, S., and Salakhutdinov, R. Off-dynamics reinforcement learning: Training for transfer with domain classifiers. In Interna-tional Conference on Learning Representations , 2021. Finn, C., Abbeel, P., and Levine, S. Model-agnostic meta-learning for fast adaptation of deep networks. In Interna-tional conference on machine learning , pp. 1126–1135, 2017. Guo, Y., Wang, Y., Shi, Y., Xu, P., and Liu, A. Off-dynamics reinforcement learning via domain adapta-tion and reward augmented imitation. In Advances in Neural Information Processing Systems , volume 37, pp. 136326–136360, 2024. Haarnoja, T., Zhou, A., Abbeel, P., and Levine, S. Soft actor-critic: Off-policy maximum entropy deep rein-forcement learning with a stochastic actor. In Interna-tional Conference on Machine Learning , pp. 1861–1870, 2018. Hafner, D., Lillicrap, T., Fischer, I., Villegas, R., Ha, D., Lee, H., and Davidson, J. Learning latent dynamics for planning from pixels. In International Conference on Machine Learning , pp. 2555–2565, 2019. Hansen, N., M¨ uller, S. D., and Koumoutsakos, P. Reducing the time complexity of the derandomized evolution strat-egy with covariance matrix adaptation (cma-es). Evolu-tionary computation , 11(1):1–18, 2003. He, J. Z.-Y., Erickson, Z., Brown, D. S., Raghunathan, A., and Dragan, A. Learning representations that enable generalization in assistive tasks. In Conference on Robot Learning , pp. 2105–2114, 2023. Higgins, I., Matthey, L., Pal, A., Burgess, C. P., Glorot, X., Botvinick, M. M., Mohamed, S., and Lerchner, A. beta-vae: Learning basic visual concepts with a constrained variational framework. In International Conference on Learning Representations , 2017a. Higgins, I., Pal, A., Rusu, A., Matthey, L., Burgess, C., Pritzel, A., Botvinick, M., Blundell, C., and Lerchner, A. Darla: Improving zero-shot transfer in reinforce-ment learning. In International Conference on Machine Learning , pp. 1480–1490, 2017b. Hu, K., Shi, H., He, Y., Wang, W., Liu, C. K., and Song, S. Robot trains robot: Automatic real-world policy adaptation and learning for humanoids. arXiv preprint arXiv:2508.12252 , 2025. Kakade, S. and Langford, J. Approximately optimal ap-proximate reinforcement learning. In International Con-ference on Machine Learning , pp. 267–274, 2002. Kearns, M. and Singh, S. Near-optimal reinforcement learning in polynomial time. Machine learning , 49(2): 209–232, 2002. Khosla, P., Teterwak, P., Wang, C., Sarna, A., Tian, Y., Isola, P., Maschinot, A., Liu, C., and Krishnan, D. Su-pervised contrastive learning. In Advances in Neural In-formation Processing Systems , volume 33, pp. 18661– 18673, 2020. Kingma, D. P. and Welling, M. Auto-encoding variational bayes. In International Conference on Learning Repre-sentations , 2014. Kumar, A., Fu, Z., Pathak, D., and Malik, J. Rma: Rapid motor adaptation for legged robots. In Robotics: Science and Systems , 2021. 10 Latent Dynamics Geometries 
+
+Kumar, A., Li, Z., Zeng, J., Pathak, D., Sreenath, K., and Malik, J. Adapting rapid motor adaptation for bipedal robots. In IEEE/RSJ International Conference on Intel-ligent Robots and Systems , pp. 1161–1168, 2022. Laskin, M., Srinivas, A., and Abbeel, P. Curl: Contrastive unsupervised representations for reinforcement learning. In International Conference on Machine Learning , pp. 5639–5650, 2020. Lee, J., Hwangbo, J., Wellhausen, L., Koltun, V., and Hut-ter, M. Learning quadrupedal locomotion over challeng-ing terrain. Science Robotics , 5(47):eabc5986, 2020a. Lee, K., Seo, Y., Lee, S., Lee, H., and Shin, J. Context-aware dynamics model for generalization in model-based reinforcement learning. In International Confer-ence on Machine Learning , pp. 5757–5766, 2020b. Liang, Y., Ellis, K., and Henriques, J. Rapid motor adapta-tion for robotic manipulator arms. In IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition , pp. 16404–16413, 2024. Liu, J., Shen, H., Wang, D., Kang, Y., and Tian, Q. Un-supervised domain adaptation with dynamics-aware re-wards in reinforcement learning. In Advances in Neural Information Processing Systems , volume 34, pp. 28784– 28797, 2021. Liu, Q., Zhou, Q., Yang, R., and Wang, J. Robust represen-tation learning by clustering with bisimulation metrics for visual reinforcement learning with distractions. In 
+
+Proceedings of the AAAI Conference on Artificial Intel-ligence , volume 37, pp. 8843–8851, 2023. Liu, Z., Lu, J., Xuan, J., and Zhang, G. Learning latent and changing dynamics in real non-stationary environments. 
+
+IEEE Transactions on Knowledge and Data Engineer-ing , 37(4):1930–1942, 2025. Miyato, T., Kataoka, T., Koyama, M., and Yoshida, Y. Spectral normalization for generative adversarial net-works. In International Conference on Learning Rep-resentations , 2018. Nagabandi, A., Clavera, I., Liu, S., Fearing, R. S., Abbeel, P., Levine, S., and Finn, C. Learning to adapt in dynamic, real-world environments through meta-reinforcement learning. In International Conference on Learning Rep-resentations , 2019. Parekh, S., Habibian, S., and Losey, D. P. Rili: Robustly in-fluencing latent intent. In IEEE/RSJ International Con-ference on Intelligent Robots and Systems , pp. 01–08, 2022. Peng, X. B., Andrychowicz, M., Zaremba, W., and Abbeel, P. Sim-to-real transfer of robotic control with dynam-ics randomization. In IEEE International Conference on Robotics and Automation , pp. 3803–3810, 2018. Qi, H., Kumar, A., Calandra, R., Ma, Y., and Malik, J. In-hand object rotation via rapid motor adaptation. In Con-ference on Robot Learning , pp. 1722–1732, 2023. Rakelly, K., Zhou, A., Finn, C., Levine, S., and Quillen, D. Efficient off-policy meta-reinforcement learning via probabilistic context variables. In International Confer-ence on Machine Learning , pp. 5331–5340, 2019. Rusu, A. A., Colmenarejo, S. G., Gulcehre, C., Desjardins, G., Kirkpatrick, J., Pascanu, R., Mnih, V., Kavukcuoglu, K., and Hadsell, R. Policy distillation. arXiv preprint arXiv:1511.06295 , 2015. Schwarzer, M., Anand, A., Goel, R., Hjelm, R. D., Courville, A., and Bachman, P. Data-efficient reinforce-ment learning with self-predictive representations. In 
+
+International Conference on Learning Representations ,2021. Sharma, A., Gu, S., Levine, S., Kumar, V., and Hausman, K. Dynamics-aware unsupervised discovery of skills. In 
+
+International Conference on Learning Representations ,2020. Song, Y., Dhariwal, P., Chen, M., and Sutskever, I. Consis-tency models. In International Conference on Machine Learning , pp. 32211–32252, 2023. Tobin, J., Fong, R., Ray, A., Schneider, J., Zaremba, W., and Abbeel, P. Domain randomization for transfer-ring deep neural networks from simulation to the real world. In IEEE/RSJ International Conference on Intelli-gent Robots and Systems , pp. 23–30, 2017. Todorov, E., Erez, T., and Tassa, Y. Mujoco: A physics engine for model-based control. In IEEE/RSJ Interna-tional Conference on Intelligent Robots and Systems , pp. 5026–5033, 2012. Van der Pol, E., Worrall, D., van Hoof, H., Oliehoek, F., and Welling, M. Mdp homomorphic networks: Group symmetries in reinforcement learning. In Advances in Neural Information Processing Systems , volume 33, pp. 4199–4210, 2020. Wang, T. and Isola, P. Understanding contrastive represen-tation learning through alignment and uniformity on the hypersphere. In International Conference on Machine Learning , pp. 9929–9939, 2020. Watter, M., Springenberg, J., Boedecker, J., and Riedmiller, M. Embed to control: A locally linear latent dynamics 11 Latent Dynamics Geometries 
+
+model for control from raw images. In Advances in Neu-ral Information Processing Systems , volume 28, 2015. Xie, A., Losey, D., Tolsma, R., Finn, C., and Sadigh, D. Learning latent representations to influence multi-agent interaction. In Conference on Robot Learning , pp. 575– 588, 2021. Yoshida, Y. and Miyato, T. Spectral norm regularization for improving the generalizability of deep learning. arXiv preprint arXiv:1705.10941 , 2017. Yu, W., Liu, C. K., and Turk, G. Policy transfer with strat-egy optimization. In International Conference on Learn-ing Representations , 2019. Yu, W., Tan, J., Bai, Y., Coumans, E., and Ha, S. Learn-ing fast adaptation with meta strategy optimization. 
+
+IEEE Robotics and Automation Letters , 5(2):2950–2957, 2020. Zhang, A., McAllister, R. T., Calandra, R., Gal, Y., and Levine, S. Learning invariant representations for rein-forcement learning without reconstruction. In Interna-tional Conference on Learning Representations , 2021. Zhu, X., Chen, Y., Sun, L., Niroui, F., Cleac’h, S. L., Wang, J., and Fang, K. Versatile loco-manipulation through flexible interlimb coordination. arXiv preprint arXiv:2506.07876 , 2025. Zintgraf, L., Shiarlis, K., Igl, M., Schulze, S., Gal, Y., Hofmann, K., and Whiteson, S. Varibad: A very good method for bayes-adaptive deep rl via meta-learning. In 
+
+International Conference on Learning Representations ,2020. 12 Latent Dynamics Geometries 
+
+## A. Proof of Lemmas And Theorems 
+
+A.1. Notations And Definitions 
+
+Throughout this section, we use subscript T to denote quantities in the target domain, and use subscript S to denote quantities in the source domain, such that πS denotes an adaptive policy in the source domain, and V πS 
+
+> S
+
+denotes the value function achieved by rolling out πS in the source domain. For notational convenience we assume the state space is discrete; it is straightforward to extend all of our proofs to continuous domains by replacing summations with integrals. A.1.1. D YNAMICS IN MDP S
+
+We consider a family of Markov Decision Processes parameterized by physical parameters θ ∈ Θ:
+
+M(θ) := ( S, A, p θ , r, γ ) (A.1) where the state space S, action space A, reward function r, and discount factor γ are shared across domains, while the transition dynamics pθ (s′|s, a ) depend on the underlying system parameters θ (e.g., mass distribution, actuation charac-teristics, or contact properties). We make the following assumptions regarding dynamics parameters and their induced transition functions. 
+
+Assumption A.1 (Dynamics Continuity in Parameters) . There exists a constant Lp > 0 such that for any θ, θ ′ ∈ Θ and 
+
+∀(s, a ), ∥pθ (·| s, a ) − pθ′ (·| s, a )∥1 ≤ Lp ∥θ − θ′∥.
+
+Definition A.1 (Task-Relevant Dynamics Equivalence) . Let θ ∈ Θ denote the underlying physical parameters of a system. We define a task-relevant dynamics representation η := ψ(θ) ∈ H , where ψ maps system parameters to a low-dimensional space capturing task-relevant interaction properties. Two parameter settings θ and θ′ are said to be dynamics-equivalent if 
+
+ψ(θ) = ψ(θ′). We denote the corresponding equivalence class by 
+
+[θ] := {θ′ ∈ Θ | ψ(θ′) = ψ(θ)} (A.2) 
+
+Assumption A.2 (Equivalence-Class-Induced Dynamics) . The transition dynamics depend on θ only through its task-relevant representation η = ψ(θ), i.e., pθ (s′|s, a ) ≈ pη (s′|s, a ). Consequently, dynamics parameters within the same equivalence class [θ] induce approximately identical trajectory distributions for the task of interest. Therefore, the qualitative claim of “different set of dynamics parameters can induce similar dynamics” essentially means equivalence class [θ]̸ = ∅, and our algorithm learns function ψ to identify equivalence classes. A.1.2. W INDOW DISTRIBUTION 
+
+For a window segment wt = ( st−H , a t−H , . . . , s t−1, a t−1) of one full trajectory τ = ( s0, a 0, . . . , s L−1, a L−1, s L), its marginal density ρ(π, p ) can be obtained by rolling out the Markov chain: 
+
+ρt(π, p ) := ρ(π, p )( wt) = dπ,p t−H (st−H ) ·
+
+> t−1
+
+Y
+
+> k=t−H
+
+π(ak|sk, E (wk)) · p(sk+1 |sk, a k) (A.3) where dπ,p t−H (st−H ) is the probability density of being in state st−H at time step t − H under policy π and dynamics p,defined recursively as: 
+
+dπ,p k (sk) = 
+
+Z
+
+> S
+
+Z
+
+> A
+
+p(sk|sk−1, a k−1)π(ak−1|sk−1, E (wk−1)) dπ,p k−1(sk−1) da k−1 ds k−1 (A.4) In subsequent analysis, we will write E(wk) as zk for brevity. A.1.3. D EFINITIONS 
+
+The following definitions are established in the main thesis, we restate it here to aid the proof of theorems. 
+
+Definition A.2. Two MDPs MS and MT are ϵp-close in dynamics, if they share the same state space, action space and reward function, but differ in transition dynamics pS (s′|s, a ) and pT (s′|s, a ), such that: 
+
+DT V (pT (·| s, a ), p S (·| s, a )) ≤ ϵp ∀(s, a ) (A.5) 13 Latent Dynamics Geometries 
+
+Definition A.3. A latent-conditioned policy π(·| s, z ) is Lπ -smooth, if there exists a constant Lπ such that: 
+
+sup 
+
+> s
+
+DT V (π(·| s, z S ), π (·| s, z T )) ≤ Lπ ∥zS − zT ∥2 (A.6) 
+
+Definition A.4. For a fixed policy π and transition dynamics p, the time-indexed latent centroid μt(π, p ) is the expected encoding of the window at that specific time step: 
+
+μt(π, p ) = Ew∼ρt(π,p )[E(w)] (A.7) 
+
+Definition A.5. An encoder is δe-consistent if: 
+
+sup 
+
+> t
+
+sup 
+
+> w∼ρt(π,p )
+
+∥E(w) − μt(π, p )∥2 ≤ δe (A.8) 
+
+Definition A.6. The encoder Lipschitz constant LE with respect to the total variation divergence of the induced window distributions is defined as: 
+
+LE = sup 
+
+> t
+
+sup  
+
+> (π,p ),(˜ π, ˜p)
+
+∥μt(π, p ) − μt(˜ π, ˜p)∥2
+
+DT V (ρt(π, p ), ρ t(˜ π, ˜p)) (A.9) The encoder is considered LE -smooth if LE < ∞.
+
+Definition A.7. Let W be the space of trajectory windows, the support of physically feasible windows under dynamics p
+
+and policy π is defined as: 
+
+supp( π, p ) = {w ∈ W | ∀ (s, a, s ′) ∈ w, p (s′|s, a ) > 0} (A.10) 
+
+A.2. Simulation Lemma 
+
+Below we present the Simulation Lemma (Kearns & Singh, 2002), which bounds the difference in cumulative reward achieved by the same (nonadaptive) policy under different domains. 
+
+Lemma A.1 (Simulation Lemma (Kearns & Singh, 2002)) . Let MS and MT be two MDPs that are ϵp-close in dynamics, then for policy π(·| s), the following bound holds: 
+
+∥V πT − V πS ∥∞ ≤ 2γR max 
+
+(1 − γ)2 ϵp (A.11) 
+
+Proof. In subsequent proof we drop the explicit dependency on action in the transition function for brevity, to write 
+
+pT (s′|s, π (a|s)) as pT (s′|s). Recall the Bellman equation for a fixed policy π:
+
+V πT (s) = R(s) + γ X
+
+> s′
+
+pT (s′|s)V πT (s′) (A.12) Denote the value difference V πT (s) − V πS (s) as ∆( s), which can be expanded as: 
+
+∆( s) = γ X
+
+> s′
+
+pT (s′|s)V πT (s′) − X
+
+> s′
+
+pS (s′|s)V πS (s′)
+
+!
+
+= γ X
+
+> s′
+
+pT (s′|s)V πT (s′) − X
+
+> s′
+
+pT (s′|s)V πS (s′) + X
+
+> s′
+
+pT (s′|s)V πS (s′) − X
+
+> s′
+
+pS (s′|s)V πS (s′)
+
+!
+
+= γ X
+
+> s′
+
+pT (s′|s)∆( s′)
+
+| {z }
+
+> Value Error Propagation
+
++γ X
+
+> s′
+
+(pT (s′|s) − pS (s′|s)) V πS (s′)
+
+| {z }
+
+> Dynamics Error
+
+(A.13) The Dynamics Error term can be bounded by H¨ older’s inequality: 
+
+X
+
+> s′
+
+(pT (s′|s) − pS (s′|s)) V πS (s′) ≤ ∥ pT (·| s) − pS (·| s)∥1∥V πS ∥∞ ≤ 2ϵp
+
+Rmax 
+
+1 − γ (A.14) 14 Latent Dynamics Geometries 
+
+Substituting this back into Eq. (A.13), taking the absolute value and utilizing triangle inequality: 
+
+|∆( s)| ≤ γ X
+
+> s′
+
+pT (s′|s)∆( s′) + γR max 
+
+1 − γ ϵp ≤ γ max  
+
+> s′
+
+|∆( s′)| + γR max 
+
+1 − γ ϵp (A.15) We further take the max operator on both sides of Eq. (A.15), which leads to: 
+
+max |∆( s)| = ∥∆( s)∥∞ ≤ γ ∥∆( s)∥∞ + γR max 
+
+1 − γ ϵp (A.16) Rearranging terms, we obtain the bound in Eq. (A.11). 
+
+A.3. Extended Performance Difference Lemma 
+
+Standard Performance Difference Lemma (PDL (Kakade & Langford, 2002)) focuses on value function difference induced by different policies within the same domain. Since different adaptive policies naturally require different domains, we extend PDL to bound V πT 
+
+> T
+
+− V πS 
+
+> S
+
+.
+
+Lemma A.2 (Extended Performance Difference Lemma) . For policy and dynamics pairs (πT , p T ) in target domain and 
+
+(πS , p S ) in source domain, starting from the same initial state s0, policy performance difference is bounded by: 
+
+|V πT 
+
+> T
+
+(s0) − V πS 
+
+> S
+
+(s0)| ≤ 2Rmax 
+
+> ∞
+
+X
+
+> t=0
+
+γt 
+
+DT V (dπS ,p S 
+
+> t
+
+, d πT ,p T 
+
+> t
+
+) + Est∼dπS ,p St [DT V (πS (·| st, z S,t ), π T (·| st, z T,t ))] 
+
+
+
+(A.17) 
+
+where dπ,p t denotes the state marginal at time t, induced by policy π and dynamics p, defined in Eq. (A.4) .Proof. By definition, the expected return of a policy from an initial state s0 is the sum of expected rewards over the joint state-action marginals at each time step t:
+
+V πS 
+
+> S
+
+(s0) = 
+
+> ∞
+
+X
+
+> t=0
+
+γt
+
+Z
+
+> S
+
+Z
+
+> A
+
+ξS,t (st, a t)R(st, a t) da t ds t
+
+V πT 
+
+> T
+
+(s0) = 
+
+> ∞
+
+X
+
+> t=0
+
+γt
+
+Z
+
+> S
+
+Z
+
+> A
+
+ξT,t (st, a t)R(st, a t) da t ds t
+
+(A.18) where ξS,t (st, a t) = dπS ,p S 
+
+> t
+
+(st)πS (at|st, z S,t ). Evaluate the absolute value of performance difference and apply the triangle inequality: 
+
+|V πS 
+
+> S
+
+(s0) − V πT 
+
+> T
+
+(s0)| =
+
+> ∞
+
+X
+
+> t=0
+
+γt
+
+Z
+
+> S
+
+Z
+
+> A
+
+(ξS,t (st, a t) − ξT,t (st, a t)) R(st, a t) da t ds t
+
+≤ 2Rmax 
+
+> ∞
+
+X
+
+> t=0
+
+γtDT V (ξS,t (st, a t), ξ T,t (st, a t)) 
+
+(A.19) Apply the triangle inequality again, we split the Total Variation divergence into two integrals: 
+
+DT V (ξS,t (st, a t), ξ T,t (st, a t)) ≤ 12
+
+Z
+
+> S
+
+Z
+
+> A
+
+|dπS ,p S 
+
+> t
+
+(st)| | πS (at|st, z S,t ) − πT (at|st, z T,t )| da t ds t
+
++ 12
+
+Z
+
+> S
+
+Z
+
+> A
+
+|πT (at|st, z T,t )| | dπS ,p S 
+
+> t
+
+(st) − dπT ,p T 
+
+> t
+
+(st)| da t ds t
+
+= Est∼dπS ,p St [DT V (πS (·| st, z S,t ), π T (·| st, z T,t ))] + DT V (dπS ,p S 
+
+> t
+
+, d πT ,p T 
+
+> t
+
+)
+
+(A.20) Substitute this bound into Eq. (A.19), we arrive at the desired result. 15 Latent Dynamics Geometries 
+
+A.4. Trajectory Divergence Lemmas 
+
+Implicit methods use an encoder to map trajectory segments to latent vectors. To quantify the Lipschitz continuity for encoder, we first establish the following lemma on divergence between two trajectories, and further extend it to divergence between two segments from different trajectories with the same initial state. 
+
+Lemma A.3 (Trajectory Divergence Lemma) . Let p(·| s, a ), π(·| s, z ) denote the transition probability and adaptive policy in a domain respectively. Let p(τ ) and ˜p(τ ) be the probability distributions over trajectories of length H induced by (π, p )
+
+and (˜ π, ˜p) respectively. The Total Variation distance between these distributions is bounded by: 
+
+DT V (p(τ ), ˜p(τ )) ≤
+
+> H−1
+
+X
+
+> t=0
+
+Est∼ ˜dt [DT V (π(·| st, z t), ˜π(·| st, ˜zt)) + Eat∼˜πt [DT V (p(·| st, a t), ˜p(·| st, a t))]] (A.21) 
+
+where ˜dt is the state marginal distribution induced by following (˜ π, ˜p) for t steps, zt and ˜zt are latent codes inferred from trajectory windows produced by (π, p ) and (˜ π, ˜p) respectively. Proof. We construct a sequence of interpolating distributions {p(k)}Hk=0 , such that p(0) (τ ) = p(τ ) (Source) and p(H)(τ ) = ˜p(τ ) (Target). For 1 ≤ k ≤ H − 1, p(k)(τ ), p(k) is generated by following (˜ π, ˜p) for the first k steps, and (π, p ) for the remaining H − k steps: 
+
+p(k)(τ ) = p(s0)
+
+> k−1
+
+Y
+
+> t=0
+
+˜π(at|st, ˜zt)˜ p(st+1 |st, a t)
+
+! H−1Y
+
+> t=k
+
+π(at|st, z t)p(st+1 |st, a t)
+
+!
+
+(A.22) although actions from π are not used for the first k steps, we still query π to obtain trajectory history {s≤k, a <k }, which are used to produce latents z≥k. For notational convenience, denote π(at|st, z t) as πt, and p(st+1 |st, a t) as pt. By the telescoping sum and triangle inequality: 
+
+DT V (p(τ ), ˜p(τ )) = DT V (p(0) , p (H)) ≤
+
+> H−1
+
+X
+
+> k=0
+
+DT V (p(k), p (k+1) ) (A.23) The term DT V (p(k), p (k+1) ) can be further expanded as: 
+
+DT V (p(k), p (k+1) ) = 12
+
+Z
+
+(πkpk − ˜πk ˜pk)p(s0)
+
+> k−1
+
+Y
+
+> t=0
+
+˜πt ˜ptH−1Y
+
+> t=k+1
+
+πtpt dτ (A.24) Let hk = ( s0, a 0, . . . , s k) denote the history up to sk by following (˜ π, ˜p). The prefix density is p(hk) = p(s0) Qk−1 
+
+> t=0
+
+˜πt ˜pt
+
+and the future conditional density is p(τ>k +1 |sk+1 ) = QH−1 
+
+> t=k+1
+
+πtpt. These two parts are shared for distributions p(k) and 
+
+p(k+1) . The difference arises solely at step k. Consider this difference term: 
+
+|πkpk − ˜πk ˜pk| ≤ | πk − ˜πk| pk + |pk − ˜pk| ˜πk (A.25) Integrate over the future variables τ>k +1 in Eq. (A.24), then plug in inequality (A.25), we arrive at: 
+
+DT V (p(k), p (k+1) ) ≤
+
+Z
+
+p(hk)
+
+ 12
+
+Z Z 
+
+(|πk − ˜πk| pk + |pk − ˜pk| ˜πk) da kds k+1 
+
+
+
+dh k (A.26) The first term evaluates to: 
+
+12
+
+Z Z 
+
+|πk − ˜πk| pk da kds k+1 = 12
+
+Z
+
+|πk − ˜πk|
+
+Z 
+
+pk ds k+1 
+
+| {z }
+
+> 1
+
+da k = DT V (πk, ˜πk) (A.27) The second term evaluates to: 
+
+12
+
+Z Z 
+
+|pk − ˜pk| ˜πk da kds k+1 =
+
+Z
+
+˜πk
+
+ 12
+
+Z
+
+|pk − ˜pk| ds k+1 
+
+| {z }    
+
+> DT V (pk,˜pk)
+
+da k = Eak ∼˜πk [DT V (pk, ˜pk)] (A.28) Substituting these back into Eq. (A.26), the integral over hk becomes the expectation over the state distribution induced by the target parameters up to step k, denoted Esk ∼ ˜dk . Summing over k we obtain the final bound. 16 Latent Dynamics Geometries 
+
+Lemma A.4 (Window Distribution Divergence Lemma) . Let ρt(π, p ) and ρt(˜ π, ˜p) be the marginal distributions of trajec-tory windows starting at state st−H with length H (defined in Eq. (A.3) ). The Total Variation divergence between these window distributions is bounded by: 
+
+DT V (ρt(π, p ), ρ t(˜ π, ˜p)) ≤ DT V (dπ,p t−H (st−H ), d ˜π, ˜pt−H (st−H )) +
+
+> t−1
+
+X
+
+> k=t−H
+
+Esk ∼ ˜dk [DT V (π(·| sk, z k), ˜π(·| sk, ˜zk)) + Eat∼˜πk [DT V (p(·| sk, a k), ˜p(·| sk, a k))]] 
+
+(A.29) 
+
+where ˜dk is the state marginal distribution induced by following (˜ π, ˜p) for k steps, zk and ˜zk are latent codes inferred from trajectory windows produced by (π, p ) and (˜ π, ˜p) respectively. Proof. The difference between trajectory window and full trajectory is that different trajectories have the same initial distribution, but different windows start at different initial state, whose distribution is given by dπ,p t−H (st−H ) as specified in Eq. (A.3). For notational convenience, we shift the time index by t − H and denote st−H as s0. Extending the proof of Trajectory Difference Lemma (Lemma A.3), for window wt starting at state st−H with length H, we construct a sequence of interpolating distributions {p(k)}Hk=−1, satisfying: 
+
+p(−1) (w) = dπ,p  
+
+> 0
+
+(s0)
+
+> H−1
+
+Y
+
+> i=0
+
+π(ai|si, z i)p(si+1 |si, a i)
+
+!
+
+(A.30) 
+
+p(0) (w) = d˜π, ˜p 
+
+> 0
+
+(s0)
+
+> H−1
+
+Y
+
+> i=0
+
+π(ai|si, z i)p(si+1 |si, a i)
+
+!
+
+(A.31) 
+
+p(k)(w) = d˜π, ˜p 
+
+> 0
+
+(s0)
+
+> k−1
+
+Y
+
+> i=0
+
+˜π(ai|si, ˜zi)˜ p(si+1 |si, a i)
+
+! H−1Y
+
+> i=k
+
+π(ai|si, z i)p(si+1 |si, a i)
+
+!
+
+(A.32) Therefore, p(H)(w) is the marginal window distribution in target main, and p(−1) (w) is the marginal in source domain. Again, zi and ˜zi are latent codes inferred from trajectory windows produced by (π, p ) and (˜ π, ˜p) respectively. By the telescoping sum and triangle inequality: 
+
+DT V (ρS , ρ T ) = DT V (p(−1) , p (H)) ≤ DT V (p(−1) , p (0) )
+
+| {z }
+
+> Initialization Shift
+
++
+
+> H−1
+
+X
+
+> k=0
+
+DT V (p(k), p (k+1) )
+
+| {z }
+
+> Window Transition Shift
+
+(A.33) where Initialization Shift calculates to: 
+
+DT V (p(−1) , p (0) ) = DT V (dπ,p (s0), d ˜π, ˜p(s0)) (A.34) Further using Lemma A.3 to bound Window Transition Shift, and shift time index by t − H, we obtain the final result. 
+
+Assumption A.3. There exists a constant Cd < 1 such that sup t DT V (dπS ,p S 
+
+> t
+
+(st), d πT ,p T 
+
+> t
+
+(st)) ≤ Cd.
+
+Lemma A.5 (Window Divergence Bound) . Denote ∆ρt := DT V (ρt(π, p ), ρ t(˜ π, ˜p)) . Let MS and MT be two MDPs that are ϵp-close in dynamics. If adaptive policy π is Lπ -smooth, encoder E is LE -smooth, δe-consistent in both MDPs, then under Assumption A.3 and Lπ LE H̸ = 1 , the following bound holds: 
+
+∆ρt ≤ b
+
+1 − aH + M r t 
+
+> 0
+
+(A.35) 
+
+where a := Lπ LE , b := Cd + H(2 Lπ δe + ϵp) and M := max 0≤k<H (∆ ρk − b/ (1 − aH )) /r k 
+
+> 0
+
+are all constants. r0 ∈ R+
+
+is the unique root of rH (r − 1) = a(rH − 1) .
+
+17 Latent Dynamics Geometries 
+
+Proof. For notational convenience, denote DT V (ρt(π, p ), ρ t(˜ π, ˜p)) as ∆ρt , Lπ LE as a and Cd + H(2 Lπ δe + ϵp) as b.Assume ∆ρk = 0 when k ≤ 0. We first relate policy divergence to window divergence: 
+
+DT V (π(·| st, z t), ˜π(·| st, ˜zt)) (1) 
+
+≤ Lπ ∥zt − ˜zt∥2(2) 
+
+≤ Lπ [∥zt − μt(π, p )∥2 + ∥μt(π, p ) − μt(˜ π, ˜p)∥2 + ∥μt(˜ π, ˜p) − ˜zt∥2]
+
+> (3)
+
+≤ Lπ (2 δe + LE ∆ρt )
+
+(A.36) where inequality (1) follows Lπ -smoothness of policy, inequality (2) relates two latent codes to their corresponding latent centroids, and inequality (3) is derived from the definition of δe-consistency and LE -smoothness of encoder. With this bound and Assumption A.3, Lemma A.4 evaluates to: 
+
+∆ρt ≤ Cd +
+
+> t−1
+
+X
+
+> k=t−H
+
+Lπ (2 δe + LE ∆ρk) + ϵp ⇔ ∆ρt ≤ a
+
+> t−1
+
+X
+
+> k=t−H
+
+∆ρk + b (A.37) Let ck = ∆ ρk − b 
+
+> 1−aH
+
+, the recurrence relation for ck is: 
+
+ct ≤ a
+
+> t−1
+
+X
+
+> k=t−H
+
+ck, ∀t ≥ H (A.38) Consider the equality case ct = a Pt−1 
+
+> k=t−H
+
+ck, the characteristic equation is: 
+
+g(r) := rH
+
+1 + r + . . . + rH−1 = a (A.39) Function g(r) is strictly increasing on (0 , ∞). Moreover, lim r→0+ g(r) = 0 , g(1) = 1 
+
+> H
+
+, lim r→∞ g(r) = ∞. Hence for any a > 0 there exists a unique r0 > 0 such that g(r0) = a. In particular, if aH > 1 then r0 > 1; if aH = 1 then r0 = 1 ;if aH < 1 then r0 < 1. Let M = max 0≤k<H (ck/r k 
+
+> 0
+
+), we prove by induction that ct ≤ M r t 
+
+> 0
+
+for all t. For base case 
+
+t < H , the inequality holds by the definition of M . For inductive step, assume ck ≤ M r k 
+
+> 0
+
+for all k < t with t ≥ H. Then: 
+
+ct ≤ a
+
+> t−1
+
+X
+
+> k=t−H
+
+M r k 
+
+> 0
+
+= M ar t−H 
+
+> 0
+
+(1 + r0 + . . . + rH−10 ) = M r t 
+
+> 0
+
+(A.40) which completes the inductive step and therefore concludes the proof. 
+
+Remark 2. Several explanations regarding this bound: (1) Upper-bound sequence f (t) converges only when aH < 1, the resulting value is lim t→∞ f (t) = b 
+
+> 1−aH
+
+; (2) Given rH 
+
+> 0
+
+(r0 − 1) = a(rH 
+
+> 0
+
+− 1) , we calculate the rate of change w.r.t. LE :
+
+∂r 0
+
+∂L E
+
+= Lπ
+
+(rH 
+
+> 0
+
+− 1) 2
+
+rH−10 [rH+1 0 − (H + 1) r0 + H] (A.41) which is strictly positive for r0 > 0, r0̸ = 1 . Therefore r0 is an increasing function of LE , decreasing LE reduces r0
+
+and leads to a tighter bound; and (3) Since DT V (·, ·) ≤ 1 by definition, and when aH > 1, this exponential upper-bound quickly exceeds 1, making it seemingly useless. Notice the goal here is not to provide a tight bound for ∆ρt , but to reveal the dominating factor for window divergence (encoder Lipschitz constant LE ) that guides algorithmic design. 
+
+A.5. Target Domain Regret Bound Assumption A.4. The latent-conditioned policy πS = π(·| s, z S ) approximates the source oracle π∗ 
+
+> S
+
+= π(·| s) within a bounded error δtrain during training. 
+
+Theorem A.1 (Target Domain Regret Bound) . Let MS and MT be two MDPs that are ϵp-close in dynamics. If policy 
+
+π is Lπ -smooth (Definition A.3), encoder E is LE -smooth (Definition A.6), δe-consistent (Definition A.5) in both MDPs, Assumption A.3 and A.4 hold, then the bound for target domain regret is monotonically increasing with respect to δe and 
+
+LE .
+
+18 Latent Dynamics Geometries 
+
+Proof. By the triangle inequality, performance difference between adaptive policy and oracle can be decomposed into: 
+
+V π∗ 
+
+> T
+> T
+
+− V πT 
+
+> T∞
+
+≤ V π∗ 
+
+> T
+> T
+
+− V π∗ 
+
+> S
+> S∞
+
+| {z }
+
+> (I) Oracle Difference
+
++ V π∗ 
+
+> S
+> S
+
+− V πS 
+
+> S∞
+
+| {z }
+
+> (II) Training Error
+
++ ∥V πS 
+
+> S
+
+− V πT 
+
+> T
+
+∥∞
+
+| {z }
+
+> (III) Policy Adaptation
+
+(A.42) where π∗ 
+
+> S
+
+denotes the oracle trained in source, and πS refers to the adaptive policy deployed in source domain. In Eq. (A.42), term (II) is bounded by Assumption A.4. For term (I), notice: 
+
+V π∗ 
+
+> T
+> T
+
+− V π∗ 
+
+> S
+> S
+
+=
+
+
+
+V π∗ 
+
+> T
+> T
+
+− V π∗
+
+> T
+> S
+
+
+
++
+
+
+
+V π∗ 
+
+> T
+> S
+
+− V π∗
+
+> S
+> S
+
+
+
+≤ V π∗ 
+
+> T
+> T
+
+− V π∗ 
+
+> T
+> S
+
+(A.43) where the inequality stems from V π∗ 
+
+> T
+> S
+
+(s) − V π∗ 
+
+> S
+> S
+
+(s) ≤ 0 by the definition of source oracle. Therefore term (I) can be bounded by standard Simulation Lemma (Lemma A.1): Term (I) ≤ 2γR max 
+
+(1 − γ)2 ϵp (A.44) For term (III), we resort to Extended Performance Difference Lemma (Lemma A.2), combined with Assumption A.3: 
+
+∥V πT 
+
+> T
+
+− V πS 
+
+> S
+
+∥∞ ≤ 2Rmax 
+
+> ∞
+
+X
+
+> t=0
+
+γt
+
+
+
+Cd + sup 
+
+> st
+
+Est∼dπS ,p St [DT V (πS (·| st, z S,t ), π T (·| st, z T,t ))] 
+
+
+
+≤ 2Rmax 
+
+> ∞
+
+X
+
+> t=0
+
+γt (Cd + 2 Lπ δe + Lπ LE ∆ρt )= 2 Rmax 
+
+Cd + 2 Lπ δe
+
+1 − γ + Lπ LE
+
+> ∞
+
+X
+
+> t=0
+
+γt∆ρt
+
+!
+
+(A.45) where the second inequality follows inequality (A.36). Further using Lemma A.5 to bound ∆ρt , we obtain: 
+
+∥V πT 
+
+> T
+
+− V πS 
+
+> S
+
+∥∞ ≤ 2Rmax 
+
+Cd + 2 Lπ δe
+
+1 − γ + ab 
+
+(1 − γ)(1 − aH ) + aM 
+
+> ∞
+
+X
+
+> t=0
+
+(γr 0)t
+
+!
+
+(A.46) where a = Lπ LE , b = Cd + H(2 Lπ δe + ϵp), M = max 0≤k<H (∆ ρk − b/ (1 − aH )) /r k 
+
+> 0
+
+, and r0 ∈ R+ is the unique root of rH (r − 1) = a(rH − 1) . Combining these bounds we get the closed-form expression for target domain regret: 
+
+V π∗ 
+
+> T
+> T
+
+− V πT 
+
+> T∞
+
+≤ 2γR max 
+
+(1 − γ)2 ϵp + δtrain + 2 Rmax 
+
+Cd + 2 Lπ δe
+
+1 − γ + ab 
+
+(1 − γ)(1 − aH ) + aM 
+
+> ∞
+
+X
+
+> t=0
+
+(γr 0)t
+
+!
+
+(A.47) To analyze how this bound changes w.r.t. δe and LE , we isolate the impact of ∥V πT 
+
+> T
+
+− V πS 
+
+> S
+
+∥∞. Define the worst-case deterministic sequence f (t) that bounds the actual divergence ∆ρt in Eq. (A.45) and denote the resulting upper-bound as 
+
+F :
+
+F = 2 Rmax 
+
+Cd + 2 Lπ δe
+
+1 − γ + Lπ LE
+
+> ∞
+
+X
+
+> t=0
+
+γtf (t)
+
+!
+
+(A.48) where f (t) is generated by replacing the inequality in Eq. (A.37) with equality: 
+
+f (t) = a
+
+> t−1
+
+X
+
+> k=t−H
+
+f (k) + b (A.49) It is straightforward to prove via induction that ∂f (t)/∂a > 0 and ∂f (t)/∂b > 0, given the following relation: 
+
+∂f (t)
+
+∂a =
+
+> t−1
+
+X
+
+> k=t−H
+
+f (k) + a
+
+> t−1
+
+X
+
+> k=t−H
+
+∂f (k)
+
+∂a , ∂f (t)
+
+∂b = a
+
+> t−1
+
+X
+
+> k=t−H
+
+∂f (k)
+
+∂b + 1 (A.50) 19 Latent Dynamics Geometries 
+
+which further indicates: ∂f (t)
+
+∂δ e
+
+= 2 HL π
+
+∂f (t)
+
+∂b > 0, ∂f (t)
+
+∂L E
+
+= Lπ
+
+∂f (t)
+
+∂a > 0 (A.51) Therefore, consider the change rate of final upper-bound F :
+
+∂F ∂δ e
+
+= 2 Rmax 
+
+2Lπ
+
+1 − γ + Lπ LE
+
+> ∞
+
+X
+
+> t=0
+
+γt ∂f (t)
+
+∂δ e
+
+!
+
+> 0 (A.52) 
+
+∂F ∂L E
+
+= 2 Rmax Lπ
+
+> ∞
+
+X
+
+> t=0
+
+γt
+
+
+
+f (t) + LE
+
+∂f (t)
+
+∂L E
+
+
+
+> 0 (A.53) this completes the proof that target domain regret bound is a monotonically increasing function w.r.t. δe and LE .
+
+A.6. InfoNCE Minimization of Encoder Lipschitz Constant 
+
+We will be using the following decomposition (Wang & Isola, 2020) during our analysis of InfoNCE Loss: 
+
+lim   
+
+> N→∞
+
+LInf oN CE ∝ E(w,w +)∼ρpos 
+
+∥E(w) − E(w+)∥22
+
+| {z }
+
+> Lalign
+
++ E(w,w −)∼ρdata 
+
+h
+
+e−∥ E(w)−E(w−)∥22
+
+i| {z }
+
+> Lunif orm
+
+(A.54) 
+
+Theorem A.2. Assume the measure of the support intersection S = supp( π, p ) ∩ supp(˜ π, ˜p) satisfies P(S) > α for some 
+
+α > 0, then LE is strictly upper-bounded by the square root of Lalign .Proof. Distribution for positive samples can be explicitly written as ρpos = EpEπ,t [ρt(π, p )] , namely the “assemble” of all window distributions produced under the same dynamics. Since positive samples only condition on dynamics and not time steps, we define a “global latent centroid” that is time-invariant (as opposed to prior time-indexed latent centroid): 
+
+¯μ(π, p ) = Et [μt(π, p )] (A.55) and further define the Alignment Loss under a fixed policy π and dynamics p (the corresponding positive samples distribu-tion is ρpos (π, p ) = Et[ρt(π, p )] ): 
+
+Lalign (π, p ) = E(w,w +)∼ρpos (π,p )
+
+h
+
+E(w) − E(w+) 22
+
+i
+
+(A.56) The proof proceeds by relating the Alignment Loss to the radius of the probability mass concentration (Intra-Cluster Tightness) and then demonstrating that overlapping dynamics must share a latent region (Inter-Cluster Closeness). 
+
+1. Intra-Cluster Tightness 
+
+Utilizing the variance identity E[∥X − Y ∥2] = 2 Var( X) for i.i.d. variables sampled from ρpos (π, p ) (we abbreviate it to 
+
+ρπ,p to shorten notation), we have: 
+
+Ew∼ρπ,p 
+
+∥E(w) − ¯μ(π, p )∥22
+
+ = 12 E(w,w +)∼ρπ,p 
+
+∥E(w) − E(w+)∥22
+
+ = 12 Lalign (π, p ) (A.57) Define the cluster variance σ2 
+
+> π,p
+
+:= Lalign (π, p )/2. According to multivariate Chebyshev’s inequality, for a random trajectory window w ∼ ρπ,p , the probability that its latent embedding lies outside a radius kσ π,p is bounded: 
+
+Pw∼ρπ,p 
+
+ ∥E(w) − ¯μ(π, p )∥2 ≥ kσ ρπ,p 
+
+ ≤ dk2 (A.58) where d is the latent dimension. Under the confidence threshold: 
+
+ϵalign (π, p ) := 
+
+r d · L align (π, p )
+
+α (A.59) then with high probability ( > 1 − α/ 2), any sample w from ρπ,p satisfies ∥E(w) − ¯μ(π, p )∥2 ≤ ϵalign (π, p ).20 Latent Dynamics Geometries 
+
+2. Inter-Cluster Closeness 
+
+Consider the physical support intersection S = supp( π, p ) ∩ supp(˜ π, ˜p). We prove that there exists a “bridge sample” 
+
+w∗ ∈ S that lies within the high-density regions of both clusters. Let Hπ,p be the set of trajectory windows where 
+
+∥E(w) − ¯μ(π, p )∥ ≤ ϵalign (π, p ), and Hcπ,p be its complement set. Let H˜π, ˜p and Hc  
+
+> ˜π, ˜p
+
+be the equivalent sets for dynamics and policy pair (˜ π, ˜p). From Step 1, P(Hcπ,p ) ≤ α/ 2 and P(Hc 
+
+> ˜π, ˜p
+
+) ≤ α/ 2. By the union bound, the measure of “outliers” is at most α. Since the intersection S has measure greater than α, the set of valid bridges B = S ∩ Hπ,p ∩ H˜π, ˜p̸ = ∅.Therefore, there exists at least one trajectory window w∗ such that: 
+
+∥E(w∗) − ¯μ(π, p )∥2 ≤ ϵalign (π, p ) ∧ ∥E(w∗) − ¯μ(˜ π, ˜p)∥2 ≤ ϵalign (˜ π, ˜p) (A.60) Using w∗ as the anchor in the triangle inequality: 
+
+∥¯μ(π, p ) − ¯μ(˜ π, ˜p)∥2 ≤ ∥ ¯μ(π, p ) − E(w∗)∥2 + ∥E(w∗) − ¯μ(˜ π, ˜p)∥2 ≤ ϵalign (π, p ) + ϵalign (˜ π, ˜p) (A.61) Since the encoder Lipschitz constant is defined in terms of time-dependent latent centroids, we further bound ¯μ − μt via Jensen’s inequality (utilizing the convexity of L2-norm) 
+
+∥¯μ(π, p ) − μt(π, p )∥2 = Ewt∼ρt(π,p ) [E(wt) − ¯μ(π, p )] 2 ≤ Ewt∼ρt(π,p ) [∥E(wt) − ¯μ(π, p )∥2] (A.62) Utilizing the property that E[X] ≤ pE[X2], we obtain: 
+
+Ewt∼ρt(π,p ) [∥E(wt) − ¯μ(π, p )∥2] ≤
+
+r
+
+Ewt∼ρt(π,p )
+
+h
+
+∥E(wt) − ¯μ(π, p )∥22
+
+i
+
+=
+
+q
+
+Lalign (π, p )/2 (A.63) Therefore we bound the distance between time-indexed latent centroids: 
+
+∥μt(π, p ) − μt(˜ π, ˜p)∥2 ≤ ∥ ¯μ(π, p ) − μt(π, p )∥2 + ∥¯μ(˜ π, ˜p) − μt(˜ π, ˜p)∥2 + ∥¯μ(π, p ) − ¯μ(˜ π, ˜p)∥2
+
+≤ 2pLalign 
+
+p 1/2 + pd/α 
+
+ (A.64) where the first inequality uses the triangle inequality, and the second inequality uses the fact that local Alignment Loss is smaller than global Alignment Loss. Substituting this bound into the definition of LE :
+
+LE = sup 
+
+> t
+
+sup  
+
+> (π,p ),(˜ π, ˜p)
+
+∥μt(π, p ) − μt(˜ π, ˜p)∥2
+
+DT V (ρt(π, p ), ρ t(˜ π, ˜p)) ≤
+
+2pLalign 
+
+p1/2 + pd/α 
+
+
+
+DT V (ρt(π, p ), ρ t(˜ π, ˜p)) (A.65) Namely, given fixed window divergence during optimization, LE is strictly upper-bounded by pLalign .
+
+Theorem A.3. Let the space of trajectory windows W be locally factorizable into dynamics-relevant features and nuisance features, such that trajectory window w ≈ (μ, s ). Then minimizing the InfoNCE Loss (Eq. (A.54) ) implies minimizing the Frobenius norm of ∂E/∂s .Proof. In our setting, a positive pair (w, w +) shares dynamics μ but differs in nuisance factors s (e.g., initial state, noise). Define the perturbation δ = w+ − w ≈ (0 , ∆s). Using the first-order Taylor expansion of the encoder: 
+
+E(w+) − E(w) ≈ JE δ ≈ ∂E ∂μ · 0 + ∂E ∂s · ∆s (A.66) The Alignment Loss in Eq. (A.54) explicitly minimizes this difference, and since ∆s represents natural variations in the environment (which are non-zero), the optimization must decrease the partial derivative with respect to nuisance factors: 
+
+min Lalign =⇒ min E
+
+"
+
+∂E ∂s ∆s
+
+> 2
+
+#
+
+=⇒ min ∂E ∂s 
+
+> 2
+> F
+
+(A.67) Therefore, minimizing LInf oN CE implies minimizing the Frobenius norm of ∂E/∂s .21 Latent Dynamics Geometries 
+
+Algorithm 1 Joint Latent Dynamics Representation and Policy Learning 
+
+1: Input: Buffer D, Encoder qϕ, Decoder pθ , Policy πψ , Batch size N , Weights λ1, λ 2, β 
+
+2: while not converged do 
+
+3: Collect transitions using πψ and store in D
+
+4: Sample batch B = {(wi, s i, a i, s ′
+
+> i
+
+, r i)}Ni=1 
+
+5: Infer latent distribution: zi ∼ qϕ(·| wi)
+
+6: Lrec ← − 1
+
+> N
+
+P 
+
+> i
+
+log pθ (s′ 
+
+> i
+
+| si, a i, z i)
+
+7: LKL ← 1
+
+> N
+
+P 
+
+> i
+
+DKL (qϕ(·| wi)∥N (0 , I)) 
+
+8: Combine VAE objective: LVAE ← L rec + βLKL 
+
+9: Use wi under same dynamics to compute Lcontrast with Eq. (12) 
+
+10: # Assume latent is the same for si and s′
+
+> i
+
+11: Augment observations: xi ← [si, z i], x′ 
+
+> i
+
+← [s′
+
+> i
+
+, z i]
+
+12: Compute RL Loss Lrl (xi, x ′
+
+> i
+
+, a i, r i)
+
+13: L ← L rl + λ1LVAE + λ2Lcontrast 
+
+14: Update ϕ, θ, ψ via gradient descent on L
+
+15: end while 
+
+Remark 3. We can also prove the upper-bounding of LE from this gradient orthogonality perspective. Encoder Jacobian decomposes into orthogonal components corresponding to dynamics and nuisance features: 
+
+∥JE ∥2 
+
+> F
+
+= ∂E ∂μ 
+
+> 2
+> F
+
++ ∂E ∂s 
+
+> 2
+> F
+
+(A.68) Since the Lipschitz constant LE is upper-bounded by the spectral norm (therefore also upper-bounded by the Frobenius norm) of the full Jacobian JE , applying InfoNCE leads to a tighter Lipschitz constant by strictly decreasing the total norm 
+
+∥JE ∥, via the minimization of ∥∂E/∂s ∥F .
+
+## B. Implementation Details 
+
+B.1. Training Procedure 
+
+We provide the overall algorithmic process in Algorithm 1. 
+
+B.2. Dynamics Randomization 
+
+Table B.1. Statistics of Environment Dimensions and Randomized Dynamics Parameters 
+
+Dimensions Rand. Params. Count Environment Obs. Act. Fric. Mass Damp. Torq. Total Hopper 11 3 − 4 3 1 8Walker2d 17 6 − 7 6 1 14 HalfCheetah 17 6 9 7 6 1 23 Ant 27 8 14 13 8 1 36 
+
+Table B.2. Dynamics Randomization Ranges 
+
+Parameter Hopper Walker2d HalfCheetah Ant Mass [0 .5, 2.0) [0 .5, 2.0) [0 .5, 2.0) [0 .5, 2.0) 
+
+Damp. [0 .5, 2.0) [0 .5, 2.0) [0 .5, 2.0) [0 .5, 2.0) 
+
+Torq. [0 .5, 1.5) [0 .5, 1.5) [0 .5, 1.5) [0 .5, 1.5) 
+
+Fric. − − [0 .4, 1.0) [0 .2, 1.0) 
+
+22 Latent Dynamics Geometries 
+
+To assess robustness against OOD dynamics, we introduce randomization across four core physical properties: body mass, joint damping, slide friction, and torque scale. Among these, body mass affects the inertial resistance and momentum of the robot links; joint damping alters the internal friction and energy dissipation within joints; slide friction changes the traction between the robot and the ground, influencing acceleration and stability; and torque scale simulates actuator strength or weakness, affecting the control authority. Environment statistics, including observation dimension, control dimension and number of dynamics parameters randomized are collected in Table B.1. Aliases used: Obs. for observation dimension, Act. 
+
+for action dimension, Damp. for joint damping, Fric. for slide friction, Torq. for torque scale, Total for the total number of dynamics parameters randomized. The scaling factors are sampled uniformly from the ranges specified in Table B.2. The sampling ranges are calibrated to induce significant trajectory diversity while maintaining task feasibility. 
+
+B.3. Network Architecture 
+
+We implement the policy, critic, and auxiliary dynamics networks using standard multi-layer perceptrons (MLPs) and con-volutional encoders. 
+
+Dynamics Encoder ( qϕ): The encoder processes the trajectory history window wt using a Temporal Convolutional Net-work (TCN (Bai et al., 2018)). It consists of three convolutional layers with kernel sizes [8 , 5, 5] and strides [4 , 1, 1] ,followed by a linear projection to the latent mean μϕ and log-standard deviation σϕ. We use ReLU activations for the intermediate layers. 
+
+Dynamics Decoder ( pθ ): The decoder is a 3-layer MLP with hidden units [256 , 256] (or [512 , 512] for Ant) and ReLU activations. It takes the latent zt and the current state-action pair (st, a t) to predict the next state residual ∆s = st+1 − st.We normalize the target ∆s using running mean and std calculated dynamically during training, to make the decoder loss invariant to state element changing rate. Since the latent zt from encoder is theoretically unbounded, we apply Layer-Normalization (LN (Ba et al., 2016)) to latent vectors to improve training stability. 
+
+Policy and Critic: Both the actor πψ and critic Qω utilize 2-layer MLPs with 256 hidden units. They receive the concate-nation of the current state st and the latent context zt as input (critic additionally receives at as input). As with decoder, we apply LN to the input latent vectors. 
+
+B.4. Contrastive Training Details Latent Dropout: When conditioning a policy on a latent context vector extracted from a temporal history, the actor network can become overly reliant on the global latent representation, making the policy prone to failure when the latent context is not precise (e.g., in OOD cases). To increase the robustness of the policy, we implement latent dropout during both training and inference: 
+
+zrl = z ⊙ M, M ∼ Bernoulli(1 − p) (B.1) where p is the dropout probability. We empirically found that a conservative dropout rate of p = 0 .1 effectively regularizes the policy across all environments without destroying the inferred dynamics context. 
+
+Anchor Dynamics Strategy: To stabilize the contrastive learning process in vectorized environments, we implement an “Anchor Dynamics” sampling strategy. When collecting experience with N parallel environments, we ensure that a subset of environments are reset to a fixed “anchor” dynamics parameter ID at the beginning of data collection. This ensures that every training batch contains multiple trajectories generated from the exact same underlying physics. By anchoring the batch distribution, the InfoNCE objective shifts from “separating all random samples” to the easier task of “separating diverse clusters from a known anchor”. We found this strategy significantly accelerates convergence of the geometric structure, as the encoder can quickly latch onto the consistent features of the anchor trajectories to form a central reference cluster. We prevent the anchor from being overwritten by newly incoming data once the buffer is full. 
+
+B.5. Environment Wrappers and Modifications Ant Body Frame Wrapper: For 3D omnidirectional agents like Ant, the standard observation space includes the global Cartesian velocity. However, from the perspective of underlying physical dynamics (e.g., damping or mass), moving for-ward at a given speed is functionally identical to moving backward or sideways at that same speed. If global velocities are passed directly to the trajectory encoder, this directional symmetry would cause the contrastive objective to split func-tionally equivalent dynamics into separate clusters based purely on heading. To resolve this, we wrap the environment to project the global velocity into the agent’s local body frame, ensuring the latent representation is invariant to the agent’s global orientation. 
+
+Walker2d Torque Wrapper: Same as (Yu et al., 2019), we observed that the default ankle torque limits for walker2d 23 Latent Dynamics Geometries 
+
+([−100 , 100] ) allows the agent to exploit unrealistic “hopping” gaits. To facilitate learning of natural walking gait, we reduce ankle joint torque limits to [−20 , 20] .
+
+B.6. Hyperparameter Choices 
+
+To balance the competing objectives of reward maximization, reconstruction, and contrastive shaping, we employ a weighted loss function: 
+
+L = λrl Lrl + λVAE LVAE + λcontrast Lcontrast (B.2) We fix λrl = 1 .0, λcontrast = 1 .0 and λVAE = 5 .0 across all environments, while tuning the reward scale to ensure gradient magnitude consistency. We utilize a trajectory sequence length of H = 50 and a contrastive temperature of 
+
+τ = 1 .0. Crucially, contrastive learning requires a sufficient diversity of positive and negative pairs within each update step. We therefore collect 2048 samples before running 2048 steps of gradient descent with a batch size of 256 , ensuring the optimizer sees a dense sampling of the current policy’s trajectory distribution. To prevent posterior collapse during VAE training, we adopt cost annealing (Bowman et al., 2016), with KL β increasing linearly from 0 to the preset weight during the first 50% of training, and remains constant afterwards. The networks are optimized using the Adam optimizer with a learning rate of 3×10 −4 for Hopper, Walker2d, HalfCheetah and 1×10 −4 for Ant. A summary of the environment-specific hyperparameters is provided in Table B.3.  
+
+> Table B.3. Key environment-specific hyperparameters for LDG.
+
+Parameter Hopper Walker2d HalfCheetah Ant Latent Dimension ( dz ) 3 3 3 5Reward Scale 0.008 0.004 0.004 0.006 KL Max β (Annealing) 0.1 0.07 0.07 0.04 Refer to Section C for a complete ablation of hyperparameter choices. 
+
+B.7. Baseline Implementations 
+
+Our baseline RMA and SAC shares the exact policy and critic backbone as LDG. When training RMA, the environment ex-tractor is a two-layer MLP with hidden dimension being [256 , 128] . We use the same latent dimension for RMA and LDG. We also use Adam optimizer for RMA, and set learning rate to 3.0 × 10 −4 for Walker2d, HalfCheetah, Ant environments, and 1.0 × 10 −4 for Hopper environment. For RMA adaptation phase, we construct the adaptation network to have the same architecture as LDG dynamics encoder 
+
+qϕ. Adaptation buffer size is set to 1.0 × 10 5, and a total of 4.0 × 10 5 transitions are collected during adaptation phase. We take one gradient step for every environment step with a batch size of 256 , using Adam optimizer with learning rate 
+
+5.0 × 10 −4. Empirically, we found the adaptation network to steadily converge under this parameter setting. For SO-CMA, we followed the original paper (Yu et al., 2019) and set rollout number to 1, population size to 7 and max iteration number to 6. For every candidate latent, the policy rollouts for 1 episode. 
+
+## C. Hyperparameter Tuning and Ablation Study 
+
+C.1. Hyperparameter Ablations 
+
+Apart from the reward curves, we additionally evaluated the performance of different horizon H and latent dimension dz
+
+configurations in ID, OOD, Var. Env and Struct. Fail settings. 
+
+Latent Dimension ( dz ): Quantitative results are shown in Table C.1. Insufficient capacity (e.g., dz = 2 ) catastrophi-cally bottlenecks information, causing severe performance degradation across both environments. Conversely, excessive capacity ( dz ≥ 7) introduces manifold sparsity that destabilizes the contrastive uniformity loss, resulting in brittle policies. While extreme over-parameterization ( dz = 15 ) allows the policy to partially recover through sheer parameter volume, it lacks the efficiency of a properly constrained bottleneck. Ultimately, dz = 3 (for Walker2D with observation dimension 17) and dz = 5 (for Ant with observation dimension 27) offer the optimal balance of representational expressivity and geometric tractability. 24 Latent Dynamics Geometries   
+
+> Table C.1. Ablation of latent dimension ( dz) across Walker2d and Ant environments. Rewards are averaged over 5 random seeds. Top-1 result is highlighted using bold numbers.
+
+Environment dz ID OOD Damping Var. Env Struct. Fail 0.3 2.2 Walker2d 
+
+2 3845 3980 3970 3972 662 3 (Ours) 4884 5342 5349 5293 952 7 4254 4391 4397 4512 417 10 4254 4848 4658 4680 1284 
+
+15 4011 5513 5486 4886 369 
+
+Ant 
+
+2 2097 3552 3545 2240 1468 
+
+5 (Ours) 5183 4797 4789 3462 1003 7 3253 1045 1957 582 579 10 4481 1151 2669 672 522 15 5247 3251 5343 3462 682 
+
+Trajectory Horizon Length ( H): We also ablate the trajectory horizon length, as shown in Table C.2. The horizon dictates the temporal context window available for dynamics inference. Extremely short horizons ( H = 10 , corresponding to 0.08 s of simulation time for Ant and 0.5s for Walker2d) lack sufficient temporal context for the encoder to accurately infer underlying physical parameters. In contrast, excessively long horizons ( H = 70 ) integrate too much historical data, which dilutes the agent’s immediate reactivity to recent state transitions. We find that H = 50 provides an optimal balance. Notably, while it might theoretically seem that shorter horizons would permit faster reactions to sudden physical shifts (e.g., Var. Env, Struct. Fail scenarios), our empirical results demonstrate that the representation stability provided by a richer temporal context outweighs raw responsiveness, ultimately yielding superior closed-loop adaptation.  
+
+> Table C.2. Ablation of trajectory horizon length ( H) across Walker2d and Ant environments. Rewards are averaged over 5 random seeds. Top-1 result is highlighted using bold numbers.
+
+Environment H ID OOD Damping Var. Env Struct. Fail 0.3 2.2 Walker2d 
+
+10 4217 4490 4512 4486 236 30 4315 4510 4480 4530 393 50 (Ours) 4884 5342 5349 5293 952 70 5009 5121 5120 5137 1489 Ant 
+
+10 4087 2021 1301 1688 868 30 2263 2326 3012 1355 1733 
+
+50 (Ours) 5184 4797 4789 3462 1003 70 2961 3318 2440 2129 733 
+
+C.2. Tuning Heuristics 
+
+We use reward scale to balance RL and representation objectives, and simply tune it such that the actor and decoder losses share similar magnitudes. We found this heuristic to work well across all environments. For the encoder, we typically set β = 0 .05 initially and reduce it if posterior collapse is observed. Across all environments, we find that the encoder KL loss stabilizes at approximately 1.3, which we suggest as a reference target when tuning β.25 Latent Dynamics Geometries (b) HalfCheetah (a) Ant          
+
+> PC 1
+> PC 2
+> PC 3
+> Cumulative Variance (%) Cumulative Variance (%)
+> 90. 2PC 1
+> PC 2
+> PC 3
+> 98.5
+> 99.8
+> 57.3
+> 100.0
+> −
+> Figure D.1. Latent topology via PCA. We plot explained variance of the first three PCs for the damping manifold. Ant exhibits an effectively 3D structure, while HalfCheetah collapses to 2D (PC3 negligible), consistent with their physical constraints.
+
+## D. Additional Experiments 
+
+D.1. Physical Isomorphism 
+
+Beyond structure discovery via functional equivalence, the learned latent space exhibits a topological complexity that mir-rors the physical constraints of the agent. We analyze this geometric complexity by examining the effective dimensionality of the sub-manifold generated by varying a single parameter (damping). We apply Principal Component Analysis (PCA) to the latent codes to obtain cumulative variances. For Ant, we project the original latent code z ∈ R5 to R3 formed by the first 3 principal components, and for HalfCheetah z ∈ R3 we directly visualize the raw latent space. As visualized in Fig. D.1, the sub-manifold for HalfCheetah (a planar, 2D agent) collapses effectively to a 2D surface (cumulative variance reaches 100% within 2 components). In contrast, for Ant (an omnidirectional 3D agent), the damping sub-manifold spans a meaningful volume across 3 principal components within its 5-dimensional latent space. This suggests that LDG does not merely learn a generic 1D scale for parameters, but constructs a latent topology that is isomorphic to the agent’s control complexity. For a simple 2D agent like HalfCheetah, the effect of damping can be adequately compressed into a 2D plane to represent amplitude and frequency shifts. However, for the 3D Ant, damping alters dynamics across multiple axes, affecting stability, yaw rotation, and leg coordination differentially. By maintaining a higher-dimensional (3D) represen-tation for this single parameter, LDG avoids over-compressing these complex behavioral shifts into a simple scalar. This provides the policy with a behaviorally isomorphic context, allowing it to distinguish how the dynamics have shifted (e.g., differentiating between uniform drag vs. rotational instability), rather than just estimating that resistance has increased. 
+
+D.2. Additional Baseline Comparisons 
+
+Context-Aware Dynamics Models (CaDM (Lee et al., 2020b)) serves as a direct baseline for our approach, as it also follows an outcome-centric paradigm and infers latent contexts from interaction histories. To rigorously evaluate the benefits of our explicitly geometric approach, we compare LDG against pure CaDM and a contrastively augmented variant (CaDM + InfoNCE), which applies our proposed contrastive objective to the CaDM representation. As shown in Table D.1, pure LDG significantly outperforms pure CaDM across all environments and metrics. This vali-dates the superiority of our geometry-aware approach over standard contextual forward-backward prediction. Interestingly, augmenting CaDM with our InfoNCE objective yields environment-dependent results. In Walker2d, it degrades perfor-mance, while in Ant environment, adding the contrastive loss substantially improves upon pure CaDM across all metrics, even surpassing pure LDG in the Structural Failure scenario. This demonstrates that our contrastive objective can success-fully impart crucial topological structure to existing baseline representations, effectively enhancing their out-of-distribution robustness when objective gradients are properly aligned. 
+
+D.3. Approximating Encoder Lipschitz Constant 
+
+To directly support Theorem A.1, we provide an empirical comparison of the Lipschitz constant between our method (LDG), a standard VAE, and Spectral Normalization (SN) in the Walker2d environment. The formal definition of LE (Def-inition A.6) relies on the Total Variation divergence of continuous window distributions, which is intractable to compute 26 Latent Dynamics Geometries  
+
+> Table D.1. Performance comparison of LDG against the CaDM baseline and a contrastively augmented variant (CaDM + InfoNCE). Rewards are averaged over 5 random seeds.
+
+Environment Method ID OOD Damping Var. Env Struct. Fail 0.3 2.2 Walker2d 
+
+CaDM 3768 3990 4002 4005 225 CaDM + InfoNCE 3245 3726 3787 3313 1300 
+
+LDG (Ours) 4892 5343 5336 5293 952 
+
+Ant 
+
+CaDM 2467 1491 2319 1175 661 CaDM + InfoNCE 3790 2033 3006 2057 2049 
+
+LDG (Ours) 5184 4797 4789 3462 1003    
+
+> Table D.2. Empirical approximation of the encoder Lipschitz constant ( ˆLE) in the Walker2d environment.
+
+Method ˆLE
+
+LDG (Ours) 7.84 VAE 20.77 Spectral Normalization (SN) 3.26 directly. Therefore, we estimate an empirical Lipschitz constant, ˆLE , using local gradient perturbations over the sampled trajectory buffer. For a given batch of trajectory windows wi, we approximate the spectral norm of the encoder’s Jacobian using random, L2-normalized projection vectors v. The empirical Lipschitz constant is estimated by taking the supremum over the dataset and the projection vectors: 
+
+ˆLE ≈ max  
+
+> wi∈B
+
+max  
+
+> || v|| 2=1
+
+∇wi
+
+ v⊤E(wi) 
+
+> 2
+
+(D.1) where B represents the replay buffer, and E(wi) is the mean of the encoder’s predicted latent distribution. It is important to note that this gradient-based metric is an imperfect approximation, discrepancy arises because our approximation measures local sensitivity on high-dimensional, empirical trajectory data distributions rather than computing exact global analytic bounds across the entire continuous space. Despite this inaccuracy, the relative magnitudes of ˆLE across different methods remain highly informative and serve as a reliable proxy for comparing geometric smoothness. As shown in Table D.2, the purely reconstructive VAE exhibits a highly volatile latent space ( ˆLE = 20 .77 ), making it highly susceptible to input perturbations. Our contrastive objective (LDG) significantly smooths this geometry ( ˆLE = 7 .84 ), effectively bridging the gap to theoretical stability without explicitly restricting the network’s weights. While Spectral Normalization yields the smoothest representation ( ˆLE = 3 .26 ), as discussed in Section 5.4 in the main thesis, this rigid constraint prevents the formation of meaningful topological structure, ultimately degrading OOD adaptation. 27

@@ -1,0 +1,814 @@
+Title: PerchRL: Vision-Based Agile Perching on Inclined Platforms under Rapid and Irregular Motion
+
+URL Source: https://arxiv.org/pdf/2606.03441v2
+
+Published Time: Thu, 04 Jun 2026 00:49:13 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# PerchRL: Vision-Based Agile Perching on Inclined Platforms under Rapid and Irregular Motion 
+
+Zihong Lu 1,2∗, Zongzhuo Liu 1∗, Huaxu Li 1,Jinqiang Cui 3, Jie Mei 2, Youmin Gong 2, U Kei Cheang 1, Boyu Zhou 1,4†
+
+> 1
+
+SUSTech, 2HITSZ, 3PCL, 4Differential Robotics, ∗project co-leads, †corresponding author 
+
+luzong2001@gmail.com 
+
+{12432388, 12313533 }@mail.sustech.edu.cn cuijq@pcl.ac.cn 
+
+{jmei, gongyoumin }@hit.edu.cn 
+
+{cheanguk, zhouby }@sustech.edu.cn 
+
+Abstract: Autonomous vision-based perching of quadrotors on moving inclined platforms is critical for air-ground collaboration but remains challenging due to the limited field of view (FOV). In this paper, we propose PerchRL, a reinforcement learning (RL) framework for vision-based agile perching on inclined platforms un-der rapid and irregular motion. Specifically, we employ a two-stage learning strat-egy consisting of state-based pre-training followed by vision-based fine-tuning. To improve generalization across diverse platform motions, we employ randomized platform trajectories to prevent overfitting and temporal augmentation methods to capture latent motion patterns from historical observations. During vision-based fine-tuning, a hybrid learning framework consisting of visibility-aware state aug-mentation and active perception rewards is presented to improve robustness under intermittent visual loss. Extensive simulation and real-world experiments demon-strate the feasibility, stability, and real-time performance of PerchRL, while suc-cessful deployment across distinct quadrotor platforms further validates its adapt-ability. The source code will be released to benefit the community. 
+
+Keywords: Vision-Based Perching, Quadrotor, Reinforcement Learning 
+
+## 1 Introduction 
+
+Autonomous perching of quadrotors on moving inclined platforms is critical for air-ground collabo-ration applications [1, 2, 3, 4, 5], such as mobile recharging and emergency response. Vision-based approaches [6, 7, 8, 9] serve as a widely used and effective perception modality for aerial perching, due to their lightweight and low-cost relative pose estimation capabilities in outdoor environments where external infrastructure is unreliable. However, the limited camera FOV hinders the mainte-nance of stable visibility during agile flight, further complicating successful perching. Traditional vision-based perching methods still face significant limitations under rapid and irregular platform motion. Specifically, they explicitly predict platform motion and perform trajectory plan-ning via multi-constrained optimization, resulting in high computational overhead, limited replan-ning frequency, and reduced responsiveness. Furthermore, this tight perception–prediction–planning coupling strongly depends on accurate motion prediction, which becomes unreliable under complex platform motion, leading to accumulated closed-loop errors and degraded performance. Consequently, end-to-end RL-based approaches have recently been explored, enabling high-frequency control with reduced system coupling. However, existing methods still suffer from the following limitations. First, most approaches directly map instantaneous observations to actions and rely on fixed or highly structured trajectories during both training and evaluation. As a result, the trained policies are limited to reactive behaviors instead of predictive maneuvers. Their successful 
+
+> arXiv:2606.03441v2 [cs.RO] 3 Jun 2026
+
+Figure 1: Real-world demonstration of PerchRL. The ground vehicle equipped with a 70 ◦ inclined platform tracks a randomly generated spline trajectory with periodically varying forward speed. The top and bottom inset images show additional views of the aerial perching process from cameras mounted on the quadrotor and ground vehicle, respectively. perching relies on overfitting to specific trajectories, leading to poor generalization to unseen plat-form motion. Second, existing methods primarily focus on visibility maintenance, while lacking predictive compensation or recovery mechanisms under visual loss. However, due to the underac-tuated dynamics of quadrotors, limited FOV, and aggressive maneuvers, intermittent visual loss is inevitable during agile perching, leading to irrecoverable failure once the perception loop is broken. To address these challenges, we propose PerchRL, a flight policy for vision-based agile perching on inclined platforms under rapid and irregular motion, with zero-shot sim-to-real transfer capabil-ity. PerchRL adopts a two-stage learning strategy, consisting of state-based pre-training followed by vision-based fine-tuning. First, we employ highly randomized platform reference trajectories with velocity perturbations to introduce variability in platform motion patterns and prevent overfitting to specific trajectories. To address the resulting training challenges, we further introduce temporal augmentation methods to enhance the policy’s ability to capture latent temporal representations of platform motion from historical observations, thereby improving generalization across diverse mo-tion patterns. Second, during vision-based fine-tuning, the policy is trained to balance aggressive perching maneuvers and perception recovery under intermittent visual loss. To this end, we employ a hybrid learning framework consisting of visibility-aware input augmentation and active perception rewards. Specifically, the input augmentation mechanism provides the policy with a continuously updated platform state estimate and a perceptual reliability indicator, enabling consistent state esti-mation of platform motion under visual loss and adaptive reliance on the estimate, thereby implicitly encouraging visibility-aware behavior. In parallel, the reward formulation explicitly encourages ac-tive perception behaviors, improving training efficiency and convergence stability. Our approach improves both agile perching performance and active perception capability, while decoupling the two components through the staged learning strategy and reducing training difficulty. Overall, PerchRL enables vision-based agile perching on inclined platforms under rapid and ir-regular motion, achieving strong generalization, efficient execution, and robust performance under intermittent visual loss. The main contributions of this work are summarized as follows: • We introduce highly randomized and perturbed platform motion to prevent overfitting and improve policy generalization, and further enhance generalization via temporal augmentation methods that improve the extraction of latent temporal features from historical observations. • We design a hybrid learning framework that leverages implicit state augmentation and explicit reward signals to enable efficient and robust perception recovery under intermittent visual loss. 2• We conduct extensive simulation and real-world experiments, demonstrating the feasibility, sta-bility, and real-time performance of PerchRL. In addition, it generalizes across distinct quadrotor platforms, validating its adaptability to different system dynamics and perception configurations. 
+
+## 2 Related Work 
+
+2.1 Model-Based Methods for Aerial Perching 
+
+In the past, model-based approaches have been widely employed for aerial perching. Early works primarily focused on stationary inclined platforms [10, 11, 12], while more recent studies [13, 14, 15] have extended to moving inclined platforms by explicitly modeling platform dynamics. To prevent visual perception loss, various strategies have been proposed to maintain stable visibility. Mao et al. [16] proposed a generalizable FOV constraint with a lightweight representation, and Gao et al. [17] incorporated perception constraints based on the pinhole camera model into the nonlinear optimization framework of [13] to keep the platform within the camera’s FOV. However, these methods rely on accurate motion prediction and consume substantial computational resources for visibility analysis and optimization during trajectory generation. As a result, they often struggle under fast and unpredictable platform motion, where high-frequency replanning is essential. 
+
+2.2 RL-Based Methods for Aerial Perching 
+
+Recently, RL-based methods have emerged as a promising solution for aerial perching. Early work [18] employed a hierarchical Deep Q-Networks (DQNs) for autonomous perching on a static landing pad. Later studies further extended aerial perching to inclined [19, 20] or dynamic [21, 22] platforms using more advanced RL algorithms and simulators. However, most existing approaches are still restricted to fixed or highly structured platform motion, such as linear or circular trajectories, and exhibit poor generalization to unseen tasks. Moreover, achieving robust vision-based perching under intermittent visual perception loss remains highly challenging. Existing methods typically in-troduce active-perception rewards during training to encourage policies to maintain stable visibility. Wang et al. [23] employed a reward proportional to the platform’s pixel occupancy ratio, while La-dosz et al. [24] introduced a simple constant penalty when the platform leaves the quadrotor’s FOV. However, the lack of predictive compensation or recovery mechanisms limits their robustness under visual perception loss. To address this challenge, Shin et al. [25] presented a framework combining a keypoint-based perception module with an LSTM-based state estimator for perception recovery. However, the experiments were limited to horizontally moving platforms with relatively large tol-erances, while the method’s performance on inclined platforms under rapid and irregular motion remains to be further validated. 
+
+## 3 Methodology 
+
+3.1 Algorithm Overview 
+
+Fig. 2 provides a high-level overview of PerchRL, which adopts a two-stage learning strategy for decoupling the learning process and reducing the overall training difficulty. The policy acquires platform observations in different forms across stages. First, during state-based pre-training, the policy directly accesses ground-truth platform states from the simulator. Next, during vision-based fine-tuning, it receives noisy visual observations from the visibility-gated observation model pro-posed in Section 3.3.1. Finally, during real-world deployment, a plug-and-play visual detection module is employed to provide real-time visual observations from onboard camera images. Detailed descriptions of the training pipeline and algorithmic design are provided in Sections 3.2 and 3.3. 3Figure 2: System overview of PerchRL, including the training pipeline and deployment architecture. 
+
+3.2 State-Based Policy Pre-Training 
+
+The state-based perching task is formulated as a Markov decision process (MDP), defined as a tuple 
+
+M = ( S, A, P, R, γ ). The goal is to learn an optimal policy π∗ that maximizes the expected cumulative reward: π∗ = arg max π E[PTt=0 γtR(st, at)] .
+
+Platform Motion: The moving platform is modeled as a differential-drive robot with dynamics formulated in Appendix A.1. To prevent overfitting to specific motion patterns, we design a kine-matically constrained randomized trajectory generation method to construct geometrically diverse closed-loop reference trajectories for the moving platform, as shown in Fig. 3 (d). Specifically, the reference trajectory p(t) is parameterized as a periodic uniform cubic B-spline curve defined by control points C = {C0, C1, · · · , CM −1}. The resulting B-spline curve is generated by random-izing the geometric distribution of C. In addition, accounting for the excessive difficulty of aerial perching under aggressive turning during rapid motion, we introduce a global curvature checking and optimization procedure to enforce kinematic feasibility and suppress excessively sharp turns on the trajectory. Further implementation details are provided in Appendix A.2. 
+
+Observations and Actions: The policy observation is defined as st = [ squad  
+
+> t
+
+, Sobs  
+
+> t
+
+, ρ t, at−1]⊤, where 
+
+squad  
+
+> t
+
+= [ v, vec( R(q))] ⊤ denotes the drone’s velocity and the vectorized rotation matrix in the world frame. Sobs  
+
+> t
+
+= [ sobs 
+
+> t−H+1
+
+, . . . , sobs  
+
+> t
+
+] is a history of H = 30 platform observations, with each 
+
+sobs  
+
+> i
+
+= [ prel  
+
+> i
+
+, zi, Vi, t rel  
+
+> i
+
+]⊤ comprising the platform relative position, normal vector, velocity Vi =[vxi , v yi , ω i]⊤, as well as the relative timestamp. ρt encodes visual reliability (see Section 3.3.2). During this stage, it is fixed to 1 for input consistency. at−1 denotes the previous action. To enable agile maneuvers, we adopt mass-normalized collective thrust and body rates (CTBR), which improves robustness to the sim-to-real gap [26]. The policy generates normalized actions 
+
+at = [ ˜ ωcmd , ˜Tcmd ] ∈ R4, which are mapped to actual control commands as follows: 
+
+Tcmd = 1 − ˜Tcmd 
+
+2 Tmin + 1 + ˜Tcmd 
+
+2 Tmax , ωcmd = ωmax ˜ωcmd (1) where Tmin , T max , ω max denote the thrust bounds and maximum body-rate limits, respectively. 
+
+Policy Architecture: For temporal augmentation, we employ a temporal convolutional network (TCN) with three 1D convolutional layers to encode Sobs  
+
+> t
+
+, capturing latent temporal representations of platform motion. The temporal features are concatenated with other instantaneous inputs and fed into an MLP head to output the actions. In addition, an asymmetric actor-critic architecture is intro-duced to further augment temporal modeling. Specifically, we augment the critic inputs with future platform states sampled from its reference trajectory. The privileged input consists of a sequence of future observations Spriv  
+
+> t
+
+= [ sobs 
+
+> t+1
+
+, . . . , sobs  
+
+> t+N
+
+]⊤ with N = 15 , sharing the same structure as Sobs  
+
+> t
+
+.Leveraging both historical observations and privileged future information, this design leads to more accurate and comprehensive value estimation, thereby enhancing the effectiveness of actor training. 4Reward Function: The immediate reward rt consists of a dense shaping term rshaping  
+
+> t
+
+and a sparse terminal term rterminal  
+
+> t
+
+:
+
+rt = rshaping  
+
+> t
+
++ rterminal  
+
+> t
+
+, rshaping  
+
+> t
+
+= rguide  
+
+> t
+
++ ralign  
+
+> t
+
++ ract  
+
+> t
+
++ raggr  
+
+> t
+
++ rtime  
+
+> t
+
+(2) On the one hand, the shaping reward rshaping  
+
+> t
+
+provides dense intermediate feedback to efficiently guide the policy toward agile and dynamically feasible perching maneuvers. On the other hand, the terminal reward rterminal  
+
+> t
+
+is designed to encourage successful perching, with a uniform reward for all successful cases and an accuracy-dependent bonus for more precise terminal state alignment. The detailed formulations of rshaping  
+
+> t
+
+and rterminal  
+
+> t
+
+are provided in Appendix A.3. 
+
+3.3 Vision-Based Policy Fine-Tuning 
+
+The vision-based perching task is formulated as a partially observable Markov decision process (POMDP) [27], defined as M = ( S, A, O, P, R, Ω, γ ). The platform state is only partially ob-servable from visual observations due to visibility constraints. To successfully fine-tune the policy trained in Section 3.2 to acquire vision-based perching capability, it is necessary to establish an appropriate visual perception simulation pipeline along with more effective training strategies. 
+
+3.3.1 Visibility-Gated Observation Model 
+
+Existing vision-based perching policies [24, 25] typically adopt end-to-end learning directly from raw images, requiring extensive domain randomization and remaining sensitive to appearance vari-ations and the sim-to-real gap. In contrast, we adopt a different formulation of visual observations. Specifically, we assume an upstream visual detector that provides intermittent 6-DoF pose estimates of the platform in the world frame. Visual measurements are subject to a visibility-gated observation process. At each time step, the simulator first checks whether the elapsed time since the last visual update exceeds the detector period 1/f det , where fdet denotes the predefined detection frequency. A new measurement is triggered only if this condition is satisfied. When a measurement is triggered, a simulated downward-facing pinhole camera model is used to evaluate visibility based on the cur-rent states of the drone and platform. If the platform is not visible, the measurement is discarded. Otherwise, a visual observation noise model is applied to transform the ground-truth pose Tpt into a noisy observation ˆTpt , accounting for onboard perception degradations and improving the policy’s robustness to real-world uncertainty. The noise model exhibits anisotropic, geometry-dependent characteristics, together with systematic biases, as detailed in Appendix A.4. 
+
+3.3.2 Visibility-Aware Policy Learning with Hybrid Guidance 
+
+The platform becomes fully unobservable once it leaves the FOV, requiring effective and robust per-ception recovery. Although prior works [28, 29] have demonstrated the potential of temporal neural networks with historical observations for mitigating the impact of intermittent observation loss in other domains, we find that directly applying this paradigm is insufficient for robust vision-based perching under intermittent visual loss (see Section 4.2). To address this challenge, we propose a hy-brid training scheme that explicitly encourages visibility maintenance via active-perception rewards and implicitly enhances visibility-aware behavior through an input augmentation mechanism. 
+
+Visibility-Aware Input Augmentation: The proposed input augmentation mechanism provides the policy with two types of information, including smoothed platform motion features and the duration of the current visual perception loss. Specifically, we construct a state estimation module based on an extended Kalman filter (EKF) driven by the constant turn rate and velocity (CTRV) model [30]. At each step, the filter performs state prediction, while measurement updates gated by the Maha-lanobis distance [31] are applied only when visual observations ˆTpt are available. We derive ˆsobs 
+
+> t
+
+from the internal filter state as an estimate of sobs  
+
+> t
+
+defined in Section 3.2. Moreover, although ˆsobs 
+
+> t
+
+preserves observation continuity during visual loss, this input design does not encode the occur-rence or duration of visual loss. To address this issue, the module maintains an internal indicator ρt
+
+5Figure 3: Baseline and ablation studies of state-based perching under diverse platform motion pat-terns. (a)-(d) Visualization of evaluated trajectories in the simulator. (e) Success rate comparison across different methods and scenarios. representing the current visual perception reliability as follows: 
+
+ρt =
+
+exp  −λρ · T loss 
+
+> t
+
+ , during visual loss, 
+
+1, otherwise. (3) where λρ is a scale factor and T loss  
+
+> t
+
+denotes the duration of the current visual loss. Based on the definition of ρt, a decreasing ρt indicates a decline in the reliability of ˆsobs  
+
+> t
+
+due to prolonged visual loss, which informs the policy to actively adjust its sensing behavior to re-establish reliable visual perception. The proposed method augments the raw visual observations with visibility-aware in-formation, implicitly enhancing the policy’s ability to adaptively balance perching maneuvers and visibility maintenance under intermittent visual loss. 
+
+Active Perception Rewards: In addition to the input augmentation mechanism, an explicit auxiliary reward ractive  
+
+> t
+
+is introduced to provide structured optimization guidance, formulated as follows: 
+
+gloss  
+
+> t
+
+= 1 + α · clip  T loss  
+
+> t
+
+/τ , 0 , 1 (4a) 
+
+rest  
+
+> t
+
+= −β · gloss  
+
+> t
+
+· ∥ ˆpt − pt∥ (4b) 
+
+rperc  
+
+> t
+
+= −γ ·  1 − v⊤
+
+> cam
+
+dtarget 
+
+ (4c) 
+
+ractive  
+
+> t
+
+= rest  
+
+> t
+
++ rperc  
+
+> t
+
+(4d) where α, β, γ, τ are tunable hyperparameters whose values are listed in Table 1 in the Appendix. rest 
+
+> t
+
+penalizes actions that increase estimation error ∥ˆpt − pt∥ or lead to prolonged perception loss. rperc 
+
+> t
+
+promotes perception awareness by encouraging alignment between the camera optical axis vcam and target direction dtarget . The final immediate reward is defined as rt = rshaping  
+
+> t
+
++ rterminal  
+
+> t
+
++ ractive  
+
+> t
+
+.Overall, the auxiliary reward provides structured guidance for learning active perception behaviors and improves training efficiency and convergence. 
+
+## 4 Experiments 
+
+4.1 Simulation and Training 
+
+The training of PerchRL is performed using proximal policy optimization (PPO) [32], and the toolchain is developed based on the open-source Omnidrones [33]. To accelerate the training pro-cess, we employ large-scale parallel simulation with 8192 environments running on a workstation equipped with an Intel i7-14700KF CPU and an NVIDIA RTX 4080 GPU. The simulator operates at 100 Hz with a timestep of 0.01 s, and the maximum episode length is set to 500 steps. At the start of each episode, the initial states of both the quadrotor and the moving platform are randomly sampled. In addition, domain randomization is applied to mitigate the sim-to-real gap, 6thereby improving the robustness and generalization of the trained policy. The specific ranges of initial conditions and all domain randomization details are provided in Appendix A.5. 
+
+4.2 Baseline and Ablation Studies 
+
+State-based Perching: We first evaluate state-based perching against two baselines: a model-based method Fast-Perching [13] and an RL-based method InclineLander [19]. Additionally, we introduce an ablated variant of PerchRL without temporal augmentation, which directly maps instantaneous observations to actions through an MLP head, referred to as PerchRL w/o TA. We further introduce three fixed and structured trajectories for comprehensive evaluation, as shown in Fig. 3(a)-(c), with detailed definitions and parameters provided in Appendix A.2. For fair com-parison, all RL-based baselines are trained with dedicated policies for each trajectory for up to 40M steps to ensure convergence, and evaluated across three scenarios with varying platform velocities and inclinations. Fig. 3 reports success rates across all methods and scenarios. PerchRL and its variant consistently outperform other baselines, highlighting the limitations of the latter. Fast-Perching predicts platform motion under a constant-velocity assumption, leading to degraded performance under complex plat-form motion. Meanwhile, InclineLander shows limited performance under challenging conditions, relying on sparse terminal rewards without dense intermediate shaping. In addition, the ablated variant achieves comparable performance on the additionally introduced trajectories, but suffers a training bottleneck on B-spline trajectories and exhibits limited generalization. Performance fur-ther degrades with increasing platform velocity, indicating limited adaptability to rapid and irregular platform motion. In contrast, with the temporal augmentation methods proposed in Section 3.2, our method demonstrates strong generalization and achieves the highest success rate across all scenarios. 
+
+Vision-based Perching: Further ablation studies are conducted to evaluate the contributions of the input augmentation method and active perception rewards proposed in Section 3.3.2 to perching per-formance. Specifically, we introduce four ablated variants of PerchRL as shown in Fig. 4 and train all methods with the same pretrained model and environment settings for fair comparison. For meth-ods without input augmentation, instantaneous velocity is estimated from raw visual observations via temporal differencing, with ρt set to 1 to preserve the input structure of the policy network. As illustrated in Fig. 4, the ablated variant without any auxiliary mechanisms struggles to explore effectively, resulting in the poorest performance. Moreover, the proposed input augmentation strat-egy contributes substantially to vision-based training, while removing it leads to a significant per-formance drop. Notably, independently utilizing the augmentation strategy is sufficient to achieve competitive performance. In contrast, although active perception rewards improve training effi-ciency and further enhance final performance, they are insufficient for learning robust perching under intermittent visual loss. In addition, removing ρt eliminates the policy’s explicit awareness of visual perception loss, forcing it to fully trust and rely on ˆsobs  
+
+> t
+
+even when it has significantly devi-ated from the ground truth, leading to degraded performance. Overall, PerchRL achieves the best performance and visual perception stability while also exhibiting faster training convergence. 
+
+4.3 Real-world Experiments 
+
+We conduct a series of real-world experiments and deploy PerchRL on distinct quadrotor platforms to validate its adaptability. Specifically, we first perform state-based perching using a Bitcraze Crazyflie 2.1 to preliminarily validate the proposed framework under aggressive flight conditions, as detailed in Appendix A.7. Following the preliminary validation, we further conduct experiments with a custom-built quadrotor to comprehensively demonstrate the feasibility, stability, and real-time performance of PerchRL for perching on non-cooperative moving inclined platforms under real-world vision-based closed-loop control. The detailed description of the experimental system setup is provided in Appendix A.8. We design six scenarios spanning three difficulty levels, namely simple, normal, and hard, with two scenarios at each level. In this section, we focus on the first normal scenario (denoted as Normal-I ) and the first hard scenario (denoted as Hard-I ). 7Figure 4: The training curves of success rate and average ρt for our method and the ablated variants on platforms with up to 2.0 m /s velocity and 45 ◦ inclination. Here, the average ρt reflects the overall visual perception stability during perching. For variants lacking full input augmentation, an equivalent ρt is computed for evaluation only, which is not accessible to the policy. 
+
+Figure 5: Illustration of the Normal-I experiment. (a) Snap-shot of the whole process. The quadrotor perches on the platform, which follows a spline trajectory at approximately 
+
+2.0 m /s with a 70 ◦ inclination, and the inset shows the key hardware components of our custom-built quadrotor. (b) 3D trajectories of the quadrotor and platform. (c)(d) Velocity and pitch angle curves of the quadrotor and platform. 
+
+Normal-I Experiment: As shown in Fig. 5(a), the experiment starts with the drone hovering, while the plat-form enters its FOV from the rear and follows a randomly generated spline trajectory. After accumulat-ing sufficient valid visual detections, the drone accelerates to catch up and complete the perching task. Fig. 5(b) shows the full trajectories, where vi-sual perception is repeatedly lost and recovered. Each numbered marker indicates a moment when visual per-ception is re-established. With en-coded visual perceptual reliability, the trained policy enables the drone to proceed with the perching maneu-ver while preventing prolonged vi-sual loss. Ultimately, the drone suc-cessfully perches on the inclined plat-form with precise state alignment, as shown in Fig. 5(c)(d). 
+
+Hard-I Experiment: Fig. 1 illustrates a more challenging scenario. Specif-ically, the platform’s desired velocity is periodically varied within the range of [1 .0, 2.5] m /s. Due to the im-perfect performance of the onboard ground vehicle controller, the actual velocity slightly exceeds the predefined bounds and exhibits additional fluctuations. Notably, the above velocity modulation differs significantly from the random motion used in simulation. How-ever, our policy is able to achieve strong zero-shot generalization to this task, leading to successful perching. Further experimental details are provided in Appendix A.9 and the supplementary video. Experi-mental results demonstrate that PerchRL enables vision-based perching on inclined platforms under rapid and irregular motion, with strong generalization across diverse and unseen platform motions. 85 Limitations and Future Work 
+
+In this work, PerchRL achieves robust vision-based perching under intermittent visual loss by adap-tively balancing perching maneuvers and visibility maintenance. However, it still suffers from perception-control coupling induced by the underactuated dynamics of quadrotors and rigid cam-era mounting configuration. In more challenging scenarios with aggressive platform motion or strict perching requirements, this coupling remains a fundamental performance bottleneck that is diffi-cult to mitigate through algorithmic methods alone. Our future work will address this limitation by equipping the quadrotor with an active gimbal and incorporating gimbal pitch control into the RL framework, enabling the agent to jointly optimize flight maneuvers and camera pointing. This exten-sion is expected to further reduce perception-control coupling and improve perching performance. 9References 
+
+[1] D. N. Das, R. Sewani, J. Wang, and M. K. Tiwari. Synchronized truck and drone routing in package delivery logistics. IEEE Transactions on Intelligent Transportation Systems , 22(9): 5772–5782, 2020. [2] G. Wu, N. Mao, Q. Luo, B. Xu, J. Shi, and P. N. Suganthan. Collaborative truck-drone routing for contactless parcel delivery during the epidemic. IEEE Transactions on Intelligent Trans-portation Systems , 23(12):25077–25091, 2022. [3] Y. Liu, Z. Liu, J. Shi, G. Wu, and W. Pedrycz. Two-echelon routing problem for parcel de-livery by cooperated truck and drone. IEEE Transactions on Systems, Man, and Cybernetics: Systems , 51(12):7450–7465, 2020. [4] G. Wu, W. Pedrycz, H. Li, M. Ma, and J. Liu. Coordinated planning of heterogeneous earth observation resources. IEEE Transactions on Systems, Man, and Cybernetics: Systems , 46(1): 109–125, 2015. [5] P. Tokekar, J. Vander Hook, D. Mulla, and V. Isler. Sensor planning for a symbiotic uav and ugv system for precision agriculture. IEEE transactions on robotics , 32(6):1498–1511, 2016. [6] M. Krogius, A. Haggenmiller, and E. Olson. Flexible layouts for fiducial tags. In 2019 ieee/rsj international conference on intelligent robots and systems (iros) , pages 1898–1903. IEEE, 2019. [7] B. Wen, C. Mitash, B. Ren, and K. E. Bekris. se (3)-tracknet: Data-driven 6d pose tracking by calibrating image residuals in synthetic domains. In 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 10367–10373. IEEE, 2020. [8] B. Wen, W. Yang, J. Kautz, and S. Birchfield. Foundationpose: Unified 6d pose estimation and tracking of novel objects. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 17868–17879, 2024. [9] T. Liang, Y. Zeng, J. Xie, and B. Zhou. Dynamicpose: Real-time and robust 6d object pose tracking for fast-moving cameras and objects. In 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 2424–2431. IEEE, 2025. [10] D. Mellinger, N. Michael, and V. Kumar. Trajectory generation and control for precise ag-gressive maneuvers with quadrotors. The International Journal of Robotics Research , 31(5): 664–674, 2012. [11] J. Thomas, M. Pope, G. Loianno, E. W. Hawkes, M. A. Estrada, H. Jiang, M. R. Cutkosky, and V. Kumar. Aggressive flight with quadrotors for perching on inclined surfaces. Journal of Mechanisms and Robotics , 8(5):051007, 2016. [12] J. Mao, G. Li, S. Nogar, C. Kroninger, and G. Loianno. Aggressive visual perching with quadrotors on inclined surfaces. In 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 5242–5248. IEEE, 2021. [13] J. Ji, T. Yang, C. Xu, and F. Gao. Real-time trajectory planning for aerial perching. In 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 10516– 10522. IEEE, 2022. [14] Y. Zhang, Z. Wu, and T. Wei. Precise landing on moving platform for quadrotor uav via extended disturbance observer. IEEE Transactions on Intelligent Vehicles , 2024. [15] S. Liu, W. Hu, Z. Wang, W. Dong, and X. Sheng. Quadrotors’ perching on moving inclined surfaces using uncertainty tolerant planner and thrust regulation. Robotics and Autonomous Systems , 191:105011, 2025. 10 [16] J. Mao, S. Nogar, C. M. Kroninger, and G. Loianno. Robust active visual perching with quadrotors on inclined surfaces. IEEE Transactions on Robotics , 39(3):1836–1852, 2023. [17] Y. Gao, J. Ji, Q. Wang, R. Jin, Y. Lin, Z. Shang, Y. Cao, S. Shen, C. Xu, and F. Gao. Adaptive tracking and perching for quadrotor in dynamic scenarios. IEEE Transactions on Robotics , 40: 499–519, 2023. [18] R. Polvara, M. Patacchiola, S. Sharma, J. Wan, A. Manning, R. Sutton, and A. Cangelosi. Toward end-to-end control for uav autonomous landing via deep reinforcement learning. In 
+
+2018 International conference on unmanned aircraft systems (ICUAS) , pages 115–123. IEEE, 2018. [19] J. E. Kooi and R. Babuˇ ska. Inclined quadrotor landing using deep reinforcement learning. In 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 2361–2368. IEEE, 2021. [20] B. van der Heijden, J. Luijkx, L. Ferranti, J. Kober, and R. Babuska. Eagerx: Graph-based framework for sim2real robot learning. arXiv preprint arXiv:2407.04328 , 2024. [21] A. Rodriguez-Ramos, C. Sampedro, H. Bavle, P. De La Puente, and P. Campoy. A deep reinforcement learning strategy for uav autonomous landing on a moving platform. Journal of Intelligent & Robotic Systems , 93(1):351–366, 2019. [22] P. Goldschmid and A. Ahmad. Reinforcement learning based autonomous multi-rotor landing on moving platforms. Autonomous Robots , 48(4):13, 2024. [23] C. Wang, J. Wang, C. Wei, Y. Zhu, D. Yin, and J. Li. Vision-based deep reinforcement learning of uav-ugv collaborative landing policy using automatic curriculum. Drones , 7(11):676, 2023. [24] P. Ladosz, M. Mammadov, H. Shin, W. Shin, and H. Oh. Autonomous landing on a mov-ing platform using vision-based deep reinforcement learning. IEEE Robotics and Automation Letters , 9(5):4575–4582, 2024. [25] W. Shin, M. Kim, T. Park, G. Bae, S. Kim, and H. Oh. Vision-based autonomous drone landing on moving platforms with uncertain motion via deep reinforcement learning. IEEE Robotics and Automation Letters , 2026. [26] E. Kaufmann, L. Bauersfeld, and D. Scaramuzza. A benchmark comparison of learned control policies for agile quadrotor flight. In 2022 International Conference on Robotics and Automa-tion (ICRA) , pages 10504–10510. IEEE, 2022. [27] L. P. Kaelbling, M. L. Littman, and A. R. Cassandra. Planning and acting in partially observ-able stochastic domains. Artificial intelligence , 101(1-2):99–134, 1998. [28] J. Xing, A. Romero, L. Bauersfeld, and D. Scaramuzza. Bootstrapping reinforcement learning with imitation for vision-based agile flight. arXiv preprint arXiv:2403.12203 , 2024. [29] T. Wu, Y. Chen, T. Chen, G. Zhao, and F. Gao. Whole-body control through narrow gaps from pixels to action. In 2025 IEEE International Conference on Robotics and Automation (ICRA) ,pages 11317–11324. IEEE, 2025. [30] Y. Huang, J. Du, Z. Yang, Z. Zhou, L. Zhang, and H. Chen. A survey on trajectory-prediction methods for autonomous driving. IEEE transactions on intelligent vehicles , 7(3):652–674, 2022. [31] G. Chang. Robust kalman filtering based on mahalanobis distance as outlier judging criterion. 
+
+Journal of Geodesy , 88(4):391–401, 2014. [32] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. 11 [33] B. Xu, F. Gao, C. Yu, R. Zhang, Y. Wu, and Y. Wang. Omnidrones: An efficient and flexible platform for reinforcement learning in drone control. IEEE Robotics and Automation Letters ,9(3):2838–2844, 2024. [34] J. Chen, C. Yu, Y. Xie, F. Gao, Y. Chen, S. Yu, W. Tang, S. Ji, M. Mu, Y. Wu, et al. What matters in learning a zero-shot sim-to-real rl policy for quadrotor control? a comprehensive study. IEEE Robotics and Automation Letters , 2025. [35] J. A. Preiss, W. Honig, G. S. Sukhatme, and N. Ayanian. Crazyswarm: A large nano-quadcopter swarm. In 2017 IEEE International Conference on Robotics and Automation (ICRA) , pages 3299–3304. IEEE, 2017. 12 A Supplementary Materials 
+
+A.1 System Dynamics for Policy Training 
+
+Quadrotor Dynamics: The quadrotor is modeled with standard dynamics as follows: 
+
+˙p = v, m ˙v = f Re 3 − mg e3,
+
+˙R = R ˆω, J ˙ω = τ − ω × (Jω). (5) where p, v ∈ R3 denote the position and velocity in the world frame, respectively. m and g are the mass and gravity acceleration of the quadrotor. e3 = [0 , 0, 1] ⊤ is the vertical unit vector. R ∈ SO(3) 
+
+represents the attitude of the quadrotor, and J ∈ R3×3 is the inertia matrix. f ∈ R+ and τ ∈ R3
+
+denote the collective thrust and body torque of the quadrotor, respectively. 
+
+Platform Dynamics: The moving platform is modeled as a differential-drive robot, whose dynamics are subject to nonholonomic motion constraints: 
+
+˙pp = vp · [cos( ψp), sin( ψp), 0] ⊤
+
+Rp = Ry (θp)Rz (ψp)˙ψp = wp
+
+˙θp = 0 
+
+up = [ ˙ vp, ˙wp]⊤
+
+(6) where pp, θ p, and ψp denote the position, incline angle, and yaw angle of the platform, respectively. 
+
+Rp denotes the orientation of the platform, parameterized by θp and ψp. vp and wp are the forward speed and the yaw rate, and up denotes the control input. 
+
+A.2 Trajectory Definitions and Parameters 
+
+All trajectories employed for policy training and evaluation share a unified representation form: 
+
+p(t) = [ x(t), y (t), c z ]⊤, where cz = 1 .5 m represents the fixed altitude. In this section, we sequen-tially introduce the definitions and parameters of the trajectories visualized in Fig. 3(a)-(d). 
+
+Reciprocating linear trajectory: This trajectory describes rectilinear periodic motion along the x-axis, defined as: 
+
+x(t) = A sin( vA · t), y(t) = 0 (7) where A = 12 .0 m and v denote the spatial amplitude and maximum speed of the trajectory, re-spectively, with v corresponding to the platform speed levels evaluated in the Reciprocating Linear scenario in Fig. 3(e). 
+
+Racetrack trajectory: This trajectory consists of two straight segments and two semicircular arcs, forming a closed periodic path. Its geometry is fully defined by the arc radius R = 4 .0 m and the straight-segment length L = 4 .0 m , with constant-speed traversal. 
+
+Figure-8 trajectory: This trajectory is represented as a lemniscate curve, defined in terms of the angular parameter θ:
+
+x(θ) = a cos θ
+
+1 + sin 2 θ , y(θ) = a sin θ cos θ
+
+1 + sin 2 θ (8) where a = 4 .0 m denotes the spatial scale of the trajectory. The angular evolution is governed by 
+
+˙θ = v/ ∥∂p/∂θ ∥, ensuring traversal at a constant speed along the curve. 
+
+Random B-spline trajectory: In contrast to the aforementioned trajectories, the B-spline trajectory is generated with substantial geometric randomness. It is parameterized as a periodic uniform cubic B-spline curve defined by M = 12 control points C = {C0, C1, · · · , CM −1}, whose geomet-ric distribution is randomized at the start of each episode. Specifically, each control point Ci is 13 constructed using polar coordinates (ri, θ i) as follows: 
+
+θi = 2πi M
+
+˜ri ∼ U (rmin , r max )
+
+ri = FLPF (˜ ri)
+
+Ci = [ ri cos θi, r i sin θi, c z ]⊤
+
+(9) where FLPF (·) denotes a circular low-pass filtering operator that enforces smooth variations along the angular direction. rmin = 1 .0 m and rmax = 12 .0 m define the range of the uniform distribution. Furthermore, we propose a global curvature checking and optimization procedure to smooth the ini-tial trajectory defined by C, ensuring kinematic feasibility. Specifically, we first perform a global checking on the trajectory and compute its maximum curvature κmax , subject to the following con-straint: 
+
+κmax ⩽ ˙ψlim 
+
+max( vdes , ϵ ) (10) where ˙ψlim = 1 .2 rad /s denotes the maximum allowable yaw rate of the differential-drive platform, 
+
+ϵ is a small positive constant introduced for numerical stability, and vdes denotes the nominal plat-form speed. If the constraint in Eq. (10) is violated, we smooth the trajectory by uniformly shrinking the radial deviations of all control points: 
+
+r′ 
+
+> i
+
+= ¯ r + αbin · (ri − ¯r), ∀i = 0 , 1, · · · , M − 1 (11) where ri and r′ 
+
+> i
+
+denote the original and updated radii of the i-th control point, respectively, and 
+
+¯r is the mean radius of all control points. αbin is initialized to 1 and updated via a binary search strategy until Eq. (10) is satisfied. This scaling reduces radial variation, leading to a more uniform control-point distribution and thereby reducing κmax of the resulting trajectory. In addition, the following discretized Ornstein–Uhlenbeck process is introduced to generate a per-turbed traversal speed vpert  
+
+> t
+
+around the nominal speed vdes :
+
+βou = ∆tτ + ∆ t , ηt = (1 − βou )ηt−1 + σpβou ϵt, vpert  
+
+> t
+
+= vdes · exp( ηt) (12) where ∆t denotes the simulation time step, ϵt is standard Gaussian noise, τ = 1 .0 controls temporal smoothness, and σ = 0 .1 controls the perturbation magnitude. Compared to independent Gaussian noise, this formulation generates smoother, temporally correlated perturbations and avoids abrupt velocity changes. Overall, the proposed trajectory generation method produces highly randomized trajectories with additional velocity perturbations, ensuring both geometric diversity and dynamic variability. 
+
+A.3 Reward Formulations for Policy Training A.3.1 Dense Shaping Reward 
+
+The reward components of rshaping  
+
+> t
+
+are formulated as follows: 
+
+rguide  
+
+> t
+
+= λ1 · ϕ1(λ2 · prel  
+
+> t
+
+, zrel 
+
+> t
+
+⊤ )
+
+ralign  
+
+> t
+
+= rguide  
+
+> t
+
+· (λ3 · ϕ2(θrel  
+
+> t
+
+) + ϕ1(λ4 · ∥ vrel  
+
+> t
+
+∥) + ϕ1( ˙ψt)) 
+
+ract  
+
+> t
+
+= λ5 · ϕ3(∥at∥) + λ6 · ϕ3(∥at − at−1∥)
+
+raggr  
+
+> t
+
+= λ7 · ϕ3
+
+ I[∥vt∥ > v lim ] · ϕ4(∥vt∥, v lim )+ I[∥ωt∥ > ω lim ] · ϕ4(∥ωt∥, ω lim )
+
+rtime  
+
+> t
+
+= −λ8
+
+(13) where prel  
+
+> t
+
+and vrel  
+
+> t
+
+denote the relative position and velocity, respectively. zrel  
+
+> t
+
+and θrel  
+
+> t
+
+describe the alignment error between the drone’s body z-axis and the perching normal in vector and angular 14 forms, respectively. ˙ψt denotes the body-frame yaw rate. vlim and ωlim are the corresponding velocity limits. λi ∈ R+, i = 1 , . . . , 8, are hyperparameters, whose values are listed in Table 1. I[·]
+
+is the indicator function, and ϕi(·), i = 1 , . . . , 4, are shaping functions defined as follows: 
+
+ϕ1(x) = (1 + x2)−1
+
+ϕ2(x) = ((cos x + 1) /2) 2
+
+ϕ3(x) = exp( −x)
+
+ϕ4(a, b ) = exp( a − b) − 1
+
+(14) These shaping functions are used to transform raw state errors into bounded and smooth reward signals, improving training stability and mitigating sensitivity to outliers. An overview of these components is provided below: • rguide  
+
+> t
+
+: This reward encourages the quadrotor to approach the platform while reducing both relative position and attitude errors, guiding the policy toward successful perching maneuvers. • ralign  
+
+> t
+
+: This reward further enhances state alignment during the terminal perching phase by im-proving alignment with the perching normal, matching the platform velocity, and suppressing spinning. • ract  
+
+> t
+
+: This reward penalizes excessive control actions and abrupt action variations between consec-utive timesteps, encouraging smooth and stable motions. • raggr  
+
+> t
+
+: This reward penalizes violations of the predefined velocity limits, discouraging overly ag-gressive motions. • rtime  
+
+> t
+
+: This reward applies a constant penalty at each timestep, discouraging the policy from re-maining idle and encouraging efficient task completion. 
+
+A.3.2 Sparse Terminal Reward 
+
+In addition to the dense shaping rewards, a sparse terminal reward rterminal  
+
+> t
+
+is employed to explic-itly enforce terminal constraints, thereby improving perching accuracy. The process of evaluat-ing episode termination and calculating rterminal  
+
+> t
+
+is detailed in Algorithm 1. At each timestep, the system is classified into one of the following states: ongoing, failure, or success. We first check for violation conditions, including crashing, exceeding the predefined workspace, and reaching the maximum episode length, which trigger failure termination. Subsequently, the criterion proposed in [13] is leveraged for contact detection. Once a contact is detected, the drone’s state is trans-formed into the platform’s coordinate frame, yielding the relative state srel  
+
+> t
+
+= [∆ dt, ∆vt, ∆θt]⊤,Table 1: Hyperparameters for the reward function components 
+
+Category Symbol Value Description 
+
+Dense shaping 
+
+λ1 1.0 Guide reward weight 
+
+λ2 1.2 Pose-error scaling coefficient 
+
+λ3 2.7 Axis-alignment coefficient 
+
+λ4 1.5 Relative terminal-velocity coefficient 
+
+λ5 4.0 Action magnitude reward weight 
+
+λ6 6.0 Action smoothness reward weight 
+
+λ7 1.5 Aggressiveness reward weight 
+
+λ8 4.0 Constant time penalty Sparse terminal λf −200 Terminal failure penalty 
+
+λs 900 Base success reward Active perception 
+
+α 5.0 Perception-loss amplification coefficient 
+
+β 1.5 Estimation-error penalty weight 
+
+γ 0.3 Camera-target alignment penalty weight 
+
+τ 0.8 Perception-loss time constant 15 where ∆dt, ∆vt, ∆θt ∈ R+ denote the relative tangential distance, relative tangential velocity, and the normal angular difference, respectively. Given tolerance thresholds δtol = [ δd, δ v , δ θ ]⊤, success-ful perching is defined if and only if srel  
+
+> t
+
+≤ δtol (element-wise), and the success terminal reward is computed as shown in lines 8-9 of Algorithm 1. fl(s, δ) is a limiting function: 
+
+fl(s, s max ) = (( s − smax )/s max )2, fl(s, δ) = [ fl(s1, δ 1), . . . , f l(sn, δ n)] ⊤ (15) The success terminal reward rterminal  
+
+> t
+
+∈ [λs, 2λs] is designed to reward state alignment with higher precision beyond simply satisfying the success threshold. While λs provides a consistent reward for all successful perching, ws serves as a weighting factor that introduces an accuracy-dependent bonus to effectively guide the policy toward more accurate perching. The tolerance thresholds for successful perching are set as δd = 0 .2 m , δv = 0 .6 m /s and δθ = 0 .2 rad . The values of λf , λ s are listed in Table 1. 
+
+Algorithm 1: Terminal State Evaluation and Reward Calculation 
+
+Input: Quadrotor state Sq , platform state Sp, weights λf , λ s, tolerance thresholds δtol 
+
+Output: Terminal state ct ∈ { Ongoing , Fail , Success }, terminal reward rterminal  
+
+> t
+> 1
+
+if CheckViolation (Sq ) == True then  
+
+> 2
+
+return (Fail , λ f ); 
+
+> 3
+
+if CheckContact (Sq , Sp)̸ = True then  
+
+> 4
+
+return (Ongoing , 0) ; 
+
+> 5
+
+else  
+
+> 6
+
+srel  
+
+> t
+
+= [∆ dt, ∆vt, ∆θt]⊤ ← CalcRelativeState (Sq , Sp); 
+
+> 7
+
+if srel  
+
+> t
+
+≤ δtol then  
+
+> 8
+
+ws ← mean (fl(srel  
+
+> t
+
+, δtol )) ; 
+
+> 9
+
+rterminal  
+
+> t
+
+← λs · (1 + ws); 
+
+> 10
+
+return (Success , r terminal  
+
+> t
+
+); 
+
+> 11
+
+else  
+
+> 12
+
+return (Fail , λ f );
+
+A.4 Description of the Visual Observation Noise Model 
+
+The proposed noise model takes the ground-truth platform pose Tpt = ( p, q) as input and applies a series of stochastic perturbations to generate a noisy observation ˆTpt = (ˆ p, ˆq). The resulting noise comprises continuous perturbations (ˆ pr , ˆqr ) and systematic bias (ˆ pb, ˆqb):
+
+ˆp = ˆ pr + ˆ pb,
+
+ˆq = ˆ qr ⊗ ˆqb
+
+(16) 
+
+A.4.1 Continuous Perturbations 
+
+The continuous perturbations (ˆ pr , ˆqr ) are independently sampled at each time step to model random visual measurement noise, given by: 
+
+ˆpr = p + Sf · ϵp, ϵp ∼ N (0, Σ) Σ = diag( σ2 
+
+> xy
+
+, σ 2 
+
+> xy
+
+, σ 2 
+
+> z
+
+)ˆqr = q ⊗ δq
+
+δq = [cos θ
+
+2 , u sin θ
+
+2 ]
+
+θ ∼ N  0, (Sf · σq )2
+
+(17) where ϵp denotes zero-mean Gaussian noise with anisotropic covariance Σ, reflecting different noise levels in the lateral and depth directions. The vector u ∈ R3 represents a unit rotation axis, while θ is the rotation magnitude. The parameter σq controls the nominal level of orientation noise. Finally, Sf
+
+16 Table 2: Hyperparameters for the visual observation noise model 
+
+Symbol Value Description 
+
+k1 1.0 Distance degradation exponent 
+
+k2 0.5 Reference distance for noise scaling 
+
+k3 2.0 Optical-axis offset coefficient 
+
+k4 2.0 Incidence-angle coefficient 
+
+k5 0.15 Relative-motion coefficient 
+
+σxy 0.021 Lateral position noise standard deviation [m] 
+
+σz 0.028 Depth position noise standard deviation [m] 
+
+σq 2.0 Orientation noise standard deviation [ ◦]
+
+σb 0.02 Position bias standard deviation [m] 
+
+σb,r 2.0 Orientation bias standard deviation [ ◦]is a scalar scaling factor that modulates the overall noise intensity according to the sensing condition, which is formulated as follows: 
+
+Sdist = ( k1 · d)k2
+
+Saxis = 1 + k3 · (1 − cos θaxis )
+
+Sinc = 1 + k4 · (1 − cos θinc )
+
+Svel = 1 + k5 · ∥ vrel ∥Sf = Sdist · S axis · S inc · S vel 
+
+(18) where d denotes the relative distance. θaxis represents the angle between the viewing direction and the camera optical axis, while θinc is the incidence angle between the viewing direction and the target surface normal. vrel denotes the relative velocity between the camera and the target. The parameters ki, i = 1 , . . . , 5, are tunable coefficients that control the sensitivity of each scaling term. An overview of these components is provided below: • Sdist : This term models the degradation of visual sensing quality as the relative distance increases, leading to amplified noise at larger ranges. • Saxis : This term models the degradation caused by misalignment between the viewing direction and the camera optical axis, resulting in increased measurement uncertainty under off-center ob-servations. • Sinc : This term models the effect of the viewing incidence angle with respect to the target surface normal, reflecting reduced estimation accuracy under oblique viewpoints. • Svel : This term models motion-induced degradation, where higher relative velocity leads to in-creased observation noise. The formulation of Sf models the influence of relative distance, image location, incidence angle, and relative motion on the quality of visual estimation. 
+
+A.4.2 Systematic Bias 
+
+At the start of each episode, the systematic bias (ˆ pb, ˆqb) is sampled from zero-mean Gaussian distri-butions with standard deviations σb and σb,r for position and orientation, respectively, and remains constant throughout the episode. These biases are introduced to capture systematic errors arising from extrinsic calibration uncertainties and mounting misalignment. 
+
+A.5 Initial Conditions and Domain Randomization for Policy Training A.5.1 Initial Conditions 
+
+At the start of each episode, the platform’s motion and configuration parameters are randomly sam-pled, including its desired speed and inclination angle. The quadrotor is subsequently initialized 17 Table 3: Initialization parameters for training and evaluation                                       
+
+> Category Symbol Range / Distribution Parameter
+> Platform vp
+> des U(0 ,2.5) Desired platform speed [m/s]
+> θpcU(0 ,80) Platform constant pitch angle [ ◦]Quadrotor
+> ∆z0U(1 .2,2.0) Relative altitude [m]
+> ∆d0U(1 .2,3.5) Relative horizontal distance [m]
+> ∆γ0U(−60 ,60) Relative azimuth offset [ ◦]
+> (ϕq
+> 0, θ q
+> 0)U(−0.6,0.6) Initial roll / pitch [rad]
+> (vq
+> 0,x , v q
+> 0,y )U(−0.1,0.1) Initial horizontal velocity [m/s]
+> vq
+> 0,z U(−0.2,0.2) Initial vertical velocity [m/s]
+> ( ˙ϕq
+> 0,˙θq
+> 0)U(−0.2,0.2) Initial roll / pitch rate [rad/s]
+> ˙ψq
+> 0U(−0.1,0.1) Initial yaw rate [rad/s]
+
+at a random position within a sector-shaped region behind and above the platform, while its initial attitude and velocity are randomly sampled. In particular, during vision-based policy training, we resample the initial configuration until the platform is visible to the quadrotor at the initial time step. The initialization parameters used during both training and evaluation are summarized in Table 3. 
+
+A.5.2 Domain Randomization 
+
+The following domain randomization strategies are applied to mitigate the sim-to-real gap, thereby improving the robustness and generalization of the trained policy: • To account for non-linearities and environmental perturbations [34], three key dynamic param-eters, namely mass, inertia, and thrust-to-weight ratio, are independently randomized within 
+
+±30 % , ±10 % , ±15 % of their nominal values, respectively. • To account for mounting misalignments and calibration errors, the camera tilt angle is uniformly sampled within ±5◦ of its nominal value. • To account for variations in perception update rates and visual processing latency, the detector update frequency fdet described in Section 3.3.1 is uniformly randomized within [20 , 60] Hz. 
+
+A.6 Performance Evaluation of Vision-Based Policy 
+
+To evaluate the overall performance of the vision-based policy, we conduct a systematic evaluation over the speed-inclination space. In parallel, the state-based policy is evaluated under the same 
+
+Figure 6: Performance comparison between the state-based and vision-based policies. The heatmaps illustrate the success rate over the speed–inclination space, with the 50 % and 70 % success-rate contours highlighted to facilitate comparison. 18 Table 4: Comprehensive performance evaluation with extended metrics across different scenarios                                      
+
+> Metric Task State-based Vision-based T1 T2 T3 T1 T2 T3 Success rate (%) 99.92 94.87 96.11 91.42 86.98 87.62 Task duration (s) 2.450 2.350 2.255 2.433 2.130 2.101 Position error (m) 0.045 0.031 0.023 0.049 0.031 0.018 Normal angle error (rad) 0.019 0.042 0.037 0.017 0.028 0.043 Tangential velocity (m/s) 0.084 0.181 0.197 0.208 0.234 0.367
+
+conditions, serving as an upper bound under ideal observations. Fig. 6 illustrates the evaluation results in terms of success rate over randomized trajectories under varying platform speeds and inclination angles. Experimental results show that the vision-based policy achieves a lower overall success rate than the state-based policy, reflecting performance degradation under partial visual observations. The performance gap mainly arises under high-speed and large-inclination conditions, where the combined requirement of aggressive quadrotor maneuvers poses significant challenges to vision-based perching, particularly in maintaining reliable perception. In contrast, under moderate conditions (i.e., platform speed below 2.5 m /s and inclination angle below 60 ◦), the vision-based policy exhibits only a small performance degradation and approaches the performance upper bound of the state-based policy. In addition, we select three operating points within the speed–inclination space shown in Fig. 6, and report more detailed metrics beyond success rate for a more detailed evaluation, which are summa-rized in Table 4. The selected operating points are T1 at (3 .0 m /s, 0◦), T2 at (2 .0 m /s, 30 ◦), and T3 at (1 .0 m /s, 60 ◦). Experimental results show that although the vision-based policy incurs an average success-rate degradation of 8.29% compared with the state-based policy, it still maintains a high level of performance. Meanwhile, all metrics related to perching accuracy remain largely unaffected except for the relative tangential velocity, indicating accurate pose alignment. The per-formance degradation is mainly attributed to increased difficulty in terminal velocity matching under visual constraints. Overall, despite a certain performance degradation compared with the state-based policy, the vision-based policy maintains high success rates and accurate perching performance across a wide range of scenarios, enabling robust vision-based perching. 
+
+A.7 State-Based Perching Deployment on the Crazyflie 
+
+The tested Crazyflie weighs 31.1 g and has a thrust-to-weight ratio of approximately 1.53. Accurate state estimates of both the quadrotor and the platform are provided by an NOKOV motion capture system at 100 Hz and transmitted to an offboard computer, where a state-based policy is deployed for static inclined perching experiments. The output CTBR commands are sent to the Crazyflie via the official Crazyswarm API [35] and executed by the onboard low-level PID controller for real-time control of the quadrotor. In this experiment, Velcro is used to secure the quadrotor to the platform after perching. In particular, accounting for the challenges of aggressive maneuvers for the Crazyflie with a low thrust-to-weight ratio, we employ the following strategy to enable successful perching. On the one hand, we adopt lightweight motion-capture markers (6 mm diameter) to mitigate the reduction in thrust-to-weight ratio. On the other hand, the output thrust is limited to 85 % of the maximum thrust during both training and real-world deployment to avoid actuator saturation. As shown in Fig. 7, the drone first continuously descends while briefly stabilizing midway to adjust its attitude, rapidly approaches the 90 ◦ inclined surface, and aligns its body z-axis with the surface normal before contact. 19 Figure 7: Real-world demonstration of PerchRL for state-based perching on a 90 ◦ inclined surface with a lightweight Crazyflie. The bottom inset images show the Crazyflie used in the experiments, its velocity profile, and a visualization of the 3D perching trajectory, where the blue arrow denotes the body z-axis of the drone. The successful deployment on the Crazyflie validates the feasibility of the proposed framework under aggressive flight conditions and serves as a preliminary step toward more challenging vision-based perching experiments. 
+
+A.8 Experimental Setup for Vision-Based Perching 
+
+Fig. 8 shows the hardware platforms employed for our vision-based perching experiments. Specif-ically, the custom-built quadrotor weighs 610.2 g and has a thrust-to-weight ratio of approximately 2.26. It is equipped with a PX4 flight controller and an NVIDIA Orin NX onboard processor, en-abling onboard policy inference within 1.8 ms and a control frequency of 100 Hz. A monocular global-shutter camera ( 1280 × 720 resolution, 82 .96 ◦ × 52 .90 ◦ FOV) is mounted with an approxi-mate 15 ◦ downward tilt for visual sensing. The visual perception module is built upon the CUDA-accelerated Isaac ROS AprilTag 1. The four-wheel-drive ground vehicle, a Scout Mini, tracks the reference trajectory using its onboard controller and serves as the moving platform. It carries a 
+
+42 cm × 42 cm ferromagnetic board with adjustable inclination, and the quadrotor is equipped with a downward-facing magnet to attach to the ferromagnetic surface upon perching. In addition, a NOKOV motion capture system is deployed to provide accurate odometry of both the quadrotor and the ground vehicle. Note that the quadrotor does not have access to the ground vehicle’s motion capture data, which is used only for perching performance evaluation. The key parameters related to control and safety are set as follows: Tmin = 4 .8 m /s2, Tmax =14 .8 m /s2, ωmax = 3 .5 rad /s, vlim = 5 m /s and ωlim = 4 .0 rad /s.
+
+A.9 Complete Description of Vision-Based Perching Scenarios 
+
+To provide a comprehensive evaluation of PerchRL across different platform configurations and task difficulties, we design six scenarios spanning three difficulty levels (simple, normal, and hard), with two scenarios for each level, as illustrated in Fig. 9. An overview of the experimental scenarios is provided below: 
+
+> 1https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_apriltag
+
+20 Figure 8: Hardware platforms for the vision-based perching experiments. (a) An illustration of the successful perching. (b)(c) The quadrotor and ground vehicle employed for the experiments. • Simple-I: The platform remains stationary and is positioned near the maximum effective detec-tion range of the visual perception module, serving as a benchmark for evaluating static inclined perching performance. • Simple-II: The platform moves along a reciprocal linear trajectory, serving as a benchmark for evaluating dynamic inclined perching performance. • Normal-I & Normal-II: The platform follows different randomly generated spline trajectories, which requires the policy to robustly adapt to rapid and irregular motion. • Hard-I: The platform follows a similar spline trajectory, while introducing periodically varying forward speed: v(t) = vmin + ( vmax − vmin ) ·  1 + cos   2πT t /2, where vmin = 1 .0 m /s,
+
+vmax = 2 .5 m /s and T = 3 s . This scenario is designed to evaluate the policy’s robustness to deterministic, periodically varying velocity profiles. • Hard-II: The platform operates under a changing motion pattern. Specifically, it first follows a similar spline trajectory, and then rapidly transitions to a slower circular arc trajectory with re-duced speed. This scenario is designed to evaluate the policy’s adaptability to significant changes in platform motion patterns. Notably, the image input frequency is increased to enhance perception under challenging conditions in hard scenarios, while the actual perception frequency is ultimately limited by the runtime of the visual perception module. The experimental results of the above experiments are presented in Table 5, demonstrating that our method enables vision-based quadrotor perching under distinct platform motion patterns, with most metrics related to perching accuracy falling within the tolerance thresholds used during training. In particular, our method maintains strong generalization in challenging scenarios such as Hard-I and 
+
+Hard-II , whose platform motion patterns lie outside the training distribution. Table 5: Real-world experimental results under different scenarios Task Trial Platform Speed Inclination Angle Terminal Position Error Normal Alignment Error Impact Velocity Perception Frequency (m/s) (◦) x (m) y (m) Planar (m) (◦) Normal (m/s) Tangential (m/s) Desired (Hz) Actual (Hz) Simple I 0.00 65.00 0.05 0.03 0.06 0.87 -0.60 0.04 30.00 29.99 II 0.50–2.35 45.00 -0.17 -0.15 0.23 2.07 -0.63 0.17 30.00 29.99 Normal I 2.00 70.00 0.13 -0.17 0.21 12.12 -0.39 0.31 30.00 29.99 II 2.00 70.00 0.05 -0.07 0.09 11.94 -0.37 0.08 30.00 29.99 Hard I 0.70–2.70 70.00 -0.02 -0.02 0.03 5.24 -0.47 0.13 60.00 54.25 II 1.50–2.20 70.00 0.13 0.14 0.19 7.39 -0.61 0.16 60.00 54.18 21 Figure 9: Snapshots across all experimental scenarios. 22

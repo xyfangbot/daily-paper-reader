@@ -1,0 +1,833 @@
+Title: MAD: Mapping-Aware World Models for Agile Quadrotor Flight
+
+URL Source: https://arxiv.org/pdf/2606.04534v1
+
+Published Time: Thu, 04 Jun 2026 00:41:14 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# MAD: Mapping-Aware World Models for Agile Quadrotor Flight 
+
+Xinhong Zhang, Runqing Wang, Yunfan Ren, Ding Yu, Boyu Zhou, Jian Sun, Fang Deng, Fellow, IEEE , Jie Chen, Fellow, IEEE , and Gang Wang, Senior Member, IEEE 
+
+Abstract —Agile quadrotor flight in cluttered scenes requires more than a reactive mapping from a depth image to a control command: the vehicle must remember which regions have been observed, infer nearby occupied space, and act under partial visibility and tight latency. Classical aerial navigation stacks provide this structure with explicit odometry, mapping, planning, and tracking modules, but the interfaces between these modules can introduce latency, error accumulation, and substantial en-gineering overhead. End-to-end learning-based policies remove these interfaces, yet they often lack interpretable spatial memory and transfer poorly across environments and tasks. In this paper, we present Mapping-Aware Dreamer (MAD) , a geometry-aware world model for vision-based quadrotor flight. Instead of using raw-image reconstruction as the main self-supervised objective, MAD learns recurrent latent dynamics that reconstruct robocentric occupancy and visibility grid maps together with proprioceptive states. This design forces the latent state to encode local geometry, visibility history, and ego-motion in a form that is directly relevant to collision avoidance. MAD is trained in DiffAero using a GPU-parallel map-construction module that provides high-throughput supervision for occupancy and visibil-ity. The learned representation is used in three policy-learning modes: imagination-based MAD-Dreamer and feature-extractor variants based on PPO and SHAC. Across visual navigation and racing tasks, MAD-based agents achieve higher success rates, faster flight, and better cross-task transfer than corresponding vision-only baselines. The model also produces interpretable map predictions and accurate ego-motion estimates from depth observations. We further deploy the learned policy on a physical quadrotor with an Intel RealSense D435i and demonstrate safe indoor and outdoor flight under limited sensing, reaching 9.66 m/s in simulation and 5.05 m/s in real-world forest experiments. These results show that mapping-aware world models provide a practical middle ground between modular aerial navigation and end-to-end learning. 
+
+This work was supported in part by the National Natural Science Foundation of China under Grants U23B2059, 62088101, and also by the Zhongguancun Academy under Grant 20240307. ( Xinhong Zhang and Runqing Wang con-tributed equally to this paper; Corresponding author: Gang Wang. )Xinhong Zhang is with the State Key Lab of Autonomous Intelligent Unmanned Systems, Beijing Institute of Technology, Beijing 100081, China, and also with the Zhongguancun Academy, Beijing 100094, China. E-mail: xhzhang@bit.edu.cn. Runqing Wang, Ding Yu, Jian Sun, Fang Deng, and Gang Wang are with the State Key Lab of Autonomous Intelligent Unmanned Sys-tems, Beijing Institute of Technology, Beijing 100081, China. E-mail: bitwrq@bit.edu.cn, yd@bit.edu.cn, sunjian@bit.edu.cn, dengfang@bit.edu.cn, gangwang@bit.edu.cn. Yunfan Ren is with the School of Computer Science and Technology, Tongji University. E-mail: yunfan@tongji.edu.cn. Boyu Zhou is with the Department of Mechanical and Energy Engineering, Southern University of Science and Technology, Shenzhen 518055, China. E-mail: zhouby@sustech.edu.cn. Jie Chen is with the Harbin Institute of Technology, and also with the State Key Lab of Autonomous Intelligent Unmanned Systems, Beijing Institute of Technology, Beijing 100081, China. E-mail: chenjie@bit.edu.cn. Predicted by MAD     
+
+> Invisible Invisible Visible Visible Occupied Occupied Invisible Visible Occupied
+> Predicted by MAD
+> Invisible Visible Occupied
+> Predicted by MAD
+> Invisible Visible Occupied
+
+(a) (b) 
+
+Fig. 1. (a) Visualization of the flight scene together with the occupancy and visibility grid maps predicted by MAD. Occupied voxels are shown in purple, while visible free-space voxels are shown in green. (b) Fast autonomous visual navigation in a cluttered indoor environment using an Intel RealSense D435i. During flight, MAD continuously predicts the occupancy and visibility of surrounding voxels. 
+
+I. I NTRODUCTION 
+
+Agile quadrotor flight in cluttered environments is a tightly coupled perception, memory, and control problem. A vehicle must infer free and occupied space from a narrow onboard field of view, remember regions that were observed in the recent past, and produce dynamically feasible commands under strict sensing and compute latency. Classical unmanned aerial vehicle (UAV) stacks address this problem through visual–inertial or LiDAR odometry, local mapping, trajectory planning, and tracking control [1], [2]. This modular structure is interpretable and has enabled impressive real-world flight, but the interfaces between modules can introduce latency, accumulate errors, and require substantial hand-designed en-gineering. RL-based agile flight has recently achieved fast visual nav-igation, differentiable-physics training, and near-limit drone racing by optimizing perception and control jointly [3]–[7]. These methods can produce fast flight without an explicit mapping-and-planning pipeline. However, a purely monolithic policy has no built-in notion of what space is occupied, visible, or unknown. This makes it difficult to diagnose failures, reuse the representation across tasks, or reason about safety when the depth image is partial and temporally aliased. We therefore study an intermediate design between classical modular autonomy and fully end-to-end learning. General world models, including the Dreamer series and scalable latent-dynamics methods [8]–[12], have shown that compact 
+
+> arXiv:2606.04534v1 [cs.RO] 3 Jun 2026
+
+predictive states and imagined rollouts can improve RL from high-dimensional observations. For quadrotor flight, however, the learned state must be spatially grounded: it should predict not only future observations or rewards, but also the local geometry that determines collision risk. In contrast to prior learned modules [13], [14], we use a latent world model as the interface between perception and control and supervise it directly with occupancy and visibility. In this work, we propose Mapping-Aware Dreamer 
+
+(MAD ), a geometry-aware world model for vision-based quadrotor flight. MAD reconstructs robocentric occupancy grid maps (OGMs), visibility grid maps (VGMs), and proprio-ceptive states from onboard depth and sensory measurements. Compared with raw depth reconstruction, OGM/VGM super-vision separates obstacle geometry from camera visibility and encourages the recurrent latent state to encode spatial memory and ego-motion. To train this model efficiently, we extend the simulator DiffAero [15] with a fully GPU-parallel occupancy and visibility map-construction module. The learned MAD representation can be leveraged by differ-ent policy learning algorithms. We instantiate an imagination based controller which we term MAD-Dreamer, and two feature-extractor variants, MAD-PPO and MAD-SHAC, based on proximal policy optimization (PPO) [16] and short-horizon actor-critic (SHAC) [17]. The experiments are organized ac-cordingly: reconstruction evaluates the latent geometry, train-ing and racing evaluate policy utility, and Gazebo/PX4 plus real flights evaluate onboard safety and agility. The resulting system is exported as a single onboard policy that maps depth images and visual–inertial odometry estimates to acceleration commands for real-time flight. In a nutshell, the main contributions of this work are summarized as follows. 1) We propose MAD, a mapping-aware world model that reconstructs local occupancy, visibility, and proprio-ceptive states from visual observations, yielding inter-pretable and temporally consistent latent representations for agile quadrotor navigation. 2) We implement a GPU-parallel OGM/VGM construction module in DiffAero, achieving occupancy and visibility evaluation of 4.84 × 10 8 voxels per second on a single GPU and enabling high-throughput world model train-ing. 3) We validate MAD with Dreamer-style imagination learn-ing, PPO, and SHAC, and demonstrate in simulation and real flight that MAD-based policies improve visual navigation and task transfer while reaching 9.66 m/s in simulation and 5.05 m/s in real-world forest experi-ments. II. R ELATED WORK 
+
+A. Learning-based Autonomous Flight 
+
+Learning-based methods have substantially improved the autonomy and agility of aerial robots. Imitation learning provides a direct way to map partial perceptual observations to expert actions and has been applied to navigation [18], racing [19], [20], and swarm flight [21]. Its main limitation is that performance depends strongly on the coverage and quality of expert demonstrations, which is difficult to guarantee for aggressive flight in cluttered environments. Model-free RL avoids expert demonstrations by optimizing control policies through interaction, and has shown strong performance in visual navigation [22]–[24] and racing [6], [7], [25]. However, purely model-free policies typically require extensive data and provide limited insight into the spatial information used for collision avoidance. Differentiable simulation offers another route by propagat-ing gradients through physical dynamics instead of treating the environment as a black box. Such methods can improve sample efficiency, sim-to-real transfer, and physical consistency [4], [15], [26]. Nevertheless, when the policy directly maps high-dimensional observations to commands, the resulting repre-sentation remains difficult to interpret. world model based approaches seek to improve both ef-ficiency and interpretability by learning predictive latent dy-namics for physical states and high-dimensional observations. Dream to Fly [27] learns a visual world model from RGB observations for agile maneuvering, while SkyDreamer [28] uses privileged targets to make the learned representation easier to inspect. Existing aerial world models, however, still mainly emphasize temporal prediction or task reward. They do not explicitly impose the local geometric structure–occupied, visible, and unknown space–that is central to safe quadrotor navigation in cluttered environments. 
+
+B. Model-based Reinforcement Learning 
+
+Early model-based reinforcement learning (MBRL) learned explicit dynamics models for planning and data-efficient con-trol, but these models often suffered from bias and compound-ing errors during long-horizon rollout. Latent world models have greatly improved the scalability of MBRL. The Dreamer family [8], [10] learns recurrent latent dynamics from high-dimensional observations and optimizes policies on imagined trajectories. STORM [29] uses transformers to capture long-range dependencies, while MuZero [30], EfficientZero [31], TD-MPC [32], and TD-MPC2 [11] combine learned dynam-ics with planning or value prediction. Diffusion-based world models [33] further emphasize high-fidelity visual rollout. These advances suggest that compact latent dynamics can support sample-efficient decision making. For real quadrotor flight, however, a useful world model must also be spatially grounded, robust to partial observations, and compatible with onboard sensing and computation [12]. 
+
+C. Occupancy Grid Map 
+
+Occupancy grid maps are fundamental spatial representa-tions for robot navigation because they explicitly encode which regions are free or occupied. VoxGraph [34] builds globally consistent volumetric maps with signed-distance submaps, but global alignment and dense updates are costly for high-speed aerial systems. More recent methods reduce this burden: [35] avoids expensive ray casting for real-time dense mapping, and ROG-map [36] maintains a robocentric local occupancy map attached to the robot, reducing memory and improving MAD Actor MAD Actor 
+
+Export Export 
+
+Policy 
+
+Deploy 
+
+Policy pose_cmd rotor_speed 
+
+VIO NxtPx4v2 
+
+Running on ASUS NUC 
+
+MAD Actor 
+
+Export 
+
+Policy 
+
+Deploy 
+
+Policy pose_cmd rotor_speed 
+
+VIO NxtPx4v2 
+
+Running on ASUS NUC 
+
+Depth Image Depth Image Depth Image   
+
+> vtvuz
+
+Sensory Info Sensory Info   
+
+> vtvuz
+
+Sensory Info 
+
+RSSM ht
+
+zt
+
+Sensory 
+
+Encoder 
+
+Image 
+
+Encoder 
+
+VGM OGM Sensory 
+
+Mapping -Aware Dreamer Mapping -Aware Dreamer   
+
+> vuzvuz
+
+OGM & VGM OGM & VGM OGM & VGM 
+
+> Self -supervised
+> learning
+
+DiffAero 
+
+Sensor 
+
+Dynamic s
+
+GPU -parallelized 
+
+Grid Map 
+
+Construction 
+
+Sensor 
+
+Dynamic s
+
+GPU -parallelized 
+
+Grid Map 
+
+Construction 
+
+DiffAero 
+
+Sensor 
+
+Dynamic s
+
+GPU -parallelized 
+
+Grid Map 
+
+Construction 
+
+(a) (b) 
+
+(c)     
+
+> (MAD -Dreamer)
+> Imagination -based policy learning
+> r1v1r2v2
+> h2h2h3h3
+> πθa1
+> r3v3
+> πθa2
+
+MAD     
+
+> h1h1
+> r1v1r2v2
+> h2h3
+> πθa1
+> r3v3
+> πθa2
+
+MAD     
+
+> h1
+> Interactive policy learning
+> (MAD -PPO, MAD -SHAC)
+> v vv vv v
+> r1v1r2v2
+> h2h2h3h3
+> πθa1
+> r3v3
+> πθa2
+> h1h1
+
+MAD MAD MAD     
+
+> r1v1r2v2
+> h2h3
+> πθa1
+> r3v3
+> πθa2
+> h1
+
+MAD MAD MAD 
+
+> Autoregressive rollout generation Autoregressive rollout generation
+
+Decoders{ }Fig. 2. Overview of Mapping-Aware Dreamer (MAD) and the proposed MAD-based visual navigation system. (a) Self-supervised training of MAD in the GPU-based DiffAero simulator. DiffAero provides depth images, proprioceptive sensory information, and robocentric occupancy and visibility grid maps, and MAD is trained to infer latent states ht and zt that reconstruct these grid maps and sensory signals through a grid-map reconstruction surrogate objective. (b) Two policy learning paradigms with MAD-based agents. Top: Dreamer-style imagination-based policy learning (MAD-Dreamer), where MAD generates rollouts autoregressively and the policy is optimized on imagined trajectories. Bottom: interactive policy learning (MAD-PPO and MAD-SHAC), where MAD acts as a frozen encoder that supplies informative latent representations to a downstream actor network during environment interaction. (c) Deployment of a trained MAD-based policy on a physical quadrotor. The MAD and the actor network are exported as a single policy, deployed on an onboard computer that receives depth images and VIO estimates and outputs control commands to the PX4 flight controller for real-time flight control. 
+
+resolution for UAV planning [2], [37]. MAD follows the same robocentric principle, but uses OGM/VGM supervision to shape a learned world model rather than to drive a separate planner. III. M ETHODOLOGY 
+
+In this section, we present the methodology of our mapping-aware world model based visual navigation system. The over-all framework of the proposed system is depicted in Fig. 2. We consider a vision-based quadrotor flight task in which a UAV must navigate through cluttered environments using onboard depth sensing and proprioceptive measurements. The GPU-accelerated DiffAero simulator provides depth images, proprioceptive sensory information, and robocentric occu-pancy and visibility grid maps, which serve as supervision signals for learning a world model. Building on these signals, we design the Mapping-Aware Dreamer (MAD), a latent dynamics model composed of image and sensory encoders, a recurrent state-space model, a sensory decoder, and grid map decoders. MAD is trained in a self-supervised manner to reconstruct local occupancy and visibility grid maps as well as sensory information, thereby learning spatio-temporally consistent latent states that capture both local occupancy and ego-motion. These latent representations are then exploited by two policy learning paradigms: an imagination-based variant, MAD-Dreamer, where MAD generates auto-regressive rollouts for training a policy entirely on imagined latent rollouts, and two interactive variants, namely MAD-PPO and MAD-SHAC, where MAD acts as a frozen encoder that furnishes compact state representations as observations to the actor network during environment interaction. Finally, the trained MAD encoder and actor are exported as a single policy and deployed on an onboard computer, where they process real depth and visual-inertial odometry inputs to output control commands for agile quadrotor flight. We first formalize the vision-based quadrotor navigation problem and task setup in Section III-A. Section III-B then details the architecture and training of MAD, and Section III-C describes the policy learning procedures that leverage the learned representations for efficient decision-making and ro-bust control. 
+
+A. Problem Statement and Formulation 
+
+Our objective is to navigate a quadrotor to a specified target position while avoiding obstacles, using only onboard depth sensing, proprioception, and computation. We train policies in the GPU-accelerated DiffAero simulator [15] and deploy the learned controller without adding an explicit online mapper or planner. 
+
+1) Quadrotor Dynamics: Following [4] and [15], we use the continuous-time point-mass dynamics model implemented in PyTorch: 
+
+˙p = v
+
+˙v = a + g − dv
+
+˙a = λ(u − a)
+
+(1) where p and v are the position and velocity in the world frame, 
+
+g is gravity, a is the thrust-induced acceleration in the world frame, d is the linear drag coefficient, u is the acceleration command, and λ approximates actuation and attitude-tracking latency. The commanded attitude is recovered by aligning the body z-axis with the desired thrust direction and choosing the yaw from the horizontal velocity direction. Compared with a full 6-DoF model, this acceleration-limited translational model uses fewer physical parameters while preserving the dominant dynamics relevant to short-horizon collision avoidance [4]. It also reduces real-robot calibration effort and, because it is implemented in PyTorch, supports both reinforcement learning and differentiable policy optimization. 
+
+2) MDP Formulation: We model vision-based flight as a finite-horizon partially observable Markov decision process (POMDP) ⟨O , S, Ω, A, F, R, γ ⟩. Here O = W × D is the observation space, W ⊂ RH×W is the depth-image space, 
+
+D ⊂ Rdsens is the proprioceptive sensing space, S is the environment state space, Ω : S → O is the observation function, A ⊂ Rdact is the action space, F : S × A → S 
+
+is the transition model, R is the reward, and γ ∈ [0 , 1) is the discount factor. 
+
+3) Observation and Action Spaces: Observations and ac-tions are expressed in a gravity-aligned local frame whose x-axis lies in the vertical plane of the quadrotor body x-axis and whose z-axis points upward. The observation ot ∈ O contains a depth image wt ∈ W with resolution H × W = 18 × 32 
+
+and a proprioceptive vector dt ∈ D . This vector concatenates the clipped target-directed velocity vtar ∈ R3, the quadrotor velocity v ∈ R3, and the local coordinates of the body z-axis 
+
+uz ∈ R3, giving dsens = 9 . The target-directed velocity is 
+
+vtar = ptar − p
+
+max( || ptar − p|| /v max , 1) . (2) The action at is the desired thrust acceleration in the local frame. It is transformed to the world frame and used as u
+
+in (1). During simulation and real flight, this acceleration command and the current velocity are converted to attitude and collective-thrust references for the PX4 low-level controller. 
+
+4) Reward Function: As a key component of the RL task, the reward signal should accurately reflect the goal while being dense enough for fast convergence. For the vision-based navigation task specifically, the reward signal is designed as a weighted combination of survival reward rsrvl , collision reward 
+
+rcoll , velocity reward rvel , position reward rpos , height reward 
+
+rz, approaching reward rapp , avoiding reward ravoid , and jerk reward rjerk with corresponding weights αcoll = 5 , αvel = 0 .06 ,
+
+αpos = 0.5, αz = 0.2, αapp = 0.6, αavoid = 0.3, and 
+
+αjerk = 0 .005 :
+
+r = rsrvl + αcoll · rcoll 
+
++ αvel · rvel + αpos · rpos + αz · rz
+
++ αapp · rapp + αavoid · ravoid + αjerk · rjerk 
+
+(3) where 
+
+rsrvl = 0 .3 (4a) 
+
+rcoll = −I(collision ) (4b) 
+
+rjerk = −|| u − a|| 22 (4c) 
+
+rvel = −SmoothL1( || vtar − v|| 2, 0) (4d) 
+
+rz = e −| pz−ptar z | (4e) 
+
+rpos = e −|| p−ptar || 2 . (4f) For the i-th obstacle, we divide the quadrotor’s velocity v into two parts, vapp  
+
+> i
+
+and vavoid  
+
+> i
+
+, with vapp  
+
+> i
+
+∥ prel  
+
+> i
+
+and vavoid  
+
+> i
+
+⊥ prel  
+
+> i
+
+,where prel  
+
+> i
+
+= pobst  
+
+> i
+
+− p is the relative position of the nearest point of the obstacle pobst  
+
+> i
+
+with respect to the quadrotor. Then we can define the approaching reward rapp ,i and the avoiding reward ravoid ,i for each obstacle: 
+
+rapp ,i =
+
+(
+
+−|| vapp  
+
+> i
+
+|| 2 ·e−|| prel   
+
+> i|| 2
+
+, if prel ⊤ 
+
+> i
+
+vapp  
+
+> i
+
+> 00, otherwise (5) 
+
+ravoid ,i =
+
+(
+
+|| vavoid  
+
+> i
+
+|| 2 · e−|| prel   
+
+> i|| 2
+
+, if prel ⊤ 
+
+> i
+
+vapp  
+
+> i
+
+> 00, otherwise (6) Then rapp and ravoid are defined to be equal to rapp k and 
+
+ravoid k with k = arg min i rapp ,i being the index of the most dangerous obstacle with the lowest rapp ,i among all: 
+
+rapp = rapp k
+
+ravoid = ravoid k
+
+(7) With this setting, rvel , rapp , and ravoid are dense enough to guide the agent to learn basic flight skills in the early training stage, while rpos provides an extra bonus once the agent approaches the target, reinforcing the trajectory. 
+
+B. Learning World Model through Grid Map Reconstruction 
+
+MAD is trained to make the latent state geometrically meaningful. We use two robocentric grid representations: an occupancy grid map (OGM), which marks voxels containing obstacles, and a visibility grid map (VGM), which marks voxels that have been observed by the onboard camera. Unlike a depth image, the pair of maps separates scene geometry from camera visibility and preserves short-term spatial memory. We therefore supervise the world model with OGMs and VGMs rather than using raw depth reconstruction as the primary objective. 
+
+1) Occupancy Grid Maps and Visibility Grid Maps: OGMs and VGMs are three-dimensional Boolean arrays defined in the robocentric local frame. The OGM gocc  
+
+> t
+
+represents obstacle occupancy, while the VGM gvis  
+
+> t
+
+represents observation history: a voxel with gvis  
+
+> t
+
+= 0 is unknown, not necessarily free. This distinction is important for safety because the model should not be rewarded for hallucinating occupancy in regions that have never been observed. Aligning the grid with the quadrotor local frame also encourages the latent state to learn heading-normalized spatial structure rather than memorizing global orientations. We construct OGMs by querying the obstacle geometry at all voxel centers in parallel. In the training environments, obstacles are primitive shapes such as cubes and spheres, which makes the point-in-primitive test highly efficient on the GPU. VGMs combine the current camera frustum with accu-mulated visibility history, as illustrated in Fig. 3. First, depth pixels are back-projected into rays using camera intrinsics and Occupied Occupied Occupied               
+
+> & Visible
+> Occupied
+> & Visible Visible Visible Occupied Occupied
+> & Visible Visible
+> (a) t=k (b) Fig. 3. Illustration of local occupancy and visibility grid maps. Both maps are defined in the quadrotor-centric local frame. (a) OGMs encode whether each voxel is occupied by obstacles, while VGMs encode whether each voxel has been observed by the on-board depth camera. (b) The visibility re-marking mechanism. Voxels at time step t=k+ 1 will be marked as visible, if they contain at least one anchor point of the visible voxels at time step t=k.
+
+extrinsics, and voxels intersected by valid rays are marked visible. Second, previously visible voxels are transformed into the current local frame. To reduce aliasing caused by discretization and ego-motion, each previous voxel center is expanded to eight neighboring anchor points, and a current voxel is marked visible if any anchor point falls inside it. Because the computational complexity grows cubically as the voxel size decreases, we adopt a relatively coarse vox-elization compared with grid maps typically used in classical mapping pipelines [36]. The local grid map spans [−3, 5] ,
+
+[−4, 4] , and [−2, 2] meters along the x, y, and z axes of the local frame, respectively, with a voxel edge length of 
+
+l = 0 .4 m , resulting in a total of 4,000 voxels. Thanks to the fully GPU-based implementation, the interactive learning environment and grid map computation together can generate up to 1.21 × 10 5 environment interactions per second on our workstation, corresponding to approximately 4.84 × 10 8 voxel occupancy and visibility evaluations per second. This high throughput enables efficient interaction with the simulator and allows MAD to be trained with massive amounts of data within only a few hours. 
+
+2) World Model Learning: MAD follows the recurrent state-space model (RSSM) design of DreamerV3 [10], but replaces the main observation-reconstruction target with mapping-aware supervision. It consists of the following com-ponents:  
+
+> •
+
+Recurrent State-Space Model (RSSM) : The RSSM pre-dicts the recurrent state ht and the categorical latent state 
+
+zt. After action at−1, the sequence model updates ht, the prior predicts ˆzt from ht, and the posterior infers zt from the encoded observation xt = concat( ximg  
+
+> t
+
+, x snsr  
+
+> t
+
+) when the observation is available. Sequence model: ht = fψ (ht−1, z t−1, a t−1) (8a) Categorical posterior: zt ∼ qψ (zt | ht, x t) (8b) Categorical prior: ˆzt ∼ pψ (ˆ zt | ht) (8c)  
+
+> •
+
+Encoders : Encoder networks map the raw observation 
+
+ot = ( wt, d t) into feature xt that will be subsequently fed into the categorical posterior qψ to evolve categorical latent zt.Image encoder: ximg  
+
+> t
+
+= qimg  
+
+> ψ
+
+(wt) (9a) Sensory encoder: xsnsr  
+
+> t
+
+= qsnsr  
+
+> ψ
+
+(dt) (9b)  
+
+> •
+
+Decoders : Unlike the DreamerV3, the decoder networks of MAD reconstruct grid maps ˆgocc  
+
+> t
+
+, ˆgvis  
+
+> t
+
+and sensory information ˆdt instead of the exact raw observations ˆot.Additionally, reward signals and continuation flags are also reconstructed to support the data imagination for policy learning. Occupancy decoder: ˆgocc  
+
+> t
+
+∼ pocc  
+
+> ψ
+
+(ht, z t) (10a) Visibility decoder: ˆgvis  
+
+> t
+
+∼ pvis  
+
+> ψ
+
+(ht, z t) (10b) Sensory decoder: ˆdt ∼ psnsr  
+
+> ψ
+
+( ˆdt|ht, z t) (10c) Reward decoder: ˆrt ∼ prew  
+
+> ψ
+
+(ˆ rt|ht, z t) (10d) Continue decoder: ˆct ∼ pterm  
+
+> ψ
+
+(ˆ ct|ht, z t) (10e) All networks are implemented as multi-layer perceptrons (MLPs), except the image encoder, which is a lightweight convolutional neural network (CNN). Given sequences of observations o1: T , actions a1: T , rewards r1: T , and continuation flags c1: T , MAD is optimized using reconstruction, dynamics, and representation losses with weights βrecon = 1 , βdyn = 0 .5,and βrep = 0 .1:
+
+L(ψ) .
+
+= Eqψ
+
+h TX
+
+> t=1
+
+βrecon Lrecon (ψ)+ βdyn Ldyn (ψ) + βrep Lrep (ψ)
+
+i (11) The reconstruction loss contains grid-map, sensory, reward, and continuation terms: 
+
+Lrecon 
+
+.
+
+= BCE(ˆ gocc  
+
+> t
+
+∧ gvis  
+
+> t
+
+, g occ  
+
+> t
+
+∧ gvis  
+
+> t
+
+)+ BCE(ˆ gvis  
+
+> t
+
+, g vis  
+
+> t
+
+) − ln pψ (dt|zt, h t)
+
+− ln pψ (rt|zt, h t) − ln pψ (ct|zt, h t).
+
+(12) The first term supervises occupancy only inside visible voxels, because unobserved cells should not be treated as either free or occupied. The KL terms follow the Dreamer-style latent balancing: 
+
+Ldyn = DKL [sg( qψ (zt|ht, x t)) ∥pψ (ˆ zt|ht)] , (13) 
+
+Lrep = DKL [qψ (zt|ht, x t)∥sg( pψ (ˆ zt|ht))] , (14) where sg( ·) denotes stop-gradient. The OGM/VGM objective is a causal surrogate for depth prediction: it preserves the geometry and visibility needed for flight, while avoiding the need to reproduce raw pixels that are less directly related to collision avoidance. The training process is shown in Fig. 4. For policy-learning algorithms that do not use imagined rollouts, such as PPO and SHAC, we adopt a task-agnostic recipe: the reward decoder prew  
+
+> ψ
+
+(·) is disabled, and the target-directed velocity 
+
+vtar is provided directly to the policy rather than to MAD. Section IV-A shows that this encourages transferable visual representations for unseen tasks. a1
+
+dec 
+
+h2
+
+> ..
+> ..
+
+enc 
+
+z2
+
+dec 
+
+h1
+
+> ..
+> ..
+
+enc 
+
+z1  
+
+> .. Sensory observation d tOccupancy grid map g tocc
+
+a2
+
+dec 
+
+h3
+
+> ..
+> ..
+
+enc 
+
+z3       
+
+> Depth observation w tVisibility grid map g tvis
+> Continuation flag c t
+> Reward signal r tFig. 4. Training pipeline of MAD. At each step, MAD encodes the depth observation and sensory inputs into a discrete latent representation zt. The encoder, RSSM state predictor, and decoders are jointly trained to reconstruct the designated targets from htand zt, including the sensory observations, occupancy and visibility grid maps, continuation flags, and reward signals.
+
+C. Policy Learning 
+
+MAD can be coupled with different policy-learning algo-rithms without changing the world model architecture. We evaluate three instantiations: MAD-Dreamer, which uses imag-ined latent rollouts; MAD-PPO; and MAD-SHAC [16], [17]. In the feature-extractor setting used by MAD-PPO and MAD-SHAC, the learned MAD encoder is frozen and supplies ht
+
+and zt as compact observations to the actor. For imagination-based MAD-Dreamer, we initialize imag-ined rollouts from short context snippets sampled from a cache of collected trajectories. Unlike earlier generations of Dreamer [10], each rollout starts from a distinct context to ensure broad state coverage and mitigate overfitting to specific motion patterns [38]. In our implementation, the context length is set to 4 and the imagination horizon to 16, offering a balanced compro-mise between computational efficiency and the capacity to capture long-term dependencies in policy learning. During imagination, MAD predicts latent transitions, rewards, and continuation flags, conditioned on the current latent state and the action. The actor-critic pair is then updated using these imagined trajectories, without requiring further simulator interactions. This process enables efficient exploration within the latent space while maintaining coherent temporal dynamics modeled by MAD. The actor and critic are defined as : Actor: at ∼ πθ (ht, z t) (15a) Critic: vt = Vθ (ht, z t) ≈ Eπθ ,p ψ
+
+" ∞X
+
+> k=0
+
+γkrt+k
+
+#
+
+(15b) where the actor πθ is implemented as a parameterized Gaus-sian policy that outputs the mean and variance of the action distribution conditioned on the latent state zt and the recurrent state ht. The critic Vθ estimates the expected long-term returns of the imagined trajectories generated under the joint dynamics of the policy πθ and the world model pψ , where a discount factor γ = 0 .997 is applied. Following DreamerV3, the critic predicts a categorical distribution over bootstrapped λ-returns, which improves training stability and sample efficiency. The actor is optimized using a REINFORCE-style gradient es-timator with normalized returns. Additional details on the actor–critic objectives and training procedure can be found in [10]. Beyond Dreamer-style imagination training, MAD can therefore serve as a reusable visual state estimator for down-stream reinforcement-learning algorithms. This design keeps the policy input compact, improves temporal consistency com-pared with frame-wise CNN features, and allows the same mapping-aware representation to be reused across navigation and racing tasks. Further details and results are presented in Section IV-A. IV. E XPERIMENTS 
+
+We evaluate MAD at three levels: training efficiency in Dif-fAero, closed-loop simulation in Gazebo/PX4, and real-world flight on a physical quadrotor. All training and simulation experiments are performed on a workstation with an Intel Ultra 9-285K CPU and an NVIDIA GeForce RTX 5090 GPU. After training, MAD and the policy network are exported to ONNX and executed as a single real-time inference module. 
+
+A. Training Results 1) Training Environment: Training is conducted in Dif-fAero, an open-source simulator that provides efficient depth rendering and differentiable quadrotor dynamics. We aug-ment DiffAero with OGM/VGM generation to provide self-supervised targets for MAD. The fully PyTorch-based GPU pipeline enables high-throughput interaction and allows each end-to-end training run to finish within a few hours. 
+
+2) Baseline Comparison: To evaluate the mapping-aware representation, we compare several policy-learning baselines with their MAD-based counterparts on the visual navigation task. For stable training, the PPO and SHAC critics estimate state values from the full simulator state, while the actors use the designated observations. MAD-PPO and MAD-SHAC replace the depth-image input to the actor with the latent state 
+
+zt and recurrent state ht produced by MAD. In addition, for MAD-PPO and MAD-SHAC, since the policy networks do not rely on trajectories imagined by MAD, we disable the reward decoder and redirect the target velocity from MAD’s encoder to the policy network, as described in Section III-B, so that MAD focuses on learning task-agnostic representations without concerning itself with predicting task-specific reward signals. Each algorithm is trained with 8
+
+random seeds in the same training environment, and the resulting learning curves are shown in Fig. 5. As shown in Fig. 5, the MAD-based algorithms converge to higher success rates and returns than their non-MAD coun-terparts, although they require more environment interactions. This warm-up period is expected: reconstructing occupancy and visibility over voxels requires the latent state to learn a richer spatial memory than a policy trained only for immediate control. Because DiffAero generates interactions efficiently, we use a replay ratio of 4 to reduce overfitting to short-term motion patterns during this representation-learning phase. 0 50M 100M 150M 
+
+0
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1
+
+0 50 100 150 
+
+0
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1
+
+0 50M 100M 150M 
+
+−15 
+
+−10 
+
+−5 
+
+0 50 100 150 
+
+−15 
+
+−10 
+
+−5 
+
+## PPO 
+
+## MAD-PPO 
+
+## SHAC 
+
+## MAD-SHAC 
+
+## DreamerV3 
+
+## MAD-Dreamer 
+
+Environment steps Wall-clock time (minutes) Environment steps Wall-clock time (minutes) 
+
+> Success rate
+> Success rate
+> Reward
+> Reward
+
+Fig. 5. Training curves of baseline algorithms and their MAD-based variants in the visual navigation task. Each curve shows the mean episode return and success rates over 8 random seeds, and the shaded regions indicate the standard deviations across runs. 
+
+3) Quality of Reconstructions: To demonstrate that our grid map reconstruction objective encourages the world model to extract odometry and attitude information from visual inputs, we disable the sensory encoder psnsr  
+
+> ψ
+
+(·) so that the only available input is the depth image, and compare the quality of velocity and attitude estimation under different training strategies. We measure the norm of the difference between the estimated and ground-truth local velocity vectors, as well as the cosine similarity between the estimated and ground-truth coordinates of the up-vector in the local frame. The results are depicted in Fig. 6, where each bar aggregates experiments over 8 random seeds. As shown in Fig. 6, the velocity estimation error is reduced when the reconstruction target switched from depth images to occupancy and visibility grid maps (OGM and VGM), and the accuracy of attitude estimation is also improved. The improvement is especially notable when MAD is not explicitly supervised to produce representations that encode precise velocity and attitude information (bars with lighter blue). These results suggest that, by explicitly training MAD to identify and memorize the currently and previously occupied and visible voxels around the agent, the surrogate grid map reconstruction task encourages MAD to infer the quadrotor’s velocity and pose, making it more self-aware of its dynamical state than model-free agents and vanilla world models. To further assess the quality of the representations learned OGM+VGM OGM only Depth only     
+
+> 0
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.1
+> OGM+VGM OGM only Depth only
+> 0.7
+> 0.75
+> 0.8
+> 0.85
+> w/o sensory reconstruction w/ sensory reconstruction
+> Reconstruction target Reconstruction target
+> Vel. pred. error (m/s) (lower is better)
+> Up-vector cos. sim. (higher is better)
+
+Fig. 6. Velocity and attitude reconstruction errors under different reconstruction strategies. Darker bars correspond to supervising MAD’s sensory decoder to estimate raw sensory inputs using non-detached ht and 
+
+zt, allowing gradients to propagate through the entire model. Lighter bars use detached ht and zt, restricting gradients to the sensory decoder and preventing them from influencing the rest of MAD. The reported result was averaged over 
+
+8 random seeds. 
+
+by MAD, we visualize depth images, OGMs, and VGMs pre-dicted by the categorical prior, reconstructed by the categorical posterior, and the ground-truth outputs from the simulator, as shown in Fig. 9. The image decoder is trained using detached versions of ht and zt, preventing gradients from the depth-image reconstruction loss from contributing to the learning of MAD itself. As illustrated in Fig. 9, although MAD is never explicitly trained to produce representations that support depth-image reconstruction, the predicted depth images remain non-trivial and informative, indicating that the learned repre-sentations retain sufficient information to reconstruct the visual observations. These observations suggest that the grid map reconstruction task serves as a more effective surrogate than the raw-observation reconstruction objective used in vanilla DreamerV3. 
+
+4) Task-agnostic Representation Learning: We transfer a MAD trained on the visual navigation task to a vision-based racing task in order to evaluate the task generalization capa-bility of MAD and its learned representations. We first train a MAD-SHAC agent using the task-agnostic training recipe described in Section III-B. After convergence, we discard the SHAC policy network and instantiate a new MAD-PPO agent, initializing MAD with the pretrained parameters and randomly initializing the policy network. Instead of fine-tuning the entire MAD-PPO agent, we freeze the parameters of MAD and use it purely as a feature extractor, feeding ht and zt as observations into the PPO policy. We then compare the learning curves of this transferred MAD-PPO agent against two PPO baselines: PPO-State , which observes the ground-truth positions and poses of the upcoming gates (without visual inputs), and PPO-Vision , which is a vision-based agent trained from scratch with a CNN policy that shares the same observation space as MAD-PPO. Each configuration is trained with 4 random seeds, and the results are reported in Fig. 7. As shown in Fig. 7, MAD-PPO with transferred MAD parameters consistently outperforms the PPO-Vision baseline trained from scratch, and gradually even surpasses the state-based PPO-State agent as training progresses. Although MAD is trained only on a single navigation task, these results indicate that its visual feature extraction capability transfers well to structurally different tasks such as racing. The racing environment and a top-down view of the resulting flight trajectory are visualized in Fig. 8, where the transferred MAD-PPO policy performs smooth and agile maneuvers in narrow passages. 
+
+B. Simulation Experiments 
+
+In this section, we present the deployment results of our trained policies in the Gazebo simulator. The experiments are conducted using the PX4 Software-in-the-Loop (SITL) framework, which provides a realistic flight-control pipeline, 0 20M 40M 60M 80M          
+
+> 0
+> 20
+> 40
+> 60
+> 020M 40M 60M 80M
+> 0.06
+> 0.08
+> 0.1
+> 0.12
+> PPO-State PPO-Vision MAD-PPO
+> Environment steps Environment steps
+> # Passed Gates
+> Reward
+> Fig. 7. Learning curves in the vision-based racing task. MAD-PPO uses a pretrained and frozen MAD as a visual feature extractor and shares the same observation space as PPO-Vision, which is trained from scratch with a CNN-based policy. PPO-State observes only compact state information (positions and poses of upcoming gates) without visual inputs. Each curve is averaged over 4 random seeds.
+
+(a) -4 m -3 m -2 m -1 m 0 m 1 m 2 m 3 m 4 m  
+
+> -2 m
+> -1 m
+> 0 m
+> 1 m
+> 2 m
+> 0
+> 1
+> 2
+> 3
+> 4
+> Speed [m/s]
+
+(b)   
+
+> Fig. 8. Visualization of task transfer to the racing environment. (a) The vision-based racing task in DiffAero. (b) Top-down view of a flight trajectory controlled by a MAD-PPO agent with a transferred and frozen MAD, demonstrating smooth and agile maneuvers through narrow gates.
+
+consistent MAVLink interfaces, and accurate actuator and sensor emulation, thereby reducing the simulation-to-real dis-crepancy. We evaluate MAD-Dreamer against EGO-Planner [39], YOPO [5], and PPO in the same simulation environment. All baselines are carefully tuned to achieve balanced real-time performance and safety for fairness. For EGO-Planner specifically, we employ a tracking MPC to follow its generated B-spline trajectories. For fairness, all methods are evaluated under a limited sensing range of approximately 5 m, consistent with the capabilities of real depth camera hardware. We first construct a forest-like simulation environment com-posed of multiple cylindrical obstacles, each with a radius of approximately 0.4 m. The difficulty level of this environment is controlled by a sparsity parameter, which specifies the area exclusively occupied by one obstacle. For example, a sparsity value of 10 means that the whole area is partitioned into squares with an area of 10 m2 and generates one obstacle for each square. We consider five difficulty levels with sparsity values of 10 , 15 , 20 , 25 , and 30 , covering environments ranging from dense to relatively sparse obstacle distributions. To ensure statistical robustness, we generate 20 randomly generated forest scenes for each sparsity value and evaluate different methods at varying desired velocities from 0 to 10 
+
+m/s across all scenes. Based on the results shown in Fig. 10c, the proposed MAD-Dreamer consistently outperforms the baselines across all sparsity levels and across different desired maximum ve-locities. Its performance remains stable and reliable even in dense environments in which the frequent collision risks and rapid replanning demands make high-speed flight extremely challenging for both classical and learning-based algorithms. In contrast, the performance of EGO-Planner, YOPO, and the PPO-trained policy degrades as the environment becomes denser or as the desired velocity increases. The performance drop can be attributed to the depth camera’s limited sensing range and field of view. Classical model-based planners suffer from incomplete observation of the environment, resulting in local minima and overly conservative trajectories in dense environments. Similarly, YOPO directly regresses trajecto-ries from depth images with a fully convolutional network. Still, it lacks an internal mechanism to aggregate temporal information, causing degraded decision-making in cluttered scenes. In contrast, MAD’s latent representation—shaped by Prior 
+
+Posterior 
+
+Ground 
+
+Truth 
+
+t = 0 s 
+
+Ground 
+
+Truth 
+
+Posterior 
+
+Prior 
+
+Ground 
+
+Truth 
+
+Posterior 
+
+Prior 
+
+t = 1 s t = 0.83 s t = 0.67 s t = 0.50 s t = 0.33 s t = 0.17 s Fig. 9. Visualization of rollouts imagined by MAD. Top: depth images predicted by the prior, reconstructed by the posterior, and ground truth from the simulator. Middle: occupancy grid maps predicted by the prior, reconstructed by the posterior, and ground truth. Bottom: visibility grid maps predicted by the prior, reconstructed by the posterior, and ground truth. 
+
+its grid map reconstruction task—carries richer spatial and temporal information, leading to improved robustness against widely distributed environment sparsity. This enables reliable navigation with limited visual observations even at high speed. Fig. 10a illustrates representative trajectories generated in a dense forest environment with one cylinder for every 9 m2
+
+spaces. All algorithms are tested with a desired maximum speed of 5 m/s. In such cluttered settings, MAD consistently generates smooth and collision-free trajectories, achieving the highest peak speed of 4.95 m/s and the shortest overall path length of 58 .47 m, while still actively reacting to rapidly emerging obstacles. The flight speed analysis in Fig. 10b PPO Collides!   
+
+> L=70.02m; v max =3.63m/s
+> L= 63.52 m; v max =4.35 m/s
+> L= 71.28 m; v max =2.72 m/s
+> L= 58.47 m; v max =4.95 m/s
+> MAD -Dreamer MAD -Dreamer YOPO YOPO EGO -Planner EGO -Planner PPO PPO
+
+(a) 5 6 7 8 9 10   
+
+> 4.5
+> 5
+> 5.5
+> 6
+> 6.5
+> 7
+> 7.5 Sparsity
+> 30
+> 25
+> 20
+> 15
+> 10
+> Desired maximum speed [m/s]
+> Peak speed [m/s]
+
+(b) YOPO EGO-Planner PPO MAD-Dreamer 
+
+(c) 
+
+Fig. 10. Simulation performance of baseline algorithms in Gazebo with randomly generated cylindrical obstacles. (a) Example environment and flight trajectories of YOPO, EGO-Planner, PPO, and MAD-Dreamer for a representative test case. (b) Achieved peak flight speed as a function of the desired maximum speed ( 5-10 m/s) and environment sparsity ( 10 -30 m2/corridor). (c) Success rates of YOPO, EGO-Planner, PPO, and MAD-Dreamer across different combinations of environment sparsity and desired maximum speed. 
+
+further illustrates how a MAD-based agent adapts its behav-ior across environments with different sparsity levels. For a fixed desired maximum velocity, MAD-Dreamer produces markedly different peak speeds depending on obstacle density: in dense forests, the policy deliberately lowers its velocity to ensure safety, whereas in sparse environments it fully exploits the agility and attains much higher peak speeds. This trend confirms that our MAD-based policy learned non-trivial risk-aware behavior rather than blindly tracking the desired velocity. Moreover, the rise of peak speed with increasing sparsity reflects MAD’s ability to infer local traversability from its learned spatial representation. Since MAD is supervised to extract features that contain local temporal occupancy and visibility status rather than raw depth images, the feature can be exploited by the actor to reason about whether a space is occupied or free and thus perform more reliable actions. This spatially grounded understanding enables both conservative traverse in cluttered regions and agile maneuvers in open areas. To further evaluate deployment feasibility, we construct an indoor obstacle-avoidance benchmark in Gazebo following the design principles of NavRL [3], consisting of a 5 m×40 
+
+m corridor populated with irregularly spaced obstacles. We tune the configurations of YOPO, EGO-Planner, PPO, and MAD-Dreamer to obtain strong and stable performance for each method. As shown in Fig. 11, MAD-Dreamer achieves the shortest overall completion time of 8.36 s, significantly EGO YOPO PPO        
+
+> collision occurred
+> 0 m 5 m 10 m 15 m 20 m 25 m 30 m 35 m
+> MAD  1
+> 2
+> 3
+> 4
+> 5
+> 6
+> Speed [m/s]
+
+Fig. 11. Flight trajectories of MAD-Dreamer and three baseline algo-rithms in an indoor corridor environment. Under the same sensing range, MAD-Dreamer exhibits markedly smoother and more agile trajectories than all baselines. 
+
+outperforming EGO-Planner ( 14 .33 s) and YOPO ( 16 .02 s). In addition, our agent reaches a peak speed of 6.37 m/s, whereas EGO-Planner and YOPO attain 4.01 m/s and 3.71 
+
+m/s, respectively. PPO, in contrast, fails to navigate in this con-strained indoor setting and frequently collides, which shows the limit of the purely task-oriented end-to-end policy learning method in cluttered environments where the ability of spatial reasoning is crucial. YOPO’s degradation in indoor environ-ments primarily stems from its reliance on global ESDF and point-cloud supervision during training, which induces strong domain dependence on the outdoor-forest setting. In contrast, MAD’s grid-map-centric latent representation imposes ex-plicit spatial structure and temporal coherence, enabling more reliable cross-domain transfer to previously unseen indoor layouts. Our goal is not to assert universal superiority on all benchmarks, but to show that explicitly structured spatio-temporal representations offer greater robustness for zero-shot transfer under substantial domain shifts. We further challenge MAD-Dreamer in a dynamic environ-ment with moving obstacles. As shown in Fig. 12, although the agent is not trained or fine-tuned in dynamic scenes, it reacts to the approaching obstacle by decelerating and stopping before a potential collision. This qualitative result suggests that the spatially structured MAD representation can support reactive safety behavior beyond the static training distribution. 
+
+C. Real-world Experiments 
+
+We validate MAD in indoor and outdoor environments on a compact quadrotor with a 250 mm wheelbase and total mass of 
+
+1.10 kg. The platform uses GEMFAN 5-inch propellers and T-Motor F60 PRO IV 2550 KV motors, giving a thrust-to-weight ratio of 4.2. It is controlled by an NxtPX4v2 flight controller and a MicoAir 33A 4-in-1 ESC, with an ASUS NUC equipped with an Intel Core i7-1260p CPU as the onboard computer. The exported ONNX model runs with approximately 4 ms inference latency. Perception is provided by an Intel RealSense D435i depth camera at 30 Hz with an 87 ◦ × 58 ◦ field of view. To evaluate sim-to-real transfer and assess the safety of our approach, we first performed physical flight experiments in challenging indoor environments. As shown in Fig. 13, MAD maintains stable trajectories through highly cluttered spaces t = 9.0 s 
+
+Wait 
+
+until safety 
+
+Passed         
+
+> t=10 .3s
+> t=12.1 s
+> t=13.1 s
+> t=14.1 s
+
+Wait 
+
+until safety                
+
+> Fig. 12. Safe navigation visualization in asimulated dynamic en-vironment. The dynamic scenario demonstrates the MAD-based agent’s robust capability for timely and preventive avoidance of moving obstacles (pedestrians).
+
+## (a) 
+
+(a) 
+
+(b)     
+
+> Fig. 13. Indoor flight trajectories of the proposed MAD. (a) Scenario I, a more cluttered environment where the quadrotor maintains relatively slow yet safe navigation ( 2.06 m/s).(b) Scenario II, where the obstacles are placed more coarse. Under the control of a MAD-Dreamer agent, the quadrotor flies at a higher speed ( 3.10 m/s).
+
+with irregular obstacle layouts and narrow corridors, achieving safe and consistent flight at speeds up to 3.10 m/s. We then tested MAD in a disturbed outdoor setting. As illustrated in Fig. 14, the experiments were conducted in a dense forest with a sparsity of roughly 10 , further complicated by persistent wind disturbances that noticeably perturb the quadrotor. Despite these conditions, the quadrotor executes safe trajectories through the cluttered forest and reaches a top speed of 5.05 m/s. Together, these indoor and outdoor experiments verify that MAD-based policies transfer from simulation to real flight while maintaining safe navigation behavior under limited onboard sensing. V. C ONCLUSIONS AND DISCUSSIONS 
+
+This paper presented MAD, a mapping-aware world model for agile vision-based quadrotor flight. MAD replaces raw-observation reconstruction with robocentric occupancy and visibility reconstruction, forcing the recurrent latent state to encode local geometry, observation history, and ego-motion. With GPU-parallel OGM/VGM generation in DiffAero, the model can be trained at high throughput and then coupled with Dreamer-style imagination learning, PPO, or SHAC. The experiments show that MAD-based agents improve training performance, provide interpretable map predictions and ego-motion estimates, transfer to a vision-based racing task, and 
+
+> Fig. 14. Outdoor flight experiments in a cluttered forest, where the quadrotor maintains safe navigation at speeds up to 5.05 m/s under the control of a MAD-Dreamer agent.
+
+execute safe high-speed flight in Gazebo and on a real quadro-tor under limited sensing. Several limitations remain. The grid-map construction mod-ule and the associated reconstruction losses introduce non-trivial memory overhead, which limits the current training scale. In addition, the downstream policy uses the recon-structed representation implicitly and does not yet perform explicit feasibility checking or safety filtering on the decoded maps. This means that the learned controller remains reactive at execution time, even though its internal state is spatially structured. Overall, the results suggest that mapping-aware world mod-els provide a practical middle ground between classical modu-lar navigation and monolithic end-to-end policies. Future work will investigate tighter integration with trajectory optimiza-tion, probabilistic occupancy prediction, and explicit safety filters that can exploit the decoded OGM/VGM information to generate dynamically feasible and certifiably safer flight commands. Beyond depth-based navigation, MAD also points toward world models with richer spatial memory and object-level structure for more general aerial autonomy. REFERENCES [1] D. Mellinger and V. Kumar, “Minimum snap trajectory generation and control for quadrotors,” in Proc. IEEE Int. Conf. Robot. Autom. ,Shanghai, China, Aug. 2011, pp. 2520–2525. [2] Y. Ren, F. Zhu, G. Lu, Y. Cai, L. Yin, F. Kong, J. Lin, N. Chen, and F. Zhang, “Safety-assured high-speed navigation for MAVs,” Sci. Robot. ,vol. 10, no. 98, p. eado6187, 2025. [3] Z. Xu, X. Han, H. Shen, H. Jin, and K. Shimada, “NavRL: Learning safe flight in dynamic environments,” IEEE Robot. Autom. Lett. , vol. 10, no. 4, pp. 3668–3675, 2025. [4] Y. Zhang, Y. Hu, Y. Song, D. Zou, and W. Lin, “Learning vision-based agile flight via differentiable physics,” Nat. Mach. Intell. , vol. 7, no. 6, pp. 954–966, Jun. 2025. [5] J. Lu, X. Zhang, H. Shen, L. Xu, and B. Tian, “You only plan once: A learning-based one-stage planner with guidance learning,” IEEE Robot. Autom. Lett. , vol. 9, no. 7, pp. 6083–6090, 2024. [6] A. Loquercio, E. Kaufmann, S. Ramakrishnan, M. M¨ uller, and D. Scara-muzza, “Champion-level drone racing using deep reinforcement learn-ing,” Nature , vol. 620, no. 7976, pp. 982–987, 2023. [7] Y. Song, A. Romero, M. M¨ uller, V. Koltun, and D. Scaramuzza, “Reach-ing the limit in autonomous racing: Optimal control versus reinforcement learning,” Sci. Robot. , vol. 8, no. 82, p. eadg1462, 2023. [8] D. Hafner, T. Lillicrap, J. Ba, and M. Norouzi, “Dream to control: Learning behaviors by latent imagination,” in Proc. Int. Conf. Learn. Represent. , 2020. [9] D. Hafner, T. P. Lillicrap, M. Norouzi, and J. Ba, “Mastering Atari with discrete world models,” in Proc. Int. Conf. Learn. Represent. , 2021. [10] D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse control tasks through world models,” Nature , pp. 1–7, 2025. [11] N. Hansen, H. Su, and X. Wang, “TD-MPC2: Scalable, robust world models for continuous control,” in Proc. Int. Conf. Learn. Represent. ,2024. [12] P. Wu, A. Escontrela, D. Hafner, P. Abbeel, and S. Levine, “Day-Dreamer: World models for physical robot learning,” in Proc. Conf. Robot Learn. , 2022. [13] Y. Zhang, B. Gao, G. Wang, J. Sun, and Z. Li, “CORB-Planner: Corridor as observations for rl planning in high-speed flight,” IEEE/ASME Trans. Mechatron. , 2025. [14] G. Zhao, T. Wu, Y. Chen, and F. Gao, “Learning agility adaptation for flight in clutter,” arXiv:2403.04586 , 2024. [15] X. Zhang, R. Wang, Y. Ren, J. Sun, H. Fang, J. Chen, and G. Wang, “DiffAero: A GPU-accelerated differentiable simulation framework for efficient quadrotor policy learning,” arXiv:2509.10247 , 2025. [16] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” arXiv:1707.06347 , 2017. [17] J. Xu, V. Makoviychuk, Y. Narang, F. Ramos, W. Matusik, A. Garg, and M. Macklin, “Accelerated policy learning with parallel differentiable simulation,” in Proc. Int. Conf. Learn. Represent. , 2021. [18] A. Loquercio, E. Kaufmann, R. Ranftl, M. M¨ uller, V. Koltun, and D. Scaramuzza, “Learning high-speed flight in the wild,” Sci. Robot. ,vol. 6, no. 59, p. eabg5810, 2021. [19] T. Wang and D. Eui Chang, “Robust navigation for racing drones based on imitation learning and modularization,” in Proc. IEEE Int. Conf. Robot. Autom. , 2021, pp. 13 724–13 730. [20] A. Loquercio, E. Kaufmann, R. Ranftl, A. Dosovitskiy, V. Koltun, and D. Scaramuzza, “Deep drone racing: From simulation to reality with domain randomization,” IEEE Trans. Robot. , vol. 36, no. 1, pp. 1–14, 2020. [21] F. Schilling, J. Lecoeur, F. Schiano, and D. Floreano, “Learning vision-based flight in drone swarms by imitation,” IEEE Robot. Autom. Lett. ,vol. 4, no. 4, pp. 4523–4530, 2019. [22] Z. Liu, Y. Cao, J. Chen, and J. Li, “A hierarchical reinforcement learning algorithm based on attention mechanism for UAV autonomous navigation,” IEEE Trans. Intell. Transp. Syst. , vol. 24, no. 11, pp. 13 309– 13 320, 2023. [23] H. Yu, C. D. Wagter, and G. C. H. E. de Croon, “Depth transfer: Learning to see like a simulator for real-world drone navigation,” 
+
+arXiv:2505.12428 , 2025. [24] A. Singla, S. Padakandla, and S. Bhatnagar, “Memory-based deep reinforcement learning for obstacle avoidance in UAV with limited environment knowledge,” IEEE Trans. Intell. Transp. Syst. , vol. 22, no. 1, pp. 107–118, 2021. [25] D. Hanover, A. Loquercio, L. Bauersfeld, A. Romero, R. Penicka, Y. Song, G. Cioffi, E. Kaufmann, and D. Scaramuzza, “Autonomous drone racing: A survey,” IEEE Trans. Robot. , vol. 40, pp. 3044–3067, 2024. [26] Y. Hu, Y. Zhang, Y. Song, Y. Deng, F. Yu, L. Zhang, W. Lin, D. Zou, and W. Yu, “Seeing through pixel motion: Learning obstacle avoidance from optical flow with one camera,” IEEE Robot. Autom. Lett. , vol. 10, no. 6, pp. 5871–5878, 2025. [27] A. Romero, A. Shenai, I. Geles, E. Aljalbout, and D. Scaramuzza, “Dream to fly: Model-based reinforcement learning for vision-based drone flight,” arXiv:2501.14377 , 2025. [28] A. Verraest, S. Bahnam, R. Ferede, G. de Croon, and C. D. Wagter, “SkyDreamer: Interpretable end-to-end vision-based drone racing with model-based reinforcement learning,” arXiv:2510.14783 , 2025. [29] W. Zhang, G. Wang, J. Sun, Y. Yuan, and G. Huang, “STORM: Efficient stochastic transformer based world models for reinforcement learning,” in Proc. Adv. Neural Inf. Process. Syst. , 2023. [30] J. Schrittwieser, I. Antonoglou, T. Hubert, K. Simonyan, L. Sifre, S. Schmitt, A. Guez, E. Lockhart, D. Hassabis, T. Graepel et al. ,“Mastering Atari, Go, Chess and Shogi by planning with a learned model,” Nature , vol. 588, no. 7839, pp. 604–609, 2020. [31] W. Ye, S. Liu, T. Kurutach, P. Abbeel, and Y. Gao, “Mastering Atari games with limited data,” in Proc. Adv. Neural Inf. Process. Syst. ,A. Beygelzimer, Y. Dauphin, P. Liang, and J. W. Vaughan, Eds., 2021. [32] N. Hansen, X. Wang, and H. Su, “Temporal difference learning for model predictive control,” in Proc. Int. Conf. Mach. Learn. , 2022. [33] E. Alonso, A. Jelley, V. Micheli, A. Kanervisto, A. Storkey, T. Pearce, and F. Fleuret, “Diffusion for world modeling: Visual details matter in atari,” in Proc. Adv. Neural Inf. Process. Syst. , 2024. [34] V. Reijgwart, A. Millane, H. Oleynikova, R. Siegwart, C. Cadena, and J. Nieto, “Voxgraph: Globally consistent, volumetric mapping using signed distance function submaps,” IEEE Robot. Autom. Lett. , vol. 5, no. 1, pp. 227–234, 2020. [35] Y. Cai, F. Kong, Y. Ren, F. Zhu, J. Lin, and F. Zhang, “Occupancy grid mapping without ray-casting for high-resolution LiDAR sensors,” IEEE Trans. Robot. , vol. 40, pp. 172–192, 2024. [36] Y. Ren, Y. Cai, F. Zhu, S. Liang, and F. Zhang, “ROG-Map: An efficient robocentric occupancy grid map for large-scene and high-resolution LiDAR-based motion planning,” in Proc. IEEE/RSJ Int. Conf. Intell. Robot. Syst. , Abu Dhabi, United Arab Emirates, Oct. 2024, pp. 8119– 8125. [37] W. Liu, Y. Ren, R. Guo, V. W. Kong, A. S. Hung, F. Zhu, Y. Cai, H. Wu, Y. Zou, and F. Zhang, “Slope inspection under dense vegetation using LiDAR-based quadrotors,” Nat. Commun. , vol. 16, no. 1, p. 7411, 2025. [38] D. Hafner, W. Yan, and T. Lillicrap, “Training agents inside of scalable world models,” arXiv:2509.10247 , 2025. [39] X. Zhou, Z. Wang, H. Ye, C. Xu, and F. Gao, “EGO-Planner: An ESDF-free gradient-based local planner for quadrotors,” IEEE Robot. Autom. Lett. , vol. 6, no. 2, pp. 478–485, 2021.

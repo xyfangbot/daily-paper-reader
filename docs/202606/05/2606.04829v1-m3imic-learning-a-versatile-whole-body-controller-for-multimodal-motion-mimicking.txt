@@ -1,0 +1,466 @@
+Title: M3imic: Learning a Versatile Whole-Body Controller for Multimodal Motion Mimicking
+
+URL Source: https://arxiv.org/pdf/2606.04829v1
+
+Published Time: Thu, 04 Jun 2026 01:04:03 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+> JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 1
+
+# M3imic: Learning a Versatile Whole-Body Controller for Multimodal Motion Mimicking 
+
+Zuxing Lu, Ziang Zheng, Yao Lyu, Jingyu Liu, Feihong Zhang, Song Lu, Xin Yuan, Changyin Sun, Senior Member, IEEE , Xingxing Zuo, Member, IEEE , and Shengbo Eben Li, Senior Member, IEEE ,
+
+Abstract —Building a general-purpose whole-body controller is essential for enabling diverse motion capabilities in humanoid robots across a wide range of downstream tasks, including locomotion and loco-manipulation. Different tasks rely on distinct motion reference modalities: locomotion primarily depends on coordinated robot joint trajectories, whereas manipulation re-quires precise end-effector trajectory tracking. Existing methods often overlook the representational mismatch between dense robot joint angles and sparse end-effector poses. To address this, we propose Multi-Modal Mimic (M3imic), a versatile multi-modal whole-body control framework that unifies heterogeneous motion reference modalities, including robot joint angles, hu-man pose trajectories, and end-effector poses, using modality-specific encoders to map them into a shared latent space. Leveraging large-scale reinforcement learning in the simulator, we train a single policy that achieves sim-to-real transfer across multiple motion reference modalities without modality-specific retraining. Extensive simulation and real-world experiments on the Unitree G1 robot are conducted to evaluate the proposed framework. In simulation, the policy achieves a peak success rate of 98.42% on an unseen test dataset, demonstrating its exceptional generalization capability. The code is available at https://github.com/Renforce-Dynamics/MultiModalWBC 
+
+Index Terms —Humanoid robots, whole-body control, rein-forcement learning. 
+
+I. I NTRODUCTION 
+
+# IN recent years, data-driven reinforcement learning [1] has become an increasingly popular direction in humanoid robotics, complementing established model-driven control methodologies [2], [3]. The ultimate goal of humanoid robots is to emulate human behaviors through anthropomorphic morphology, thereby assisting or augmenting humans across diverse tasks. Aiming for this, recent research has increasingly focused on enabling human-like control. Progress in this direction has been facilitated, by the development of large-scale parallel simulation platforms [4] and advances in deep re-inforcement learning algorithms, particularly in motion styliza-tion [5] and whole-body tracking [6], which have contributed to improving anthropomorphic motion control capabilities. 
+
+Manuscript received February 26, 2026; revised May 22, 2026; accepted June 1, 2026. This work was supported in part by the National Natural Science Foundation of China under Grant (62203113), Tsinghua-Efort Joint Research Center for EAI Computation and Perception and SunRisingAI Lab, (Corresponding authors: Changyin Sun (cysun@seu.edu.cn); Xingxing Zuo (xingxing.zuo@mbzuai.ac.ae); Shengbo Eben Li (lishbo@tsinghua.edu.cn).) Zuxing Lu, Jingyu Liu, Xin Yuan and Changyin Sun are with the School of Automation, Southeast University, Nanjing 210096, China. Ziang Zheng, Yao Lyu, Feihong Zhang, Song Lu and Shengbo Eben Li are with the School of Vehicle and Mobility, Tsinghua University, Beijing 100084, China. Xingxing Zuo is with the Department of Robotics, Mohamed Bin Zayed University of Artificial Intelligence, Abu Dhabi 7909, UAE. IK Solver      
+
+> Distillation
+> Teather
+> Policy
+> Student
+> Policy
+> Single
+> Modal
+> Policy
+> (b) Vectorized Command Space
+> Modal Mask
+> Sparsity Mask
+> End-Effector
+> Pose
+> End-Effector Pose
+> Human Pose
+> Robot Joint Angles
+> Robot Joint
+> Angles
+> Other Modal
+> Command
+> (a) IK-based Single Modal Command
+> Perception
+> Planning
+> Cognition
+> Joint Angles Traj
+> Human Pose Traj
+> End-Effector Traj
+> Multi-Modal
+> Whole-Body
+> Contorller
+> (c) Shared Latent Command Space
+> High-Level Planning
+> encoder
+> decoder
+> Low-Level Control Real World Deploy
+
+Fig. 1: Without IK (a) or multi-stage distillation (b), we learn a shared latent command space and train a single policy end-to-end from heterogeneous motion references, enabling multi-modal whole-body control and real-world deployment. Building upon advances in motion stylization and track-ing, human motion data [7]–[10] plays a central role in enabling humanoid robots to reproduce realistic behaviors. These data are primarily collected through motion capture systems or virtual reality devices. The former provides dense, high-precision full-body joint trajectories, whereas the latter usually offers sparse end-effector trajectories better suited for interactive tasks. This sparsity inherently leads to kinematic underdetermination, where a single end-effector trajectory can correspond to multiple valid full-body configurations. These differences reflect the multi-modal nature of human motion data in terms of representation structure and information granularity. Leveraging heterogeneous motion modalities as references for humanoid control has been explored from different perspectives in prior works. Existing approaches generally follow two common strategies. One representative line of work converts heterogeneous motion references into the target robot joint space using inverse kinematics (IK) [11], thereby obtaining explicit robot joint angle trajectories that can be directly tracked or imitated [12]–[14]. Another line of work vectorizes and concatenates multi-modal motion references into a unified representation and trains a teacher policy with access to full-modality inputs. To accommodate modality absence during deployment, input masking is applied and a 
+
+0000–0000/00$00.00 © 2021 IEEE  
+
+> arXiv:2606.04829v1 [cs.RO] 3 Jun 2026 JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 2
+
+student policy is learned through teacher-student distillation, enabling operation under partial modality conditions [15]. However, these two streams of works present certain lim-itations. The former requires additional inverse-kinematics computations during deployment for the conversion between different motion modalities. The latter concatenates vectorized multi-modal references without explicitly modeling cross-modal correlations and often requires a multi-stage training. We aim to construct a versatile low-level humanoid con-troller through a unified multi-modal whole-body control framework, which supports multiple types of reference mo-tions, including robot joint angles, human pose trajectories, and end-effector poses, as shown in Fig. 1. To achieve this goal, we face a primary challenge: learning a single unified policy from heterogeneous motion references that exhibit distinct sparsity patterns, disparate representation structures, and varying levels of training complexity. Our method maps multi-modal motion references into a shared implicit command space for direct low-level control, rather than learning an implicit IK [16] replacement that collapses modality-specific sparsity patterns. And we introduce a curriculum learning strategy that progressively shifts from uniform sampling to failure-rate-based adaptive sampling, enabling balanced learn-ing across motion references of different complexity. Our key contributions are as follows:  
+
+> •
+
+A unified multi-modal implicit command representation that enables a single end-to-end policy to directly con-sume heterogeneous motion references.  
+
+> •
+
+A multi-modal whole-body control framework with a curriculum-based sampling strategy that stabilizes train-ing on large-scale motion datasets.  
+
+> •
+
+Comprehensive cross-modal generalization on unseen data, evidenced by a peak success rate of 98.42% in simulation, enabling successful zero-shot sim-to-real de-ployment on a humanoid robot. II. R ELATED WORK 
+
+A. Whole-Body Control for Humanoid Robots 
+
+Physics-based simulation has driven significant advances in whole-body control for humanoid robots, with core chal-lenges centering on sim-to-real transferability, challenging terrain [17], fall recovery [18], the robustness of motion tracking [19], the realization of highly dynamic motions [20], and highly balanced tasks [21]. Whole-body control meth-ods for humanoid robots can be broadly categorized into two main approaches: task-driven and imitation-driven. Task-driven approaches primarily focus on enhancing autonomous locomotion capabilities in complex environments, particu-larly in uneven terrains [17], [18]. In contrast, imitation-driven methods aim to improve the robot motion performance and naturalness by mimicking human motion data. Within imitation-driven approaches, end-to-end motion stylization [5] and motion tracking [22] are two primary research directions. Motion stylization methods use adversarial priors to encourage human-like behaviors while optimizing task rewards [5], [23]. Motion tracking methods, originating from frameworks such as DeepMimic [22], directly imitate reference motion trajecto-ries through pose and velocity matching rewards, providing a general foundation for learning diverse whole-body skills [19], [20], [24]. Our work builds on this tracking-based paradigm and extends it to heterogeneous motion reference modalities. 
+
+B. General Whole-Body Controller 
+
+Humanoid robots require high-frequency feedback control to maintain balance and stability. Hierarchical control archi-tectures have emerged as the dominant paradigm, decoupling low-frequency perception and planning at the high level from high-frequency stability control and motion execution at the low level. A key challenge is to build a universal low-level controller that can robustly support diverse high-level task specifications. Hover [15] vectorizes and concatenates multi-modal motion commands, training an oracle policy using privileged information in the simulator. Through command masking and teacher-student distillation, it trains a universal multi-modal motion tracking controller for diverse high-level tasks. Most existing scalable controllers ultimately reduce heterogeneous motion guidance to joint-space targets. For example, Any2Track [13] employs clustering to categorize data into multiple motion classes, trains separate sub-policies, and subsequently distills them into a single multi-motion tracking policy. KungfuBot2 [14] uses Orthogonal Mixture-of-Experts (OMoE) and segment-level rewards to disentangle skills and enable efficient multi-skill learning. TWIST2 [12] converts observations from inertial motion capture devices into dense reference inputs, enabling robust teleoperation in unseen scenarios. Sonic [25] introduces a tokenized unified motion representation for multi-modal references and demonstrates the scaling potential of humanoid motion tracking on large-scale motion data. In contrast, we treat multi-modal motion references as different observations of the same underlying motion intent and explicitly learn a continuous shared latent command space, enabling us to align heterogeneous references while analyzing how reference modality affects tracking fi-delity and robustness in downstream settings such as motion tracking, teleoperation, and loco-manipulation. III. M ETHOD 
+
+In this section, we detail the problem formulation, multi-modal policy learning framework, curriculum-based sampling strategy, and sim-to-real transfer pipeline. The overall training and deployment framework is illustrated in Fig. 2. 
+
+A. Problem Definition 
+
+We formulate whole-body contorl as a reinforcement learn-ing problem modeled as a Markov Decision Process (MDP) 
+
+M = ( S, A, P, r, γ ). At each time step t, the state st ∈ S
+
+consists of the robot proprioceptive state spt and a reference motion state sgt extracted from a target motion sequence, with 
+
+st = ( spt , sgt ). Given st, the policy π(at | st) outputs an action 
+
+at ∈ A. The environment transitions to st+1 ∼ P (· | st, at)
+
+and produces a reward rt = r(st, at), which encourages accurate tracking of the reference motion while maintaining JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 3Human Motion Dataset         
+
+> Multi-Modal Motion Dataset
+> (a) Motion Preprocessing
+> Filtering
+> & Retargeting
+> End-Effector
+> Encoder
+> End-Effector
+> Decoder
+> Human
+> Encoder
+> Human
+> Decoder
+> Robot
+> Encoder
+> Robot
+> Decoder
+> Robot Ref ��
+> �
+> End-Effector Ref ��
+> �
+> Human Ref ��
+> ℎ
+> Action
+> Decoder Proprioception ��
+> �
+> ��
+> �
+> ��
+> ℎ
+> ��
+> �
+> ��
+> Simulation Training Environments
+> (b) Policy Training
+> Env Step
+> Motion
+> Sampling
+> Curriculum Learning
+> (c) Policy Deploy
+> Action
+> Decoder
+> Motion
+> Encoder
+> ��
+> Ref
+> ��
+> �
+> Teleoperation
+> Tracking
+> ��
+> �
+> ��
+> ℎ
+> ��
+> �
+> Latent Cmd ��
+> �
+> Privileged Info ��
+> ���Critic ��(��)
+
+Fig. 2: Overview of the M3imic framework. (a) We filter and preprocess large-scale human motion datasets into multi-modal reference. (b) The multi-modal command encoder processes different types of reference into a unified latent space. (c) The policy is trained once and deployed across multiple input modalities. physical feasibility. The objective is to learn a policy that maximizes the expected discounted return: 
+
+max  
+
+> π
+
+Eξ∼π
+
+"T −1X
+
+> t=0
+
+γtr(st, at)
+
+#
+
+, (1) where ξ = (s0, a0, . . . , sT −1, aT −1) denotes a trajectory generated by policy π, and T is the episode horizon. 
+
+1) Multi-Modal Reference Encoding: We consider three motion modalities to support diverse data sources and tasks: robot joint angles qt, human body pose ϕsmplx  
+
+> t
+
+, and end-effector poses Tt. Here, qt ∈ R29 denotes the 29-dimensional robot joint angles for precise joint-level tracking. ϕsmplx  
+
+> t
+
+∈
+
+R21 ×6 represents the SMPL-X body pose [26], where each of the 21 joints is converted from axis-angle to a 6D rotation representation to leverage large-scale human datasets. Tt ∈
+
+R5×9 encodes the SE (3) poses of M = 5 end-effectors (feet, hands, and chest), including 3D root-relative positions and 6D rotation representations for sparse teleoperation scenarios. At each time step t, the autoencoder takes as input a short-horizon reference sequence for each modality. Specifically, we define the reference inputs sgt as srt = {qτ }τ ∈ht , sht =
+
+{ϕsmplx  
+
+> τ
+
+}τ ∈ht , set = {Tτ }τ ∈ht . The temporal horizon is de-fined as ht := { t+k∆ | k = 0 , . . . , H −1 }, where ∆ denotes the sampling interval and H represents the horizon length. We set H = 10 and ∆ = 2 to balance responsiveness and stability, allowing the encoder to capture short-term motion dynamics while maintaining control smoothness. For each modality, a dedicated encoder extracts a latent representation 
+
+zmt ∈ R64 , where m ∈ { r, h, e } which is subsequently used for reconstruction. 
+
+2) Asymmetric Actor-Critic: To improve policy learning efficiency, we adopt an asymmetric actor-critic architecture. Specifically, the actor network utilizes only partial observation information, which we can obtain during real-world deploy-ment, to select actions. The actor input state st = ( zt, spt ),where spt = (∆ θt, ωt, qt, ˙qt, at−1) represents the robot’s proprioceptive state including root rotation error ∆θt ∈ R6
+
+to maintain heading alignment. Notably, we deliberately ex-clude global root position and linear velocity from st to ensure robustness in non-instrumented environments without external localization. The critic network has access to more comprehensive environment information to provide privileged supervision; the critic input state scritic  
+
+> t
+
+= ( st, senv  
+
+> t
+
+) includes the full environment state senv  
+
+> t
+
+= (∆ pt, Bp, Bθ , vt), where 
+
+∆pt ∈ R3 is the root position error; Bp ∈ R42 , Bθ ∈ R84 
+
+are the body link positions and orientations; and vt ∈ R3
+
+represents root linear velocity. The critic network outputs a scalar value Vθ (st) ∈ R.
+
+3) Policy Training: At each time step t, the reference sequences from different modalities, robot joint angles srt ,human body pose sht , and end-effector poses set , are en-coded by modality-specific encoders Er , Eh, Ee into latent representations zrt , zht , zet . Each latent code is decoded by the corresponding decoder Dr , Dh, De to reconstruct ˆsrt , ˆsht , ˆset .All encoders and decoders are implemented as multi-layer perceptrons (MLPs). The training objective combines rein-forcement learning and multi-modal representation learning: 
+
+L = Lπ + Lae , (2) where Lπ is the policy loss and Lae is the multi-modal autoencoder loss. 
+
+Policy Loss: We adopt a clipped surrogate objective with value function and entropy regularization: 
+
+Lπ =Et
+
+h
+
+− min 
+
+
+
+rt(θ) ˆAt, clip( rt(θ), 1 − ϵ, 1 + ϵ) ˆAt
+
+
+
++ λc∥Vθ (st) − Vtarget  
+
+> t
+
+∥22 − λh H(πθ (· | st)) 
+
+i
+
+. (3) JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 4
+
+where st denotes the actor input state, ˆAt is the advantage estimate, Vθ is the value function, λc is the value loss coefficient that scales the squared error between the predicted and target values, λh is the entropy regularization coefficient that encourages exploration, and H(·) denotes the policy entropy [27]. 
+
+Multi-Modal Autoencoder Loss: To ensure consistent latent representations across modalities, we define: 
+
+Lae = λrecon Lrecon + λalign Lalign + λcons Lcons ,
+
+Lrecon = X
+
+> m∈{ r,h,e }
+
+∥smt − ˆsmt ∥22,
+
+Lalign = X
+
+> (m,n )∈{ (r,h ),(r,e ),(h,e )}
+
+∥zmt − znt ∥22,
+
+Lcons = X
+
+> (m,n )∈{ (r,h ),(r,e ),(h,e )}
+
+∥D r (zmt ) − D r (znt )∥22.
+
+(4) Here, Lrecon enforces accurate reconstruction for each modal-ity, Lalign encourages latent representations from different modalities to be close, and Lcons ensures decoded outputs are consistent when using a shared decoder. The hyperparameters 
+
+λrecon , λ align , λ cons balance the contributions of each term. The reward and regularization terms used for training are summarized in Table I. TABLE I: Reward terms used in RL training.                          
+
+> Term Expression Weight
+> Root velocity exp
+> 
+> − ∥vref root −vroot ∥2
+> σ2
+> root vel
+> 
+> 0.5 Root orientation exp
+> 
+> − ∥θref root −θroot ∥2
+> σ2
+> root rot
+> 
+> 0.5 Body position exp
+> 
+> −
+> PNi=1 ∥pref
+> i−pi∥2
+> N·σ2
+> b pos
+> 
+> 1.0 Body orientation exp
+> 
+> −
+> PNi=1 ∥θref
+> i−θi∥2
+> N·σ2
+> b rot
+> 
+> 1.0 Body velocity exp
+> 
+> −
+> PNi=1 ∥vref
+> i−vi∥2
+> N·σ2
+> b vel
+> 
+> 1.0 Body angular velocity exp
+> 
+> −
+> PNi=1 ∥ωref
+> i−ωi∥2
+> N·σ2
+> b ang
+> 
+> 1.0 Action rate || at−at−1|| 22-0.1 Joint pos limits I(q / ∈[qsoft-min , q soft-max ]) -10.0 Collision Icollision -0.1
+
+B. Curriculum Learning Strategy 
+
+Learning from large-scale motion data is challenging due to heterogeneous data distribution and varying intrinsic motion complexity. We adopt a curriculum learning strategy that adaptively reshapes the sampling distribution during training. Each trajectory is divided into 1-second segments. During training, we maintain an exponential moving average (EMA) of the termination failure rate for each segment, which serves as a measure of its execution difficulty. Sampling probabil-ities are computed accordingly, progressively shifting focus toward segments with higher failure rates. To stabilize early-stage training, we blend failure-based sampling with uniform sampling using a mixing coefficient α, which is gradually decreased over time. Additionally, we clip the probabilities of segments with extremely high failure rates to avoid over-emphasizing physically infeasible motions. The final sampling probability is defined as 
+
+Pfinal = αP uniform + (1 − α)clip (Pfailure , 0, P max ), (5) where clip (·) limits the sampling probability within [0 , P max ]
+
+to ensure stability. 
+
+C. Sim-to-Real Transfer 
+
+To facilitate sim-to-real transfer, we employ domain ran-domization during training. We randomly vary physical pa-rameters such as ground friction coefficients, link masses and inertias, joint damping and motor strength, and we inject observation noise into joint encoder and inertial sensor read-ings. These randomizations expose the policy to a wide range of dynamics and sensing conditions, thereby improving its robustness to modeling errors, unmodeled contacts, and hard-ware variability during real-world deployment. The applied domain randomization settings are summarized in Table II. TABLE II: Domain randomization and noised observation terms. ∗ indicates the maximum push magnitude across all directions.                  
+
+> DR terms Range Noised Obs Range Friction (-) [0.1, 1.6] Anchor ori (rad) [-0.05, 0.05] Push robot ∗(m/s) [-0.5, 0.5] Base ang vel (rad/s) [-0.2, 0.2] Base COM (m) [-0.1, 0.1] Joint pos (rad) [-0.01, 0.01] Base mass (kg) [-0.8, 1.2] Joint vel (rad/s) [-0.5, 0.5] Default joint pos (rad) [-0.01, 0.01]
+
+IV. E XPERIMENTS 
+
+In this section, we present experimental results in both the simulator and the real-world deployment. Our experimental platform is the 29-DoF Unitree G1 humanoid robot. Here, we aim to answer the following research questions:  
+
+> •
+
+Q1: Does the choice of input modality significantly affect deploy performance?  
+
+> •
+
+Q2: How do model size and dataset scale influence large-scale training?  
+
+> •
+
+Q3: How robustly does the autoencoder generalize to out-of-distribution (OOD) motion sequences? 
+
+A. Experiments Setup 
+
+We use IsaacSim [4] as the simulator to train our model. We use Blender software to refine the SMPL-X human body model and employ GMR [11] for data retargeting. We optimized the model with the RAD [28] optimizer. 
+
+Datasets: We select LAFAN1 [9], which contains diverse and highly dynamic human motions, and 100STYLE [10], which features a wide range of walking styles, as our training datasets. The test set is the test subset of the OMOMO [8] dataset, which features complex manipulation. 
+
+Baselines: We select HOVER [15], ExBody2 [29], Om-niH2O [30] and TWIST2 [12] as baseline methods for com-parison. Hover is a multi-modal command tracking frame-work based on command masking and teacher-student dis-tillation. ExBody2 is a general tracking control framework JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 5
+
+based on multi-expert distillation. OmniH2O is a general hu-manoid whole-body motion tracking framework that employs a teacher-student learning paradigm. TWIST2 is a teleoperation oriented framework that retargets human observations into robot references. To ensure authenticity, all baselines were evaluated using their original, unmodified Domain Random-ization (DR) settings. 
+
+Metrics: We evaluate tracking accuracy using root-relative mean per-keypoint position error ( Empkpe , mm), root-relative mean per-joint angle error ( Empjae , rad), mean root linear velocity error (Evel , m/s), and episode success rate (%). Starting poses are randomly sampled from the trajectories. An episode is considered successful if the agent maintains its root orientation within ±45 degrees of the reference throughout the entire episode. 
+
+Deployment: We evaluate the trained policies under three input modalities: robot joint angles, human body pose, and end-effector poses. The corresponding deployed policies are denoted as πr , πh, and πe, respectively. Unless otherwise specified, the results reported use the robot reference policy 
+
+πr . During simulation testing, we use the same environment configuration as during training. 
+
+B. Main Results 
+
+We first evaluate our method on the training dataset and compare it with the baselines. During evaluation, we disable the adaptive sampling strategy used in training to ensure a fair and consistent comparison across all methods. All metrics are computed from 10,000 simulation steps collected over 4096 parallel environments. For HOVER, we report the validation results of the teacher policy. As reported in Table III, M3imic achieves the best overall performance on the training datasets. It reaches a success rate of 99.54%, slightly higher than TWIST2 (98.89%) and higher than ExBody2 (98.12%) and OmniH2O (97.78%). In terms of tracking accuracy, M3imic obtains Empkpe = 46 .05 mm, 
+
+Empjae = 0 .112 rad, and Evel = 0 .256 m/s. Compared with the strongest baseline TWIST2, this corresponds to reductions of 10.8%, 7.4%, and 4.1% in Empkpe , Empjae , and Evel , respec-tively. Compared with ExBody2 and OmniH2O, the reduction in Empkpe is 13.5% and 26.6%, respectively. TABLE III: Main Metrics in Training Dataset LAFAN1 [9] and 100STYLE [10].                                
+
+> Method Success (%) ↑Empkpe (mm) ↓Empjae (rad) ↓Evel (m/s) ↓
+> HOVER 87.35 ±0.26 128.20 ±3.54 0.686 ±0.025 0.481 ±0.044
+> ExBody2 98.12 ±0.09 53.25 ±2.52 0.146 ±0.016 0.285 ±0.023
+> OmniH2O 97.78 ±0.10 62.75 ±3.23 .0.154 ±0.010 0.307 ±0.025
+> TWIST2 98.89 ±0.08 51.65 ±1.84 0.121 ±0.009 0.267 ±0.015
+> Ours 99.54 ±0.04 46.05 ±2.07 0.112 ±0.013 0.256 ±0.019
+
+We further evaluate the three deployed policies on the unseen OMOMO test dataset, as summarized in Table IV. The robot-joint policy πr achieves the best pose and joint-angle tracking accuracy ( Empkpe = 71 .52 mm, Empjae =0.139 rad), reducing these errors by 8.8%/2.8% over TWIST2 and 13.3%/4.1% over ExBody2. In contrast, the end-effector policy πe achieves the highest success rate of 98.42%, outper-forming TWIST2, ExBody2, OmniH2O, and πr by 3.83, 3.74, 5.58, and 2.44 percentage points, respectively. This shows that dense joint references favor tracking fidelity, while sparse end-effector references provide better robustness under distribution shift. The human-pose policy πh performs comparably to πr .We further analyze the modality differences in Table IV and provide a visual comparison in MuJoCo in Fig. 3. The dense constraints of πr favor local pose accuracy but leave less freedom for balance adjustment, while πe exploits the kinematic redundancy of sparse end-effector references to achieve higher robustness. This reveals a fidelity-robustness trade-off among modalities, thereby answering Q1. TABLE IV: Main Metrics on the Test Dataset OMOMO [8].                                             
+
+> Method Success (%) ↑Empkpe (mm) ↓Empjae (rad) ↓Evel (m/s) ↓
+> HOVER 87.77 ±0.27 128.07 ±3.48 0.631 ±0.023 0.397 ±0.034
+> ExBody2 94.68 ±0.31 82.45 ±3.56 0.145 ±0.013 0.345 ±0.029
+> OmniH2O 92.84 ±0.28 89.71 ±4.14 0.148 ±0.015 0.367 ±0.038
+> TWIST2 94.59 ±0.34 78.39 ±2.56 0.143 ±0.009 0.329 ±0.015
+> Ours ( πr)95.98 ±0.33 71.52 ±3.79 0.139 ±0.018 0.341 ±0.028
+> Ours ( πh)95.23 ±0.46 72.21 ±4.08 0.140 ±0.016 0.339 ±0.034
+> Ours ( πe)98.42 ±0.29 75.52 ±4.29 0.142 ±0.019 0.337 ±0.032 (a -��)
+> (a -��)
+> (b -��)
+> (b -��)
+
+Fig. 3: Qualitative comparison between πr and πe in MuJoCo simulation. These results suggest that the improvement comes from three complementary designs: single-stage training avoids the information loss, distribution mismatch, and accumulated er-rors introduced by policy transfer in multi-stage distillation; failure-rate-based adaptive sampling improves training effi-ciency by emphasizing difficult motion segments; and the multi-modal design balances tracking fidelity from dense joint references with robustness from sparse end-effector references under distribution shift. We visualize the latent space distribution after multi-modal encoding using t-SNE [31]. Fig. 5 illustrates the latent space distribution of motions in the 100STYLE dataset, demonstrat-ing that the multi-encoder architecture effectively separates distinct motion categories. Fig. 6 shows the latent space distribution for different input modalities of the same motion, where the distributions for different modalities exhibit clear consistency, indicating that the multi-modal encoder archi-tecture effectively integrates information from different input modalities. 
+
+C. Ablation Study 
+
+To analyze the contribution of key design choices, we conduct ablation studies on curriculum learning, dataset size, JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 6
+
+Fig. 4: We use the same policy network for diverse action tracking in real-world environment. (a) The performance of humanoid robot in high-dynamic dance motions. (b) The humanoid robot performs backward walking. (c) The humanoid robot is running at high speed. (d) The humanoid robot tracks a wide range of walking postures. 
+
+Fig. 5: t-SNE visualization of the latent space distribution for different motions categories. The labels “Cat”, “Chicken”, etc. indicate the corresponding motion categories. and network size using the 100STYLE dataset. All ablation models are trained for 50,000 iterations on 4 RTX 4090 GPUs. The results are reported in Table. V and Table. VI. 
+
+1) Ablation on Curriculum Learning Strategy: For curricu-lum learning, we use αmin = 0 .2 and Pmax = 0 .05 . The ablated setting fixes the uniform sampling ratio to α = 1 .0,corresponding to training without curriculum learning. As shown in Table. V, curriculum learning consistently improves the task success rate while maintaining comparable tracking 
+
+Fig. 6: t-SNE visualization of the latent space distribution for different input modalities of the same motion. The color variation represents time. accuracy. This suggests that adaptive sampling mainly benefits training robustness rather than simply optimizing short-term tracking errors. 
+
+2) Ablation on Dataset Size: We compare models trained on the full dataset, containing approximately 3.9 million frames, with models trained on 10% of the data. Curriculum learning is disabled in this comparison to isolate the effect of data scale. As shown in Table. VI, increasing the dataset size improves all tracking and success metrics on the OMOMO JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 7
+
+Fig. 7: Real-world teleoperation experiments using an optical motion capture system. We demonstrated a variety of motions including bending over, raising hands, walking, jogging, boxing, squatting, and pushing objects. TABLE V: Ablation study on the curriculum learning (CL) strategy and network size. ∗L Denotes the use of a large size network.                                   
+
+> Method Tracking Error Completion Perf
+> Empkpe (mm) ↓Empjae (rad) ↓Evel (m/s) ↓Success (%) ↑time ↑
+> w/o CL 59.01 ±1.52 0.126 ±0.013 0.348 ±0.019 98.17 ±0.08 1.01
+> w/o CL L54.28 ±1.65 0.121 ±0.011 0.305 ±0.023 98.51 ±0.11 0.73 w CL 55.27 ±2.12 0.125 ±0.012 0.327 ±0.017 98.85 ±0.13 1.00 w CL L54.22 ±1.87 0.123 ±0.009 0.320 ±0.014 99.01 ±0.09 0.72
+
+TABLE VI: Ablation study on the effects of dataset size and network size on the test dataset OMOMO [8].                             
+
+> Method Tracking Error Completion
+> Empkpe (mm) ↓Empjae (rad) ↓Evel (m/s) ↓Success (%) ↑
+> mini 101.36 ±4.42 0.203 ±0.018 0.590 ±0.043 85.13 ±0.38
+> mini L89.72 ±3.35 0.173 ±0.016 0.419 ±0.035 91.12 ±0.31
+> full 84.70 ±2.46 0.151 ±0.014 0.335 ±0.018 94.05 ±0.25
+> full L80.90 ±2.87 0.145 ±0.012 0.320 ±0.013 94.28 ±0.25
+
+test set, indicating that data scale is critical for generalization to unseen motions. 
+
+3) Ablation on Network Size: The standard model uses MLP layers of sizes [512, 256, 128], while the large model uses [1024, 512, 256]. Increasing network capacity improves performance, especially in the low-data setting, but the gains become smaller when the full dataset is used. Meanwhile, the larger network reduces training and inference throughput, as reflected by the lower relative speed in Table. V. These results indicate that dataset scale has a stronger impact than network size, while larger models introduce a clear efficiency trade-off, thereby answering Q2. 
+
+D. Real-World Deployment 
+
+To answer Q3, we deployed M3imic in a real-world environment without collecting any teleoperation data or task-specific datasets for training. We clarify that OOD shifts may come from either input-domain differences, such as sensor noise and retargeting-induced pose bias, or unseen motion categories. In this work, we mainly focus on the former, evaluating robustness to real-world teleoperation commands that differ from the retargeted references used during training. 
+
+1) In-domain Tracking: As shown in the Fig. 4, our method can effectively track the motions from the training dataset in a real-world environment, demonstrating strong robustness. For the deployment process, we utilized the robot encoder as the motion encoder. We demonstrated tracking performance across various high-dynamic actions, including dancing, running, and walking. These experiments showcase the strong robustness of our method in real-world environments. 
+
+2) Out-of-domain Teleoperation: For teleoperation tasks, we employed an optical motion capture system to obtain end-effector data from human operators. The Fig. 7 illustrates our teleoperation tasks in a real-world environment, showcasing the generalization capabilities of our model. We compare two deployment policies, πr and πe, using motions collected from the same source. The collected motions are converted into dense robot-joint references for πr and sparse end-effector ref-erences for πe, respectively. The average real-world tracking results are reported in Table VII. πr achieves slightly lower tracking errors, with Empkpe = 41 .63 mm, Empjae = 0 .095 rad, and Evel = 0 .260 m/s, while πe achieves comparable perfor-JOURNAL OF L ATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021 8
+
+mance using only sparse end-effector commands. These results indicate that πe provides a practical interface for teleoperation while maintaining reasonable whole-body tracking accuracy under real-world distribution shifts. TABLE VII: Average real-world evaluation results of πr and 
+
+πe.
+
+Policy Empkpe (mm) ↓ Empjae (rad) ↓ Evel (m/s) ↓
+
+πr 41.63 0.095 0.260 
+
+πe 43.22 0.105 0.268 
+
+According to the experimental results, we recommend en-hancing model generalization by increasing the diversity of motions rather than merely the quantity, especially by incor-porating datasets from different sources, thereby affirmatively answering Q3. V. C ONCLUSION AND FUTURE WORK 
+
+We presented M3imic, a multi-modal and scalable whole-body control framework for humanoid robots. By employing modality-specific encoders with a shared latent space, the framework enables unified representation learning for hetero-geneous motion reference. We analyzed the impact of different modalities on whole-body control and demonstrated strong out-of-distribution generalization. Future work will investigate the integration of high-level perception and planning with the learned versatile controller to form a complete hierarchical control framework. REFERENCES [1] S. E. Li, Reinforcement learning for sequential decision and optimal control . Springer, 2023. [2] M. Schwenzer, M. Ay, T. Bergs, and D. Abel, “Review on model predic-tive control: An engineering perspective,” The International Journal of Advanced Manufacturing Technology , vol. 117, no. 5, pp. 1327–1349, 2021. [3] H. F. Al-Shuka, B. Corves, W.-H. Zhu, and B. Vanderborght, “Multi-level control of zero-moment point-based humanoid biped robots: a review,” Robotica , vol. 34, no. 11, pp. 2440–2466, 2016. [4] NVIDIA, “Isaac Sim.” [Online]. Available: https://github.com/isaac-sim/ IsaacSim [5] X. B. Peng, Z. Ma, P. Abbeel, S. Levine, and A. Kanazawa, “Amp: Adversarial motion priors for stylized physics-based character control,” 
+
+ACM Trans. Graph. , vol. 40, no. 4, Jul. 2021. [Online]. Available: http://doi.acm.org/10.1145/3450626.3459670 [6] X. B. Peng, P. Abbeel, S. Levine, and M. Van de Panne, “Deepmimic: Example-guided deep reinforcement learning of physics-based character skills,” ACM Transactions On Graphics (TOG) , vol. 37, no. 4, pp. 1–14, 2018. [7] N. Mahmood, N. Ghorbani, N. F. Troje, G. Pons-Moll, and M. J. Black, “AMASS: Archive of motion capture as surface shapes,” in International Conference on Computer Vision , Oct. 2019, pp. 5442–5451. [8] J. Li, J. Wu, and C. K. Liu, “Object motion guided human motion synthesis,” ACM Trans. Graph. , vol. 42, no. 6, 2023. [9] F. G. Harvey, M. Yurick, D. Nowrouzezahrai, and C. Pal, “Robust motion in-betweening,” ACM Transactions on Graphics (TOG) , vol. 39, no. 4, pp. 60–1, 2020. [10] I. Mason, S. Starke, and T. Komura, “Real-time style modelling of human locomotion via feature-wise transformations and local motion phases,” Proceedings of the ACM on Computer Graphics and Interactive Techniques , vol. 5, no. 1, may 2022. [11] Y. Ze, J. P. Ara´ ujo, J. Wu, and C. K. Liu, “Gmr: General motion retargeting,” 2025, gitHub repository. [Online]. Available: https://github.com/YanjieZe/GMR [12] Y. Ze, S. Zhao, W. Wang, A. Kanazawa, R. Duan, P. Abbeel, G. Shi, J. Wu, and C. K. Liu, “Twist2: Scalable, portable, and holistic humanoid data collection system,” arXiv preprint arXiv:2511.02832 , 2025. [13] Z. Zhang, J. Guo, C. Chen, J. Wang, C. Lin, Y. Lian, H. Xue, Z. Wang, M. Liu, H. Liu, H. Wang, and L. Yi, “Track any motions under any disturbances,” arXiv preprint arXiv:2509.13833 , 2025. [14] J. Han, W. Xie, J. Zheng, J. Shi, W. Zhang, T. Xiao, and C. Bai, “Kungfubot2: Learning versatile motion skills for humanoid whole-body control,” arXiv preprint arXiv:2509.16638 , 2025. [15] T. He, W. Xiao, T. Lin, Z. Luo, Z. Xu, Z. Jiang, J. Kautz, C. Liu, G. Shi, X. Wang et al. , “Hover: Versatile neural whole-body controller for humanoid robots,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025, pp. 9989–9996. [16] X. Chen, H. Wu, S. Wu, M. Zhou, D. Xiang, and H. Zhang, “Implicit kinodynamic motion retargeting for human-to-humanoid imitation learn-ing,” arXiv preprint arXiv:2509.15443 , 2025. [17] Z. Zhuang, S. Yao, and H. Zhao, “Humanoid parkour learning,” arXiv preprint arXiv:2406.10759 , 2024. [18] X. He, R. Dong, Z. Chen, and S. Gupta, “Learning getting-up policies for real-world humanoid robots,” arXiv preprint arXiv:2502.12152 , 2025. [19] W. Xie, J. Han, J. Zheng, H. Li, X. Liu, J. Shi, W. Zhang, C. Bai, and X. Li, “Kungfubot: Physics-based humanoid whole-body control for learning highly-dynamic skills,” arXiv preprint arXiv:2506.12851 ,2025. [20] Q. Liao, T. E. Truong, X. Huang, G. Tevet, K. Sreenath, and C. K. Liu, “Beyondmimic: From motion tracking to versatile humanoid control via guided diffusion,” arXiv preprint arXiv:2508.08241 , 2025. [21] T. Zhang, B. Zheng, R. Nai, Y. Hu, Y.-J. Wang, G. Chen, F. Lin, J. Li, C. Hong, K. Sreenath et al. , “Hub: Learning extreme humanoid balance,” 
+
+arXiv preprint arXiv:2505.07294 , 2025. [22] X. B. Peng, P. Abbeel, S. Levine, and M. van de Panne, “Deepmimic: Example-guided deep reinforcement learning of physics-based character skills,” ACM Trans. Graph. , vol. 37, no. 4, pp. 143:1–143:14, Jul. 2018. [Online]. Available: http://doi.acm.org/10.1145/3197517.3201311 [23] J. Shi, X. Liu, D. Wang, O. Lu, S. Schwertfeger, F. Sun, C. Bai, and X. Li, “Adversarial locomotion and motion imitation for humanoid policy learning,” 2025. [Online]. Available: https: //arxiv.org/abs/2504.14305 [24] T. He, J. Gao, W. Xiao, Y. Zhang, Z. Wang, J. Wang, Z. Luo, G. He, N. Sobanbab, C. Pan et al. , “Asap: Aligning simulation and real-world physics for learning agile humanoid whole-body skills,” arXiv preprint arXiv:2502.01143 , 2025. [25] Z. Luo, Y. Yuan, T. Wang, C. Li, S. Chen, F. Casta˜ neda, Z.-A. Cao, J. Li, D. Minor, Q. Ben, X. Da, R. Ding, C. Hogg, L. Song, E. Lim, E. Jeong, T. He, H. Xue, W. Xiao, Z. Wang, S. Yuen, J. Kautz, Y. Chang, U. Iqbal, L. Fan, and Y. Zhu, “Sonic: Supersizing motion tracking for natural humanoid whole-body control,” arXiv preprint arXiv:2511.07820 , 2025. [26] G. Pavlakos, V. Choutas, N. Ghorbani, T. Bolkart, A. A. A. Osman, D. Tzionas, and M. J. Black, “Expressive body capture: 3d hands, face, and body from a single image,” in Proceedings IEEE Conf. on Computer Vision and Pattern Recognition (CVPR) , 2019. [27] R. S. Sutton, A. G. Barto et al. , Reinforcement learning: An introduction .MIT press Cambridge, 1998, vol. 1, no. 1. [28] Y. Lyu, X. Zhang, S. E. Li, J. Duan, L. Tao, Q. Xu, L. He, and K. Li, “Conformal symplectic optimization for stable reinforcement learning,” 
+
+IEEE Transactions on Neural Networks and Learning Systems , vol. 36, no. 6, pp. 11 049–11 063, 2025. [29] M. Ji, X. Peng, F. Liu, J. Li, G. Yang, X. Cheng, and X. Wang, “Exbody2: Advanced expressive humanoid whole-body control,” arXiv preprint arXiv:2412.13196 , 2024. [30] T. He, Z. Luo, X. He, W. Xiao, C. Zhang, W. Zhang, K. Kitani, C. Liu, and G. Shi, “Omnih2o: Universal and dexterous human-to-humanoid whole-body teleoperation and learning,” arXiv preprint arXiv:2406.08858 , 2024. [31] L. v. d. Maaten and G. Hinton, “Visualizing data using t-sne,” Journal of machine learning research , vol. 9, no. Nov, pp. 2579–2605, 2008.

@@ -1,0 +1,1664 @@
+Title: Adaptive state-action abstractions via rate-distortion
+
+URL Source: https://arxiv.org/pdf/2606.06123v1
+
+Published Time: Fri, 05 Jun 2026 01:09:25 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Adaptive state-action abstractions via rate-distortion 
+
+Fernando E. Rosas 
+
+Department of Informatics, University of Sussex Department of Brain Science, Imperial College London Centre for Eudaimonia and Human Flourishing, University of Oxford 
+
+f.rosas@sussex.ac.uk 
+
+# Abstract 
+
+When learning to walk, infants seem to address a coarse version of the problem first — stay upright, reach the caregiver — and refine it only when further prac-tice at that resolution stops paying off. Reinforcement learning offers multiple techniques for building simple versions of complex tasks, but lacks general prin-ciples for how to dynamically adjust the granularity of these abstractions during learning. This paper proposes one such principle: refine the abstraction as soon as the learning error within it becomes comparable to the error induced by the abstraction itself . Here, we investigate one way of formalising this principle via a performance certificate that decomposes value error into two terms: a learning error bound captured by a Bellman residual, and an abstraction error bound given by a bisimulation metric. The resulting switching strategy is implemented by soft state-action abstractions built from rate-distortion principles, whose resolution along state and action axes can be continuously adjusted. We validate this construction in a range of tabular settings, showing that near-optimal performance can be achieved under substantial lossy compression of state and action information. 
+
+# 1 Introduction 
+
+Good control rarely requires tracking every detail of the environment [Konidaris, 2019, Ho et al., 2019, Abel, 2019, Allen, 2023]. For instance, task-irrelevant symmetries can be factored away without hindering the ability of a reinforcement-learning agent to find an optimal policy [Ravindran and Barto, 2003, van der Pol et al., 2020]. More generally, useful abstractions act like sufficient statistics: they preserve what matters the most and discard distinctions whose effects are unimportant. But how should an agent decide what information to keep and which to discard? Classical abstraction theory gives exact answers to this question in special cases. State bisimulation and MDP homo-morphisms identify states that are perfectly equivalent from a planning perspective [Givan et al., 2003, Ravindran and Barto, 2003, Li et al., 2006]. Bisimulation metrics extend these conditions to quasi-symmetry and almost-bisimilarity providing quantitative performance guarantees [Ferns et al., 2004, 2011, Taylor et al., 2008, Abel et al., 2016]. These ideas are closely related to lossy compression, which has been formally studied under rate-distortion theory [Shannon, 1959] and the information bottleneck method [Tishby et al., 1999]. While the literature offers a rich account of how to build abstractions, comparatively little is known about how to adjust their granularity during learning. Existing adaptive methods refine abstractions based on the distinguishability of transition estimates or the discovery of verification counterex-amples [Ortner, 2013, Clarke et al., 2003, Abate et al., 2024, Coppola et al., 2025]. However, to my knowledge, no existing adaptive method handles state-action abstraction jointly. This is not an incidental restriction: state aggregation can factor invariances (i.e., distinctions that do not matter) but fails to capture equivariances, in which the same behavioural function carries different action labels depending on the context [van der Pol et al., 2020, Taylor et al., 2008]. Equivariance is often 
+
+> Preprint.
+> arXiv:2606.06123v1 [cs.LG] 4 Jun 2026
+
+the rule rather than the exception — for instance, in bilateral locomotion the action that functions as ‘advance the free leg’ maps to a right-leg command when the left leg is planted, and to a left-leg command when the right leg is planted. This paper introduces a formal framework to dynamically adjust the resolution of state-action abstractions. Our central technical result is a value-error decomposition that splits the total error into a Bellman residual measuring how well the current abstract problem has been solved, and an abstraction error bounded by a bisimulation metric. The decomposition motivates a simple adaptive rule: switch to a finer abstraction as soon as the Bellman residual reaches the scale of the abstraction error. We formalise this rule by building a continuous family of soft abstractions through rate-distortion, indexed by a temperature parameter that controls resolution. We validate the framework on classic tabular control benchmarks and a SysAdmin [Guestrin et al., 2003] scaling test. Results show that the adaptive rule traces meaningful compression-distortion frontiers and achieves near-optimal performance under substantial state and action compression. The framework further reveals whether state, action, or joint state-action information is the binding constraint on performance for a given task. Together, these findings yield an adaptive method that refines abstractions only as far as a task requires, and in doing so quantifies how much state and action information that task actually contains. Overall, the main contributions are: • Soft state-action abstractions . A stochastic generalisation of MDP homomorphisms, equipped with bisimulation metrics that compare state-action pairs. • A learning-abstraction decomposition . A control certificate that decomposes value error into a Bellman residual within the abstraction and bisimulation distortion of the abstraction itself. • The adaptive abstraction principle . A refinement rule that ties abstraction granularity to learning progress — refine only when the residual within the current abstraction reaches the scale of the abstraction error. • State-action abstraction built from rate-distortion principles. A continuous family of soft ab-stractions in which the information allocated to states and actions is independently controllable. • A decomposition of task compressibility . The separable rates make it possible to attribute a task’s compressibility to its states, actions, or their interaction. 
+
+# 2 Related Work 
+
+Bisimulation and MDP homomorphisms. Abstractions have been studied via state bisimula-tion [Givan et al., 2003] and MDP homomorphisms [Ravindran and Barto, 2003], which give exact conditions under which the value function of a reduced MDP can be lifted to the original one [Li et al., 2006]. These ideas have been used to build state-action abstractions that account for equivariant symmetries [van der Pol et al., 2020] and have been combined with the options framework [Abel et al., 2020]. This work extends MDP homomorphisms [Ravindran and Barto, 2003, van der Pol et al., 2020] from hard state-action abstractions based on coarse-grainings to soft abstractions based on stochastic encoders and decoders, whose granularity is dynamically adjusted during planning. 
+
+Bisimulation metrics. Work on approximate abstraction generalises exact bisimulation, allowing quantitative error and providing performance bounds [Taylor et al., 2008, Abel et al., 2016, Jiang et al., 2015]. Ferns et al. [2004] introduced state bisimulation pseudometrics as quantitative relaxations of exact bisimulation (see also Ferns and Precup [2014]). Approximate homomorphism and lax bisimulation-style metrics extend this by comparing actions through matchings rather than fixed labels [Taylor et al., 2008, Rezaei-Shoshtari et al., 2022]. A survey on abstraction guarantees and approximation-estimation tradeoffs can be found in Jiang [2018]. Also, policy-conditioned relaxations [Castro, 2020, Rezaei-Shoshtari et al., 2022, Panangaden et al., 2024] enable ways to account for equivalence during behaviour. In deep RL, bisimulation-inspired losses are often optimised from samples [Gelada et al., 2019, Zhang et al., 2021, Castro et al., 2021, Kemertas and Aumentado-Armstrong, 2021, Agarwal et al., 2021]. Our work extends bisimulation metrics to soft state-action abstractions, allowing stochastic encoders to compress ‘quasi-equivariant’ relationships. 
+
+Information-theoretic compression. Abel et al. [2019] formulate state abstraction as lossy com-pression in apprenticeship learning, and use a Blahut–Arimoto scheme to solve the resulting rate-2distortion problem; Biza et al. [2021] use a variational information bottleneck over state-action pairs to learn discrete state abstractions; and Delgrange et al. [2022] distil policies into variational MDP abstractions. Related work studies deterministic bottlenecks [Zhu et al., 2022], bottleneck regularisation for exploration and transfer [Goyal et al., 2019, Igl et al., 2019, Clauw et al., 2025], and variational objectives whose optima recover bisimulation relations [Freed et al., 2025]. More gen-erally, information-theoretic principles have been used to ask what an agent should learn [Arumugam and Van Roy, 2021a,b, 2022a,b, Arumugam et al., 2022], and bounded-rational control has studied related tradeoffs between information and reward [Polani, 2009, Tishby and Polani, 2011, Rubin et al., 2012]. Our framework builds abstractions using the rate-distortion principle while introducing key differences in the object and the distortion: it compresses state-action control structure rather than only states, and uses bisimulation metrics as distortion rather than expert demonstration. 
+
+Adaptive refinement. Incremental abstraction takes place during partition refinement when com-puting bisimulation quotients [Givan et al., 2003], as well as in earlier model-reduction heuristics [Dean et al., 1997], but this has not been used for online calibration. Ortner [2013] has studied online state aggregation based on statistical uncertainty about rewards and transitions during learning. Methods such as CEGAR [Clarke et al., 2003], data-driven bisimulation learning [Abate et al., 2024], and multi-resolution bisimulation constructions [Coppola et al., 2025] also refine abstractions when a behavioural or verification condition fails. Our refinement procedure is qualitatively different: we refine neither based on transition estimates nor on verification counterexamples, but instead focus on whether the Bellman residual of the abstract planner reaches the error induced by the abstraction. 
+
+# 3 Soft state-action abstractions 
+
+Consider a MDP (S, A, P, r, γ ), with finite state space S, finite action space A, transition kernel 
+
+P (s′|s, a ), reward r(s, a ), and discount factor γ ∈ [0 , 1) [Sutton and Barto, 2018]. For a bounded value function V : S → R, the one-step backup operator is 
+
+(BV )( s, a ) := r(s, a ) + γEs′∼P (·| s,a )
+
+V (s′). (1) The Bellman optimality operator is (T V )( s) := max a∈A (BV )( s, a ).In many situations the MDP may be too hard to solve directly. A common way to simplify the problem is to compress states, actions, or state-action pairs via coarse-graining mappings. Instead, here we consider a more general approach based on stochastic coarse-grainings specified by 
+
+νS : S → ∆( ¯S) (state encoder), νA : S × A → ∆( ¯A) (action encoder), (2) 
+
+ηS : ¯S → ∆( S) (state decoder), ηA : ¯S × ¯A → ∆( A) (action decoder), (3) where ¯S and ¯A are sets of abstract states and actions. We denote the joint encoder and decoder as 
+
+ν(¯ s, ¯a|s, a ) := νS (¯ s|s) νA(¯ a|s, a ) and η(s, a |¯s, ¯a) := ηS (s|¯s) ηA(a|¯s, ¯a).
+
+Definition 1. Given an MDP (S, A, P, r, γ ), the soft state-action abstraction induced by νS , νA, ηS ,and ηA is the MDP   ¯S, ¯A(¯ s), ¯P , ¯r, γ  with rewards and dynamics given by 
+
+¯r(¯ s, ¯a) := X
+
+> s∈S
+
+X
+
+> a∈A
+
+r(s, a ) η(s, a |¯s, ¯a) and (4) 
+
+¯P (¯ s′ | ¯s, ¯a) := X
+
+> s∈S
+
+X
+
+> a∈A
+
+X
+
+> s′∈S
+
+νS (¯ s′|s′) P (s′ | s, a ) η(s, a |¯s, ¯a), (5) 
+
+and ¯A(¯ s) := ¯a ∈ ¯A : ∃a ∈ A , ∃s ∈ S , ν (¯ s, ¯a|s, a ) > 0 being the admissible actions at ¯s ∈ ¯S.
+
+Soft state-action abstractions generalise state bisimulation and other approaches to build abstractions (see Appendix B). The Bellman optimality operator of a soft state-action abstraction is 
+
+  ¯T ¯V (¯ s) := max  
+
+> ¯a∈¯A(¯ s)
+
+n
+
+¯r(¯ s, ¯a) + γE¯s′∼ ¯P (·| ¯s, ¯a)
+
+ ¯V (¯ s′)o
+
+. (6) The encoder and decoder induce a ‘lifting’ (from concrete to abstract) and ‘grounding’ (from abstract to concrete) operators 
+
+ LV (¯ s) = X
+
+> s∈S
+
+V (s)ηS (s | ¯s) and  Γ ¯V (s) = X 
+
+> ¯s∈¯S
+
+¯V (¯ s)νS (¯ s | s). (7) 3Soft abstractions are a stochastic extension of traditional MDP homomorphisms [Ravindran and Barto, 2003, van der Pol et al., 2020], which correspond to a deterministic encoder ν(¯ s, ¯a | s, a ) = 
+
+1{f (s, a ) = (¯ s, ¯a)} and decoder η(s, a | ¯s, ¯a) = 1{g(¯ s, ¯a) = ( s, a )}, where 
+
+f (s, a ) =  fS (s), f A(s, a ) with fS : S → ¯S and fA : S × A → ¯A (8) are coarse-graining functions, and g(¯ s, ¯a) =  gS (¯ s), g A(¯ s, ¯a) ∈ S × A is a representative selector. For this scenario, the abstract MDP has rewards and transitions given by 
+
+¯r(¯ s, ¯a) = r g(¯ s, ¯a) and ¯P  ¯s′ | ¯s, ¯a = X 
+
+> s′∈S :fS(s′)=¯ s′
+
+P  s′ | g(¯ s, ¯a). (9) The lifting and grounding operators become  LV )(¯ s) = V  gS (¯ s) and  Γ ¯V (s) = ¯V  fS (s). For a more extended comparison with other abstraction frameworks, see Appendix B. 
+
+# 4 Learning and abstraction errors 
+
+4.1 Assessing distortion between state-action pairs 
+
+To compare state-action pairs, it is useful to consider distortion pseudometrics 1 over S × A that measure how different two state-action pairs are for planning purposes. 
+
+Definition 2. A distortion dV is said to be Bellman-compatible with respect to a collection of value functions V if it satisfies 
+
+dV
+
+ (s, a ), (s′, a ′) ≥ sup  
+
+> V∈V
+
+(BV )( s, a ) − (BV )( s′, a ′) . (10) The tightest Bellman-compatible distortion for a given class of value functions V is often of the form [Ferns et al., 2004, 2011] 
+
+dρ
+
+ (s, a ), (s′, a ′) := |r(s, a ) − r(s′, a ′)| + γ W 1,ρ 
+
+
+
+P (· | s, a ), P (· | s′, a ′)
+
+
+
+, (11) where W1,ρ is the Wasserstein/Kantorovich metric with base metric ρ. For instance, dρind with 
+
+ρind (s, u ) = 1{s = u} (so that W1,ρ ind is the total variation distance) is the tightest Bellman-compatible distortion for bounded value functions V = {V : ∥V ∥∞ ≤ 1}. Another important distortion is given by the fixed-point construction by Ferns et al. [2011], which satisfies ρ∗ = dρ∗ .The partition induced by the zeros of Ferns’ distortion corresponds to the minimal bisimulation of the MDP. For a discussion of this and other distortions, see Appendix C. Distortion can be used to estimate the effect of errors induced by the simplifications associated with an abstract MDP. Consider the composition of the lifting and grounding operators, as defined in Eq. (7), which gives the ‘round-trip’ operator K := Γ L with kernel 
+
+κ(s′, a ′ | s, a ) = X 
+
+> ¯s∈¯S
+
+X 
+
+> ¯a∈¯A
+
+η(s′, a ′ | ¯s, ¯a)ν(¯ s, ¯a | s, a ). (12) By marginalising actions, the state round-trip kernel is κS (s′ | s) := P  
+
+> ¯s∈¯S
+
+ηS (s′ | ¯s)νS (¯ s | s).Then, the expected distortion introduced by the round-trip can be measured by 
+
+DE(s, a ) := E(S′,A ′)∼κ(·| s,a )
+
+h
+
+dV
+
+ (s, a ), (S′, A ′)i
+
+. (13) 
+
+4.2 Decomposing errors in optimal value estimation 
+
+We now use the above ideas to derive a decomposition of value error in terms of learning and abstraction effects. For this, we first introduce a new operator that will be useful for our derivations. 
+
+Definition 3. For a given encoder ν and decoder η, the corresponding deformed Bellman operator 
+
+is ¯T † := LT Γ, which acts on abstract value functions ¯V as ( ¯T † ¯V )(¯ s) = P 
+
+> s∈S
+
+ηS (s | ¯s) ( T Γ ¯V )( s).     
+
+> 1Pseudometrics are symmetric and satisfy the triangle inequality, but may give d(x, y ) = 0 for x̸=y.
+
+4While ¯T † and ¯T act on the same space and use the same state encoder and decoder, they differ in whether the maximum is taken before or after the lifting. That said, they do have some similar properties, as shown next. 
+
+Lemma 1. ¯T † is a γ-contraction in ∥ · ∥ ∞ and hence has a unique fixed point. (Proof in App. A.1) 
+
+As a second ingredient, consider the geometry of the state-action space induced by the distortion d.One way to assess it is to calculate its diameter ∆max := sup s,a sup s′,a ′ d (s, a ), (s′, a ′). A subtler way to assess this is given next. 
+
+Definition 4. The abstraction error bound is given by 
+
+∆H(κS ; d) := sup 
+
+> s∈S
+
+ES′∼κS (·| s)
+
+DH(s, S ′), (14) 
+
+where DH(s, u ) := max  sup a inf b d (s, a ), (u, b ), sup b inf a d (s, a ), (u, b ) .
+
+The Hausdorff distance DH(s, u ) provides a tighter estimate than state bisimulation distance 
+
+DB (s, u ) := max a d (s, a ), (u, a ) [Taylor et al., 2008, Taylor, 2008], as it compares each ac-tion with its best matching action at the other state. For deterministic abstractions, the abstraction error bound reduces to ∆H(κS ; d) = sup s∈S DH (s, g S ◦ fS (s)) .With all this in place, we can now formulate the following bound. 
+
+Theorem 1 (Learning–abstraction decomposition) . If Γ ¯V ∈ V , then 
+
+Γ ¯V − V ∗ 
+
+> ∞
+
+≤ 11 − γ
+
+h
+
+∥ ¯T † ¯V − ¯V ∥∞
+
+| {z }
+
+> learning error
+
++ ∆ H (κS ; dV )
+
+| {z }
+
+> abstraction error
+
+i
+
+. (15) 
+
+(Proof in Appendix A.2). 
+
+Theorem 1 reveals that errors made while performing optimal value estimation on an abstract MDP can be decomposed into two types: errors within the abstract MDP, and errors due to the abstraction itself. This leads to a simple yet powerful idea: 
+
+Adaptive abstraction principle : Begin learning within a coarse abstraction, and refine it as soon as the learning error becomes smaller than the abstraction error. The next section provides a formalisation of this principle using rate-distortion theory. 
+
+# 5 Adaptive abstractions based on rate-distortion theory 
+
+We now exploit the adaptive abstraction principle by building a family of abstractions of increasing degree of granularity using rate-distortion theory. 
+
+5.1 Building abstractions from rate-distortion theory 
+
+To use rate-distortion theory, one first needs to specify a suitable distortion function. While ∆H
+
+would be an attractive candidate, Hausdorff metrics are often very expensive to calculate. Following standard rate-distortion practice, let us instead take μ ∈ ∆( S ×A ) to be a replay, design, or occupancy measure, and consider the μ-averaged distortion 
+
+∆μ(ν, g ) := E(S,A )∼μ, ( ¯S, ¯A)∼ν(·| S,A )
+
+h
+
+dV
+
+ (S, A ), g ( ¯S, ¯A)i
+
+. (16) Appendix D shows under what conditions a μ-averaged distortion can still assess the worst-case. Additionally, Appendix A.3 shows that the choice of having a deterministic decoder in Eq. (16) does not imply lack of generality. The resulting rate-distortion problem is as follows: 
+
+min  
+
+> ν,g
+
+∆μ(ν, g ) subject to Iμ( ¯S; S) ≤ c1 and Iμ( ¯A; S, A | ¯S) ≤ c2, (17) 5where c1 and c2 are bounds on the amount of information allowed to go into abstract states and actions, respectively. A Lagrangian formulation of the problem is 
+
+min 
+
+> ν,g
+
+n
+
+Iμ( ¯S; S) + λI μ( ¯A; S, A | ¯S) + β∆μ(ν, g )
+
+o
+
+. (18) Here, small β emphasises compression and therefore yields coarse soft abstractions; large β empha-sises distortion and therefore yields finer ones. Moreover, Iμ( ¯S; S) and Iμ( ¯A; S, A | ¯S) disentangle the amount of information about the state and action retained by the encoder, respectively. Large λ
+
+encourages compressing action information, and λ = 1 means that state and action bits are weighted equally; indeed Iμ( ¯S; S) + Iμ( ¯A; S, A | ¯S) = I( ¯S, ¯A; S, A ).Several familiar abstraction frameworks appear as constrained or limiting cases of Eq. (18): • If the encoder ν is deterministic, then the objective reduces to a hard state-action partition. In the zero-distortion limit it recovers state bisimulation and MDP homomorphisms. • If actions are preserved, then only the state encoder is learned and the objective then reduces to classical state abstraction. • If λ = 0 , the action encoder can perform state-dependent action matching, yielding an analogue of lax bisimulation. • If β → ∞ at fixed alphabet size, the rate term becomes negligible and the problem ap-proaches minimum-distortion clustering of state-action pairs, analogous to K-medoids. In contrast, varying β and λ turns static bisimulation clustering into an adaptive refinement procedure. For a detailed discussion on these comparisons, see Appendix E. 
+
+Optimisation. For given β, λ, abstract alphabets ¯S and ¯A, and distortion metric, Eq. (18) can be optimised by a generalised alternating Blahut–Arimoto scheme [Blahut, 1972, Arimoto, 1972]. The update alternates between refreshing the abstract marginals, updating the state encoder with the current abstract-action marginal frozen, updating the tied action encoder, and choosing blockwise decoder representatives. The technical details are provided in Appendix F. 
+
+5.2 Rate-distortion for adaptive abstractions 
+
+We can now exploit the adaptive abstraction principle (Sec. 4.2) using families of abstractions with varying granularity built via rate-distortion, indexed by the resolution parameter β.
+
+Algorithm sketch. The resulting adaptive continuation method is: 1. Estimate a Bellman-compatible state-action distortion d. In practice, this may be via a lax-bisimulation surrogate, a MICo-style sample-based similarity, or another critic/model-based Bellman proxy [Castro et al., 2021, Rezaei-Shoshtari et al., 2022]. 2. Fix a finite abstract state alphabet ¯S, abstract action supports ¯A(¯ s), an initial decoded codebook g(0) ∈ G , a conditional-rate multiplier λ, and a small starting temperature β0.3. Solve the rate-distortion problem outlined in Eq. (18) for β = β0 using the methods described in Appendix F, store the distortion ¯∆β0 , and build or update the value operator ¯T †.4. Plan or learn on the current abstract problem while monitoring the error ∥ ¯T †( ¯V ) − ¯V ∥.5. When the learning error has fallen to the scale of the current ¯∆β , increase β to the next value on the continuation schedule, warm-start the encoders and decoded codebook, and solve the new rate-distortion problem. 6. Stop when the desired value tolerance, compute budget, or memory budget is reached. The resulting sequence {(νS,β , ν A,β , g β )}β corresponds to a Pareto family of soft state-action ab-stractions with guarantees of minimal distortion ∆μ for given amounts of state-action information. Note that this does not necessarily result in a nested family of hard quotients. If a hard abstraction is needed for interpretation or deployment, one can set β → ∞ and instead regulate the abstraction by progressively decreasing the alphabet sizes | ¯S| and | ¯A|, as developed by Slonim and Tishby [1999]. 6(A) 
+
+> (B)
+> (C)
+
+Four Rooms Taxi DoorKey                                                     
+
+> 1
+> 2
+> 34
+> RG
+> YB
+> TD
+> KG
+> 00.511.5
+> 0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5β= 20
+> β= 15
+> β= 10
+> β= 5
+> β= 0
+> Abstraction error
+> Effective state-action pairs
+> 050 100 150
+> 0
+> 0.04
+> 0.08
+> 0.12
+> 0.16 β= 0 .1
+> β= 0 .08
+> β= 0 .06
+> β= 0 .04
+> β= 0 .02
+> Abstraction error
+> 00.20.40.6
+> 0
+> 0.05
+> 0.10
+> 0.15
+> 0.20 β= 10
+> β= 8
+> β= 7 .5β= 7 β= 6
+> Abstraction error
+> 0
+> 10
+> 20
+> β
+> 0.02
+> 0.06
+> 0.1
+> 6
+> 8
+> 10
+> 0510 15 20 25 30
+> 0
+> 0.5
+> 1
+> 1.5
+> 2
+> Bellman update
+> Policy return
+> 0510 15 20 25 30
+> −120
+> −100
+> −80
+> −60
+> −40
+> −20
+> 0
+> Bellman update
+> 0510 15 20 25 30
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Bellman update
+
+Figure 1: Adaptive abstractions on tabular control benchmarks . Top : description of the domains. Middle :compression-distortion frontiers; increasing β reduces empirical abstraction error while increasing the effective number of abstract state-action pairs. Bottom : adaptive trajectory of β and policy-return traces. Bold curves represent the adaptive approach and coloured curves correspond to fixed abstractions. Dashed horizontal lines mark optimal performance. 
+
+# 6 Case studies 
+
+This section presents experiments used to evaluate the proposed framework for adaptive abstraction. These experiments investigate three questions: whether the rate-distortion objective produces a usable compression-distortion frontier; whether the adaptive rule can navigate this frontier during planning; and how the selected abstractions compare with classic bisimulation and MDP homomorphisms. All experiments use λ = 1 and a simplified flat rate-distortion solver described in Appendix F; additional environment and evaluation details are given in Appendix G. 
+
+6.1 Tabular control benchmarks 
+
+We first apply the adaptive abstraction scheme (Sec. 5.2) to three well-known control benchmarks: 
+
+Four Rooms [Sutton et al., 1999], Taxi [Dietterich, 2000], and a fully observable DoorKey variant inspired by MiniGrid [Chevalier-Boisvert et al., 2023] (see Figure 1). The domains were chosen because they expose different forms of compressible control structure. Four Rooms is a navigation problem with spatial regularity and bottlenecks, so it is used to test state compression. Taxi adds object-oriented task variables, where pickup and dropoff are relevant only in special contexts, making action compression suitable. DoorKey combines navigation with a task-phase dependency: the agent must acquire a key before opening the door and reaching the goal, so useful compression involves both state identity and local action relevance. 7M1               
+
+> M2
+> M3
+> M4
+> M5
+> M6
+> 00.10.20.30.4
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Normalised distortion
+> Effective state-action pairs  N= 2
+> N= 3
+> N= 4
+> N= 5
+> N= 6
+> N= 7
+> 234567
+> 0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Number of machines
+> Selected normalised value  Total compression
+> State compression
+> Action compression
+> Distortion
+
+Figure 2: Adaptive abstractions on SysAdmin. Left : Diagram of the scenario. Middle : Rate-distortion frontiers for various numbers of machines; stars mark the resolution at which the abstraction attains near-optimal performance. Right : Compression and distortion of the near-optimal policies as N grows, with the effective size decomposed into state and action contributions. 
+
+Results show that a rate-distortion family of abstractions can be successfully built for these three settings: increasing β reduces abstraction error while increasing the effective number of abstract state-action symbols (Figure 1). Interestingly, the adaptive rule uses this frontier differently across tasks. In Four Rooms and DoorKey , the scheme settles at an intermediate resolution that already recovers near-optimal performance. In contrast, the coarsest abstractions in Taxi are too lossy and performance improves only at abstractions of relatively high rate. Our framework allows us to probe what kind of compression takes place in these scenarios. Analyses at the first adaptive checkpoint whose policy attains optimal performance show that the compression profiles match the structure of the tasks: Four Rooms compresses most heavily the state factor, 
+
+Taxi compresses primarily actions, and DoorKey compresses both the task phase and the locally appropriate action set (see Table 1). Overall, adaptive abstractions were found to retain substantially less effective state-action information than the exact bisimulation and MDP homomorphisms. This is not a contradiction: bisimulation preserves full value information, whereas the adaptive criterion allows errors that may be irrelevant for constructing the optimal policy. Table 1: Compression diagnostics Domain |S|×|A| State bisimulation MDP homomorphism Adaptive (state ×action) 
+
+FourRooms 1664 1.0 0.952 0.318 = 0 .368 × 0.864 
+
+Taxi 3006 1.0 0.333 0.159 = 0 .665 × 0.239 
+
+DoorKey 1165 1.0 0.201 0.133 = 0 .373 × 0.357           
+
+> Compression rates are normalised by |S ×A| ; the compression rate of the adaptive approach is calculated as 2I( ¯S, ¯A;S,A )=2I( ¯S;S)×2I( ¯A;A,S |¯S), and subcomponents are normalised by |S| and |A| , respectively. The adaptive point is the first checkpoint whose grounded policy attains the optimal performance. More details can be found in Appendix G.
+
+6.2 SysAdmin scaling 
+
+We next use a ring-structured SysAdmin benchmark [Guestrin et al., 2003] to investigate how our approach scales with problem size. In this benchmark, the goal is to keep a set of machines working (see Figure 2). The environment’s state is a binary vector recording which machines are operational; each timestep either does nothing or reboots one machine, and failures are more likely when neighbouring machines are down (see Appendix G.3). Thus, a SysAdmin instance with N
+
+machines has 2N states and N + 1 actions, and dynamics are generated by local ring interactions. This makes the domain useful for testing whether our approach captures local control structure rather than memorising the full state-action specification. Results show that larger systems exhibit more pronounced rate-distortion curves, which suggests that they allow for more compression with less distortion (see Figure 2). Furthermore, the abstrac-tion at which near-optimal performance ( 99% of the full-resolution return) is achieved maintains roughly stable normalised distortion, while retaining a decreasing fraction of the concrete state-action 8information. This suggests that the learned codes effectively exploit the local ring structure of the dynamics rather than memorising global configurations. We also investigated to what degree the learned near-optimal encoder provides human-readable ring features (for details of methodology, see Appendix G.3). Results are shown in Table 2. On the state side, the largest mutual informations are with local failure motifs and global load variables, such as triplet histograms, pair histograms, failed count, and largest failure run. On the action side, the strongest factors describe the local context of the target machine, including its five-site neighbourhood, its failure-run size, and whether it is isolated. Overall, the probes suggest that abstractions are organised around local outage structure and locally relevant interventions rather than generic low-rank compression. Table 2: Representative SysAdmin factor probes Factor Type Bits Relevance Factor Type Bits Relevance Triplet hist. State 1.196 0.442 Target 5-bit Action 0.430 0.156 Pair hist. State 1.153 0.447 Target run size Action 0.301 0.155 Failed count State 0.968 0.466 Target index Action 0.289 0.140 Max fail run State 0.818 0.402 Isolated target Action 0.205 0.180          
+
+> Information reports the mean raw mutual information in bits across N= 2 , . . . , 7. Relevance reports the mean normalised information. The left block lists state factors for I(F; ¯S); the right block lists action factors for I(F; ¯A|¯S).
+
+# 7 Conclusion 
+
+What is the essential information that an agent needs to solve a task? The approach presented here addresses this question by tuning abstraction granularity according to two sources of error: the difficulty of solving an abstract problem and the error introduced by the abstraction itself. This idea is formalised using soft state-action abstractions built from rate-distortion principles, which lead to the identification of a value error bound that distinguishes learning error as a Bellman residual and abstraction error as bisimulation distortion. This yields a simple adaptive rule: plan at the current resolution while the residual dominates, and refine once it reaches the abstraction floor. Experiments in tabular domains support this principle. In Four Rooms , Taxi , DoorKey , and 
+
+SysAdmin , the rate-distortion objective yielded a useful compression-vs-distortion trade-off, and the adaptive rule selected abstractions that recovered optimal performance while retaining substantially fewer effective state-action pairs. Moreover, the separation of state and action information rates makes the resulting abstractions diagnostically useful — they indicate if compression comes mainly from state irrelevance (as in Four Rooms ), action matching (as in Taxi ), or both (as in DoorKey ). This work focuses on tabular problems to provide a proof-of-principle of the proposed framework that can cleanly highlight its fundamental principles. A natural next step is to extend the adaptive principle to model-free settings, where the learning term can be estimated from sampled Bellman or TD errors and the abstraction term from sample-based behavioural metrics or latent-MDP losses [Gelada et al., 2019, Castro et al., 2021, Zhang et al., 2021, Agarwal et al., 2021]. Another interesting extension would be to combine this framework with options, which would connect state-action compression at a single decision step with temporal abstraction over action sequences [Sutton et al., 1999, Bacon et al., 2017, Abel et al., 2020]. Future work may also use adaptive rate-distortion abstractions to enhance the interpretability of deep reinforcement learning agents. Building upon the simplicity biases of deep learning systems [Valle-Perez et al., 2019, Huh et al., 2021, Shai et al., 2026], this could be used to track how the effective state-action rate changes during training, and whether refinement events align with improvements in performance. This also connects to a long-standing observation in cognitive psychology and developmental neuroscience, which states that infants appear to navigate complex tasks by first solving coarse versions and refining only when the coarse solution stops being adequate [Rosch et al., 1976, Newport, 1990, Adolph, 2008]. Whether AI systems or infants implement a rule similar to the one proposed in this work, or arrive at a similar coarse-to-fine trajectory through different mechanisms, is an empirical question that we hope this work may help to address. 9References 
+
+George Konidaris. On the necessity of abstraction. Current opinion in behavioral sciences , 29:1–7, 2019. Mark K Ho, David Abel, Thomas L Griffiths, and Michael L Littman. The value of abstraction. 
+
+Current opinion in behavioral sciences , 29:111–116, 2019. David Abel. A theory of state abstraction for reinforcement learning. Proceedings of the AAAI Con-ference on Artificial Intelligence , 33(01):9876–9877, 2019. doi: 10.1609/aaai.v33i01.33019876. Cameron S. Allen. Structured Abstractions for General-Purpose Decision Making . PhD thesis, Brown University, 2023. Balaraman Ravindran and Andrew G. Barto. An algebraic approach to abstraction in reinforcement learning. Technical report, University of Massachusetts Amherst, 2003. Elise van der Pol, Daniel E. Worrall, Herke van Hoof, Frans A. Oliehoek, and Max Welling. MDP homomorphic networks: Group symmetries in reinforcement learning. Advances in Neural Information Processing Systems , 33:4199–4210, 2020. Robert Givan, Thomas Dean, and Matthew Greig. Equivalence notions and model minimization in Markov decision processes. Artificial Intelligence , 147(1–2):163–223, 2003. Lihong Li, Thomas J. Walsh, and Michael L. Littman. Towards a unified theory of state abstraction for MDPs. In Proceedings of the Ninth International Symposium on Artificial Intelligence and Mathematics , 2006. Norm Ferns, Prakash Panangaden, and Doina Precup. Metrics for finite Markov decision processes. In Proceedings of the 20th Conference on Uncertainty in Artificial Intelligence , pages 162–169, 2004. Norm Ferns, Prakash Panangaden, and Doina Precup. Bisimulation metrics for continuous Markov decision processes. SIAM Journal on Computing , 40(6):1662–1714, 2011. Jonathan J. Taylor, Doina Precup, and Prakash Panangaden. Bounding performance loss in approxi-mate MDP homomorphisms. In Advances in Neural Information Processing Systems , 2008. David Abel, David Hershkowitz, and Michael L. Littman. Near optimal behavior via approximate state abstraction. In Proceedings of The 33rd International Conference on Machine Learning ,volume 48 of Proceedings of Machine Learning Research , pages 2915–2923, 2016. Claude E. Shannon. Coding theorems for a discrete source with a fidelity criterion. IRE National Convention Record , 4:142–163, 1959. Naftali Tishby, Fernando C. Pereira, and William Bialek. The information bottleneck method. In The 37th annual Allerton Conference on Communication, Control, and Computing , pages 368–377, 1999. Ronald Ortner. Adaptive aggregation for reinforcement learning in average reward Markov decision processes. Annals of Operations Research , 208:321–336, 2013. Nan Jiang. Notes on state abstractions. Lecture notes, University of Illinois at Urbana-Champaign, 2018. Edmund M. Clarke, Orna Grumberg, Somesh Jha, Yuan Lu, and Helmut Veith. Counterexample-guided abstraction refinement for symbolic model checking. Journal of the ACM , 50(5):752–794, 2003. Alessandro Abate, Mirco Giacobbe, and Yannik Schnitzer. Bisimulation learning, 2024. arXiv:2405.15723. Rudi Coppola, Yannik Schnitzer, Mirco Giacobbe, Alessandro Abate, and Manuel Mazo Jr. Exis-tence and synthesis of multi-resolution approximate bisimulations for continuous-state dynamical systems. arXiv preprint arXiv:2509.17739 , 2025. 10 Carlos Guestrin, Daphne Koller, Ronald Parr, and Shobha Venkataraman. Efficient solution algo-rithms for factored MDPs. Journal of Artificial Intelligence Research , 19:399–468, 2003. doi: 10.1613/jair.1000. David Abel, Nathan Umbanhowar, Khimya Khetarpal, Dilip Arumugam, Doina Precup, and Michael L. Littman. Value preserving state-action abstractions. In Proceedings of the 23rd International Conference on Artificial Intelligence and Statistics , volume 108, pages 1639–1650, 2020. Nan Jiang, Alex Kulesza, and Satinder Singh. Abstraction selection in model-based reinforcement learning. In Proceedings of the 32nd International Conference on Machine Learning , volume 37 of Proceedings of Machine Learning Research , pages 179–188, 2015. Norm Ferns and Doina Precup. Bisimulation metrics are optimal value functions. In Proceedings of the 30th Conference on Uncertainty in Artificial Intelligence , pages 210–219, 2014. Sahand Rezaei-Shoshtari, Rosie Zhao, Prakash Panangaden, David Meger, and Doina Precup. Contin-uous MDP homomorphisms and homomorphic policy gradient. In Advances in Neural Information Processing Systems , 2022. Pablo Samuel Castro. Scalable methods for computing state similarity in deterministic Markov decision processes. Proceedings of the AAAI Conference on Artificial Intelligence , 34(06):10069– 10076, 2020. doi: 10.1609/aaai.v34i06.6564. Prakash Panangaden, Sahand Rezaei-Shoshtari, Rosie Zhao, David Meger, and Doina Precup. Policy gradient methods in the presence of symmetries and state abstractions. Journal of Machine Learning Research , 25:1–57, 2024. Carles Gelada, Saurabh Kumar, Jacob Buckman, Ofir Nachum, and Marc G. Bellemare. DeepMDP: Learning continuous latent space models for representation learning. In Proceedings of the 36th International Conference on Machine Learning , volume 97 of Proceedings of Machine Learning Research , pages 2170–2179, 2019. Amy Zhang, Rowan McAllister, Roberto Calandra, Yarin Gal, and Sergey Levine. Learning invariant representations for reinforcement learning without reconstruction. In International Conference on Learning Representations , 2021. Pablo Samuel Castro, Tyler Kastner, Prakash Panangaden, and Mark Rowland. MICo: Improved representations via sampling-based state similarity for Markov decision processes. In Advances in Neural Information Processing Systems , 2021. Mete Kemertas and Tristan Aumentado-Armstrong. Towards robust bisimulation metric learning. In 
+
+Advances in Neural Information Processing Systems , 2021. Rishabh Agarwal, Marlos C. Machado, Pablo Samuel Castro, and Marc G. Bellemare. Contrastive behavioral similarity embeddings for generalization in reinforcement learning. In International Conference on Learning Representations , 2021. David Abel, Dilip Arumugam, Kavosh Asadi, Yuu Jinnai, Michael L. Littman, and Lawson L. S. Wong. State abstraction as compression in apprenticeship learning. Proceedings of the AAAI Conference on Artificial Intelligence , 33(01):3134–3142, 2019. doi: 10.1609/aaai.v33i01.33013134. Ondrej Biza, Robert Platt, Jan-Willem van de Meent, and Lawson L. S. Wong. Learning discrete state abstractions with deep variational inference. In Third Symposium on Advances in Approximate Bayesian Inference , 2021. Florent Delgrange, Ann Nowé, and Guillermo A. Pérez. Distillation of RL policies with formal guarantees via variational abstraction of Markov decision processes. Proceedings of the AAAI Conference on Artificial Intelligence , 36(6):6497–6505, 2022. doi: 10.1609/aaai.v36i6.20602. Xianchao Zhu, Tianyi Huang, Ruiyuan Zhang, and William Zhu. WDIBS: Wasserstein deterministic information bottleneck for state abstraction to balance state-compression and performance. Applied Intelligence , 52(6):6316–6329, 2022. doi: 10.1007/s10489-021-02787-4. 11 Anirudh Goyal, Riashat Islam, Daniel Strouse, Zafarali Ahmed, Matthew Botvinick, Hugo Larochelle, Yoshua Bengio, and Sergey Levine. InfoBot: Transfer and exploration via the information bottleneck. In International Conference on Learning Representations , 2019. Maximilian Igl, Kamil Ciosek, Yingzhen Li, Sebastian Tschiatschek, Cheng Zhang, Sam Devlin, and Katja Hofmann. Generalization in reinforcement learning with selective noise injection and information bottleneck. In Advances in Neural Information Processing Systems , 2019. Kenzo Clauw, Daniel Polani, and Nicola Catenacci Volpi. A theoretical analysis of information bottlenecks for zero-shot transfer in reinforcement learning, 2025. OpenReview preprint, ARLET 2025. Benjamin Freed, Roberto Calandra, Jeff Schneider, and Howie Choset. Distractor-robust rein-forcement learning via variational bisimulation, 2025. OpenReview preprint, submitted to ICLR 2026. Dilip Arumugam and Benjamin Van Roy. Deciding what to learn: A rate-distortion approach. In Pro-ceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pages 373–382, 2021a. Dilip Arumugam and Benjamin Van Roy. The value of information when deciding what to learn. In 
+
+Advances in Neural Information Processing Systems , volume 34, pages 9816–9827, 2021b. Dilip Arumugam and Benjamin Van Roy. Deciding what to model: Value-equivalent sampling for reinforcement learning. In Advances in Neural Information Processing Systems , 2022a. Dilip Arumugam and Benjamin Van Roy. Between rate-distortion theory & value equivalence in model-based reinforcement learning, 2022b. Accepted to the Multi-Disciplinary Conference on Reinforcement Learning and Decision Making (RLDM) 2022. Dilip Arumugam, Mark K. Ho, Noah D. Goodman, and Benjamin Van Roy. On rate-distortion theory in capacity-limited cognition & reinforcement learning, 2022. NeurIPS 2022 Workshop on Information-Theoretic Principles in Cognitive Systems. Daniel Polani. Information: Currency of life? HFSP Journal , 3(5):307–316, 2009. Naftali Tishby and Daniel Polani. Information theory of decisions and actions. In Perception-Action Cycle , pages 601–636. Springer, 2011. Jonathan Rubin, Ohad Shamir, and Naftali Tishby. Trading value and information in MDPs. In 
+
+Decision Making with Imperfect Decision Makers , pages 57–74. Springer, 2012. Thomas Dean, Robert Givan, and Sonia Leach. Model reduction techniques for computing approxi-mately optimal solutions for Markov decision processes. In Proceedings of the 13th Conference on Uncertainty in Artificial Intelligence , pages 124–131, 1997. Richard S. Sutton and Andrew G. Barto. Reinforcement Learning: An Introduction . MIT Press, 2nd edition, 2018. Jonathan Taylor. Lax probabilistic bisimulation . PhD thesis, McGill University, 2008. Richard E. Blahut. Computation of channel capacity and rate-distortion functions. IEEE Transactions on Information Theory , 18(4):460–473, 1972. Suguru Arimoto. An algorithm for computing the capacity of arbitrary discrete memoryless channels. 
+
+IEEE Transactions on Information Theory , 18(1):14–20, 1972. Noam Slonim and Naftali Tishby. Agglomerative information bottleneck. Advances in neural information processing systems , 12, 1999. Richard S. Sutton, Doina Precup, and Satinder Singh. Between MDPs and semi-MDPs: A framework for temporal abstraction in reinforcement learning. Artificial Intelligence , 112(1–2):181–211, 1999. 12 Thomas G Dietterich. Hierarchical reinforcement learning with the MAXQ value function decompo-sition. Journal of artificial intelligence research , 13:227–303, 2000. Maxime Chevalier-Boisvert, Bolun Dai, Mark Towers, Rodrigo de Lazcano, Lucas Willems, Salem Lahlou, Suman Pal, Pablo Samuel Castro, and Jordan Terry. Minigrid & Miniworld: Modular & customizable reinforcement learning environments for goal-oriented tasks. Advances in Neural Information Processing Systems , 36:73383–73394, 2023. Pierre-Luc Bacon, Jean Harb, and Doina Precup. The option-critic architecture. In Proceedings of the 31st AAAI Conference on Artificial Intelligence , 2017. Guillermo Valle-Pérez, Chico Q Camargo, and Ard A Louis. Deep learning generalizes because the parameter-function map is biased towards simple functions. In International Conference on Learning Representations , 2019. arXiv:1805.08522. Minyoung Huh, Hossein Mobahi, Richard Zhang, Brian Cheung, Pulkit Agrawal, and Phillip Isola. The low-rank simplicity bias in deep networks, 2021. Adam Shai, Loren Amdahl-Culleton, Casper L. Christensen, Henry R. Bigelow, Fernando E. Rosas, Alexander B. Boyd, Eric A. Alt, Kyle J. Ray, and Paul M. Riechers. Transformers learn factored representations, 2026. Eleanor Rosch, Carolyn B Mervis, Wayne D Gray, David M Johnson, and Penny Boyes-Braem. Basic objects in natural categories. Cognitive psychology , 8(3):382–439, 1976. Elissa L Newport. Maturational constraints on language learning. Cognitive science , 14(1):11–28, 1990. Karen E Adolph. Learning to move. Current directions in psychological science , 17(3):213–218, 2008. John G. Kemeny and J. Laurie Snell. Finite Markov Chains . D. Van Nostrand, Princeton, NJ, 1960. Hongyu Zang, Xin Li, Leiji Zhang, Yang Liu, Baigui Sun, Riashat Islam, Rémi Tachet des Combes, and Romain Laroche. Understanding and addressing the pitfalls of bisimulation-based representa-tions in offline reinforcement learning. In Advances in Neural Information Processing Systems ,volume 36, 2023. Leonard Kaufman and Peter J. Rousseeuw. Finding Groups in Data: An Introduction to Cluster Analysis . Wiley, 1990. Stuart P. Lloyd. Least squares quantization in PCM. IEEE Transactions on Information Theory , 28 (2):129–137, 1982. Kenneth Rose. Deterministic annealing for clustering, compression, classification, regression, and related optimization problems. Proceedings of the IEEE , 86(11):2210–2239, 1998. Imre Csiszár and Gábor Tusnády. Information geometry and alternating minimization procedures. 
+
+Statistics and Decisions, Supplement Issue , 1:205–237, 1984. 13 A Proofs 
+
+A.1 Proof of Lemma 1 
+
+Proof. For two abstract value functions ¯V1, ¯V2, the following holds: 
+
+∥ ¯T † ¯V1 − ¯T † ¯V2∥∞ = ∥LT Γ ¯V1 − LT Γ ¯V2∥∞
+
+≤ ∥ T Γ ¯V1 − T Γ ¯V2∥∞
+
+≤ γ∥Γ ¯V1 − Γ ¯V2∥∞
+
+≤ γ∥ ¯V1 − ¯V2∥∞.
+
+Above, the first and third inequalities are due to Lemma 2, and the second inequality follows from Lemma 3. This proves that ¯T † is a γ-contraction in L∞.To conclude the proof, note that since the abstract state space is finite, the space of bounded abstract value functions is complete, and Banach’s fixed-point theorem gives a unique fixed point. The above proof uses the following basic lemmas, whose proof we include for completeness. 
+
+Lemma 2. The lifting and grounding operators satisfy 
+
+∥LV 1 − LV 2∥∞ ≤ ∥ V1 − V2∥∞ and ∥Γ ¯V1 − Γ ¯V2∥∞ ≤ ∥ ¯V1 − ¯V2∥∞. (19) 
+
+Proof. A direct calculation shows that 
+
+(LV 1)(¯ s) − (LV 2)(¯ s) ≤ X
+
+> s
+
+ηS (s | ¯s) V1(s) − V2(s) ≤ ∥ V1 − V2∥∞, (20) which implies that ∥LV 1 − LV 2∥∞ ≤ ∥ V1 − V2∥∞. An analogous derivation shows that ∥Γ ¯V1 −
+
+Γ ¯V2∥∞ ≤ ∥ ¯V1 − ¯V2∥∞.
+
+Lemma 3. The Bellman operator T satisfies ∥T V 1 − T V 2∥∞ ≤ γ∥V1 − V2∥∞.Proof. Using the fact that |max a xa − max a ya| ≤ max a |xa − ya| one can obtain that 
+
+|(T V 1)( s) − (T V 2)( s)| ≤ max  
+
+> a∈A
+
+γ X
+
+> s′∈S
+
+P (s′ | s, a ) V1(s′) − V2(s′)
+
+≤ γ max 
+
+> a∈A
+
+X
+
+> s′∈S
+
+P (s′ | s, a )|V1(s′) − V2(s′)|≤ γ∥V1 − V2∥∞.
+
+Taking the supremum over s ∈ S gives the desired result. 
+
+A.2 Proof of Theorem 1 
+
+Proof. Applying Lemma 4 to W = Γ ¯V gives 
+
+∥Γ ¯V − V ∗∥∞ ≤ 11 − γ ∥Γ ¯V − T Γ ¯V ∥∞.
+
+Then, a direct calculation using the triangle inequality shows that 
+
+∥Γ ¯V − T Γ ¯V ∥∞ ≤ ∥ Γ ¯V − Γ ¯T † ¯V ∥∞ + ∥Γ ¯T † ¯V − T Γ ¯V ∥∞
+
+≤ ∥ ¯V − ¯T † ¯V ∥∞ + ∆ H (κS ; dV ).
+
+Above, the last inequality follows from Lemma 2 and Proposition 1. 
+
+Lemma 4. For every bounded concrete value function W : S → R,
+
+∥W − V ∗∥∞ ≤ 11 − γ ∥T W − W ∥∞. (21) 14 Proof. Since V ∗ = T V ∗, the triangle inequality and Lemma 3 give 
+
+∥W −V ∗∥∞ = ∥W −T V ∗∥∞ ≤ ∥ W −T W ∥∞+∥T W −T V ∗∥∞ ≤ ∥ W −T W ∥∞+γ∥W −V ∗∥∞.
+
+Rearranging proves Eq. (21). 
+
+Proposition 1. If Γ ¯V ∈ V , then T Γ ¯V − Γ ¯T † ¯V ∞ ≤ ∆H (κS ; dV ).Proof. Let us first show that Bellman compatibility implies that 
+
+|(T W )( s) − (T W )( u)| ≤ DH (s, u ) for any W ∈ V , s, u ∈ S . (22) To see this, suppose first that (T W )( s) ≥ (T W )( u). Then let a∗ ∈ arg max a(BW )( s, a ). Since the action set is finite, 
+
+(T W )( s) − (T W )( u) = max  
+
+> a
+
+(BW )( s, a ) − max  
+
+> b
+
+(BW )( u, b )= ( BW )( s, a ∗) − max  
+
+> b
+
+(BW )( u, b )= min  
+
+> b
+
+(BW )( s, a ∗) − (BW )( u, b )
+
+≤ max  
+
+> a
+
+min  
+
+> b
+
+(BW )( s, a ) − (BW )( u, b )
+
+≤ max  
+
+> a
+
+min  
+
+> b
+
+dV
+
+ (s, a ), (u, b )
+
+≤ DH (s, u ).
+
+The case (T W )( u) ≥ (T W )( s) is obtained in an analogous way using the other directed Hausdorff term in the definition of DH .Now set W = Γ ¯V . Since ¯T † = LT Γ and KS := Γ L has kernel κS ,
+
+Γ ¯T † ¯V = Γ LT Γ ¯V = KS (T W ).
+
+Thus, for each s,
+
+(Γ ¯T † ¯V )( s) = EU ∼κS (·| s)[( T W )( U )] .
+
+Then, using Eq. (22) and assuming W ∈ V , then 
+
+(T Γ ¯V )( s) − (Γ ¯T † ¯V )( s) = (T W )( s) − EU ∼κS (·| s)[( T W )( U )] 
+
+≤ EU ∼κS (·| s)
+
+h
+
+(T W )( s) − (T W )( U )
+
+i
+
+≤ EU ∼κS (·| s)
+
+DH (s, U ).
+
+Taking the supremum over s and using the definition of ∆H (κS ; dV ) gives the desired result. 
+
+A.3 Proof of generality of Eq. (16) Lemma 5 (Deterministic decoders suffice) . Suppose that, in the averaged rate-distortion objective, the representative map g is replaced by an arbitrary stochastic pair decoder χ(· | ¯s, ¯a) ∈ ∆( S × A ),and define 
+
+∆μ(ν, χ ) := E(S,A )∼μ, ( ¯S, ¯A)∼ν(·| S,A ),  
+
+> (U,B )∼χ(·| ¯S, ¯A)
+
+h
+
+dV
+
+ (S, A ), (U, B )i
+
+.
+
+Then for every fixed encoder ν there exists a (deterministic) representative map g : ¯S × ¯A → S × A 
+
+such that 
+
+∆μ(ν, g ) ≤ ∆μ(ν, χ )
+
+for every stochastic pair decoder χ. Consequently, restricting Eq. (16) to deterministic representatives causes no loss of optimality in the rate-distortion objective Eq. (18). Proof. Fix an encoder ν and let 
+
+πν (¯ s, ¯a) := X
+
+> s,a
+
+μ(s, a ) ν(¯ s, ¯a | s, a )
+
+15 be the induced marginal over abstract pairs. For every abstract pair with πν (¯ s, ¯a) > 0, define the posterior 
+
+νμ(s, a | ¯s, ¯a) := μ(s, a ) ν(¯ s, ¯a | s, a )
+
+πν (¯ s, ¯a) .
+
+Then the averaged defect can be written blockwise as 
+
+∆μ(ν, χ ) = X
+
+> ¯s, ¯a
+
+πν (¯ s, ¯a) X
+
+> u,b
+
+χ(u, b | ¯s, ¯a) X
+
+> s,a
+
+νμ(s, a | ¯s, ¯a) dV
+
+ (s, a ), (u, b ).
+
+For fixed (¯ s, ¯a), the inner expression is a linear functional of the probability vector χ(· | ¯s, ¯a) over the simplex ∆( S × A ). A linear functional on a simplex attains its minimum at an extreme point, hence at a point mass. Therefore choose 
+
+g(¯ s, ¯a) ∈ arg min 
+
+> (u,b )∈S×A
+
+X
+
+> s,a
+
+νμ(s, a | ¯s, ¯a) dV
+
+ (s, a ), (u, b )
+
+on each positive-mass block, and choose g(¯ s, ¯a) arbitrarily on zero-mass blocks. The resulting deterministic decoder satisfies 
+
+∆μ(ν, g ) ≤ ∆μ(ν, χ )
+
+for every stochastic pair decoder χ.
+
+# B From state bisimulation to soft state-action abstractions 
+
+This appendix provides a brief overview of various approaches for building abstractions in reinforce-ment learning, tracing a path from classic bisimulation to soft state-action abstractions as defined in Sec. 3. 
+
+B.1 Bisimulation 
+
+A classic approach to building lossless state abstractions is bisimulation [Dean et al., 1997, Givan et al., 2003]. 
+
+Definition 5. Let M = ( S, A, P, r, γ ) be an MDP. A bisimulation is an equivalence relation ∼ on S
+
+such that, whenever s ∼ s′, the following conditions hold for every action a ∈ A :
+
+r(s, a ) = r(s′, a ), (23) 
+
+X
+
+> u∈C
+
+P (u | s, a ) = X
+
+> u∈C
+
+P (u | s′, a ) for every equivalence class C ∈ S /∼. (24) Thus, two states are bisimilar when every action yields the same immediate reward and the same next-state law after one forgets distinctions inside the equivalence classes. Here, the equivalence classes of bisimilar states are built deterministically, primitive action labels are compared directly, and the conditions on reward and transition equalities must hold exactly. Bisimulation builds upon the notion of lumpability of Markov chains, which highlights coarse-grainings of Markov chains that result in processes that are also Markovian [Kemeny and Snell, 1960]. The term ‘bisimulation’ comes from the idea that bisimilar MDPs can simulate each other, in the sense that they are behaviourally equivalent [Li et al., 2006] and hence everything that can be done in one can also be done in the other. 
+
+B.2 MDP homomorphisms 
+
+State bisimulation leverages the idea of relaxing distinctions between environmental states; thus, a natural extension is to abstract state-action pairs jointly. Indeed, Equations (23) and (24) suggest state-action pairs (s, a ) as natural objects to coarse-grain, as they determine immediate reward and next-state transitions. Thus, a state-action abstraction assigns ‘concrete’ state-action pairs to ‘abstract’ pairs via coarse-graining mappings [Ravindran and Barto, 2003, Taylor et al., 2008, Abel et al., 2016, 2020, Rezaei-Shoshtari et al., 2022]. A standard way to operationalise this idea is through MDP homomorphisms, as defined next. 16 Definition 6 (MDP homomorphism) . An MDP homomorphism from a MDP M = ( S, A, P, r, γ ) to another MDP ¯M = ( ¯S, ¯A(¯ s), ¯P , ¯r, γ ) is a pair of surjective maps f (s, a ) =  fS (s), f A(s, a ) with 
+
+fS : S → ¯S and fA(s, a ) ∈ ¯A(fS (s)) , such that for all s ∈ S , a ∈ A , and ¯u ∈ ¯S,
+
+r(s, a ) = ¯ r fS (s), f A(s, a ), (25) 
+
+¯P  ¯u | fS (s), f A(s, a ) = X 
+
+> s′:fS(s′)=¯ u
+
+P (s′ | s, a ). (26) Equivalently, one may define a homomorphic quotient directly from a map f = ( fS , f A) without first specifying ¯r and ¯P . The required condition is that concrete pairs with the same abstract label have the same one-step control effect at the abstract level: 
+
+f (s, a ) = f (t, b ) = ⇒ r(s, a ) = r(t, b ), (27) 
+
+f (s, a ) = f (t, b ) = ⇒ X 
+
+> s′:fS(s′)=¯ u
+
+P (s′ | s, a ) = X 
+
+> s′:fS(s′)=¯ u
+
+P (s′ | t, b ) for every ¯u ∈ ¯S. (28) When equations (27) and (28) hold, the abstract reward and transition in Def. 6 are obtained by choosing any representative (s, a ) of an abstract pair (¯ s, ¯a) and setting 
+
+¯r(¯ s, ¯a) = r(s, a ), ¯P (¯ u | ¯s, ¯a) = X 
+
+> s′:fS(s′)=¯ u
+
+P (s′ | s, a ).
+
+The conditions ensure that this does not depend on which representative is chosen. One can think of an MDP homomorphism as a state-action analogue of bisimulation. 2 Indeed, the map f induces the following equivalence relation on S × A :
+
+(s, a ) ∼SA (t, b ) ⇐⇒ f (s, a ) = f (t, b ).
+
+Equations (27) and (28) establish that state-action-equivalent pairs have equal rewards and equal transition mass into every state block, being the pair-level analogue of Def. 5. If the action component is forced to preserve its labels (i.e., fA(s, a ) = a), then the construction reduces to standard bisimulation. 
+
+B.3 Action-role matching via symmetry-based homomorphisms 
+
+Classical state bisimulation compares two states by asking whether every concrete action has the same effect in both states; in contrast, the action component of an MDP homomorphism can depend on the state. This raises an interesting question for state-action abstraction: under what conditions can one say that different primitive actions play the same control role in different concrete states? Symmetry-based homomorphisms give an elegant answer to this question. These are a particular case of MDP homomorphisms, in which states and actions are matched via a structural symmetry [Ravin-dran and Barto, 2003, van der Pol et al., 2020]. Concretely, let a group G act on S through state maps σg : S → S , and let ρsg : A → A be the corresponding action relabelling at state s. One can show that this group yields a MDP homomorphism if the following conditions hold [van der Pol et al., 2020]: 
+
+r σg (s), ρ sg (a) = r(s, a ), P  σg C | σg (s), ρ sg (a) = P (C | s, a ),
+
+where C is an orbit generated by the action σg and σg C = {σg (u) : u ∈ C}.Thus, using the resulting orbits as equivalence classes produces a MDP homomorphism. The fact that ρsg may depend on the current state is what allows symmetry-based homomorphisms to capture equivariant relationships, where the same functional role is expressed by different primitive action labels in different states. 
+
+> 2Nonetheless, the literature calls this object an MDP homomorphism, action abstraction, or value-preserving state-action abstraction, rather than ‘state-action bisimulation’ [Ravindran and Barto, 2003, Taylor et al., 2008, Abel et al., 2020, Rezaei-Shoshtari et al., 2022].
+
+17 B.4 Relaxations of state bisimulation and MDP homomorphisms 
+
+The various notions above can be relaxed along several axes — one can replace equality by a metric error, replace same-label action comparison by action-role matching, replace worst-case all-action requirements by policy-conditioned ones, or replace exact model preservation by learned surrogate losses. We review some of these approaches next. 
+
+Bisimulation metrics. The canonical relaxation of bisimulation is the fixed-point pseudometric presented by Ferns et al. [2004, 2011] (see Appendix C). Instead of asking whether two states have identical rewards and identical transition mass into every equivalence class, it assigns a distance by comparing the same primitive action at both states. To build this metric, one considers the following functional: 
+
+F(ρ)( s, t ) := max 
+
+> a∈A
+
+n
+
+cr r(s, a ) − r(t, a ) + cpWρ
+
+ P (· | s, a ), P (· | t, a )o
+
+,
+
+where cr , c p are nonnegative constants, and Wρ is the Kantorovich/Wasserstein distance induced by the current state pseudometric ρ. It can be shown [Ferns et al., 2004, 2011] that the smallest fixed point of F gives zero distance exactly on bisimulation classes, while also providing a graded notion of almost-bisimilarity. Note that this is primarily a state abstraction method: actions are used to test states, but they are not coarse-grained. 
+
+Lax bisimulation and approximate homomorphisms. A lax bisimulation metric [Taylor et al., 2008] is used to relax the notion of MDP homomorphism in an analogous way as Ferns’ bisimulation metric is used to relax state bisimulation. Given a state pseudometric ρ : S × S → R+ and nonnegative weights cr , c p, a state-action pair discrepancy can be written as 
+
+δρ
+
+ (s, a ), (t, b ) := cr |r(s, a ) − r(t, b )| + cpWρ
+
+ P (· | s, a ), P (· | t, b ).
+
+This quantity compares two concrete pairs even when a and b are different primitive labels. Bisimula-tion uses this quantity to create a state-only pseudometric by considering the action that gives the worst-case divergence. A subtler approach is taken by lax bisimulation, which builds a state metric through a symmetric Hausdorff matching over actions: 
+
+DH(ρ)( s, t ) := max 
+
+
+
+sup 
+
+> a∈A
+
+inf  
+
+> b∈A
+
+δρ
+
+ (s, a ), (t, b ), sup 
+
+> b∈A
+
+inf  
+
+> a∈A
+
+δρ
+
+ (s, a ), (t, b )
+
+.
+
+The fixed point of this Hausdorff-style operator has zeros corresponding to the state classes of exact homomorphic quotients. At nonzero distance, the same construction gives a quantitative approximate-homomorphism error [Taylor et al., 2008, Rezaei-Shoshtari et al., 2022]. Thus, the lax bisimulation metric is state-level, but it is induced by state-action pair comparisons and Hausdorff action matching. Thus, it can be used to relax MDP homomorphisms in general, and symmetry-based homomorphisms in particular. 
+
+Behavioural and learned relaxations. Another kind of relaxation is to preserve only distinctions relevant to a policy, a value criterion, or the data distribution under which the representation is learned. Policy-conditioned similarities and value-preserving state-action abstractions weaken exact bisimulation or exact homomorphism by preserving the aspects of the dynamics needed for a particular behavioural objective rather than the full controlled transition structure [Abel et al., 2020, Castro, 2020, Panangaden et al., 2024]. In deep RL, the exact reward and transition comparisons are often replaced by sample-based losses or latent-model objectives, as in DeepMDP-style latent models, MICo, robust bisimulation metric learning, contrastive behavioural similarities, and related objectives [Gelada et al., 2019, Zhang et al., 2021, Castro et al., 2021, Kemertas and Aumentado-Armstrong, 2021, Agarwal et al., 2021, Zang et al., 2023]. These methods often do not explicitly construct a quotient MDP, but they aim to learn representations in which irrelevant behavioural distinctions are small. 
+
+B.5 Soft state-action coarse-grainings 
+
+A final step is to relax the coarse-graining map itself. State bisimulation, homomorphisms, and their metric relaxations still presuppose ‘hard’ assignments: a concrete state or state-action pair either belongs to a block or it does not. Soft abstractions replace this hard membership by stochastic 18 encoders, in the same broad family as stochastic model reduction, variational abstractions, and information-bottleneck approaches to representation learning [Dean et al., 1997, Abel et al., 2019, Biza et al., 2021, Delgrange et al., 2022, Goyal et al., 2019, Igl et al., 2019, Zhu et al., 2022]. For state-action abstraction, the stochastic encoder used in Sec. 3 has the factorised form 
+
+ν(¯ s, ¯a | s, a ) = νS (¯ s | s) νA(¯ a | s, a ),
+
+where νS : S → ∆( ¯S) and νA : S × A → ∆( ¯A). This keeps the state/action separation of MDP homomorphisms, while allowing each concrete pair to distribute mass over several abstract pairs. Because there are no hard coarse-grainings anymore, this does not lead to equivalence classes. Instead, the concrete and abstract dynamics should intertwine : evolving in the concrete MDP and then encoding should agree, in expectation, with encoding first and then evolving in the abstract MDP. The construction presented in Sec. 3 is one way to instantiate such a soft abstraction. In addition to the encoder ν, it introduces a decoder η, and defines ¯r and ¯P by the decoder-averaged formulas (Equations (4) and (5)). The phrase ‘soft state-action abstraction’ is meant to emphasize the specific line of descent here: it is a stochastic version of the pair-level behavioural equivalence encoded by MDP homomorphisms. A comparison of the various abstraction approaches discussed here is provided in Table 3. Table 3: Comparison of abstraction approaches in reinforcement learning 
+
+Name Type Exact Coarse-graining 
+
+Bisimulation State abstraction Yes Deterministic MDP homomorphism State-action abstraction Yes Deterministic Bisimulation metric State abstraction No Deterministic Lax bisimulation Action-aware state abstraction No Deterministic Soft state-action abstractions State-action abstraction No Stochastic 
+
+# C Bellman-compatible state-action distortions 
+
+Let x = ( s, a ) and y = ( u, b ) be two state-action pairs and use Px := P (· | x) and Py := P (· | y) as shorthand notation for the transition kernels. For a class of value functions V, the worst Bellman-backup discrepancy is bounded by 
+
+sup  
+
+> V∈V
+
+(BV )( x) − (BV )( y) = sup  
+
+> V∈V
+
+r(x) − r(y) + γ X
+
+> s′∈S
+
+V (s′)
+
+
+
+P (s′|x) − P (s′|y)
+
+
+
+≤ | r(x) − r(y)| + γD V (Px, P y ), (29) where 
+
+DV (p, q ) := sup  
+
+> V∈V
+
+X
+
+> s′∈S
+
+V (s′)
+
+
+
+p(s′) − q(s′)
+
+
+
+. (30) If V is closed under sign changes (i.e., V ∈ V implies −V ∈ V ), then the upper bound in Eq. (29) is tight whenever DV (Px, P y ) < ∞. Indeed, for any ε > 0 choose Vε ∈ V such that 
+
+X
+
+> s′∈S
+
+Vε(s′)
+
+
+
+P (s′|x) − P (s′|y)
+
+
+
+≥ DV (Px, P y ) − ε. 
+
+Using the fact that one can always replace Vε by −Vε if needed to align the sign of the transition term with r(x) − r(y), one can guarantee that 
+
+sup  
+
+> V∈V
+
+r(x) − r(y) + γ X
+
+> s′∈S
+
+V (s′)
+
+
+
+P (s′|x) − P (s′|y)
+
+
+
+≥ | r(x) − r(y)| + γ
+
+
+
+DV (Px, P y ) − ε
+
+
+
+.
+
+19 Letting ε ↓ 0 gives equality. This motivates the canonical Bellman-compatible upper bound 
+
+d∗V (x, y ) := |r(x) − r(y)| + γD V (Px, P y ). (31) In the following we consider special cases of V.
+
+Bounded L∞ value classes. If V∞,C := {V : ∥V ∥∞ ≤ C}, then 
+
+DV∞,C (p, q ) = C sup  
+
+> ∥f∥∞≤1
+
+X
+
+> s∈S
+
+f (s)
+
+
+
+p(s) − q(s)
+
+
+
+= C X
+
+> z∈S
+
+|p(z) − q(z)|,
+
+where the second equality follows by taking f (z) = sign( p(z) − q(z)) . With the convention 
+
+dTV (p, q ) := P 
+
+> s∈S
+
+|p(s) − q(s)|, this gives 
+
+d∗V∞,C (x, y ) = |r(x) − r(y)| + γ C d TV 
+
+ Px, P y
+
+. (32) This choice gives a uniform estimate, but ignores any geometry on S and therefore provides a conservative estimate. 
+
+Bounded Lipschitz classes. Let ρ be a pseudometric on S and set 
+
+VLip( ρ),C := {V : ∥V ∥Lip ,ρ ≤ C}, where ∥V ∥Lip ,ρ := sup 
+
+> ρ(s,u )>0
+
+|V (s) − V (u)|
+
+ρ(s, u ) .
+
+Since Px and Py are probability measures with equal total mass, additive constants in V do not affect 
+
+P 
+
+> s∈S
+
+V (s)
+
+
+
+P (s|x) − P (s|y)
+
+
+
+. Then, one can show that 
+
+DVLip( ρ),C (Px, P y ) = C sup  
+
+> ∥f∥Lip ,ρ ≤1
+
+X
+
+> s∈S
+
+f (s)
+
+
+
+P (s|x) − P (s|y)
+
+
+
+= C W 1,ρ (Px, P y ), (33) where W1,ρ is the Wasserstein distance with ground cost ρ defined as 
+
+W1,ρ (p, q ) := min 
+
+> ζ∈Π( p,q )
+
+X
+
+> s,u ∈S
+
+ρ(s, u ) ζ(s, u )
+
+and Π( p, q ) is the set of couplings with marginals p and q
+
+Π( p, q ) := 
+
+n
+
+ζ : ζ(s, u ) ≥ 0, X
+
+> s∈S
+
+ζ(s, u ) = q(u), X
+
+> u∈S
+
+ζ(s, u ) = p(s)
+
+o
+
+.
+
+Above, the second equality in Eq. (33) follows from the Kantorovich-Rubinstein duality. Thus 
+
+d∗VLip( ρ),C (x, y ) = |r(x) − r(y)| + γ C W 1,ρ 
+
+ Px, P y
+
+.
+
+The finite-state setting makes the first-moment condition automatic. In more general spaces, the same formula requires finite first moments under ρ.
+
+Ferns’ fixed-point metric. The two distortions considered above evaluate dynamics considering only one step ahead. Thus, they may state that two state-action pairs are similar without taking into account their long-term consequences. A classic construction that goes beyond this is Ferns’ fixed-point metric [Ferns et al., 2004, 2011], which we introduce next. Given a state pseudometric ρ : S × S → [0 , ∞), define the associated distortion 
+
+dρ
+
+ (s, a ), (u, b ) := |r(s, a ) − r(u, b )| + γW 1,ρ 
+
+ P (· | s, a ), P (· | u, b ). (34) The operator introduced in Ferns et al. [2004, 2011] compares states using the worst-case action matching: 
+
+(Fρ)( s, u ) := max  
+
+> a∈A
+
+dρ
+
+ (s, a ), (u, a ). (35) It can be shown that F is a γ-contraction in L∞ for finite MDPs, and thus it has a fixed point. At this fixed point, 
+
+ρB (s, u ) = max 
+
+> a∈A
+
+n
+
+|r(s, a ) − r(u, a )| + γW 1,ρ B
+
+ P (· | s, a ), P (· | u, a )o
+
+.
+
+20 The zero sets of ρB are exactly the state-bisimulation classes: distance zero forces equal rewards and equal transition mass into each zero-distance class for every action, and those two equalities conversely make the fixed-point distance vanish. This is the sense in which the metric used inside the Wasserstein term is also the metric being solved for. For state-action abstraction with action relabelling, one can replace the same-label maximum in Eq. (35) by the Hausdorff/lax action matching used in the main text: 
+
+DρH (s, u ) := max 
+
+
+
+sup 
+
+> a∈A
+
+inf  
+
+> b∈A
+
+dρ
+
+ (s, a ), (u, b ), sup 
+
+> b∈A
+
+inf  
+
+> a∈A
+
+dρ
+
+ (s, a ), (u, b )
+
+. (36) This replaces literal action identity by best action matching across states. The main bound only requires a Bellman-compatible pair distortion; it can therefore use either the same-action Ferns metric, the Hausdorff/lax variant, or a computable surrogate for them. 
+
+# D From μ-averaged to worst-case distortion 
+
+The main bound in Theorem 1 is stated in terms of the worst-case Hausdorff abstraction distortion 
+
+∆H (κS ; dV ) = sup 
+
+> s∈S
+
+EU ∼κS (·| s)
+
+DH (s, U ).
+
+By contrast, the rate-distortion objective in Eq. (18) optimises a μ-averaged reconstruction defect. This appendix makes explicit what such an average can and cannot guarantee. For this purpose, let us consider the quantity eκ(s) := EU ∼κS (·| s)
+
+DH (s, U ). Using it, the worst-case Hausdorff distortion can be expressed as 
+
+∆H (κS ; dV ) = sup 
+
+> s∈S
+
+eκ(s). (37) Additionally, for a given distribution μS ∈ ∆( S) we can also use eκ(s) to build the averaged Hausdorff distortion as 
+
+∆HμS (κS ; dV ) := ES∼μS [eκ(S)] . (38) We now study relationships between these two quantities. 
+
+Proposition 2. For every distribution μS on S, ∆HμS (κS ; dV ) ≤ ∆H (κS ; dV ). If S is finite and 
+
+μmin := min s∈S μS (s) > 0, then 
+
+∆H (κS ; dV ) ≤ ∆HμS (κS ; dV )
+
+μmin 
+
+. (39) 
+
+Proof. The first inequality follows because an expectation is bounded above by the supremum of its argument. For the second inequality, choose s∗ ∈ arg max s eκ(s). Then 
+
+∆HμS (κS ; dV ) = X
+
+> s
+
+μS (s)eκ(s) ≥ μS (s∗)eκ(s∗) ≥ μmin ∆H (κS ; dV ).
+
+Rearranging gives Eq. (39). The proposition shows that a μ-averaged distortion can certify the worst case when μ assigns sufficient mass to each state at which distortion may be large. Note that the resulting constant may be poor: for a uniform distribution on a finite state space, Eq. (39) gives the factor |S| . However, no distribution-free converse is possible without such a coverage condition. Finally, average distortion ∆μ(ν, g ) used in Eq. (16) should be read as a computable surrogate for these averaged defects. It becomes a uniform certificate only with the corresponding coverage assumptions, and only when the chosen pair reconstruction controls the Hausdorff state defect relevant to Theorem 1. Otherwise, it remains a useful design criterion for building a family of abstractions. 21 E How rate-distortion generalises abstraction frameworks 
+
+The rate-distortion formulation presented in Eq. (18) can be seen as an umbrella construction containing many familiar bisimulation and abstraction constructions as limiting or constrained cases. Some of these constructions are discussed in detail in Appendix B. 1. Hard abstractions. If the state and action encoders are deterministic Dirac kernels 
+
+ν(¯ s, ¯a | s, a ) = 1{f (s, a ) = (¯ s, ¯a)} (40) for f (s, a ) =  fS (s), f A(s, a ) with fS : S → ¯S and fA : S × A → ¯A, then every concrete state s and action a is assigned to a unique abstract state/action (¯ s, ¯a). The stochastic rate-distortion problem then reduces to a hard partition or quotient problem with decoded representatives. In the zero-distortion case, and with enough abstract symbols, this is the usual exact quotient/homomorphism setting of stochastic bisimulation and MDP homomorphisms [Givan et al., 2003, Ravindran and Barto, 2003, Taylor et al., 2008]. 2. Approximate hard homomorphisms. If the encoders are deterministic but the attained pair distortion is nonzero, then the objective is an approximate homomorphism problem: each block has a representative decoded state and decoded actions, and the abstraction error is the averaged Bellman-compatible mismatch within that block. This is the finite-alphabet, lossy analogue of approximate MDP homomorphisms and value-preserving state-action abstractions [Taylor et al., 2008, Abel et al., 2020, Rezaei-Shoshtari et al., 2022]. 3. Lax bisimulation/action matching. Setting λ = 0 removes the penalty for retaining action information inside an abstract state. The action encoder can then use as much action information as the abstract action alphabet permits to match state-dependent control roles, so the objective becomes an averaged, rate-distortion version of the lax-bisimulation geometry. It becomes the lax bisimulation metric itself only if the distortion is replaced by the Hausdorff aggregation introduced in Def. 4, and dV is chosen to be the corresponding Bellman fixed-point pseudometric (see Appendix B); otherwise it is a tractable mean-distortion surrogate built from the same state-action matching idea. 4. Classical state abstractions. If actions are not compressed (for example ¯A = A,
+
+νA(¯ a | s, a ) = 1{¯a = a} and the action component of g(¯ s, ¯a) is ¯a), then the only learned compression is the state encoder νS . In this case, the objective reduces to a state-abstraction problem with action labels preserved, recovering the standard setting studied in state aggre-gation, stochastic bisimulation partitions, and the abstraction taxonomy of Li et al. [2006]; approximate variants correspond to replacing exact equivalence by a positive distortion budget [Givan et al., 2003, Li et al., 2006, Abel et al., 2016, Jiang, 2018]. 5. Bisimulation clustering for a fixed alphabet. If β → ∞ while the number of abstract states and decoded abstract actions is fixed, the rate term becomes negligible and the problem becomes minimum-distortion clustering under a given distortion d. With deterministic en-coders this is the state-action analogue of K-medoids or partition-around-medoids [Kaufman and Rousseeuw, 1990]. If d is a bisimulation or homomorphism metric, this recovers the usual practice of clustering states or state-action pairs by behavioural distance; if the alphabet is large enough to achieve zero distortion, it recovers exact bisimulation minimisation [Ferns et al., 2004, 2011]. 6. Deterministic annealing and soft clustering. Finite β is the soft counterpart of hard bisim-ulation clustering: blocks are probabilistic, high-distortion assignments are exponentially suppressed, and increasing β follows a deterministic-annealing path from coarse to fine abstractions. This is the same optimisation principle behind classical rate-distortion and information-bottleneck state abstraction, now using a Bellman-compatible state-action distortion rather than an imitation or prediction loss. The formulation also introduces numerous novel settings corresponding to other parameter settings: • Degenerate action collapse is not ordinary state abstraction. If instead the action encoder is constant, or each ¯A(¯ s) has only one action, the method collapses control choices rather than merely abstracting states. This can be useful as a deliberately low-capacity controller, but it should not be identified with classical state abstraction, which normally keeps the primitive action labels available at every abstract state [Li et al., 2006, Abel et al., 2020]. 22 • Symmetries and action relabellings. Because νA enters the distortion term, the objective can learn state-dependent action relabellings and equivariances. This is the homomorphism intuition behind state-action abstraction: different concrete actions may play the same behavioural role in different states, and the abstraction should preserve that role rather than the literal action name [Ravindran and Barto, 2003, Taylor et al., 2008, van der Pol et al., 2020, Rezaei-Shoshtari et al., 2022, Panangaden et al., 2024]. • Adaptive refinement. Finally, varying β, the alphabet size, or the admissible action supports turns static bisimulation clustering into an adaptive refinement procedure. Classical model minimisation and partition refinement split until exact behavioural consistency is reached; the present formulation replaces the hard consistency test by a residual-versus-distortion scale comparison, allowing the abstraction resolution to track what the learner can currently estimate. 
+
+# F Rate-Distortion Solvers 
+
+Throughout this appendix, write d for the Bellman-compatible pair distortion dV . Let G denote the set of admissible representative maps g : ¯S × ¯A → S × A , and let G(¯ s) denote the corresponding set of decoder slices h : ¯A(¯ s) → S × A at abstract state ¯s.
+
+F.1 Structured solver 
+
+For any state and action encoders, write their abstract marginals and posterior as 
+
+πν (¯ s) := X
+
+> s
+
+μS (s)νS (¯ s | s), (41) 
+
+mν (¯ a | ¯s) := 
+
+P 
+
+> s,a
+
+μ(s, a )νS (¯ s | s)νA(¯ a | s, a )
+
+πν (¯ s) , (42) 
+
+νμS (s | ¯s) := μS (s)νS (¯ s | s)
+
+πν (¯ s) . (43) The conditional marginal and posterior are defined arbitrarily on zero-mass abstract states. These quantities are recomputed whenever the encoder changes. Write μA(· | s) for the conditional action reference induced by μ.For fixed β, we optimise the objective (Eq. (18)) using a generalised alternating Blahut–Arimoto scheme, viewed as alternating minimisation over encoders, marginals, and decoders [Blahut, 1972, Arimoto, 1972, Csiszár and Tusnády, 1984, Rose, 1998]. The state-encoder step is the BA update with the current abstract-state marginal and abstract-action marginal frozen. Its state cost includes both a distortion term and the contribution of Iμ(S, A ; ¯A | ¯S). The action-encoder step is the analogous conditional rate-distortion update for the soft action code. It can be solved by projected gradient or exponentiated gradient. In the variant where the action encoder is allowed to condition on the sampled abstract state, νA(¯ a | s, a, ¯s), this subproblem has the usual BA softmax form with prior 
+
+mν (¯ a | ¯s) and distortion d (s, a ), g (n)(¯ s, ¯a). Under the convention of this paper, where νA(¯ a | s, a )
+
+is shared across the possible abstract states, the same step becomes a tied-parameter conditional rate-distortion update. The decoder step is a blockwise state-action medoid update of the structured decoder slices g(¯ s, ·). See an implementation in Algorithm 1. 
+
+F.2 Simplified flat pairwise solver used in the diagnostics 
+
+With λ = 1 and the joint-encoder simplification described below, the experiments solve 
+
+min 
+
+> ν, g ∈G
+
+Iμ(S, A ; ¯S, ¯A) + β∆μ(ν, g ) . (44) Additionally, they introduce the following simplification: instead of optimising νS and νA separately, they focus on ν : S × A → ∆( ¯S × ¯A) as a single entity. This allows for a more computationally efficient algorithm, which is described in Algorithm 2. 23 Algorithm 1 Structured Blahut–Arimoto updates for state-action rate-distortion 
+
+Require: Reference measure μ ∈ ∆( S × A ), distortion d, alphabets ¯S, ¯A, parameters β, λ ≥ 0,tolerance ε, initial encoders ν(0)  
+
+> S
+
+, ν(0)  
+
+> A
+
+and decoder g(0) . 
+
+> 1:
+
+for n = 0 , 1, 2, . . . do  
+
+> 2:
+
+Compute the abstract-state marginal 
+
+π(n)(¯ s) = X
+
+> s
+
+μS (s)ν(n) 
+
+> S
+
+(¯ s | s). 
+
+> 3:
+
+Compute the abstract-action marginal 
+
+m(n)(¯ a | ¯s) = 
+
+P 
+
+> s,a
+
+μ(s, a )ν(n) 
+
+> S
+
+(¯ s | s)ν(n) 
+
+> A
+
+(¯ a | s, a )
+
+π(n)(¯ s) . 
+
+> 4:
+
+Compute the frozen state cost 
+
+C(n) 
+
+> S
+
+(s, ¯s) = EA∼μA(·| s), ¯A∼ν(n) 
+
+> A(·| s,A )
+
+"
+
+λ log ν(n) 
+
+> A
+
+( ¯A | s, A )
+
+m(n)( ¯A | ¯s) + βd  (s, A ), g (n)(¯ s, ¯A)#
+
+. 
+
+> 5:
+
+Update the state encoder: 
+
+ν(n+1)  
+
+> S
+
+(¯ s | s) = π(n)(¯ s) exp {− C(n) 
+
+> S
+
+(s, ¯s)}
+
+P 
+
+> ¯u
+
+π(n)(¯ u) exp {− C(n) 
+
+> S
+
+(s, ¯u)} . 
+
+> 6:
+
+Update the action encoder by solving 
+
+ν(n+1)  
+
+> A
+
+∈ arg min 
+
+> νA
+
+n
+
+λI μ(S, A ; ¯A | ¯S) + β∆μ(ν(n+1)  
+
+> S
+
+, ν A, g (n))
+
+o
+
+. 
+
+> 7:
+
+Refresh the posterior 
+
+ν(n+1)  
+
+> μS
+
+(s | ¯s) = μS (s)ν(n+1)  
+
+> S
+
+(¯ s | s)
+
+P 
+
+> u
+
+μS (u)ν(n+1)  
+
+> S
+
+(¯ s | u) . 
+
+> 8:
+
+Update the decoder blockwise: 
+
+g(n+1) (¯ s, ·) ∈ arg min 
+
+> h∈G (¯ s)
+
+X
+
+> s,a
+
+X 
+
+> ¯a∈¯A(¯ s)
+
+μ(s, a )ν(n+1)  
+
+> S
+
+(¯ s | s)ν(n+1)  
+
+> A
+
+(¯ a | s, a )d (s, a ), h (¯ a). 
+
+> 9:
+
+if the objective in ((18)) changes by at most ε then  
+
+> 10:
+
+return (ν(n+1)  
+
+> S
+
+, ν (n+1)  
+
+> A
+
+, g (n+1) ) 
+
+> 11:
+
+end if  
+
+> 12:
+
+end for 
+
+# G Experimental details 
+
+This appendix provides additional information regarding the experiments. Code to reproduce the experimental results can be found in github.com/ferosas/adaptive-state-action-abstraction .
+
+G.1 Shared model-based protocol 
+
+All experiments in Sec. 6 are tabular discounted MDPs whose transitions and rewards are assumed to be known. Thus the transition tensor P (· | s, a ), reward function r(s, a ), Bellman updates, policy evaluation, and state-action distortion matrices are all computed exactly. No Monte Carlo rollouts are used for the reported returns. Unless stated otherwise, the discount is γ = 0 .95 , the reference measure in the rate-distortion objective is the uniform measure μ(s, a ) = 1 /(|S||A| ), and the reported abstraction error is the average decoder distortion 
+
+∆μ(ν, g ) = E(S,A )∼μ, Z ∼ν(·| S,A )
+
+d(( S, A ), g (Z)) .
+
+24 Algorithm 2 Flat pairwise Blahut–Arimoto updates used in the diagnostics 
+
+Require: Reference measure μ ∈ ∆( S × A ), distortion d, alphabets ¯S and ¯A, parameter β ≥ 0,tolerance ε, initial joint encoder ν(0) and decoder g(0) . 
+
+> 1:
+
+for n = 0 , 1, 2, . . . do  
+
+> 2:
+
+Compute the abstract marginal 
+
+π(n)(¯ s, ¯a) = X
+
+> s∈S
+
+X
+
+> a∈A
+
+μ(s, a )ν(n)(¯ s, ¯a | s, a ). 
+
+> 3:
+
+Compute the frozen pair cost 
+
+C(n) (s, a ), (¯ s, ¯a) = d (s, a ), g (n)(¯ s, ¯a). 
+
+> 4:
+
+Update the encoder: 
+
+ν(n+1) (¯ s, ¯a | s, a ) = π(n)(¯ s, ¯a) exp {− βC (n)(( s, a ), (¯ s, ¯a)) }
+
+P 
+
+> ¯u∈¯S
+
+P¯b∈ ¯A π(n)(¯ u, ¯b) exp {− βC (n)(( s, a ), (¯ u, ¯b)) } . 
+
+> 5:
+
+Refresh the posterior 
+
+ν(n+1)  
+
+> μ
+
+(s, a | ¯s, ¯a) = μ(s, a )ν(n+1) (¯ s, ¯a | s, a )
+
+P
+
+> u∈S
+
+P 
+
+> b∈A
+
+μ(u, b )ν(n+1) (¯ s, ¯a | u, b ) . 
+
+> 6:
+
+Update the decoder: 
+
+g(n+1) (¯ s, ¯a) ∈ arg min 
+
+> (u,b )∈S×A
+
+X
+
+> s∈S
+
+X
+
+> a∈A
+
+ν(n+1)  
+
+> μ
+
+(s, a | ¯s, ¯a)d (s, a ), (u, b ). 
+
+> 7:
+
+if the objective changes by at most ε then  
+
+> 8:
+
+return (ν(n+1) , g (n+1) ) 
+
+> 9:
+
+end if  
+
+> 10:
+
+end for 
+
+The switching rule therefore uses this average distortion proxy, not the Hausdorff worst-case quantity from Def. 4. 
+
+Distortion. All experiments build a fixed-point state-action bisimulation pseudometric of the form 
+
+d∗ (s, a ), (u, b ) = |r(s, a ) − r(u, b )| + γW d∗ (P (· | s, a ), P (· | u, b )) .
+
+Here Wd∗ is the finite-state Wasserstein distance with ground cost d∗. For deterministic domains such as Taxi and DoorKey , this Wasserstein term reduces to the distance between the successor states. For stochastic SysAdmin , it is solved exactly by the dual linear program. Four Rooms uses the same fixed-point object, with an implementation that exploits the uniform-reset structure to compute it efficiently. 
+
+Rate-distortion fitting. The experiments use the flat solver from Appendix F with λ = 1 . Internally this solver fits a single soft encoder ν(z | s, a ) over concrete state-action pairs and a deterministic representative g(z) ∈ S × A for each active code z. The abstract alphabet cap is set to the full number of concrete state-action pairs, |S||A| ; after fitting, codes whose abstract marginal under μ is below 10 −4 are pruned and the encoder is renormalised. Blahut–Arimoto updates use tolerance 10 −6.The per-domain limits on outer and inner alternating updates are given below. 
+
+Planning and grounding. Planning is performed in Q-space. The full-resolution baseline starts from Q0 = 0 and applies the concrete optimality update 
+
+(F Q )( s, a ) = r(s, a ) + γ X
+
+> s′
+
+P (s′|s, a ) max  
+
+> a′
+
+Q(s′, a ′).
+
+For a given abstraction, ¯Q(¯ s, ¯a) can be grounded to concrete state-action pairs via 
+
+Qgr (s, a ) = X
+
+> ¯s, ¯a
+
+ν(¯ s, ¯a|s, a ) ¯Q(¯ s, ¯a),
+
+25 and the decoder can be used to read the concrete Bellman update back: 
+
+( ¯F ¯Q)(¯ s, ¯a) = ( F Q gr )( g(¯ s, ¯a)) .
+
+For a fixed β, traces start from ¯Q0 = 0 and repeatedly apply ¯F . For the adaptive setting, traces start at the coarsest β and switch to finner abstractions when the residual 
+
+max  
+
+> s∈S
+
+max  
+
+> a
+
+Qgr next (s, a ) − max  
+
+> a
+
+Qgr (s, a )
+
+falls below the current ∆μ. When switching, the current grounded Q-function is transferred to candidate finner abstractions, and the controller skips any later abstraction whose transferred residual is still below its abstraction error. 
+
+Evaluation. The return traces shown in the paper measure the quality of the grounded concrete policy against the corresponding number of Bellman updates. At a recorded checkpoint k, the plotted policy is always the deterministic greedy concrete policy 
+
+πk(s) ∈ arg max  
+
+> a∈A
+
+Qgr  
+
+> k
+
+(s, a ),
+
+with ties broken by the listed action order. The value plotted for this policy is its exact value in the original concrete MDP. Concretely, we solve 
+
+(I − γP πk )vπk = rπk , rπk (s) = r(s, π k(s)) , P πk (s, s ′) = P (s′ | s, π k(s)) ,
+
+and report the uniform state average 1
+
+|S| 
+
+X
+
+> s∈S
+
+vπk (s),
+
+including the absorbing terminal state when a domain has one. 
+
+Information and compression diagnostics. All information quantities are computed in bits. For a given abstraction with states ¯s ∈ ¯S and actions ¯a ∈ ¯A, the effective number of abstract labels is 
+
+2Iμ(S,A ; ¯S, ¯A). We then report the chain-rule split 
+
+Iμ(S, A ; ¯S, ¯A) = Iμ(S, A ; ¯S) + Iμ(S, A ; ¯A | ¯S).
+
+The corresponding information-equivalent sizes are 2Iμ(S,A ; ¯S) and 2Iμ(S,A ; ¯A| ¯S). These effective sizes are not the same as the raw alphabet sizes — they discount unused or imbalanced labels and stochastic assignments. Rates divide these two effective sizes by |S| and |A| , respectively, and the normalised state-action rate is their product. 
+
+Exact bisimulation baselines. The state-bisimulation column of Table 1 is computed by exact partition refinement: states are split until states in the same block have the same reward and the same transition mass into every current block for every primitive action. Since this baseline keeps 
+
+¯A = A, the normalised state-action rate is (# state equivalence classes )/|S| . The MDP homo-morphism column is computed from the zero-distance relation of the fixed-point pair metric d,using connected components of {(( s, a ), (u, b )) : d(( s, a ), (u, b )) = 0 } with numerical tolerance 
+
+10 −8 max {1, max d}. The adaptive point in Table 1 is the first adaptive checkpoint whose exact grounded return reaches the optimal return. 
+
+G.2 Classic tabular benchmarks Four Rooms. The Four Rooms experiment uses the classic 11 × 11 four-room layout with four hallways. A state is a pair consisting of the current cell and the current goal index. The four goal cells are the room centers (2 , 2) , (3 , 8) , (8 , 2) , and (8 , 8) . There are 104 playable cells (i.e. discounting walls) and four possible goal rooms, giving 104 × 4 = 416 states. The action set is {up , right , down , left }, so |S||A| = 1664 . With probability 1 − η the intended move is executed, and with probability η the agent stays in place; wall collisions also leave the agent in place (experiments use η = 0 .10 ). If the landing cell is the current goal center, the agent receives reward 
+
+1 and the next state is reset uniformly over all cell-goal pairs, including the same goal. All other rewards are zero. The fixed and adaptive β ladder is {0, 5, 10 , 15 , 20 }. The Blahut–Arimoto limit is 500 outer iterations and 50 inner iterations per β, and the planning budget is 150 full-resolution sweeps with evaluation every sweep. 26 Taxi. The Taxi experiment follows the Taxi-v3 dynamics on the 5 × 5 map with depot locations 
+
+R, G, Y, B , but adds a single absorbing success state so that the episodic task is represented as a dis-counted MDP. Nonterminal states are (row , column , passenger location , destination ), where the pas-senger is either at one of the four depots or in the taxi. This gives 500 nonterminal states plus one ab-sorbing state, for 501 states total. The action set is {south , north , east , west , pickup , dropoff },so |S||A| = 3006 . Transitions are deterministic. Each ordinary step has reward −1, illegal pickup/dropoff has reward −10 , and a successful dropoff has reward 20 and transitions to the absorbing state. The β ladder is {0.02 , 0.04 , 0.06 , 0.08 , 0.10 }. The Blahut–Arimoto limit is 10 outer iterations and 100 inner iterations per β, and the planning budget is 100 full-resolution sweeps with evaluation every sweep. 
+
+DoorKey. The DoorKey experiment is a fully observable tabular variant inspired by MiniGrid. The grid has side length 5. An internal wall separates two rooms; the locked door is at (2 , 2) , the key is at 
+
+(1 , 3) , and the goal is at (3 , 3) . The state records the agent position, facing direction, whether the key is carried, and whether the door is open. Only reachable task phases are included: key absent with door closed, key carried with door closed, and key carried with door open, plus one absorbing terminal state. This yields 233 states. The action set is {turn_left , turn_right , forward , pickup , toggle }, so 
+
+|S||A| = 1165 . Transitions are deterministic. The only positive reward is the goal reward, equal to 1, obtained when the agent moves into the goal and enters the absorbing state. The fixed β
+
+ladder is {6, 7, 7.5, 8, 10 }. The adaptive ladder is the unit-spaced refinement {6, 7, 8, 9, 10 }. The Blahut–Arimoto limit is 200 outer iterations and 50 inner iterations per β, and the planning budget is 
+
+100 full-resolution sweeps with evaluation every sweep. 
+
+G.3 SysAdmin 
+
+We use a fully observable ring variant of the SysAdmin benchmark [Guestrin et al., 2003]. A state 
+
+x ∈ { 0, 1}N records which machines are operational, with xi = 1 meaning that machine i is up. For 
+
+N ≥ 3 the neighbours of i are i − 1 and i + 1 modulo N ; for N = 2 , each machine has the other machine as its single neighbour. Let N (i) denote this ring-neighbour set. The action set is 
+
+A = {noop , reboot 1, . . . , reboot N }.
+
+At each step the controller either does nothing or attempts to reboot one machine. The reward is the fraction of machines currently up, minus a reboot cost when a reboot action is used: 
+
+r(x, a ) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+xi − creboot 1{a̸ = noop }.
+
+The parameters used in all SysAdmin experiments are 
+
+pbase = 0 .95 , ρ = 0 .15 , precover = 0 .05 , preboot = 0 .95 , creboot = 0 .2.
+
+Conditional on the current state and action, machines transition independently. If machine i is rebooted, then P(X′ 
+
+> i
+
+= 1 | x, a ) = preboot . If it is down and not rebooted, then P(X′ 
+
+> i
+
+= 1 | x, a ) = 
+
+precover . If it is up and not rebooted, then its probability of remaining up decreases by ρ for each failed neighbour: 
+
+P(X′ 
+
+> i
+
+= 1 | x, a ) = 
+
+pbase − ρ X 
+
+> j∈N (i)
+
+(1 − xj )
+
+
+
+> [0 ,1]
+
+,
+
+where [·][0 ,1] denotes clipping to [0 , 1] . Thus the tabular problem has 2N states, N + 1 actions, and 
+
+(N + 1)2 N state-action pairs, while the transition law has local ring structure. 
+
+Scaling sweep. The scaling experiment in Figure 2 runs for systems of sizes N = 2 , . . . , 7. For each N , the full-resolution reference return is the exact value of the final concrete baseline policy under the same 100 -sweep full-resolution compute budget. The selected checkpoint is the first adaptive checkpoint whose grounded concrete policy return is at least 99% of this reference. The star in Figure 2 is then placed at the rate-distortion row whose β matches that selected checkpoint. Distortion in the scaling plots is normalised by the maximum entry of the fixed-point state-action metric for that N , and effective size is reported using the information-equivalent counts described in Sec. G.1. 27 Factor probes. For the factor analysis in Table 2, we load the adaptive encoder at the selected near-optimal checkpoint for each N = 2 , . . . , 7. The flat decoder representatives are projected to labels ¯S and ¯A as above. For a discrete state factor F (S), we compute I(F ; ¯S). For a discrete action-side factor F (S, A ), we compute I(F ; ¯A | ¯S). Relevance is the same quantity divided by the entropy of the probed factor, so it lies in [0 , 1] when the factor has positive entropy. State probes include global load variables, adjacent-pair and triplet histograms around the ring, failure-run statistics, isolated-failure indicators, and counts of vulnerable or critical alive machines. Action probes include whether the action is noop or a reboot, target identity, target up/down status, wasted reboot indicators, failed-neighbour counts, target-centred triplet and five-site patterns, and the size of the alive or failed run containing the target. To avoid reporting many redundant probes, the table first groups related factors, chooses the strongest raw-mutual-information factor within each group, and then reports the top four state-side and action-side representatives averaged across N = 2 , . . . , 7.The factors reported in Table 2 are defined as follows. • Triplet hist. is the eight-dimensional histogram of cyclic local patterns (xi−1, x i, x i+1 ), one count for each binary triplet. • Pair hist. is the four-dimensional histogram of cyclic adjacent patterns (xi, x i+1 ), with one count for each binary pair. • Failed count is P
+
+> i
+
+(1 − xi), the number of down machines. • Max fail run is the length of the longest contiguous cyclic run of down machines. On the action side, the target of reboot i is machine i, while noop is assigned a separate no-target symbol. • Target 5-bit is the five-site neighbourhood (xi−2, x i−1, x i, x i+1 , x i+2 ) around the reboot target, with cyclic indexing. • Target run size is the size of the contiguous failed run containing the reboot target, and is zero when the target machine is up. • Target index is the identity of the machine selected for reboot. • isolated target indicates whether the reboot target is down while both of its neighbours are up. 28

@@ -1,0 +1,731 @@
+Title: Rapid co-design of Buoyancy-assisted robots for Challenging Locomotion using Gaussian Evolutionary Specialists
+
+URL Source: https://arxiv.org/pdf/2606.07424v1
+
+Published Time: Mon, 08 Jun 2026 01:06:35 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Rapid co-design of Buoyancy-assisted robots for Challenging Locomotion using Gaussian Evolutionary Specialists 
+
+Ankit Sinha 1, Nitish Sontakke 1, Dennis Hong 2, Yusuke Tanaka 3 and Sehoon Ha 1
+
+Abstract — Designing high-performance legged robots re-quires jointly optimizing morphology and control. Model-free Reinforcement Learning (RL) offers an alternative to model-predictive control for developing robust controllers without explicitly specifying robot dynamics. Thus, we have seen the use of RL to train controllers and evaluate designs for robot morphology optimization. While RL has shown success in locomotion, using it in the co-design inner loop is expensive due to repeated policy training. Universal policies conditioned on morphology offer a promising alternative, but suffer from 
+
+behavioral diversity collapse , converging to a single strategy that performs sub-optimally across designs. On the other hand, end-to-end Mixture-of-Experts (MoE) architectures fail due to a collapse in its representation. We propose Gaussian Evolution-ary Specialists (GES), a framework that decouples design-space partitioning from policy learning to capture diverse behaviors explicitly. GES assigns specialist policies to evolving Gaussian regions and iteratively refines them via training, probing, and territory expansion. The resulting specialists are integrated into a design sampling loop, replacing costly re-training with direct evaluation. When tested on the Buoyancy-Assisted Light Legged Unit (BALLU), GES discovers designs with 5 − 25% higher performance than naive universal policies. On hardware, a GES optimized design overcomes a 24 cm tall obstacle - 3×
+
+improvement over the baseline BALLU design. Moreover, GES curtails design optimization time by 37% .
+
+I. I NTRODUCTION 
+
+Robot co-design jointly optimizes morphology and control to achieve task performance that neither component can reach in isolation [1], [2]. For instance, optimizing link lengths in a robotic arm expands the reachable workspace for a target task, while tuning leg proportions in a legged robot shifts the trade-off between energy efficiency and agility [2]. The Buoyancy-Assisted Light Legged Unit (BALLU) [3], [4] studied in this work is one such platform: its aerody-namic sensitivity to balloon inflation level and leg propor-tions means that design choices have an out-sized effect on task performance. Moreover, BALLU’s thin links, non-linear spring-servo actuation, and aerodynamic modeling inaccuracies in simulation make multi-parameter design opti-mization challenging. However, co-design is an intrinsically bi-level optimization problem: the outer loop must evaluate hundreds of morphology candidates, and each evaluation requires training a controller from scratch [2], [5]. Prior  
+
+> 1Ankit, Nitish and Sehoon are with the School of Interactive Computing, Georgia Institute of Technology, TSRB 85 5th St NW, Atlanta, GA - 30332, USA
+
+{asinha389,nitishsontakke,sha9 }@gatech.edu   
+
+> 2Dennis is with the Dept. of Mechanical and Aerospace Engineering, University of California, Los Angeles, 420 Westwood Plaza, CA 90095, USA
+
+dennishong@ucla.edu   
+
+> 3Yusuke is with the Robotic Systems Lab, ETH Zurich, Leonhardstrasse 21, 8092 Zurich, Switzerland
+
+yutanaka@ethz.ch (a) 
+
+(b) 
+
+Fig. 1: (a) A BALLU robot walking up a ramp inclined at 
+
+35 ◦. (b) A BALLU robot jumping over an obstacle of height 
+
+45 cm. In both the motion strips, the robot is controlled by our proposed GES policy. approaches such as differentiable co-optimization [6] and meta-learning [7] has reduced this cost, but repeated con-troller optimization per candidate remains the bottleneck. The cumulative cost of repeated controller training makes brutal-force design exploration impractical. This cost grows substantially when reinforcement learning (RL) is used for the inner loop [1], [8], as each policy opti-mization relies on millions of environment interactions [2], [9]. Prior work has addressed this through graph-based design search [10], [11], but these methods still require per-candidate RL training and preserve the core computational bottleneck. One promising approach is to pretrain a universal policy conditioned on morphology parameters, so that each outer-loop trial reduces to a zero-shot evaluation [2], [12], [13]. This formulation decouples controller learning from design search, and makes large-scale co-design feasible. In practice, however, universal policies fail as co-design evaluators. A design-conditioned universal policy converges to a single locomotion strategy due to conflicting gradi-ents from diverse morphologies [14], [15], as elaborated in Sec. IV. A collapsed evaluator cannot distinguish perfor-mance differences across designs, causing the outer opti-mization loop to lose its search signal. Mixture-of-Experts (MoE) [16] is a natural remedy, assigning each region of the design space to a dedicated specialist to capture multi-modal behaviors. However, end-to-end MoE training can fail due to the representation collapse problem [17]: the MoE router 
+
+> arXiv:2606.07424v1 [cs.RO] 5 Jun 2026
+
+distributes all designs equally across experts, and hence, all experts converge to similar behaviors. Once homogenized, the routing signals are insufficient to drive specialization. We propose Gaussian Evolutionary Specialists (GES), a two-stage framework that aims to address both failure modes. In Stage 1, multiple specialists are assigned a Gaussian territory: each specialist trains on designs sampled from its territory, border designs are competitively assigned to the best-performing specialist, and each Gaussian is refit to its won designs - repeating until the territories collectively tile. In Stage 2, the trained specialists serve as a zero-shot evaluator for design optimization, substituting per-candidate RL training. We validate GES on BALLU [3], [9], which dynamics is highly nonlinear, making co-design both necessary and challenging. GES outperforms both baselines across obstacle traversal and ramp climbing tasks in 2D and 3D design spaces, with up to 25 .5% mean improvement over a mono-lithic universal policy on obstacle traversal. On hardware, the co-designed BALLU clears a 24 cm obstacle, a 3×
+
+improvement over the baseline design, and GES reduces co-design wall-clock time by 37 %. Our main contributions are:  
+
+> •
+
+We identify behavioral diversity collapse as a previ-ously unrecognized failure mode of universal policies in robot co-design.  
+
+> •
+
+We propose GES, which resolves this via iterative Gaus-sian territory evolution and addresses the representation collapse problem with end-to-end MoEs. II. RELATED WORK 
+
+A. Robot Co-design 
+
+Robot co-design has been approached through several paradigms. Differentiable frameworks [6], [18], [19], [20], [21], [22] jointly optimize morphology and control via ana-lytical gradients, but require differentiable simulators. Meta-learning [7] enables rapid adaptation to new designs, but still requires per-candidate fine-tuning at query time. Graph-based methods [10], [11], [23] efficiently explore combinatorial design spaces, but scale poorly to continuous parameters. Evolutionary methods [1], [24] offer good diversity, but require many evaluations to converge. Recent generative approaches [25] use diffusion models to synthesize robot morphologies, broadening the search beyond predefined pa-rameterizations. All of these share a common bottleneck: each candidate design requires an independent controller optimization. Strgar and Kriegman [26] amortize this cost via universal policy pretraining, but restrict their study to soft robots and report population-level diversity collapse. Bjelonic et al. [2] are the closest to our work: they train a design-conditioned policy for quadruped joint optimization, but do not examine its failure modes as a design evaluator. Our work identifies behavioral diversity collapse as one such failure mode and proposes GES to address it. 
+
+B. Universal Policies for Locomotion 
+
+Learning locomotion policies that generalize across differ-ent robot morphologies has emerged as a research direction KNEE 
+
+> FEMUR
+> TIBIA PELVIS FOOT BALLOON HIP
+
+Fig. 2: BALLU Hardware toward universal robot control. Prior work has progressed from modular GNN-based approaches [27], to transformer-based controllers [28], to simple MLP policies trained via morphology randomization that deploys zero-shot across diverse platforms [12]. Yu et al. [29], [30] show that universal policies can adapt to unknown dynamics through online system identification and meta-learning. More recent multi-embodiment frameworks achieve large-scale generalization through attention and diffusion-based training [31], [32]. We extend this universal control paradigm to accelerate the co-design of rigid body robots. We find that a monolithic policy [2], [12] trained with morphology randomization con-verges to uni-modal solutions and fails to capture the diverse optimal behaviors across the design space. As a result, such a policy is an unreliable evaluator for co-design. This motivates our mixture-of-specialists approach that preserves behavioral diversity across the full design space. 
+
+C. Buoyancy-assisted Robots 
+
+Buoyancy-assisted robots use helium balloons [33] or pneumatic inflation [34] to counteract gravity, offering intrin-sic safety for human-robot interaction. BALLU [3], [4] uses helium inflation to enable bipedal locomotion with cable-driven actuation and minimal hardware mass. However, the aerodynamics of balloon-based robots pose challenges for control and sim-to-real transfer. Sontakke et al. [9] address this through residual physics learning and system identifica-tion, and demonstrate successful deployment of RL policies on hardware. Our work extends beyond basic locomotion to co-optimizing BALLU for obstacle traversal and ramp walking, which demands more dynamic motion. III. PROBLEM FORMULATION 
+
+A. BALLU Platform 
+
+BALLU [3], [4] is a bipedal robot that uses helium-filled balloons to offset the majority of its weight. The platform (Fig. 2) consists of five rigid links: a pelvis and two upper and lower limbs connected by spring-loaded knee joints TABLE I: BALLU morphology parameters                  
+
+> Parameter Symbol Lower bound Upper bound Baseline Design Femur length lf0.25 m 0.55 m 0.45 m Tibia length lt0.25 m 0.55 m 0.45 m Grav. comp. ratio GCR 0.72 0.90 0.70 Spring coeff. SPCF 0.001 N/m 0.100 N/m 0.002 N/m
+
+actuated by a single servo per leg, which gives the robot two actuated degrees of freedom in total. Its lightweight construction and fall-safe operation make it well-suited for human-facing applications like environmental monitoring and social robotics [3], [4]. Despite its mechanical simplicity, BALLU presents sig-nificant control challenges. The helium balloons introduce severe aerodynamic nonlinearities: buoyancy and drag forces that are difficult to model analytically and vary with balloon inflation level and environmental conditions [3]. These dy-namics make model-free RL the most practical approach to controller design, as demonstrated by Sontakke et al. [9]. 
+
+B. Design Space 
+
+The BALLU morphology design space, D, is parame-terized by four variables: femur length lf , tibia length lt,gravity compensation ratio GCR (ratio of buoyancy force to robot weight), and spring stiffness, SPCF . At GCR = 1 .0
+
+the robot is effectively weightless; lower values increase the effective gravitational load on the legs. The SPCF governs knee joint compliance, which directly affects energy storage during dynamic maneuvers. The parameter bounds and the baseline BALLU designs [3] are summarized in Table I. In our experiments, we evaluate GES on two design parameter space: D2 = {(GCR , SPCF) : lf = ¯lf , lt =¯lt} ⊂ R2 and D3 = {(GCR , SPCF , l ) : lf = lt = l} ⊂ R3.
+
+C. Bi-level Co-design Objective 
+
+The goal of robot co-design is to jointly find a morphology 
+
+θm and a control policy θc that maximize task performance: 
+
+max  
+
+> θm,θc
+
+J(θc, θm). (1) This joint optimization is intractable to solve directly due to the interdependency between morphology and control. We therefore decompose it into a bi-level form: 
+
+max 
+
+> θm
+
+J(θ∗ 
+
+> c
+
+, θm) , θ∗ 
+
+> c
+
+= arg max 
+
+> θc
+
+J(θc, θm), (2) where the inner loop finds the optimal controller for a given morphology and the outer loop searches over the morphology space to maximize the resulting performance. 
+
+D. MDP Formulation 
+
+We model locomotion control as a Markov Decision Process (MDP) defined by the tuple (S, A, T , R, γ ). The proprioceptive state st ∈ S comprises the robot’s base linear and angular velocity, joint positions, joint velocities, and the last action. The augmented state ˜st = [ st, θm] appends the design vector. The action at ∈ R2 specifies joint position targets for the left and right knees, which are tracked by a PD controller that converts targets to joint torques. The policy πθc (at | ˜st) is parameterized as a Gaussian MLP and optimized via PPO to maximize expected discounted return: 
+
+max 
+
+> θc
+
+E
+
+" TX
+
+> t=0
+
+γt r(st, a t)
+
+#
+
+(3) 
+
+Reward functions. For obstacle traversal, the reward com-bines a navigation term, a forward velocity term, and a jumping term that encourages toe clearance: 
+
+robs = w1 (−∥ g − s∥22)
+
+| {z }
+
+> rnav
+
++w2 (vx)
+
+|{z} 
+
+> rvel
+
++w3 (ec·ztoe − 1) 
+
+| {z }
+
+> rjump
+
+, (4) where g is the goal position, s is the robot’s current base po-sition, vx is the forward velocity, and ztoe = min( zL
+
+> toe
+
+, z R
+
+> toe
+
+)
+
+is the minimum toe height across both legs. For ramp locomotion, the jumping term is dropped: rramp = w1(−∥ g−
+
+s∥22) + w2 vx. We set w1 = 5 , w 2 = 3 , w 3 = 1 and c = 1 .73 .Each episode lasts 20 s. IV. GAUSSIAN EVOLUTIONARY SPECIALISTS 
+
+A. Motivation: Behavioral Diversity Collapse 
+
+A natural way to reduce the co-design inner-loop cost is to pre-train a universal policy πu(a | ˜st) over the full design space D. Once trained, each BO trial reduces from a full PPO run to a zero-shot evaluation or brief fine-tuning. The simplest instantiation is a monolithic MLP trained via mor-phology randomization across many simulated environments. While this achieves reasonable performance, it suffers from a fundamental failure mode: the policy converges to a single 
+
+locomotion strategy regardless of the morphology input, which produces near-identical gait patterns across different designs. The root cause is gradient averaging in the multi-task RL setting [14], [35]: conflicting behavioral gradients across diverse morphologies cancel during backpropagation, which drives the policy toward a suboptimal compromise. We term this phenomenon behavioral diversity collapse .A natural architectural remedy is Mixture-of-Experts (MoE): K specialist networks {πk}Kk=1 gated by a learned router g(θm) that partitions D into regions, each handled by a dedicated specialist. However, we find that end-to-end MoE training fails because, with the router randomly initialized, all experts receive similar design distributions early in training and begin converging to the same behavior. Once the experts are behaviorally similar, the router has no gradient signal to differentiate them. This is the standard representation collapse problem [17] manifested in this universal policy training setting. Consequently, it fails like the monolithic policy. We verify this empirically in Sec. V-C. 
+
+B. GES Algorithm 
+
+The goal of GES is to approximate J(θ∗ 
+
+> c
+
+, θm) (Eq. (2)) across all θm ∈ D , without requiring per-design RL policy training. Fig. 3 illustrates the full pipeline. The key insight behind GES is to decouple design-space partitioning from Fig. 3: GES: Our proposed algorithm for training a mixture of specialists through design space evolution. Sub-stage 1 (Initialize ) consists of spawning Gaussian centers which are dispersed well enough to cover the design space. Sub-stage 2 ( Train ) consists of training each specialist policy by sampling designs from its associated Gaussian cluster. In sub-stage 3 ( Probe ), we sample designs from the Gaussian territory edges and assign the designs through competition 
+
+i.e. a design goes to the highest performing policy. In sub-stage 4 ( Refit ), each specialist’s Gaussian cluster is updated to reflect the acquired territories. This process repeats until MC coverage (Sec. IV-B) of the design space reaches 95%. expert specialization. Rather than learning a router end-to-end alongside the experts, GES uses a geometrically defined partition that evolves iteratively based on each specialist’s empirical performance. This addresses the representation collapse in mixture-of-experts: each specialist always trains on a well-defined, stable region of D, and the partition boundaries adapt only after sufficient task experience has been accumulated. Formally, GES maintains K specialists {πk}Kk=1 , each associated with a Gaussian territory G(μk, Σk) over the design space, where μk ∈ Rd contains the means and 
+
+Σk ∈ Rd×d the diagonal covariance of the design parameters (GCR, SPCF, l). The territory defines the distribution from which training designs are sampled for specialist πk, as well as the region of D that specialist is responsible for at BO query time. GES proceeds in three repeating phases until the territories collectively cover D:
+
+1) Initialization: . We initialize K Gaussian centers in the normalized design space X = [0 , 1] d. We seek K centers 
+
+{μk}Kk=1 ⊂ X that provide good coverage of X , which can be formulated as the following space-filling objective: 
+
+min   
+
+> {μk}
+
+max  
+
+> x∈X
+
+min  
+
+> 1≤k≤K
+
+∥x − μk∥2. (5) Directly solving this problem is intractable, so we adopt a two-stage approximation that combines dispersion and coverage refinement. 
+
+Farthest Point Sampling (FPS). Starting from a random initial center, we iteratively select the candidate from a uniform sample set C ⊂ X that is farthest from all existing centers. This yields a well-dispersed set of K centers. 
+
+Lloyd Relaxation. We then refine the centers via T itera-tions of Lloyd’s algorithm [36], which iteratively reassigns each center to the centroid of its Voronoi region. After T
+
+iterations, we obtain centers that are both well-separated and approximately space-filling. 
+
+2) Iterative Territory Evolution: Train. Each specialist πk
+
+samples ntrain designs from its current Gaussian territory 
+
+G(μk, Σk) and trains for nppo PPO steps, and resumes from its previous checkpoint to retain learned behaviors. 
+
+Probe. F candidate designs are sampled near the 2Σ borders of all Gaussian territories. Each candidate is evaluated by all 
+
+K specialists, and assigned to the specialist that achieves the highest task performance score J on that design: 
+
+k∗ = arg max  
+
+> k
+
+J(πk, c ), ηk∗ ← ηk∗ ∪ { c}. (6) Here, ηk implies all designs assigned to specialist k. This competitive probing at territory borders drives specialists to expand into regions where they outperform other specialists, which yields naturally performance-grounded boundaries. 
+
+Refit. Each specialist’s Gaussian territory is refit to the set of designs it has won: 
+
+μk ← mean (ηk), Σk ← diagcov (ηk), ∀k ∈ { 1...K } (7) The diagonal covariance constraint keeps each territory axis-aligned and interpretable in the design parameter space. As iterations progress, territories expand from their initially small, localized regions to collectively tile D, and each specialist concentrates its expertise in the morphological regime where it naturally excels. During iterative territory evolution, we measure coverage of the design space via Monte-Carlo (MC) sampling as defined next. 
+
+MC coverage . Let D be our design space. Each special-ist k ∈ {1, . . . , K } is represented by a Gaussian with diagonal covariance: mean μ(k) ∈ RD and variances 
+
+(σ211 )(k), . . . , (σ2
+
+> DD
+
+)(k). For a design θ = ( θ1, . . . , θ D )⊤ ∈D, let us define the un-normalised multivariate density con-tribution of specialist k as 
+
+fk(θ) = exp  −
+
+> D
+
+X
+
+> d=1
+
+(θd − μ(k) 
+
+> d
+
+)2 /  2( σ2
+
+> dd
+
+)(k) (8) Algorithm 1 Gaussian Evolutionary Specialists (GES) 
+
+Input: Design space D, # specialists K, # probe designs F ,train designs ntrain , initial var σ20 , PPO steps nppo 
+
+Output: K specialists {πk}Kk=1 covering {(μk, Σk)}Kk=1 
+
+// Initialization  
+
+> 1:
+
+{μ}Kk=1 ← FPSwithLloydRelax (D, K ) 
+
+> 2:
+
+for k ← 1 to K do  
+
+> 3:
+
+πk, η k, Σk ← random init MLP, ∅, σ 20 I 
+
+> 4:
+
+end for  
+
+> 5:
+
+covered ← false ; t ← 0 
+
+> 6:
+
+while covered = false do 
+
+// Train  
+
+> 7:
+
+for k ← 1 to K do  
+
+> 8:
+
+Bk ← Sample( ntrain , G(μk, Σk))  
+
+> 9:
+
+πk ← PPO  πt−1 
+
+> k
+
+, Bk, n ppo 
+
+ 
+
+> 10:
+
+end for 
+
+// Probe  
+
+> 11:
+
+C ← SampleBorder( F, {(μk, Σk)}Kk=1 ) 
+
+> 12:
+
+for all c ∈ C do  
+
+> 13:
+
+k∗ ← arg max k J(πk, c ) 
+
+> 14:
+
+ηk∗ ← ηk∗ ∪ { c} 
+
+> 15:
+
+end for 
+
+// Refit  
+
+> 16:
+
+μk, Σk ← mean( ηk), diagcov( ηk)∀k = {1 · · · K} 
+
+> 17:
+
+covered ← CheckCoverage  {(μk, Σk)}Kk=1 , D 
+
+> 18:
+
+t ← t + 1  
+
+> 19:
+
+end while  
+
+> 20:
+
+return {πk, μk, Σk}Kk=1 
+
+We declare θ covered by the mixture if max 1≤k≤K fk(θ) >τ with τ = e−2 ≈ 0.135 , corresponding to the two-standard-deviation contour under a diagonal Gaussian in the implementation. The Monte Carlo coverage is c =
+
+Pθ∼Unif( D)
+
+max k fk(θ) > τ , estimated by drawing Nmc 
+
+i.i.d. samples θ(1) , . . . , θ(Nmc ) from Unif( D):
+
+ˆc = 1
+
+Nmc 
+
+> Nmc
+
+X
+
+> i=1
+
+1
+
+
+
+max  
+
+> k
+
+fk
+
+
+
+θ(i)
+
+> τ 
+
+
+
+. (9) The Train-Probe-Refit iteration stops when the MC coverage (line 18 Alg. 1) of the design space reaches 95% .
+
+C. GES density router for BO-based Co-Design 
+
+Once GES training is complete, the K specialists serve as zero-shot evaluators inside the BO co-design loop, replac-ing expensive from-scratch inner-loop RL. For a candidate design ˆθm proposed by the BO acquisition function, ageometric router induced by the probability density selects the nearest specialist by Gaussian likelihood: 
+
+k∗ = arg max  
+
+> k
+
+N (ˆθm | μk, Σk), (10) We evaluate the associated policy to obtain the performance score ˆJ. This score is returned to the BO surrogate to update its belief over D, and the loop continues until convergence.   
+
+> (a) (b)
+> (c) (d)
+
+Fig. 4: (a) Performance distribution of GES vs baselines in obstacle traversal in the 2d design space using 3 experts. (b) Performance distribution of GES vs baselines in ramp locomotion in the 2d design space using 3 experts. (c) Perfor-mance distribution of GES vs baselines in obstacle traversal in the 3d design space using 6 experts. (d) Performance distribution of GES vs baselines in ramp locomotion in the 3d design space using 6 experts. V. RESULTS 
+
+A. Experimental Setup 
+
+We conduct all experiments in simulation using Isaac Lab 2.0 [37] with Isaac Sim 4.5. The physics simulation runs at 200 Hz with control actions applied at 20 Hz. We evaluate on two locomotion tasks: (i) obstacle traversal and (ii) ramp climbing. Both tasks use curriculum learning: obstacle height increases by 1 cm per level and ramp slope grade by 1.33% 
+
+per level. Design optimization uses TPE [38]; control policies are trained with PPO [39] using an MLP of [128, 64, 32] for both actor and critic. For design space coverage calculation we use Nmc = 10 4, and set initial variance σ0 such that initial coverage ˆc = 12% .We compare GES against two baselines. e2e MLP : mono-lithic MLP. e2e MoE : soft-gated mixture-of-experts with the same MLP architecture per expert. Both are morphology-conditioned, and trained end-to-end via design randomization across D.
+
+B. Main Results 
+
+GES outperforms both baselines across tasks and design space dimensionalities. Fig. 1 shows representative GES policy behaviors on both tasks. Table II summarizes mean performance; Fig. 4a–4d show full performance distributions. 
+
+1) Obstacle Traversal: In the 2D design space, GES finds designs that clear a 54 cm obstacle, versus 38 cm for e2e MLP and 52 cm for e2e MoE. Evaluated over 1000 unseen test designs (Fig. 4a), GES outperforms e2e MLP by 25 .5%
+
+and e2e MoE by 8.62% in mean performance. On head-to-head comparison, GES wins on 94% of designs against e2e MLP and 72% against e2e MoE. In the 3D design space, GES again finds designs clearing 54 cm against 41 cm for e2e MLP, a peak gain of 31 .7%. Mean improvement over e2e MLP across 1000 test designs is 18 .8% (Fig. 4c), with TABLE II: Mean Simulation Performance. 
+
+Task Design Space baseline design e2e MLP e2e MoE GES (Ours) Obstacle 2D 14 .2 cm 29 .4 cm 34 .0 cm 36 .9 cm Obstacle 3D 14 .2 cm 24 .5 cm 21 .2 cm 29 .1 cm Ramp 2D 25 .1◦ 27 .9◦ 28 .4◦ 31 .4◦
+
+Ramp 3D 25 .1◦ 28 .3◦ 27 .9◦ 29 .7◦
+
+GES winning 68% head-to-head against e2e MLP and 76% 
+
+against e2e MoE. 
+
+Design Analysis. Higher GCR and higher SPCF consistently produce better performance: high buoyancy reduces effective weight to enable flight, and high spring stiffness stores the potential energy needed for jumping. The e2e MoE baseline degrades by ∼20% in the 3D case, which we attribute to representation collapse in the router as design space dimensionality increases. In the 3D design space, we found optimal leg length to be 45.58 cm which is almost equal to the baseline design. 
+
+2) Ramp Locomotion: In the 2D design space, GES identifies designs capable of climbing slopes up to 36 .25 ◦,versus 32 .61 ◦ for both baselines, a peak gain of 11 .2%.Evaluated over 1000 test designs (Fig. 4b), GES improves mean performance by ≈13 % over both baselines. On head-to-head comparison, GES wins 81% against e2e MLP and 
+
+78% against e2e MoE. In the 3D design space, GES achieves a peak gain of ∼8% and a mean improvement of ∼ 5% over e2e MLP (Fig. 4d), winning 75% against e2e MLP and 86% 
+
+against e2e MoE head-to-head. 
+
+Design Analysis. From the 3D GES experiment, we found the optimal leg length for this task to be 31 .45 cm which is much shorter than obstacle traversal ( 45 .58 ) cm. We attribute this to the need of high-frequency motion from its limbs. Shorter limbs reduce the effective weight enabling the robot to move them quickly. Unlike obstacle traversal, ramp locomotion is contact-rich. Robots use lower-limb flapping combined with balloon aerodynamics to propel upwards. We find that both buoyancy extremes (high and low GCR) yield good performance but require distinct motions. Higher spring stiffness produces better performance. This contact-rich interaction introduces control complexity, which makes design optimization harder and yields milder GES gains than in obstacle traversal. 
+
+C. Convergence Analysis 
+
+MoE Representation Collapse. Fig. 5 compares expert contribution distributions for e2e MoE and GES across 10 designs drawn from distinct regions of the design space. The e2e MoE router converged nearly equal weight to all experts for every design, which confirms that no expert specializes, consistent with the router collapse described in Section IV. In GES, each design is assigned to the specialist whose Gaussian territory covers that region, producing a hard partition in which every specialist dominates its subspace. This structural difference explains the ∼20% degradation of e2e MoE as design-space increases from 2D to 3D. E1                                                                                 
+
+> E2
+> E3
+> E4
+> Expert
+> 0.25 0.28 0.27 0.25 0.23 0.23 0.24 0.28 0.25 0.27
+> 0.22 0.28 0.27 0.23 0.23 0.23 0.26 0.25 0.24 0.24
+> 0.26 0.22 0.24 0.24 0.25 0.27 0.25 0.25 0.25 0.23
+> 0.26 0.22 0.22 0.28 0.29 0.27 0.26 0.22 0.26 0.25
+> End-to-end MoE
+> 12345678910
+> Robot design
+> S1
+> S2
+> S3
+> S4
+> Specialist  0.51 0.12 0.15 0.18 0.59 0.14 0.13 0.09 0.45 0.22
+> 0.16 0.19 0.46 0.18 0.14 0.13 0.56 0.22 0.19 0.10
+> 0.09 0.53 0.21 0.14 0.11 0.59 0.11 0.19 0.18 0.57
+> 0.23 0.16 0.18 0.50 0.16 0.14 0.21 0.49 0.18 0.11
+> GES (ours)
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> Gating weight
+
+Fig. 5: Expert contribution distribution for 4 experts across 10 designs drawn from distinct design-space regions. After convergence, the e2e MoE router distributes each design equally among all experts, indicating representation collapse. GES assigns each design to its dominant specialist, produc-ing a hard partition over the design space. 0.0 
+
+> 0.2
+> 0.4
+> 0.6
+> Toe Height  z (m)
+
+(a) 
+
+Left Toe         
+
+> 025 50 75 100 125 150 175
+> Timestep ( ×0.05 s)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+
+(b) 
+
+Right Toe 
+
+> Specialist 0
+> Specialist 1
+> Specialist 2
+> Ground threshold
+
+Fig. 6: Left and right toe ( z) trajectories of 3 GES specialists on the same robot design facing a 30 cm obstacle at 0.5 m. Each specialist (color) produces a qualitatively distinct strat-egy for clearing the obstacle, confirming behavioral diversity. 
+
+Behavioral Diversity. Fig. 7 shows the Gaussian territory evolution of GES specialists in the 3D design space. The specialists converge to distinct territories that together tile the design space. Fig. 6 further illustrates behavioral diversity: three specialists controlling the same robot design produce qualitatively different foot trajectories when facing a 30 cm obstacle. These results confirm that GES resolves behav-ioral diversity collapse by sustaining multi-modal locomotion strategies across the design space. 
+
+D. Analysis 
+
+Number of Specialists. Fig. 8 shows GES performance as a function of K in the 2D design space. Performance peaks at K = 3 and degrades for larger K, which arises from two competing effects. First, per-expert design-space coverage at initialization is inversely proportional to K, so each specialist is responsible for a smaller territory. Second, GES terminates when overall MC coverage reaches 95% , which occurs faster as K increases and may leave specialists under-trained. 
+
+Initialization Strategy. Table III compares four Gaussian-center initialization strategies for K = 3 specialists on the obstacle traversal task. FPS+Lloyd achieves the highest mean and peak performance and converges approximately 0.02 
+
+> 0.04
+> 0.06
+> 0.08
+
+SPCF (N/m) 0.20 
+
+> 0.34
+> 0.48
+
+Leg length (m) 
+
+> 0.76
+> 0.80
+> 0.84
+> 0.88
+> GCR
+
+(i) Initial 
+
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+
+SPCF (N/m) 0.20 
+
+> 0.34
+> 0.48
+
+Leg length (m) 
+
+> 0.76
+> 0.80
+> 0.84
+> 0.88
+> GCR
+
+(ii) After iter. 2 
+
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+
+SPCF (N/m) 0.20 
+
+> 0.34
+> 0.48
+
+Leg length (m) 
+
+> 0.76
+> 0.80
+> 0.84
+> 0.88
+> GCR
+
+(iii) After iter. 5 
+
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+
+SPCF (N/m) 0.20 
+
+> 0.34
+> 0.48
+
+Leg length (m) 
+
+> 0.76
+> 0.80
+> 0.84
+> 0.88
+> GCR
+
+(iv) Final   
+
+> Expert 0
+> Expert 1
+> Expert 2
+> Expert 3
+> Expert 4
+> Expert 5
+> 1σellipsoid
+> 2σellipsoid
+> Training designs
+
+Fig. 7: Evolution of 6 specialists in the 3D design space(spring coefficient, buoyancy, and symmetric leg length) K=1 K=2 K=3 K=4 K=5 
+
+# Specialists  
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Obstacle Height (cm)
+> 25.0
+> 28.6
+> 32.8
+> 29.3 28.3 31.0
+> 36.5
+> 45.5
+> 37.5
+> 39.0
+> Mean
+> Max
+
+Fig. 8: GES performance as a function of the number of specialists K in the 2D design space. This set of experiments used a different kinematic design from Fig. 4a. TABLE III: Impact of initialization strategy on GES perfor-mance for K = 3 on obstacle traversal (2D design space). 
+
+Initialization Mean [cm] Min [cm] Max [cm] Grid-based 29.7 22 43 Random 31.5 24 45 FPS 34.5 22 52 FPS + Lloyd 35.2 24 52 
+
+2× faster than random initialization. Grid-based initialization is spatially unbalanced for odd K, which reduces cover-age uniformity. FPS+Lloyd produces uniform coverage even when design-space boundaries are nonlinear, which validates its use as the default initialization in GES. 
+
+Computational Cost. GES reduces total co-design time from ∼100 h to ∼63 h, a 37 % reduction over per-design specialist BO on the 3D design space (RTX 2070 Super, single GPU). GES is inherently parallelizable: training and probing each specialist are independent, so K GPUs reduce Stage 1 complexity from O(KN ) to O(N ). For K = 6 , this reduces Stage 1 training from 48 h to approximately 8 h. 
+
+Performance Sensitivity to Design. Fig. 9 shows the 2d design space sensitivity to GES performance for both the tasks. In ramp walking, the performance sensitivity is highly non-linear and bimodal . Moderate to high SPCF and higher GCR produces better performance. In obsta-cle traversal, although increasing GCR and SPCF im-proves performance, the relationship is non-monotonic with pockets in the extremities where performance plunges. To 0.002 0.004 0.006 0.008 0.010 
+
+> SPCF
+> 0.75
+> 0.78
+> 0.80
+> 0.83
+> 0.85
+> 0.88
+> GCR
+> GES performance sensitivity
+> 30
+> 30
+> 30
+> 30
+> 30
+> 30
+> 30
+> 30
+> 30
+> 30
+> 30
+> 35
+> 35
+> 40
+> 45
+> 45
+> 45
+> 45
+> 45
+> 45
+> 45
+> 45
+> 50
+> 50
+> 50
+> 50
+> 50
+> 50
+> 50
+> 25
+> 30
+> 35
+> 40
+> 45
+> 50
+> Curriculum Level
+
+(a) 0.02 0.04 0.06 0.08 0.10  
+
+> SPCF
+> 0.75
+> 0.78
+> 0.81
+> 0.84
+> 0.87
+> GCR
+> GES performance sensitivity
+> 40
+> 40
+> 45
+> 45
+> 45
+> 45
+> 45
+> 45
+> 45
+> 45
+> 45
+> 50
+> 50
+> 50
+> 50
+> 50
+> 50
+> 50
+> 37.5
+> 40.0
+> 42.5
+> 45.0
+> 47.5
+> 50.0
+> 52.5
+> 55.0
+> Curriculum Level
+
+(b) 
+
+Fig. 9: Design sensitivity of GES performance for (a) obsta-cle traversal and (b) ramp walking. 
+
+Fig. 10: Optimized BALLU (GCR = 0 .86 , SPCF = 0 .008 )teleoperated to traverse a 24 cm obstacle, a 3× improvement over the baseline design (8 cm). verify optimality, we compare our GES-optimized design (GCR = 0 .88 , SPCF = 0 .008 ) against a boundary configu-ration with maximum values of parameters. The optimized design outperformed the boundary case ( 54 cm vs 32 cm) confirming the non-monotonic relationship. Hence, simply maximizing GCR and SPCF does not linearly improve obstacle traversal performance, justifying the optimizer’s convergence within the interior of the design space. 
+
+E. Hardware Analysis 
+
+We validate the co-designed morphology on a physical BALLU using teleoperation as the control interface, which isolates the morphology contribution from sim-to-real policy transfer [9]. The optimized design (GCR = 0 .86 , SPCF =0.008 ) clears a 24 cm obstacle (Fig. 10), a 3× improvement over the baseline BALLU design ( 8 cm). This confirms that the morphology improvements discovered in simulation transfer to the physical platform. We could not push GCR 
+
+> 0.86 (optimal GCR = 0.88 in simulation) due to hardware limitation. There is a sim-to-real gap: the baseline design performs 8 cm on hardware but 14 .2 cm in simulation. VI. CONCLUSIONS We presented GES, a co-design framework that addresses behavioral diversity collapse: a fundamental failure mode of universal policies trained across diverse robot morphologies. We first demonstrated that neither design-conditioned mono-lithic policies nor end-to-end MoE architectures resolve this failure. The former collapses to a single locomotion strategy due to gradient averaging, while the latter is undermined by the representation collapse problem. GES resolves both by decoupling design-space partitioning from expert specializa-tion via iterative Gaussian territory evolution. Three directions remain open for future work. First, GES currently assumes a fixed number of specialists K; an adaptive variant that grows or merges territories based on coverage and performance would reduce this hyperparameter sensitivity. Second, while we validate on a single buoyancy-assisted platform, the GES framework is platform-agnostic and should generalize to other robots like quadrupeds and humanoids. Third, GES assumes continuous and bounded design space. In future, we plan to re-design this framework by relaxing the above assumptions. REFERENCES [1] A. Gupta, S. Savarese, S. Ganguli, and L. Fei-Fei, “Embodied intelli-gence via learning and evolution,” Nature Communications , 2021. [2] F. Bjelonic, J. Lee, P. Arm, D. Sako, D. Tateo, S. Coros, and M. Hutter, “Learning-based design and control for quadrupedal robots with parallel-elastic actuators,” IEEE Robotics and Automation Letters ,vol. 8, no. 3, 2023. [3] H. Chae, M. S. Ahn, D. Noh, H. Nam, and D. Hong, “Ballu2: A safe and affordable buoyancy assisted biped,” Frontiers in Robotics and AI ,2021. [4] D. Hong and Y. Tanaka, “Buoyant choreographies: Harmonies of light, sound, and human connection,” in IEEE International Conference on Robotics and Automation (ICRA) 25, Arts in robotics , 2025. [5] S. Ha, S. Coros, A. Alspach, J. M. Bern, J. Kim, and K. Yamane, “Computational Design of Robotic Devices From High-Level Motion Specifications,” IEEE Transactions on Robotics , vol. 34, 2018. [6] J. Xu, T. Chen, L. Zlokapa, M. Foshey, W. Matusik, S. Sueda, and P. Agrawal, “An end-to-end differentiable framework for contact-aware robot design,” in Robotics: Science and Systems , 2021. [7] ´A. Belmonte-Baeza, J. Lee, G. Valsecchi, and M. Hutter, “Meta reinforcement learning for optimal design of legged robots,” IEEE Robotics and Automation Letters , vol. 7, no. 4, 2022. [8] Y. Yuan, Y. Song, Z. Luo, W. Sun, and K. M. Kitani, “Transform2act: Learning a transform-and-control policy for efficient agent design,” 
+
+ArXiv , vol. abs/2110.03659, 2021. [9] N. Sontakke, H. Chae, S. Lee, T. Huang, D. W. Hong, and S. Hal, “Residual physics learning and system identification for sim-to-real transfer of policies on buoyancy assisted legged robots,” in 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2023, pp. 392–399. [10] A. Zhao, J. Xu, M. Konakovi´ c-Lukovi´ c, J. Hughes, A. Spielberg, D. Rus, and W. Matusik, “Robogrammar: Graph grammar for terrain-optimized robot design,” in ACM Transactions on Graphics (TOG) ,vol. 39, no. 6, 2020. [11] J. Hu, J. Xu, A. Spielberg, S. Shekhar, A. B. Farimani, D. Rus, and W. Matusik, “Glso: Grammar-guided latent space optimization for sample-efficient robot design automation,” in Conference on Robot Learning (CoRL) , 2022. [12] G. Feng, et al. , “Genloco: Generalized locomotion controllers for quadrupedal robots,” in Conference on Robot Learning (CoRL) , 2023. [13] M. Sorokin, C. Fu, J. Tan, C. Liu, Y. Bai, W. Lu, S. Ha, and M. Khansari, “On Designing a Learning Robot: Improving Morphol-ogy for Enhanced Task Performance and Learning,” in IEEE/RJS International Conference on Intelligent Robots and Systems , 2023. [14] T. Yu, S. Kumar, A. Gupta, S. Levine, K. Hausman, and C. Finn, “Gra-dient surgery for multi-task learning,” Advances in neural information processing systems , vol. 33, pp. 5824–5836, 2020. [15] B. Liu, X. Liu, X. Jin, P. Stone, and Q. Liu, “Conflict-averse gradient descent for multi-task learning,” Advances in neural information processing systems , vol. 34, pp. 18 878–18 890, 2021. [16] R. Jacobs, M. I. Jordan, S. Nowlan, and G. E. Hinton, “Adaptive Mixtures of Local Experts,” Neural Computation , vol. 3, 1991. [17] Z. Chi et al. , “On the representation collapse of sparse mixture of experts,” Advances in Neural Information Processing Systems , vol. 35, pp. 34 600–34 613, 2022. [18] S. Coros, B. Thomaszewski, G. Noris, S. Sueda, M. Forberg, R. Sum-ner, W. Matusik, and B. Bickel, “Computational design of mechanical characters,” ACM Transactions on Graphics (TOG) , vol. 32, 2013. [19] B. Thomaszewski, S. Coros, D. Gauge, V. Megaro, E. Grinspun, and M. Gross, “Computational design of linkage-based characters,” ACM Transactions on Graphics (TOG) , vol. 33, 2014. [20] G. Bharaj, S. Coros, B. Thomaszewski, J. Tompkin, B. Bickel, and H. Pfister, “Computational design of walking automata,” the 14th ACM SIGGRAPH / Eurographics Symposium on Computer Animation , 2015. [21] S. Ha, S. Coros, A. Alspach, J. Kim, and K. Yamane, “Joint Opti-mization of Robot Design and Motion Parameters using the Implicit Function Theorem,” Robotics: Science and Systems XIII , 2017. [22] ——, “Computational co-optimization of design parameters and mo-tion trajectories for robotic systems,” The International Journal of Robotics Research , vol. 37, 2018. [23] J. Xu, A. Spielberg, A. Zhao, D. Rus, and W. Matusik, “Multi-objective graph heuristic search for terrestrial robot design,” in IEEE International Conference on Robotics and Automation (ICRA) , 2021. [24] Y. Cheng, C. Han, Y. Min, L. Ye, H. Liu, and H. Liu, “Structural optimization of lightweight bipedal robot via serl,” in IEEE/RSJ International Conference on Intelligent Robots and Systems , 2024. [25] T.-H. Wang, J. Zheng, P. Ma, Y. Du, B. Kim, A. Spielberg, J. Tenen-baum, C. Gan, and D. Rus, “DiffuseBot: Breeding Soft Robots With Physics-Augmented Generative Diffusion Models,” Advances in Neural Information Processing Systems , 2023. [26] L. Strgar and S. Kriegman, “Accelerated co-design of robots through morphological pretraining,” in International Conference on Learning Representations (ICLR) , 2026. [27] W. Huang, I. Mordatch, and D. Pathak, “One policy to control them all: Shared modular policies for agent-agnostic control,” in International Conference on Machine Learning (ICML) . PMLR, 2020. [28] A. Gupta, L. Hu, S. Savarese, J. Malik, and L. Fei-Fei, “Metamorph: Learning universal controllers with transformers,” in International Conference on Learning Representations (ICLR) , 2022. [29] W. Yu, C. Liu, and G. Turk, “Preparing for the Unknown: Learning a Universal Policy with Online System Identification,” ArXiv , vol. abs/1702.02453, 2017. [30] W. Yu, J. Tan, Y. Bai, E. Coumans, and S. Ha, “Learning Fast Adaptation With Meta Strategy Optimization,” IEEE Robotics and Automation Letters , vol. 5, 2019. [31] N. Bohlinger, T. Flayols, F. Bordes, I. Laptev, C. Schmid, and J. Sivic, “One policy to run them all: an end-to-end learning approach to multi-embodiment locomotion,” in Conference on Robot Learning , 2024. [32] S. Yang, Z. Fu, Z. Cao, G. Junde, P. Wensing, W. Zhang, and H. Chen, “Multi-loco: Unifying multi-embodiment legged locomo-tion via reinforcement learning augmented diffusion,” arXiv preprint arXiv:2506.11470 , 2025. [33] M. Takeichi, K. Suzumori, G. Endo, and H. Nabae, “Giacometti arm with balloon body,” IEEE Robotics and Automation Letters , 2017. [34] C. M. Best, J. P. Wilson, and M. D. Killpack, “Control of a pneu-matically actuated, fully inflatable, fabric-based, humanoid robot,” in 
+
+IEEE-RAS 15th International Conference on Humanoid Robots , 2015. [35] G. Shi, Q. Li, W. Zhang, J. Chen, and X.-M. Wu, “Recon: Reducing conflicting gradients from the root for multi-task learning,” arXiv preprint arXiv:2302.11289 , 2023. [36] S. Lloyd, “Least squares quantization in PCM,” IEEE Trans. Inf. Theory , vol. 28, 1982. [37] M. Mittal, et al. , “Isaac lab: A gpu-accelerated simulation framework for multi-modal robot learning,” arXiv, arXiv:2511.04831 , 2025. [38] J. Bergstra, R. Bardenet, Y. Bengio, and B. K´ egl, “Algorithms for hyper-parameter optimization,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 24, 2011. [39] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” arXiv:1707.06347 , 2017.

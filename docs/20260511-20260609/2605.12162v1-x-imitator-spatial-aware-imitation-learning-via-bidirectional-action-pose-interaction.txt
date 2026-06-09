@@ -1,0 +1,536 @@
+Title: X-Imitator: Spatial-Aware Imitation Learning via Bidirectional Action-Pose Interaction
+
+URL Source: https://arxiv.org/pdf/2605.12162v1
+
+Published Time: Wed, 13 May 2026 01:23:02 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# X-Imitator: Spatial-Aware Imitation Learning via Bidirectional Action-Pose Interaction 
+
+Kai Xiong, Hongjie Fang, Lixin Yang, and Cewu Lu 
+
+Shanghai Jiao Tong University 
+
+Abstract. Effectively handling the interplay between spatial perception and action generation remains a critical bottleneck in robotic manipu-lation. Existing methods typically treat spatial perception and action execution as decoupled or strictly unidirectional processes, fundamen-tally restricting a robot’s ability to master complex manipulation tasks. To address this, we propose X-Imitator, a versatile dual-path framework that models spatial perception and action execution as a tightly coupled bidirectional loop. By reciprocally conditioning current pose predictions on past actions and vice versa, this framework enables continuous mu-tual refinement between spatial reasoning and action generation. This joint modeling exactly mimics human internal forward models. Designed as a modular architecture, the system can be seamlessly integrated into various visuomotor policies. Extensive experiments across 24 simulated and 3 real-world tasks demonstrate that our framework significantly out-performs both vanilla policies and prior methods utilizing explicit pose guidance. The code will be open sourced. 
+
+Keywords: Robotic Manipulation · Imitation Learning · Object Pose 
+
+## 1 Introduction 
+
+Robotic manipulation, with applications ranging from industrial assembly to domestic assistance, has been revolutionized by data-driven approaches in recent years [4–6]. Specifically, imitation learning [1, 6, 7, 45, 50, 59, 75] has emerged as a simple but effective paradigm, allowing robots to acquire complex skills from pre-collected expert demonstrations [18, 32, 64]. Despite recent advancements in vision-based imitation learning, enabling robots to perform complex, dynamic manipulation where the spatial relationship between the robot and the object constantly evolves remains a fundamental challenge [25,37]. A critical bottleneck in mastering these tasks lies in how existing frameworks handle the interplay between spatial perception and action generation .To enhance spatial awareness in imitation policies, a common approach is to augment visual observations with 3D modalities like depth or point clouds [19– 21, 55, 59, 72, 73]. However, relying on implicit feature learning from raw geom-etry often falls short in extracting the precise, object-level relationships needed for complex manipulation tasks. Another line of research utilizes explicit spatial guidance, such as flows [8, 23, 43, 62, 67, 70] or visual prompts [31, 77]. Yet, flows  
+
+> arXiv:2605.12162v1 [cs.RO] 12 May 2026 2K. Xiong et al.
+
+are fundamentally low-level pixel representations lacking object-centric seman-tics, and visual prompts are typically confined to the 2D image plane, restricting their spatial reasoning capabilities. Fundamentally, the most direct and explicit way to embody spatial perception is through the object’s 6D pose. Driven by this perspective, recent techniques leverage object pose trajectories to foster spatial-aware policy learning. However, they typically treat pose either as inter-mediate action [3, 28, 53] or as auxiliary supervision [16]. Despite their efficacy, both paradigms fail to establish a true reciprocal connection. Specifically, aux-iliary supervision only implicitly shapes shared representations during training, lacking any explicit interaction between pose and action during inference. Con-versely, treating pose as the intermediate action enforces a strictly sequential, one-way pipeline where pose simply precedes action generation. In either case, the architecture prevents action execution from reciprocally informing or updat-ing the spatial perception. This decoupled, or unidirectional nature contrasts sharply with human ma-nipulation, where spatial perception and action execution form a tightly coupled, bidirectional loop . The intuition is straightforward: just as our perception of the object’s current pose dictates our next precise movement, our recent ac-tions inherently act as an internal forward model to predict and update the object’s spatial state, especially when visual feedback is momentarily occluded by our own hands. To emulate this natural and synergistic process, we propose 
+
+X-Imitator , a dual-path framework that jointly models action sequences and object pose trajectories. The framework is built upon three design principles: 1. At its core lies a bidirectional action-pose interaction : the previously generated action serves as an explicit conditioning context to predict the current pose, and vice versa. As illustrated in Fig. 1, the prefix “X” precisely symbolizes this reciprocal, cross-branch flow of information , enabling mutual refinement between spatial reasoning and action execution. 2. This joint modeling inherently eliminates dependence on external pose estimators during inference. Conventional spatial-aware policies [28] often depend on off-the-shelf pose estimation pipelines [61] during inference, which are computationally heavy and highly brittle under visual occlusions. By internally deducing the object’s spatial state conditioned on its own actions, X-Imitator mitigates cascading perception errors, faithfully mirroring how humans rely on internal forward models when vision is obscured. 3. X-Imitator is designed as a versatile , plug-and-play framework. Its ac-tion branch can be effortlessly instantiated by diverse existing imitation paradigms. To demonstrate this broad applicability, we build concrete in-stantiations upon representative 2D and 3D visuomotor policies [59, 72, 75]. Extensive experiments across 24 simulated and 3 real-world tasks demon-strate that this tightly coupled design significantly outperforms both vanilla policies and prior pose-enhanced frameworks, confirming the superiority of our reciprocal interaction mechanism. Furthermore, ablation studies confirm the su-periority of our interactive design over non-interactive and alternative mecha-nisms. The code and data will be released upon acceptance. X-Imitator 3
+
+## 2 Related Works 
+
+2.1 Spatial Perception for Robotic Manipulation Geometric Representations. To bridge the gap between 2D pixel inputs and the 3D physical world, many works augment visual observations with depth in-puts, enabling native 3D geometric perception. PerAct [52] creates a voxelized 3D volume and applies Perceiver-IO [30] to predict discrete actions. Act3D [21] extends this by learning 3D feature fields of arbitrary spatial resolution via recur-rent coarse-to-fine ghost point sampling. To improve efficiency, RVT [22] avoids voxelization by projecting 3D point clouds into virtual orthographic views. While DP3 [72] (a 3D extension of DP [12]) employs an MLP encoder to encode sparse point clouds into a compact 3D representation that conditions the diffusion pro-cess, RISE [59] and RISE-2 [19] adopt the sparse 3D convolutional encoder [14] and a Transformer [57] to obtain a more powerful featurization. More recently, methods have integrated explicit 3D encoders directly into Vision-Language-Action (VLA) architectures [29, 33, 34, 46, 55] and utilized 3D perception capa-bility of visual foundation models [24, 36, 51, 73]. For example, GeoVLA [55] and PointVLA [33] introduce a point encoder alongside the VLM, fusing them at the action head without disrupting the VLM backbone. Base on a frozen geometry-aware vision transformer VGGT [60], GLaD [24] and Evo-0 [36] extract geometric features from RGB images, thereby enhancing the spatial understanding of VLA. These methods have enhanced spatial awareness by dedicated architectural de-signs which are orthogonal approaches to our X-Imitator framework. 
+
+Flow Representations. Recognizing the inherently dynamic nature of manip-ulation, another line of research employs flow as an intermediate representation to facilitate action prediction. While some studies utilize 2D flow to capture mo-tion trends on the image plane [3,39,67,78], others further lift it to 3D point flow for more accurate spatial modeling [8, 10, 17, 43, 68]. Despite its flexibility, flow-based representations—whether at the pixel level or their corresponding 3D point flows—can be computationally expensive and susceptible to noise. To address these limitations, X-Imitator introduces object pose trajectory as a lightweight, geometry-aware 3D representation, combining the dynamic advantages of flow methods with the structural robustness of rigid-body pose estimation. 
+
+6D Pose Representations. As a compact and precise representation of ob-ject state, pose is considered an intermediate representation of robot action in one line of research. For example, Track2Act [3] predicts point flow to infer rigid transformations of objects, while SPOT [28] utilizes FoundationPose [61] to track the current object pose, which then conditions future pose diffusion. These methods rely on a motion planner to convert the pose into end-effector action. In contrast, MBA [53] cascades pose estimation and action generation, eliminating the need for an external pose estimator or motion planner during inference. GraphCoT-VLA [29] constructs a 3D Pose-Object graph to capture 4 K. Xiong et al. 
+
+topological relationships between robot joints and objects. In this graph, how-ever, each node is characterized by a 3D position rather than a 6D pose. Different from these approaches, our X-Imitator establishes a bidirectional action-pose in-teraction, going beyond the common practice of using pose merely as a one-way intermediate guidance for action generation. 
+
+Visual Prompting Representations. To avoid learning complex spatial fea-tures from scratch, some approaches leverage the implicit spatial reasoning of Vision-Language Models (VLMs) or explicit visual prompts to guide policy learn-ing. For instance, RoboPoint [71] trains a VLM to generate 2D action points as spatial affordances, which are then projected into 3D targets for motion planning. In contrast, InternVLA-M1 [11] adopts a locate-then-manipulate paradigm: once trained to output spatial coordinates, the model relies solely on text prompts to activate spatial reasoning during deployment. 2D trajectories overlaid on images offer a middle ground between motion expressiveness and ease of use. Conse-quently, recent methods explore history-aware [44, 76], present-aware [15], and hindsight-aware [23] 2D trajectories projected onto RGB or depth images to en-able precise and smooth action generation. However, these methods often treat spatial information as a static pre-processing step. Unlike such approaches, X-Imitator models object pose trajectories as dynamic variables that co-evolve with robot actions. Our interaction mechanism ensures mutual consistency between predicted object states and robot actions at every timestep, rather than merely conditioning one on the other. 
+
+2.2 Dual-path Architecture and Iterative Refinement 
+
+Dual-path (or dual-stream) architectures have become a dominant paradigm for handling heterogeneous information and decomposing feature dependencies. Originating from Siamese networks used in metric learning and visual track-ing [42, 74], this architecture has evolved from learning symmetric similarity to modeling asymmetric complementary information. For instance, the dual-stream diffusion head [63] maintains separate streams for action and image modalities while enabling cross-modal knowledge sharing. And the dual-path point em-bedding network [55] extracts a geometry representation with precise spatial location. Besides robotic manipulations, dual-path designs are commonly employed for cross-modal alignment and interaction in multi-modal tasks [38,40,47], as well as for spatiotemporal decomposition in video analysis [26,66]. Among these applica-tions, cross-attention serves as a standard mechanism for information exchange. Note that existing dual-path architectures typically perform information interac-tion within a single forward pass, whereas our X-Imitator facilitates interaction across inference steps. This temporal form of interaction resembles an iterative refinement module, which recursively takes its own output as input for the next step to enhance prediction precision [35, 56, 58]. Consequently, X-Imitator mar-ries the merits from both sides: the dual-path structure achieves flexibility of our X-Imitator 5Action Branch   
+
+> (eg.ACT,DP3,RISE)
+> Point clouds
+> Pose Branch
+> (eg. diffusion model )
+> RGB images
+> Observation Timestep t
+> Visual Encoder
+> Action Branch
+> (eg.ACT,DP3,RISE)
+> Pose Branch
+> (eg. diffusion model )
+> Timestep t+1
+> Visual Encoder
+> X-I nteraction
+> action chunk
+> SE(3) pose traj.
+> 𝐀 𝐀
+> 𝐀 𝐀 −1
+> 𝐀 𝐀 −1
+> 𝐀 𝐀
+> 𝐀 𝐀
+> 𝐀 𝐀
+> 𝐀 𝐀
+> 𝐀 𝐀 +1
+> 𝐀 𝐀 +1
+> 𝐀 𝐀 +1
+
+Fig. 1: Overview of X-Imitator. The framework maintains two interactive branches: an action branch (the policy) and a pose branch with shared visual features. The key innovation is an across-step interaction mechanism: the output from one branch at timestep t serves as an additional conditional input for the other branch at timestep 
+
+t + 1 .
+
+framework, while the across-step bidirectional interaction enables coevolution of action and pose predictions. 
+
+## 3 Method 
+
+In this section, we formally present X-Imitator, a spatial-aware imitation learning framework with a bidirectional action-pose interaction mechanism, designed to explicitly incorporate spatial information into modern visuomotor policies. 
+
+3.1 Preliminary 
+
+Let Ot denote the visual observation at time step t, which typically includes RGB-D images and robot proprioception. The objective is to learn a policy π
+
+that predicts the future action trajectory At = {at, a t+1 , . . . , a t+H−1} given Ot,where H is the prediction horizon. Unlike standard approaches that map Ot →
+
+At alone, X-Imitator simultaneously predicts the object pose trajectory Pt =
+
+{pt, p t+1 , . . . , p t+H−1}, where pi ∈ SE (3) , represented as a 9D vector containing 3D translation and 6D rotation [79], is the pose of a target object in the camera or robot base coordinate system. We consider the objects or articulated object parts being manipulated as the target objects. With a little symbol abuse, pi ∈ R9n
+
+also represents the concatenated poses when there are n > 1 target objects. 
+
+3.2 Architecture Design 
+
+As shown in Figure 1, the overall architecture of X-Imitator consists of two par-allel branches: an action branch Fa and a pose branch Fp. Both branches share a common visual encoder to extract perceptual features F vis t from observation Ot.The core innovation lies in the dual-branch action-pose interaction mechanism. 6 K. Xiong et al. 𝐀 𝐀  
+
+> 𝐀 𝐀 𝐀
+
+∈ ℝ𝐀 
+
+𝐀 𝐀  
+
+> 𝐀 𝐀 𝐀 𝐀
+
+∈ ℝ𝐀 
+
+> Action
+> Diffusion
+> noise
+> 𝐀 𝐀 +1
+
+𝐀 𝐀  
+
+> 𝐀 𝐀 𝐀
+
+∈ ℝ𝐀 ×𝐀 
+
+𝐀 𝐀  
+
+> 𝐀 𝐀 𝐀 𝐀
+
+∈ ℝ𝐀 ×𝐀 
+
+> Transformer
+> CVAE
+> 𝐀 𝐀 +1
+> C
+> query
+
+Fig. 2: Feature fusion in action branch. Left: Add fusion in X-DP3. Right: Concat fusion in X-ACT. The visual feature F vis t is extracted by the perception module of each base method. The pose trajectory feature F pose t is obtained by: MLP on flattened 
+
+Pt−1 for X-DP3 and X-RISE; self-atten on Pt−1 + cross-atten with F vis t for X-ACT. 
+
+Bidirectional Action-Pose Interaction. Instead of treating action and pose prediction as independent tasks, we introduce a bidirectional information flow between them. Specifically, the action branch predicts At conditioned on the visual feature F vis t and the previous pose estimate Pt−1. Conversely, the pose branch predicts Pt conditioned on F vis t and the previous action estimate At−1.This design forms a closed-loop interaction between spatial perception and mo-tion execution, allowing the two branches to iteratively refine each other and yielding more informed, geometrically grounded policy decisions. Formally, the update rules of X-Imitator are defined as: 
+
+(At = Fa(Cond a(ϕa(Pt−1), F vis t )) 
+
+Pt = Fp(Cond p(ϕp(At−1), F vis t ))  (1) where ϕ(·) projects the past trajectory into feature space, and Cond (·) is a feature fusion operator which degrades to output F vis t directly when there is no past estimate ( t = 0 ). 
+
+3.3 Instantiations 
+
+To demonstrate the versatility of X-Imitator, we instantiate the action branch using three representative visuomotor policies: DP3 [72], ACT [75], and RISE [59]. For the pose branch, we implement it as a lightweight diffusion head [12,27] for simplicity. While these instantiations share the high-level dual-path logic, the key differences lie in how the conditional sequence projector ϕ(·) and feature fusion operator Cond (·) in Eqn. (1) are implemented to suit the base architecture. Fig. 2 illustrates the feature fusion in action branch. 
+
+X-DP3. DP3 uses a U-Net-based diffusion model operating on point cloud features F vis t . In X-DP3, the interaction is implemented via direct feature injec-tion. Specifically, we employ a three-layer MLP to project each of the flattened sequences ( At−1, Pt−1) into conditional features ( F act t , F pose t ), which are then fused with the visual features F vis t via element-wise addition. The resulting com-bined features are fed into the respective diffusion heads for both action and pose X-Imitator 7
+
+prediction ( At, Pt). Empirically, we find that the straightforward additive fusion outperforms the more delicate FiLM fusion in our case. A similar phenomenon is also observed in [73]. 
+
+X-ACT. ACT uses a transformer-based conditional variational auto-encoder to generate robot actions, with multi-view RGB images as visual inputs. For X-ACT, we also leverage the sequence modeling capabilities of the transformer. Each conditional sequence ( At−1, Pt−1) is first linearly projected into a sequence of tokens. These tokens undergo self-attention to capture temporal dependencies. Crucially, we then apply cross-attention, where the condition tokens serve as queries and the ResNet-based visual tokens F vis t serve as keys and values. This produces two sets of visually-enhanced condition tokens ( F act t , F pose t ). In the action branch, F pose t is concatenated with F vis t to feed into the transformer to generate action At. In the pose branch, F act t and F vis t are reduced along sequence dimension, followed by element-wise addition, to obtain the fused feature vector to guide the pose trajectory Pt diffusion. 
+
+X-RISE. RISE utilizes a 3D sparse encoder to extract point cloud tokens, which are aggregated into a feature vector F vis t by a transformer. Specifically, the point tokens are processed by a transformer encoder first. Then, for each decoding step in the transformer, one readout token is utilized to query the processed point tokens to obtain F vis t . In X-RISE, similar to X-DP3, each conditional sequence (At−1, Pt−1) is flattened and projected via a linear layer to obtain conditional features ( F act t , F pose t ), which act as two readout tokens to query the processed point tokens, resulted in the visually-enhanced version of conditional features. Unlike X-ACT, we empirically find that these two features are sufficiently in-formative to guide the action and pose diffusion without further concatenating with F vis t .
+
+Training Objective. The framework is trained end-to-end using a joint loss function defined as: 
+
+L = Laction + λ · L pose , (2) 
+
+– Laction : For X-ACT, this is the standard CVAE reconstruction loss (L1 loss on actions + KL divergence). For X-DP3 and X-RISE, this is the diffusion denoising MSE loss on the action sequence. 
+
+– Lpose : This is the diffusion denoising MSE loss on the pose trajectory. λ is a hyperparameter balancing the two tasks, and we fix it to 1. 
+
+## 4 Simulation Experiments 
+
+In this section, we empirically evaluate X-Imitator across diverse tasks in several simulation benchmarks. We aim to answer the following research questions: 8 K. Xiong et al. Adroit Hammer Adroit Door Adroit Pen Dexart Laptop Dexart Faucet Dexart Toilet              
+
+> Dexart Bucket Assembly Ha nd-Insert Pick Out of Hole Pick Place Push
+> Shelf Place Disassemble Stick Pull Stick Push Pick Place Wall
+> Beat Block Hammer
+> Place Shoe Rotate QRcode Hanging Mug Lift Pot Place Bread Skillet
+> Place Dual Shoes
+
+Fig. 3: Overview of simulated tasks. The first 3 and 4 tasks are from Adroit and Dexart, respectively. The middle 10 tasks with a red robot arm are from MetaWorld, and the last 7 tasks with dual arms are from RoboTwin 2.0. 
+
+(RQ1) Can X-Imitator improve the performance of various visuomotor poli-cies by leveraging bidirectional action-pose interaction? 
+
+(RQ2) Does the bidirectional action-pose interaction mechanism lead to bet-ter performance than other interactive or non-interactive alternatives? 
+
+(RQ3) How does the conditional trajectory length in bidirectional action-pose interaction influence the policy performance? 
+
+4.1 Setup Environments and Benchmarks. To comprehensively evaluate our frame-work, we select a total of 24 simulation tasks across four diverse benchmarks, as illustrated in Fig. 3. Following prior works [53, 54, 72], our evaluation spans Adroit [48], DexArt [2], MetaWorld [69], and the recent dual-arm RoboTwin 2.0 [9] simulation benchmarks. Specifically, we evaluate on the hard and very hard settings of MetaWorld (excluding the push back task in hard due to expert script failures as reported in [72]). For RoboTwin 2.0, we carefully select 7 tasks requiring precise spatial coordination, which encompass both simultaneous dual-arm manipulation and scene-dependent single-arm selection. Overall, these tasks involve rigid and articulated objects, single-arm and dual-arm configurations, as well as gripper and dexterous hand end-effectors, providing a rigorous testbed for spatial-aware manipulation. 
+
+Baselines. To validate the effectiveness of the proposed framework, we employ the representative point-based policies DP3 [72], RISE [59], and one image-based policy ACT [75], as our baselines. DP3 with MBA enhancement [53]. As detailed X-Imitator 9                                    
+
+> Table 1: Simulation success rates (%) on Adroit, DexArt and MetaWorld benchmarks. Detailed comparison for each task is reported in Fig. 4.
+> Method Adroit DexArt MetaWorld
+> (hard)
+> MetaWorld
+> (very hard) Average
+> DP3 [72] 62.2 55.9 48.9 51.4 54.6 DP3+MBA [53] 63.2 57.0 52.8 62.7 58.9 DP3+UniAux 64.0 59.3 49.7 52.1 56.3 DP3+SepAux 66.6 57.4 52.6 64.3 60.2 DP3+Hybrid 65.3 57.3 54.7 64.4 60.4 X-DP3 (ours) 71.4 59.4 57.7 66.6 63.8
+
+in the method section, our X-DP3, X-ACT, and X-RISE are developed based on these baselines to show improvements brought by our framework. We use the simple configuration for DP3 and adopt a smaller model for ACT. We fix bugs of the DP3 released code involving point coordination system misuse in Adroit and target missing issues in MetaWorld. 
+
+Implementations. We generate 10 episodes for Adroit and MetaWorld tasks, 50 episodes for RoboTwin 2.0 tasks, and 100 episodes for DexArt tasks for train-ing. The policies are trained with a batch size of 128 and a learning rate of 10 −4.The horizon H is set to 48 for (X-)ACT and 16 for others. (X-)DP3 uses ob-servations of both Ot and Ot−1 while others use Ot only. For our instantiations, we introduce an extra parameter N , defaulting to 8, which represents the con-ditional trajectory length. This design considers real scenarios where the policy predicts, for example, H = 16 steps, but only executes N = 8 steps before the next prediction. By decoupling horizon and conditional length, we can adjust the number of execution steps at the interval of [N, H ] during inference with-out requiring specific treatment. To boost robustness and mitigate compounding error, we perform condition augmentation by adding noise to the ground-truth action/pose in the training stage, mimicking prediction error during inference. 
+
+Evaluation Protocols. We evaluate all policies for 100 consecutive trials on the RoboTwin 2.0 benchmark and 300 trials on the other benchmarks after training. Only the final checkpoint is evaluated, and we record its average success rate as the metric. This is slightly different from the metric used in [53, 72], where they evaluated the policy during training and computed the average of the highest 5 success rates. We choose to evaluate the final trained model since it is more realistic and closer to real-world practical settings. 
+
+4.2 Results Establishing a tightly coupled action-pose interaction via X-Imitator consistently enhances the spatial awareness and overall performance 10 K. Xiong et al.                                                              
+
+> Table 2: Simulation success rates (%) on RoboTwin 2.0 benchmark. The task names are simplified to ensure a clean presentation. Note that while tasks in the Single-Arm category can be performed with one arm, the policy must determine which arm to use based on the scene configuration.
+> Method Single-Arm Dual-Arm Average
+> hammer shoe QRcode mug pot bread shoes ACT [75] 55 728 10 82 10 327.86 X-ACT (ours) 65 31 46 18 87 10 637.57
+> DP3 [72] 81 52 64 23 92 38 18 52.57 X-DP3 (ours) 87 59 69 27 98 48 20 58.29
+> RISE [59] 90 78 59 39 91 44 20 60.14 X-RISE (ours) 92 72 63 62 93 52 17 64.43
+
+across diverse visuomotor policies (RQ1). We demonstrate this through both interaction effectiveness and framework generality. Regarding effectiveness, X-DP3 achieves a 63.8% average success rate across Adroit, DexArt, and Meta-World ( hard and very hard ) benchmarks, outperforming the base DP3 (54.6%) and DP3+MBA (58.9%), as shown in Table 1. This performance gain, driven by the integration of utilizing pose trajectories and a bidirectional action-pose inter-action mechanism, is especially evident in tasks requiring precise spatial align-ment (e.g., Door , Pen , and Stick Pull ), where X-DP3 yields improvements up to 21%, as demonstrated in Figure 4. Furthermore, we show that X-Imitator ex-hibits strong generality across diverse base policies on the RoboTwin 2.0 bench-mark in Table 2. Notably, it provides a substantial gain for the image-based ACT (27.86% to 37.57%), which inherently lacks spatial awareness due to its 2D input and thus benefits the most from the introduced pose interactions. Im-portantly, these consistent improvements span diverse manipulation scenarios, demonstrating the framework’s robustness across various end-effectors and both single-arm and dual-arm configurations. 
+
+Computational Overhead. As an example, compared to RISE with 51M parameters, X-RISE has 71M parameters which slightly increases the memory usage and training time per iteration from (4220M,228ms) to (4726M,243ms). During inference, due to the added pose diffusion head, X-RISE drops from 11Hz to 6Hz, predicting 6*Horizon steps per second. Note that the two branches of X-RISE are implemented sequentially and could be accelerated via parallel execution. 
+
+4.3 Ablations The bidirectional action-pose interaction is more effective than the unidirectional interaction and non-interactive alternatives for captur-ing spatial dependencies (RQ2). We design three DP3 variants, with their X-Imitator 11 98.0 
+
+> 98.5
+> 99.0
+> 99.5
+> 100.0
+> Success Rate (%)
+> Hammer
+> 45
+> 50
+> 55
+> 60
+> 65
+> 70
+> Success Rate (%)
+> Door
+> 38
+> 40
+> 42
+> 44
+> 46
+> Success Rate (%)
+> Pen
+> 72.0
+> 72.5
+> 73.0
+> 73.5
+> 74.0
+> 74.5
+> Success Rate (%)
+> Laptop
+> 36
+> 37
+> 38
+> 39
+> 40
+> 41
+> Success Rate (%)
+> Faucet
+> 58
+> 59
+> 60
+> 61
+> 62
+> 63
+> 64
+> 65
+> Success Rate (%)
+> Toilet
+> 55
+> 56
+> 57
+> 58
+> Success Rate (%)
+> Bucket
+> 90
+> 92
+> 94
+> 96
+> 98
+> Success Rate (%)
+> Assembly
+> 12.0
+> 12.5
+> 13.0
+> 13.5
+> 14.0
+> 14.5
+> 15.0
+> Success Rate (%)
+> Hand Insert
+> 70
+> 75
+> 80
+> 85
+> Success Rate (%)
+> Pick Out of Hole
+> 20
+> 25
+> 30
+> 35
+> 40
+> 45
+> Success Rate (%)
+> Pick Place
+> 30
+> 35
+> 40
+> 45
+> 50
+> Success Rate (%)
+> Push
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> Success Rate (%)
+> Shelf Place
+> 87.2
+> 87.4
+> 87.6
+> 87.8
+> 88.0
+> Success Rate (%)
+> Disassemble
+> 60
+> 65
+> 70
+> 75
+> 80
+> Success Rate (%)
+> Stick Pull
+> 75
+> 80
+> 85
+> 90
+> 95
+> 100
+> Success Rate (%)
+> Stick Push
+> 25
+> 30
+> 35
+> 40
+> 45
+> 50
+> 55
+> 60
+> Success Rate (%)
+> Pick Place Wall
+> DP3
+> DP3+MBA
+> X-DP3 (Ours)
+
+Fig. 4: Comparison of our X-DP3 against DP3 and its MBA-enhanced version, over each of the 17 simulated tasks from Adroit, Dexart and MetaWorld. The average success rate of each simulated benchmark is reported in Table 1. Action Branch Pose Branch 
+
+Feature 
+
+DP3+SepAux 
+
+Feature 
+
+Action & Pose 
+
+Branch 
+
+DP3+UniAux 
+
+> Action Branch
+> Pose  Branch
+> Feature
+
+DP3+ MBA 
+
+Fig. 5: Comparison of DP3 variants in the ablation studies. 
+
+differences illustrated in Fig. 5, which also includes DP3+MBA [53] for a com-plete comparison. DP3+SepAux adopts a multi-task learning paradigm without branch interaction, using pose prediction as an auxiliary task. DP3+UniAux takes the concatenated vector of action and pose as the unified diffusion target. DP3+Hybrid utilizes a hybrid training strategy that, in each iteration, the model is trained in X-DP3 style or in DP3-SepAux style, each with the probability of 0.5. We aim to make the action branch compatible with the presence or absence of the conditional pose trajectory. Therefore, the model runs two branches to learn task-related spatial information during training, while it only keeps the action branch during inference. Results shown in Table 1 (middle rows) demon-strate that X-DP3 outperforms these variants, confirming that the dual-path bidirectional interaction is more effective than other alternatives for capturing spatial dependencies. We can see that DP3+Hybrid degrades to DP3+SepAux. The reason might be that its model capacity is insufficient to support mixed training. We can also observe that the simple UniAux strategy brings a slight 12 K. Xiong et al. 4 8 12 15 16         
+
+> Trajectory Length N
+> 40
+> 50
+> 60
+> 70
+> 80
+> Success Rate (%)
+> Place Shoe
+> X-DP3
+> X-RISE
+> 4812 15 16
+> Trajectory Length N
+> 65
+> 70
+> 75
+> 80
+> 85
+> 90
+> 95
+> 100
+> Success Rate (%)
+> Lift Pot
+> X-DP3
+> X-RISE
+> 4812 15 16
+> Trajectory Length N
+> 25
+> 30
+> 35
+> 40
+> 45
+> 50
+> 55
+> Success Rate (%)
+> Place Bread Skillet
+> X-DP3
+> X-RISE
+
+Fig. 6: Ablation study of the conditional trajectory length N which defaults to 8 in all experiments. 
+
+improvement (1.7%) over DP3, again showing the benefits of introducing bidi-rectional pose-action interaction for better spatial perception. 
+
+A longer conditional trajectory can better capture motion patterns and tends to yield better performance (RQ3). To study the effect of tra-jectory length, we vary N for X-DP3 and X-RISE on three randomly selected RoboTwin 2.0 tasks. Note that X-DP3 follows the convention of DP3 and ex-ecutes at most H − n + 1 steps, where n denotes the number of observation frames. As shown in Fig. 6, X-RISE exhibits a clear performance improvement as N increases, whereas X-DP3 saturates at N = 8 . This may stem from the lim-ited capacity of DP3, as discussed in [59]. Both methods experience a notable performance drop at N = 4 , likely because shorter sequences fail to capture meaningful motion patterns and thus degrade the base policy. 
+
+## 5 Real-world Experiments 
+
+In this section, we aim to answer the following research question. 
+
+(RQ4) Does the advantage of X-Imitator demonstrated in simulation environ-ments translate to real-world scenarios? 
+
+5.1 Setup Platform. Our robot platform consists of a Flexiv Rizon 4 robotic arm with a Dahuan AG-95 gripper. A global Intel RealSense D435 RGB-D camera is posi-tioned in front of the robot, perceiving the robot workspace during manipulation. Following [18], we use sigma 7 haptic device to teleoperate the robot to gather 50 expert demonstrations for each task. 
+
+Tasks. As illustrated in Fig. 7, we design three tasks Hang Mug , Pour Balls and 
+
+Pick Place Truck for the real-world experiments. These tasks demand both fine-grained orientation control and precise positioning. For instance, in the Arrange X-Imitator 13 Start Grasp Rotate Hang Release              
+
+> Start Grasp Rotate Move Place
+> Start Grasp Move Pour Place
+> Hang Mug. Grasp the mug and hang it on the rack.
+> Pour Balls. Grasp the cup and pour the balls inside it into the bowl.
+> Arrange Toy Truck. Grasp the toy truck and place it on the white shelf in the
+> correct orientation (with the truck front facing inward, aligned with the shelf ).
+
+Evaluation 
+
+Fig. 7: Real-world task descriptions. The last column shows the evaluation setup. 
+
+Toy Truck task, the wheels will roll if the gripper is not aligned properly with the truck body during grasping, and the truck will drop if it is not rotated to align with the narrow white stage. 
+
+Implementations. After collecting expert demonstrations, FoundationPose [61] is used to estimate the object pose in the first episode frame and to track the remaining ones. For the inputs to FoundationPose, we utilize text-prompted SAM2 [41, 49] to generate an initial object mask, and use the MagiScan app to acquire an up-to-scale 3D mesh which is then manually adjusted to the real-world size within several minutes. We choose the best-performing visuomotor policy in the simulation experiments, RISE and X-RISE, for real-world evaluations. 
+
+Evaluation Protocols. Following the procedure in [13,19,65], we utilize a con-sistent evaluation protocol for all policies to minimize performance variance and ensure reproducibility. Specifically, uniformly distributed test positions are ran-domly generated prior to each task evaluation, as illustrated in the last column of Fig 7. Each policy is evaluated for 20 consecutive trials to compute its success rate. We limit the total number of execution steps to 300. To conduct a more detailed comparison, we divide each task into two or several successive stages and record their success rates respectively. 
+
+5.2 Results The X-Imitator framework is robust to real-world sensor noise and physical uncertainties, maintaining its lead in the real-world tasks (RQ4). The real-world results summarized in Table 3 indicate that X-RISE significantly improves system reliability. In the Hang Mug task, X-RISE increases 14 K. Xiong et al.                                 
+
+> Table 3: Evaluation results on real-world tasks. The #balls column denotes the num-ber of balls successfully poured into the bowl.
+> Method Hang Mug Pour Balls Arrange Toy Truck
+> grasp hang grasp place #balls grasp place direction RISE [59] 90% 60% 90% 80% 7.4 ±3.3 65% 55% 55% X-RISE (ours) 100 %80 %100 %100 %8.9 ±1.2 100 %80 %80 %
+
+the final “ hang ” success rate from 60% to 80%. In the Pour Balls task, X-RISE successfully pours a greater number of balls with lower standard deviation. We note that the baseline RISE occasionally fails to position the cup accurately above the bowl, causing many balls to roll off the table. As a result, the policy perceives few or no balls in the bowl yet continues pouring attempts, even when the cup is empty, until the maximum number of execution steps is reached. In the Arrange Toy Truck task, we observe that RISE sometimes fails to align the gripper properly with the truck body, leading to a lower grasp success rate. Both RISE and our X-RISE occasionally place the truck in the wrong direction (facing outward). This misorientation may occur because neither policy utilizes RGB input during our training, which makes it difficult to discern the truck’s head orientation from partial point clouds alone. 
+
+## 6 Limitations and Conclusion 
+
+Limitations. First, the current framework assumes that the manipulated ob-jects can be represented by a rigid SE(3) pose. Thus, our method can not be directly applied to deformable objects ( e.g. , ropes, cloth), and is limitedly applied to articulated objects when we treat the manipulated part as an individual ob-ject. Second, the external pose estimator used for obtaining training pose labels may fail under severe occlusion, motion blur, or poor lighting in real-world tasks. Therefore, a correction procedure is required sometimes. Third, the framework assumes a structured scene where the target object is known a priori. Handling unstructured scenes remains an open challenge. 
+
+Conclusion. We have introduced X-Imitator, a flexible dual-path imitation learning framework that enhances spatial awareness in robot manipulation via bidirectional action-pose interaction. By reciprocally conditioning current pose predictions on past actions and vice versa, X-Imitator enables mutual refinement of action generation and spatial reasoning. With minimal inference overhead and broad architectural compatibility, X-Imitator offers a simple yet powerful plug-in for existing imitation learning methods with effective spatial perception. X-Imitator 15 
+
+## Supplement A Domain Randomization 
+
+We generate domain randomized data (clutter, table heights, etc .) to study its impact on the model performance in Table 4. As can be see, X-RISE demon-strates superior performance compared to the base policy RISE, highlighting the benefits of its bidirectional interaction mechanism. However, both policies show a significant performance drop relative to the results under clean configurations reported in the main paper. This indicates that there remains considerable room for improving imitation learning in handling cluttered scenes. Notably, X-RISE maintains or even improves the success rate on the Lift Pot (pot) task. We speculate that this is because the pot’s point cloud has a relatively large size, which helps the model be more robust to distractors. Another somewhat coun-terintuitive result is that the evaluation results on random data are better than those on clean data. This is because the model was trained on random data and has hardly ever encountered clean data. This reminds us that when it comes to data-driven methods, it is crucial to carefully prepare the training data.                                               
+
+> Table 4: Simulation success rates (%) on RoboTwin 2.0 benchmark. Both models are trained on domain randomized data while evaluated on clean or randomized data.
+> Method Single-Arm Dual-Arm Average
+> hammer shoe QRcode mug pot bread shoes RISE (clean) 32 94983 5020.29 X-RISE (clean) 42 12 10 13 93 6025.14
+> RISE (random) 41 28 53 12 78 7431.86 X-RISE (random) 40 30 46 19 95 7434.43
+
+## B Robustness to Historical Prediction Noise 
+
+In our code implementation, we perform condition augmentation by adding noise to the ground-truth action/pose in the training stage, mimicking prediction error during inference. Fig. 6 of the main paper shows that performance improves as the conditional length N increases, even as prediction noise also increases alongside useful historical information. It indicates that the framework has anti-noise ability and can effectively extract valuable patterns from history. Table 5 further demonstrates robustness to historical prediction noise. When the standard deviation of the noise added to  (R, t ) is set to (0.2 rad, 0.02 m), X-RISE and its (gt+noise) version yield close results. It suggests that the most prediction errors of X-RISE also fall within (34 ◦, 6cm) under the 3σ principle. We plot the per-step error curves to verify this, and find that an occasional error increase can usually be corrected in the subsequent steps, as illustrated in Fig. 8. 16 K. Xiong et al. 
+
+Table 5: Oracle test on RoboTwin 2.0 benchmark. (gt) uses the ground-truth con-ditional pose trajectory. (gt+noise) adds noise from a zero-mean normal distribution. There are no ground-truth actions during inference. 
+
+Method hammer shoe QRcode Average 
+
+X-RISE 92 72 63 75.7 X-RISE(gt) 93 79 66 79.3 X-RISE(gt+noise) 91 73 62 75.3 0 20 40 60 80 100 120 
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> error_R
+> error_t
+
+(a) Episode 1: Success 0 50 100 150 200 250 300   
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5 error_R
+> error_t
+
+(b) Episode 2: Failure 0 20 40 60 80 100 120  
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7 error_R
+> error_t
+
+(c) Episode 3: Success 0 20 40 60 80 100 120 140 160  
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> error_R
+> error_t
+
+(d) Episode 4: Success 
+
+Fig. 8: Per-step error curves during inference for the Rotate QRcode task. X-Imitator 17 
+
+## C Label Pipeline for Real-World Tasks 
+
+– Mask : We only need to segment the first frame of each episode by text-prompted SAM2 (see Section 5.1 for reference) which can be upgraded to SAM3. 
+
+– Mesh : The "One Image to 3D" function of MagiScan is enough for us to obtain a good up-to-scale 3D mesh. We then manually adjust to its real size. This costs several minutes and is scalable. 
+
+– Correction : Occurred in 35 out of 150 episodes of the three real-world tasks, normal motion blur and partial occlusion caused large track errors within a short frame sequence. We reran text-prompted SAM2 and FoundationPose to estimate the first failed frame and to track the remaining ones. Just one time correction solved the issue. Humans only perform inspection and the cost is acceptable. 
+
+## References 
+
+1. Bain, M., Sammut, C.: A framework for behavioural cloning. In: Machine intelli-gence 15. pp. 103–129 (1995) 2. Bao, C., Xu, H., Qin, Y., Wang, X.: Dexart: Benchmarking generalizable dex-terous manipulation with articulated objects. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 21190–21200 (2023) 3. Bharadhwaj, H., Mottaghi, R., Gupta, A., Tulsiani, S.: Track2act: Predicting point tracks from internet videos enables generalizable robot manipulation. In: European Conference on Computer Vision. pp. 306–324. Springer (2024) 4. Bjorck, J., Castañeda, F., Cherniadev, N., Da, X., Ding, R., Fan, L., Fang, Y., Fox, D., Hu, F., Huang, S., et al.: Gr00t n1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 (2025) 5. Black, K., Brown, N., Darpinian, J., Dhabalia, K., Driess, D., Esmail, A., Equi, M.R., Finn, C., Fusai, N., Galliker, M.Y., et al.: π0.5: a vision-language-action model with open-world generalization. In: Conference on Robot Learning. vol. 305, pp. 17–40. PMLR (2025) 6. Black, K., Brown, N., Driess, D., Esmail, A., Equi, M., Finn, C., Fusai, N., Groom, L., Hausman, K., Ichter, B., et al.: π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 (2024) 7. Brohan, A., Brown, N., Carbajal, J., Chebotar, Y., Dabis, J., Finn, C., Gopalakr-ishnan, K., Hausman, K., Herzog, A., Hsu, J., et al.: Rt-1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817 (2022) 8. Chen, J., Fang, H., Wang, C., Wang, S., Lu, C.: History-aware visuomotor policy learning via point tracking. In: ICRA (2026) 9. Chen, T., Chen, Z., Chen, B., Cai, Z., Liu, Y., Li, Z., Liang, Q., Lin, X., Ge, Y., Gu, Z., et al.: Robotwin 2.0: A scalable data generator and benchmark with strong domain randomization for robust bimanual robotic manipulation. arXiv preprint arXiv:2506.18088 (2025) 10. Chen, T., Mu, Y., Liang, Z., Chen, Z., Peng, S., Chen, Q., Xu, M., Hu, R., Zhang, H., Li, X., et al.: G3flow: Generative 3d semantic flow for pose-aware and general-izable object manipulation. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 1735–1744 (2025) 18 K. Xiong et al. 11. Chen, X., Chen, Y., Fu, Y., Gao, N., Jia, J., Jin, W., Li, H., Mu, Y., Pang, J., Qiao, Y., et al.: Internvla-m1: A spatially guided vision-language-action framework for generalist robot policy. arXiv preprint arXiv:2510.13778 (2025) 12. Chi, C., Feng, S., Du, Y., Xu, Z., Cousineau, E., Burchfiel, B., Song, S.: Diffusion policy: Visuomotor policy learning via action diffusion. In: Robotics: Science and Systems (2023) 13. Chi, C., Xu, Z., Pan, C., Cousineau, E., Burchfiel, B., Feng, S., Tedrake, R., Song, S.: Universal manipulation interface: In-the-wild robot teaching without in-the-wild robots. In: Robotics: Science and Systems (2024) 14. Choy, C., Gwak, J., Savarese, S.: 4d spatio-temporal convnets: Minkowski con-volutional neural networks. In: IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 3075–3084 (2019) 15. Dai, Y., Lee, J., Zhang, Y., Ma, Z., Yang, J., Zadeh, A., Li, C., Fazeli, N., Chai, J.: Aimbot: A simple auxiliary visual cue to enhance spatial awareness of visuomotor policies. arXiv preprint arXiv:2508.08113 (2025) 16. Deng, S., Yan, M., Wei, S., Ma, H., Yang, Y., Chen, J., Zhang, Z., Yang, T., Zhang, X., Cui, H., et al.: Graspvla: a grasping foundation model pre-trained on billion-scale synthetic action data. In: Conference on Robot Learning. pp. 1004–1029. PMLR (2025) 17. Dharmarajan, K., Huang, W., Wu, J., Fei-Fei, L., Zhang, R.: Dream2flow: Bridging video generation and open-world manipulation with 3d object flow. arXiv preprint arXiv:2512.24766 (2025) 18. Fang, H.S., Fang, H., Tang, Z., Liu, J., Wang, C., Wang, J., Zhu, H., Lu, C.: RH20T: A comprehensive robotic dataset for learning diverse skills in one-shot. In: IEEE International Conference on Robotics and Automation. pp. 653–660. IEEE (2024) 19. Fang, H., Wang, C., Wang, Y., Chen, J., Xia, S., Lv, J., He, Z., Yi, X., Guo, Y., Zhan, X., Yang, L., Wang, W., Lu, C., Fang, H.S.: Airexo-2: Scaling up gener-alizable robotic imitation learning with low-cost exoskeletons. In: Conference on Robot Learning. vol. 305, pp. 198–220. PMLR (2025) 20. Fu, Y., Feng, Q., Chen, N., Zhou, Z., Liu, M., Wu, M., Chen, T., Rong, S., Liu, J., Dong, H., et al.: Cordvip: Correspondence-based visuomotor policy for dexterous manipulation in real-world. arXiv preprint arXiv:2502.08449 (2025) 21. Gervet, T., Xian, Z., Gkanatsios, N., Fragkiadaki, K.: Act3d: 3d feature field transformers for multi-task robotic manipulation. arXiv preprint arXiv:2306.17817 (2023) 22. Goyal, A., Xu, J., Guo, Y., Blukis, V., Chao, Y.W., Fox, D.: Rvt: Robotic view transformer for 3d object manipulation. In: Conference on Robot Learning. pp. 694–710. PMLR (2023) 23. Gu, J., Kirmani, S., Wohlhart, P., Lu, Y., Arenas, M.G., Rao, K., Yu, W., Fu, C., Gopalakrishnan, K., Xu, Z., et al.: Robotic task generalization via hindsight trajectory sketches. In: First Workshop on Out-of-Distribution Generalization in Robotics at CoRL 2023 (2023) 24. Guo, M., Cao, M., Tao, J., Xu, R., Yan, Y., Liang, X., Laptev, I., Chang, X.: Glad: Geometric latent distillation for vision-language-action models. arXiv preprint arXiv:2512.09619 (2025) 25. Ha, H., Song, S.: Flingbot: The unreasonable effectiveness of dynamic manipulation for cloth unfolding. In: Conference on Robot Learning. pp. 24–33. PMLR (2021) 26. Han, M., Zhang, D.J., Wang, Y., Yan, R., Yao, L., Chang, X., Qiao, Y.: Dual-ai: Dual-path actor interaction learning for group activity recognition. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 2990–2999 (2022) X-Imitator 19 27. Ho, J., Jain, A., Abbeel, P.: Denoising diffusion probabilistic models. Advances in neural information processing systems 33 , 6840–6851 (2020) 28. Hsu, C.C., Wen, B., Xu, J., Narang, Y., Wang, X., Zhu, Y., Biswas, J., Birchfield, S.: Spot: Se (3) pose trajectory diffusion for object-centric manipulation. In: 2025 IEEE International Conference on Robotics and Automation (ICRA). pp. 4853– 4860. IEEE (2025) 29. Huang, H., Cen, M., Tan, K., Quan, X., Huang, G., Zhang, H.: Graphcot-vla: A 3d spatial-aware reasoning vision-language-action model for robotic manipulation with ambiguous instructions. arXiv preprint arXiv:2508.07650 (2025) 30. Jaegle, A., Borgeaud, S., Alayrac, J., Doersch, C., Ionescu, C., Ding, D., Koppula, S., Zoran, D., Brock, A., Shelhamer, E., Hénaff, O.J., Botvinick, M.M., Zisserman, A., Vinyals, O., Carreira, J.: Perceiver IO: A general architecture for structured inputs & outputs. In: International Conference on Learning Representations (2022) 31. Jia, M., Tang, L., Chen, B.C., Cardie, C., Belongie, S., Hariharan, B., Lim, S.N.: Visual prompt tuning. In: European Conference on Computer Vision. pp. 709–727 (2022) 32. Khazatsky, A., Pertsch, K., Nair, S., Balakrishna, A., Dasari, S., Karamcheti, S., Nasiriany, S., Srirama, M.K., Chen, L.Y., Ellis, K., et al.: Droid: A large-scale in-the-wild robot manipulation dataset. In: Robotics: Science and Systems (2024) 33. Li, C., Wen, J., Peng, Y., Peng, Y., Feng, F., Zhu, Y.: Pointvla: Injecting the 3d world into vision-language-action models. arXiv preprint arXiv:2503.07511 (2025) 34. Li, X., Heng, L., Liu, J., Shen, Y., Gu, C., Liu, Z., Chen, H., Han, N., Zhang, R., Tang, H., et al.: 3ds-vla: A 3d spatial-aware vision language action model for robust multi-task manipulation. In: 9th Annual Conference on Robot Learning (2025) 35. Li, Y., Wang, G., Ji, X., Xiang, Y., Fox, D.: Deepim: Deep iterative matching for 6d pose estimation. In: European Conference on Computer Vision. pp. 683–698 (2018) 36. Lin, T., Li, G., Zhong, Y., Zou, Y., Du, Y., Liu, J., Gu, E., Zhao, B.: Evo-0: Vision-language-action model with implicit spatial understanding. arXiv preprint arXiv:2507.00416 (2025) 37. Liu, J., Zhang, R., Fang, H.S., Gou, M., Fang, H., Wang, C., Xu, S., Yan, H., Lu, C.: Target-referenced reactive grasping for dynamic objects. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 8824–8833 (2023) 38. Liu, N., Ma, L., Wu, Y., Wei, K., Fan, C., Zhang, Y.: Duapin: Auxiliary task enhanced dual path interaction network for civil court view generation. Knowledge-Based Systems 295 , 111728 (2024) 39. Liu, Y., Liu, Y., Meng, Y., Zhang, J., Zhou, Y., Li, Y., Jiang, J., Ji, K., Ge, S., Wang, Z., et al.: Spatial policy: Guiding visuomotor robotic manipulation with spatial-aware modeling and reasoning. arXiv preprint arXiv:2508.15874 (2025) 40. Lu, H., Fei, N., Huo, Y., Gao, Y., Lu, Z., Wen, J.R.: Cots: Collaborative two-stream vision-language pre-training model for cross-modal retrieval. In: Proceedings of the IEEE/CVF conference on computer Vision and pattern recognition. pp. 15692– 15701 (2022) 41. Medeiros, L.: lang-segment-anything. https://github.com/luca-medeiros/lang-segment-anything (2023) 42. Melekhov, I., Kannala, J., Rahtu, E.: Siamese network features for image matching. In: 2016 23rd international conference on pattern recognition (ICPR). pp. 378–383. IEEE (2016) 20 K. Xiong et al. 43. Noh, S., Nam, D., Kim, K., Lee, G., Yu, Y., Kang, R., Lee, K.: 3d flow diffusion policy: Visuomotor policy learning via generating flow in 3d space. arXiv preprint arXiv:2509.18676 (2025) 44. Patratskiy, M.A., Kovalev, A.K., Panov, A.I.: Spatial traces: Enhancing vla mod-els with spatial-temporal understanding. Optical Memory and Neural Networks 
+
+34 (Suppl 1), S72–S82 (2025) 45. Pomerleau, D.A.: Alvinn: An autonomous land vehicle in a neural network. Ad-vances in neural information processing systems 1 (1988) 46. Qu, D., Song, H., Chen, Q., Yao, Y., Ye, X., Ding, Y., Wang, Z., Gu, J., Zhao, B., Wang, D., et al.: Spatialvla: Exploring spatial representations for visual-language-action model. arXiv preprint arXiv:2501.15830 (2025) 47. Radford, A., Kim, J.W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al.: Learning transferable visual models from natural language supervision. In: International conference on machine learning. pp. 8748–8763. PmLR (2021) 48. Rajeswaran, A., Kumar, V., Gupta, A., Vezzani, G., Schulman, J., Todorov, E., Levine, S.: Learning complex dexterous manipulation with deep reinforcement learning and demonstrations. arXiv preprint arXiv:1709.10087 (2017) 49. Ravi, N., Gabeur, V., Hu, Y.T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., et al.: Sam 2: Segment anything in images and videos. arXiv preprint arXiv:2408.00714 (2024) 50. Schaal, S.: Is imitation learning the route to humanoid robots? Trends in cognitive sciences 3(6), 233–242 (1999) 51. Shi, H., Xie, B., Liu, Y., Yue, Y., Wang, T., Fan, H., Zhang, X., Huang, G.: Spatialactor: Exploring disentangled spatial representations for robust robotic ma-nipulation. arXiv preprint arXiv:2511.09555 (2025) 52. Shridhar, M., Manuelli, L., Fox, D.: Perceiver-actor: A multi-task transformer for robotic manipulation. In: Conference on Robot Learning. pp. 785–799. PMLR (2023) 53. Su, Y., Zhan, X., Fang, H., Li, Y.L., Lu, C., Yang, L.: Motion before action: Dif-fusing object motion as manipulation condition. IEEE Robotics and Automation Letters (2025) 54. Su, Y., Zhan, X., Fang, H., Xue, H., Fang, H.S., Li, Y.L., Lu, C., Yang, L.: Dense policy: Bidirectional autoregressive learning of actions. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 14486–14495 (2025) 55. Sun, L., Xie, B., Liu, Y., Shi, H., Wang, T., Cao, J.: Geovla: Empowering 3d representations in vision-language-action models. arXiv preprint arXiv:2508.09071 (2025) 56. Teed, Z., Deng, J.: Raft: Recurrent all-pairs field transforms for optical flow. In: European Conference on Computer Vision. pp. 402–419. Springer (2020) 57. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, Ł., Polosukhin, I.: Attention is all you need. Advances in Neural Information Pro-cessing Systems 30 (2017) 58. Wang, C., Xu, D., Zhu, Y., Martín-Martín, R., Lu, C., Fei-Fei, L., Savarese, S.: Densefusion: 6d object pose estimation by iterative dense fusion. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 3343– 3352 (2019) 59. Wang, C., Fang, H., Fang, H.S., Lu, C.: Rise: 3d perception makes real-world robot imitation simple and effective. In: 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). pp. 2870–2877. IEEE (2024) X-Imitator 21 60. Wang, J., Chen, M., Karaev, N., Vedaldi, A., Rupprecht, C., Novotny, D.: Vggt: Visual geometry grounded transformer. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 5294–5306 (2025) 61. Wen, B., Yang, W., Kautz, J., Birchfield, S.: Foundationpose: Unified 6d pose esti-mation and tracking of novel objects. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 17868–17879 (2024) 62. Wen, C., Lin, X., So, J.I.R., Chen, K., Dou, Q., Gao, Y., Abbeel, P.: Any-point trajectory modeling for policy learning. In: Robotics: Science and Systems (2024) 63. Won, J., Lee, K., Jang, H., Kim, D., Shin, J.: Dual-stream diffusion for world-model augmented vision-language-action model. arXiv preprint arXiv:2510.27607 (2025) 64. Wu, K., Hou, C., Liu, J., Che, Z., Ju, X., Yang, Z., Li, M., Zhao, Y., Xu, Z., Yang, G., et al.: Robomind: Benchmark on multi-embodiment intelligence normative data for robot manipulation. In: Robotics: Science and Systems (2025) 65. Xia, S., Fang, H., Fang, H.S., Lu, C.: Cage: Causal attention enables data-efficient generalizable robotic manipulation. In: IEEE International Conference on Robotics and Automation. IEEE (2025) 66. Xiao, J., Feng, S., Wu, Z., Li, J., Ma, Z., Chen, Y.: D 2stream: Decoupled dual-stream temporal-speaker interaction for audio-visual speaker detection. arXiv preprint arXiv:2512.19130 (2025) 67. Xu, M., Xu, Z., Xu, Y., Chi, C., Wetzstein, G., Veloso, M., Song, S.: Flow as the cross-domain manipulation interface. arXiv preprint arXiv:2407.15208 (2024) 68. Yang, Y., Cai, Z., Tian, Y., Zeng, J., Pang, J.: Gripper keypose and object pointflow as interfaces for bimanual robotic manipulation. arXiv preprint arXiv:2504.17784 (2025) 69. Yu, T., Quillen, D., He, Z., Julian, R., Hausman, K., Finn, C., Levine, S.: Meta-world: A benchmark and evaluation for multi-task and meta reinforcement learning. In: Conference on robot learning. pp. 1094–1100. PMLR (2020) 70. Yuan, C., Wen, C., Zhang, T., Gao, Y.: General flow as foundation affordance for scalable robot learning. In: Conference on Robot Learning. PMLR, vol. 270, pp. 1541–1566. PMLR (2024) 71. Yuan, W., Duan, J., Blukis, V., Pumacay, W., Krishna, R., Murali, A., Mousavian, A., Fox, D.: Robopoint: A vision-language model for spatial affordance prediction for robotics. arXiv preprint arXiv:2406.10721 (2024) 72. Ze, Y., Zhang, G., Zhang, K., Hu, C., Wang, M., Xu, H.: 3d diffusion policy: Gen-eralizable visuomotor policy learning via simple 3d representations. arXiv preprint arXiv:2403.03954 (2024) 73. Zhang, Z., Li, H., Dai, Y., Zhu, Z., Zhou, L., Liu, C., Wang, D., Tay, F.E., Chen, S., Liu, Z., et al.: From spatial to actions: Grounding vision-language-action model in spatial foundation priors. arXiv preprint arXiv:2510.17439 (2025) 74. Zhang, Z., Peng, H.: Deeper and wider siamese networks for real-time visual track-ing. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 4591–4600 (2019) 75. Zhao, T.Z., Kumar, V., Levine, S., Finn, C.: Learning fine-grained bimanual ma-nipulation with low-cost hardware. arXiv preprint arXiv:2304.13705 (2023) 76. Zheng, R., Liang, Y., Huang, S., Gao, J., Daumé III, H., Kolobov, A., Huang, F., Yang, J.: Tracevla: Visual trace prompting enhances spatial-temporal awareness for generalist robotic policies. arXiv preprint arXiv:2412.10345 (2024) 77. Zheng, R., Liang, Y., Huang, S., Gao, J., Daumé III, H., Kolobov, A., Huang, F., Yang, J.: Tracevla: Visual trace prompting enhances spatial-temporal awareness 22 K. Xiong et al. for generalist robotic policies. In: International Conference on Learning Rrepresen-tations (2025) 78. Zhong, Z., Yan, H., Li, J., Liu, X., Gong, X., Zhang, T., Song, W., Chen, J., Zheng, X., Wang, H., et al.: Flowvla: Visual chain of thought-based motion reasoning for vision-language-action models. arXiv preprint arXiv:2508.18269 (2025) 79. Zhou, Y., Barnes, C., Lu, J., Yang, J., Li, H.: On the continuity of rotation rep-resentations in neural networks. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 5745–5753 (2019)

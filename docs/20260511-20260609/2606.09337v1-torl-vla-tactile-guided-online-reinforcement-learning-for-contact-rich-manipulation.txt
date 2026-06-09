@@ -1,0 +1,649 @@
+Title: TORL-VLA: Tactile Guided Online Reinforcement Learning for Contact-Rich Manipulation
+
+URL Source: https://arxiv.org/pdf/2606.09337v1
+
+Published Time: Tue, 09 Jun 2026 02:42:56 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# TORL-VLA: Tactile Guided Online Reinforcement Learning for Contact-Rich Manipulation 
+
+Huaihang Zheng 1,* Yi Yang 1,4,* Kai Ma 1,*, † Shenglin Xu 1,2,* 
+
+Tian Xie 1 Guozheng Li 1,5 Xiangyu Wang 1,3 Yiren Ma 1 Si Liu 3
+
+Yinian Mao 1 Baoxu Liu 1, †,‡
+
+> 1
+
+Meituan 2Beijing Institute of Technology 3Beihang University 
+
+> 4
+
+State Key Lab of Multimodal Artificial Intelligence Systems, Institute of Automation, CAS 
+
+> 5
+
+China University of Mining and Technology (Beijing) 
+
+> *
+
+Equal Contribution. †Project Lead. ‡Corresponding Author. 
+
+Abstract: Vision-Language-Action (VLA) models have become a powerful framework for robotic manipulation, and recent studies have introduced tactile or force feedback into VLAs to address contact-rich tasks. However, these mod-els are typically deployed as offline policies. When contact conditions shift from the training distribution, the policy cannot perform online adaptation, leading to problems such as inappropriate contact forces and inefficient retries. Therefore, we propose TORL-VLA, a tactile-guided online reinforcement learning frame-work that couples tactile feedback with policy refinement for contact-rich ma-nipulation. Our method introduces a tactile-derived wrench-aware VLA to pre-dict reference actions and future wrench sequences, while a lightweight online RL module is used to refine the reference actions. To stabilize learning from mixed exploratory policy-generated and human-intervention data, we introduce an intervention-censored critic that prevents post-intervention success from be-ing wrongly credited to policy-generated actions preceding intervention. Real-robot experiments on long-horizon contact-rich tasks, including latch manipula-tion, coffee-cup placement, and egg handling, show that TORL-VLA improves success rates at both subtask and full-task levels, as well as time-bounded execu-tion efficiency over strong baselines. 
+
+Keywords: Vision-Language-Action Models, Contact-Rich Manipulation, Tac-tile Feedback, Online Reinforcement Learning 
+
+## 1 Introduction 
+
+Vision-Language-Action (VLA) models [1, 2, 3, 4, 5] have become an important paradigm for robotic manipulation by jointly modeling visual observations, language instructions, and large-scale robot trajectory data. However, many real-robot tasks also depend on fine-grained physical inter-action states during contact. In tasks such as latch manipulation, cup placement, or fragile-object handling, the robot must infer whether contact is sufficient, force is appropriate, or the object is slipping. These states are often weakly visible in RGB images, and the visual scene may appear close to success even when the underlying contact state has already deviated. Recent work has introduced tactile feedback into VLA models [6, 7, 8, 9, 10, 11, 12, 13, 14, 15], allowing policies to use finer-grained physical interaction signals. These methods typically incor-porate tactile signals as additional inputs, fusion features, or auxiliary prediction targets during su-pervised training, improving contact awareness. However, contact awareness is not equivalent to contact adaptation . Most tactile-aware VLAs remain static offline policies: once execution enters out-of-distribution contact states, they lack a mechanism to correct actions using current tactile feed-back. Contact-rich manipulation therefore requires policies that can not only sense contact states, but also adapt offline action references online at key physical bottlenecks.                                
+
+> arXiv:2606.09337v1 [cs.RO] 8 Jun 2026 Ref
+> Stage II :Stage Online Reference Adaptation
+> Stage III :Real -world Deployment &Evaluation
+> ··· ··· ···
+> Replay Buffer
+> Prompt
+> Vision
+> Token
+> Wrench Aware Action Expert
+> Tactile
+> z
+> Tactile Sequence Token
+> T&VL -MoE
+> Router Network
+> Expert 1
+> Expert 2
+> Expert 3
+> Expert K Gated
+> Bypass
+> T&VL attention
+> Stage I:Tactile -Aware VLA Training
+> ·
+> ·
+> ·
+> Vision
+> Token
+> Action
+> Wrench
+> Context
+> Stage Estimator
+> Current Stage 2
+> Task -Critic Intervention -Critic
+> Goal
+> Ref
+> Actor πθ
+> ···
+> Actor -Critic -2(Selected)
+> Reconstruction Loss
+> global camera
+> fisheye camera
+> wrist camera
+> Refined Action
+> human -intervention
+> Action Progress Action Progress
+> Reward
+> propagation
+> Human
+> Intervention
+
+Figure 1: Overview of the TORL-VLA framework. Stage I: Tactile-derived wrench sequences are fused after visual-language encoding through MoE routing to predict action references and fu-ture wrench sequences. Stage II : The frozen wrench-aware VLA provides vision tokens, reference actions, and predicted wrench; a lightweight actor-critic refines actions online with wrench condi-tioning and stage routing. Stage III : Evaluating performance on long-horizon contact-rich tasks. Based on this observation, we propose TORL-VLA , a Tactile-Guided Online Reinforcement Learning framework for contact-rich manipulation. TORL-VLA uses a tactile-derived wrench-aware VLA as an action-and-wrench reference model and refines its reference actions through a lightweight stage-specific online actor-critic module. The actor generates executable action chunks conditioned on VLA reference actions, measured wrench feedback, predicted wrench cues, and compact visual-semantic tokens. Through real-robot interaction, TORL-VLA learns contact-aware corrections around the VLA reference. However, relying entirely on policy-generated exploration for online reinforcement learning [16, 17, 18, 19, 20, 21, 22] is costly and may introduce safety risks in real-world contact-rich tasks. Human intervention [23, 24, 25] is often needed when the robot is about to fail, becomes stuck, or produces unsafe contact. This creates a value-learning bias: if a poor policy-generated action leads to human takeover and the rollout is later completed after intervention, a standard value function may wrongly credit that preceding policy action for the final success. To address this issue, we introduce an intervention-censored critic in addition to the task critic. It blocks post-intervention success from propagating back across human-correction boundaries, al-lowing TORL-VLA to use human corrections while avoiding over-crediting rescued outcomes to preceding policy-generated actions. We validate TORL-VLA on real-robot long-horizon contact-rich manipulation tasks, including cup placement into a narrow holder, latch opening and closing, and fragile egg handling. Compared with offline VLA execution, tactile/force-aware VLA baselines, and standard online refinement baselines, TORL-VLA improves success rates at both subtask and full-task levels, together with time-bounded execution efficiency. In summary, our contributions are threefold: 1. We propose TORL-VLA , a tactile-guided online reinforcement learning framework for contact-rich robotic manipulation. The framework uses a tactile-derived wrench-aware VLA as an action-and-wrench reference model and outputs refined action chunks through a lightweight online actor-critic module, turning a contact-aware VLA into a contact-adaptive policy. 22. We introduce an intervention-censored critic for online RL. It addresses value-learning bias in human-intervened rollouts, enabling the policy to use human corrections, while avoiding over-crediting post-intervention success to preceding policy-generated actions. 3. We validate TORL-VLA on real-robot long-horizon contact-rich manipulation tasks. Experi-ments show consistent improvements over strong baselines in success rates at both subtask and full-task levels, together with time-bounded execution efficiency. 
+
+## 2 Related Work 
+
+Tactile-Aware VLA. To improve perception and execution in contact-rich tasks, prior work has introduced tactile feedback into VLA policies. Tactile-VLA [6], TLA [7], and VTLA [8] encode tactile images into tactile tokens and feed them together with visual-language features into the policy. ForceVLA [9], ForceVLA2 [10], and TA-VLA [11] instead use lower-dimensional physical signals, injecting them into action generation so that the policy can exploit contact strength, force changes, and historical contact dynamics. OmniVTLA [12] and VLA-Touch [13] further study semantic alignment and dual-level tactile feedback for visual-language-action policies, while FD-VLA [14] and HapticVLA [15] use tactile or force distillation to exploit physical interaction signals during training and reduce sensor dependence at deployment. These methods show that tactile feedback can substantially improve the contact awareness of VLA policies. However, most of them are still trained under supervised learning or offline imitation learning and deployed as fixed policies. In contrast, we focus on using tactile feedback to adaptively correct VLA actions online, rather than only enhancing contact awareness during offline training. 
+
+Online RL for VLA. Applying RL to VLA policies mainly aims to go beyond the performance ceiling of offline demonstrations. RECAP [16] learns from demonstrations, on-policy rollouts, and human intervention data with an advantage-conditioned policy; ConRFT [17] uses a consistency policy for reinforced fine-tuning; Policy Decorator [18] and PLD [19] learn residual corrections on top of existing policies; GR-RL [20] and DSRL [21] apply RL in the latent or noise space of generative action models to steer the action-generation process; and RLT [22] connects a VLA to an online actor-critic through an RL token, enabling local policy improvement around VLA reference actions. SERL [23] and RL100 [24] also show that off-policy actor-critic methods combined with demonstrations and human corrections can improve contact manipulation policies with limited real-robot data. These works show that RL can improve VLA or robot policy performance, but they rarely address how human intervention can bias value learning when post-intervention success is attributed to preceding policy-generated actions. In contrast, TORL-VLA introduces intervention-censored value learning to block such misleading credit propagation across human-correction boundaries. 
+
+## 3 Method 
+
+TORL-VLA aims to turn an offline VLA with tactile-derived wrench feedback into a contact-adaptive policy for real-robot manipulation, as illustrated in Fig. 1. The wrench-aware reference model predicts a reference action chunk together with a future wrench sequence, providing both a motion prior and an expected contact reference. A lightweight online RL refiner then conditions on these references to generate corrected executable actions. 
+
+3.1 Tactile-Aware VLA as an Action-and-Wrench Reference Model Tactile-derived wrench representation. Our gripper has two piezoelectric tactile pads mounted on the inner finger surfaces, as illustrated in Fig. 2. Each raw 6 × 8 tactile array is mapped to a compact 6D wrench through the calibrated sensor interface. This wrench representation provides a compact physical interface and facilitates reuse with tactile sensors that can be mapped to a common force-torque space. For fingertip i ∈ { L, R }, the tactile-derived wrench at timestep t is wit =[f ix, f iy , f iz , τ ix, τ iy , τ iz ] ∈ R6, where f i and τ i denote the three-axis force and torque components, respectively. The full tactile observation is wt = [ wLt , wRt ] ∈ R12 .3Temporal wrench encoding. To capture short-term contact dynamics, we encode a recent wrench sequence Wt = {wt−J+1 , . . . , wt}, where J is the temporal window length, into a single wrench token ztac  
+
+> t
+
+∈ R1×dvl using a lightweight MLP encoder. This fixed-size token allows different wrench sequence lengths to be fused without changing the subsequent architecture. fx fz   
+
+> fy
+> tz
+> ty
+> tx
+> Raw 6x8 Tactile Array 6D wrench mapping
+
+Figure 2: Tactile-to-wrench mapping. Tactile readings are mapped to a 6D wrench representation for contact-aware manipulation. 
+
+Wrench-conditioned reference generation. 
+
+The VLM encodes the image, language, and robot-state prefix tokens into hidden states 
+
+Pt ∈ RNp×dvl , where Np is the number of prefix tokens and dvl is the hidden dimension of the VLM stream [26]. At flow-matching interpolation time s ∈ [0 , 1] , the action ex-pert processes the noisy generation variable 
+
+xfm  
+
+> t,s
+
+and produces action-side hidden states 
+
+St,s ∈ RH×dae , where H is the prediction horizon and dae is the action-expert hidden dimension. Inspired by prior multimodal fusion designs [27, 28, 29, 30], rather than feeding the tactile-derived wrench token into the VLM with image and language tokens, we fuse it after visual-language encoding by applying self-attention to [Pt; ztac  
+
+> t
+
+],yielding Ht ∈ R(Np+1) ×dvl .This preserves pretrained visual-language semantics while enabling interaction with tactile-derived wrench feedback. Following recent MoE-based fusion and adaptation designs [9, 31, 32, 33], a soft router computes ρt = Softmax( Rtac (Ht)) and produces the fused feature Ft = PMm=1 ρt,m ⊙
+
+Em(Ht), where Em is the m-th expert and ⊙ denotes broadcasted element-wise weighting. To modulate action generation, the routed feature is projected to the action horizon and combined with a zero-initialized wrench-token bypass: 
+
+Gt = Π tac (Ft) + αP H
+
+> tac
+
+(ztac  
+
+> t
+
+) ∈ RH×dae , (1) where Πtac maps the routed fusion feature to the action horizon, P H 
+
+> tac
+
+projects and expands the wrench token to H horizon-aligned guidance tokens, and α is a learnable scalar initialized to zero. The zero-initialized gate adaptively controls the bypass contribution, yielding the wrench-conditioned action-side representation ˜St,s = St,s + Gt.
+
+Joint action-and-wrench prediction. The output head jointly predicts ˆyt =[ ˆAt:t+H−1, ˆWt:t+H−1], where ˆAt:t+H−1 is the predicted action chunk and ˆWt:t+H−1 is the co-predicted future wrench sequence [10, 11, 34, 35]. The action chunk provides the motion refer-ence, while the wrench sequence provides expected contact guidance for learning action–contact interaction dynamics. We train the reference model with a joint action-wrench flow matching objective over the ground-truth target yt = [ At:t+H−1, Wt:t+H−1]. Following the standard flow-matching formulation, the model predicts the velocity field ˆut,s , and the loss is separated into action and wrench dimensions: 
+
+Lref = ˆuat,s − uat,s  
+
+> 22
+
++ λw ˆuwt,s − uwt,s  
+
+> 22
+
+, (2) where the superscripts a and w denote the action and wrench dimensions, and λw balances action and wrench prediction. 
+
+3.2 Stage-Specific Online Reference Adaptation 
+
+The wrench-aware reference model described above jointly predicts action references and future wrench sequences, providing both semantic and physical priors for deployment. However, offline VLA policies can still fail at contact-rich bottlenecks due to local pose errors, friction variation, 4object compliance, or accumulated execution error, motivating online reinforcement learning for local refinement [5, 16, 18, 19, 22, 26]. We therefore design a stage-specific online actor-critic framework that refines VLA action references using measured wrench feedback and predicted future wrench cues. A stage estimator routes each contact-rich phase to a corresponding actor-critic head, while an intervention-censored value objective improves credit assignment under human-intervened rollouts. 
+
+Stage-specific wrench-conditioned action refinement. At each policy query, the frozen wrench-aware VLA predicts an H-step action sequence ˆAt:t+H−1 and an H-step future wrench se-quence ˆWt:t+H−1. The robot executes only the first K ≤ H steps before replanning. We denote the executable VLA action reference and the aligned predicted wrench cue as Aref  
+
+> t
+
+=ˆAt:t+K−1 and ˆWref  
+
+> t
+
+= ˆWt:t+K−1, respectively. The online actor uses the refinement context 
+
+ct = [ zvla  
+
+> t
+
+; qt; wt; Wt−L:t−1; ˆWref  
+
+> t
+
+; Aref  
+
+> t
+
+], where zvla  
+
+> t
+
+denotes compact visual-semantic tokens ex-tracted from the frozen VLA, qt is robot proprioception, wt is the current measured wrench, and 
+
+Wt−L:t−1 is the recent measured wrench history. A stage estimator predicts the current contact stage gt ∈ { 1, . . . , G } and selects the corresponding stage-specific actor head πϕgt . The selected actor head outputs the refined executable action chunk Aϕt = πϕgt (ct).
+
+Intervention-censored actor-critic learning. The stage-specific actor-critic heads are trained from rollouts containing both policy-generated actions and human-intervention actions. Under sparse task rewards, a policy-generated action chunk may lead to an abnormal contact state that re-quires human correction; if the rollout is later completed after intervention, a standard task critic may over-credit the preceding policy-generated chunk [25, 36]. To address this credit-assignment issue, we use a task critic Qtask (ct, At) to estimate the expected task return of an evaluated action chunk 
+
+At, and introduce an additional intervention-censored critic Qic (ct, At) to prevent post-intervention success from being propagated back across human-correction boundaries. We identify such boundaries using the control source stored in replay. For each executed K-step chunk Adata  
+
+> t
+
+= ( adata  
+
+> t, 0
+
+, . . . , adata 
+
+> t,K −1
+
+), replay stores a label σt,j ∈ { policy , human } for each step. Let ht denote the fraction of human-intervention steps in chunk t. Given a threshold ρint , the intervention-boundary mask mint  
+
+> t
+
+is set to one when a mostly policy-generated chunk is followed by an intervention-dominated chunk, and zero otherwise. This mask is used only to censor value boot-strapping; intervention actions remain in replay for behavior regularization and task-return learning. Let RKt = PK−1 
+
+> j=0
+
+γj rt,j be the discounted chunk reward, dt ∈ { 0, 1} be the terminal flag, and 
+
+¯At+K be the target action chunk for bootstrapping at the next context ct+K . The task critic uses the standard target ytask = RKt + (1 − dt)γK min i=1 ,2 Q(i)task (ct+K , ¯At+K ) [37, 38], while the intervention-censored critic uses 
+
+yic = RKt − cint mint  
+
+> t
+
++ (1 − dt)(1 − mint  
+
+> t
+
+)γK min  
+
+> i=1 ,2
+
+Q(i)ic 
+
+ ct+K , ¯At+K
+
+ , (3) where cint is the intervention cost. When mint  
+
+> t
+
+= 1 , the bootstrap term is removed and the inter-vention cost is applied, so success achieved after human correction is not assigned to the preceding policy-generated chunk. The actor is optimized with behavior regularization and value-based improvement. For behavior regularization, policy-generated steps are anchored to the VLA reference, while human-intervention steps imitate the corrected executed action. This gives Lbc = PK−1 
+
+> j=0
+
+∥aϕt,j − abc  
+
+> t,j
+
+∥22, where abc  
+
+> t,j
+
+is set according to the recorded control source. For value-based improvement, we compare the actor output with the VLA reference using ∆Qic = [min i Q(i)ic (ct, Aref  
+
+> t
+
+) − min i Q(i)ic (ct, Aϕt )] +, where 
+
+[x]+ = max( x, 0) . The actor objective is 
+
+Lπ = λbc Lbc − λtask E
+
+
+
+min  
+
+> i=1 ,2
+
+Q(i)task 
+
+
+
+ct, Aϕt
+
+
+
++ λic E [∆ Qic ] . (4) The task critic encourages task-return improvement, the behavior term keeps the actor close to the VLA reference or human correction according to the control source, and the IC-value penalty dis-courages refinements with lower intervention-censored value than the VLA reference. 54 Experiments global camera   
+
+> fisheye camera
+> tactile sensors
+> wrist camera
+
+Figure 3: Experimental platform. Real-robot latch-box setup with multi-view vision and dual-fingertip tactile sensing. We evaluate TORL-VLA on contact-rich ma-nipulation tasks to answer three questions: (i) whether wrench-guided online refinement improves subtask and full-task success; (ii) whether the wrench-aware reference model provides stronger action-and-wrench references than adapted physical-feedback VLA baselines; and (iii) whether wrench-context conditioning and intervention-censored value learning are necessary for online adaptation. We report sub-task success, full-task success, 60-min full-task throughput, and ablations of the reference model and online RL components. Additional experi-mental details are provided in the Appendix, and the code will be released for reference. 
+
+4.1 Experimental Setup Tasks and Platform. We evaluate TORL-VLA on a real-robot latch-box setup with three contact-centric subtasks: Coffee Cup, Latch, and Egg. Coffee Cup requires placing a cup into a tight holder inside the box with limited visibility. Latch requires gripping, flipping, and locking a mechanical latch, and Egg requires fragile-object grasping and placement. These tasks cover tight insertion, mechanical engagement, and fragile-object handling, where vision alone is often insufficient to infer the contact state. The platform and task stages are shown in Fig. 3 and Fig. 5. 
+
+Evaluation Protocol. We report subtask success, full-task success, and full-task throughput. Sub-task and full-task success rates are evaluated over 30 autonomous trials. Full-task evaluation starts from the same initial latch-box state and requires completing all stages in one autonomous rollout without intervention, reset, or safety stop. To assess time-bounded execution efficiency, we also report 60-min throughput, defined as the number of successful full-task completions within a fixed 60-minute evaluation window. For ablations, reference-model variants are evaluated on the three contact-centric subtasks, while online-adaptation variants are compared by final subtask success and adaptation curves under the same accumulated online robot data. 𝜋 !.#
+
+> TA -VLA
+> ForceVLA
+> TORL -VLA
+> w/o RL
+> RLT
+> TORL -VLA(ours)
+
+Figure 4: Full-task reliability and through-put. Success rate and 60-min throughput are compared across methods. 
+
+Baselines and Fairness. We compare TORL-VLA with π0.5, TA-VLA, ForceVLA, TORL-VLA w/o RL, and RLT under the same robot plat-form, action representation, demonstrations, exe-cution protocol, and evaluation trials. TA-VLA and ForceVLA are reimplemented on the same 
+
+π0.5 backbone and adapted to the same dual-fingertip wrench interface. TORL-VLA w/o RL directly executes the learned wrench-aware refer-ence model, while RLT uses standard reference-guided online refinement without the intervention-censored critic. All methods are evaluated using the same human-judged binary success signal for each subtask, which also serves as the sparse re-ward when training the online RL module. 
+
+4.2 Performance on Contact-Rich Tasks 
+
+Table 1 compares TORL-VLA with offline VLA baselines, tactile-aware VLA variants, and online refinement baselines. 6Place the coffee cup Close the latch Place the egg properly         
+
+> Locate cup Pick up cup Put in holder Grip latch Flip latch Lock latch Locate egg Pick up egg Place egg
+
+Figure 5: Task visualization. Representative contact-rich subtasks in latch-box manipulation, in-cluding coffee-cup placement, latch locking, and egg placement. Table 1: Real-robot performance. Success rates are reported for three contact-centric subtasks and the full task; FT Avg. Time is computed over successful full-task trials. 
+
+Method Cup ↑ Latch ↑ Egg ↑ FT Success ↑ FT Avg. Time (s) ↓
+
+π0.5 18/30 15/30 20/30 12/30 199.65 TA-VLA 19/30 17/30 20/30 12/30 204.45 ForceVLA 21/30 20/30 22/30 15/30 195.34 TORL-VLA w/o RL 25/30 23/30 25/30 21/30 191.91 RLT 26/30 25/30 25/30 23/30 175.23 
+
+TORL-VLA 30/30 29/30 30/30 28/30 165.45 
+
+Table 2: Ablation studies. Left: wrench-aware reference model ablation. Right: online adaptation ablation. IC Critic denotes the intervention-censored critic. 
+
+Wrench-aware reference model ablation 
+
+Configuration Cup ↑ Latch ↑ Egg ↑
+
+w/o WHT 24/30 22/30 22/30 w/o FWP 25/30 21/30 24/30 w/o MoE 18/30 17/30 19/30 w/o Bypass 23/30 20/30 21/30 
+
+Full w/o RL 25/30 23/30 25/30 Online adaptation ablation 
+
+Configuration Cup ↑ Latch ↑ Egg ↑
+
+w/o Wrench Context 27/30 27/30 26/30 w/o IC Critic 27/30 26/30 28/30 
+
+Full 30/30 29/30 30/30 
+
+The base π0.5 policy struggles when subtle contact states, such as partial insertion, latch engage-ment, or unstable grasping, cannot be reliably inferred from vision alone. TA-VLA yields marginal local gains, and ForceVLA improves several bottlenecks more clearly; however, both remain of-fline policies and cannot actively correct contact deviations during execution. TORL-VLA w/o RL improves over these offline baselines, indicating that the wrench-aware reference model provides stronger action-and-wrench references. However, directly executing the reference remains insuf-ficient for handling real contact shifts during long-horizon execution. RLT further improves local contact handling, but its full-task success remains below TORL-VLA. In the egg task, 3 of the 5 RLT failures are caused by overly aggressive grasps that break the egg, whereas TORL-VLA w/o RL mainly fails due to imprecise grasping positions. TORL-VLA achieves near-perfect subtask success and improves full-task completion from 12/30 with π0.5 to 28/30. Fig. 4 compares full-task reliability and time-bounded productivity. TORL-VLA achieves the best result on both metrics, suggesting more reliable and efficient long-horizon execution under contact deviations. 
+
+4.3 Ablation Studies Wrench-Aware Reference Model. We ablate the wrench history token (WHT), future wrench prediction objective (FWP), mixture-of-experts (MoE) fusion module, and zero-initialized physi-cal bypass (Bypass). The results are summarized in Table 2. Removing MoE causes the largest degradation, highlighting the importance of routing wrench features with visual-language represen-tations. Removing Bypass also reduces success, especially for Latch and Egg, suggesting that the 70 20 30 40 50 
+
+> Minutes of Data
+> 0
+> 10
+> 20
+> 30
+> 40
+> Throughput (Successes / 10 Mins)
+> TORL-VLA
+> w/o Wrench Context
+> w/o IC Critic
+> RLT
+> TORL-VLA w/o RL
+
+(a) Throughput. 0 20 30 40 50  
+
+> Minutes of Data
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Success Rate
+> TORL-VLA
+> w/o Wrench Context
+> w/o IC Critic
+> RLT
+> TORL-VLA w/o RL
+
+(b) Success rate. 
+
+Figure 6: Online adaptation on Latch. Left: throughput measured per 10 minutes as online data increases. Right: success rate at each data checkpoint. direct wrench-token bypass preserves fine-grained contact information. In contrast, removing WHT or FWP has smaller effects, indicating that temporal wrench encoding and future wrench predic-tion mainly complement the fusion pathway. The Full w/o RL variant achieves the best overall reference-model performance. 
+
+Online Adaptation Ablation. Table 2 and Fig. 6 analyze the online refinement module from final performance and adaptation speed, respectively. All variants use the same frozen wrench-aware ref-erence model and stage-specific actor-critic structure, but differ in the refinement context or value-learning objective. Removing wrench context reduces success across all subtasks, indicating that measured wrench feedback and predicted wrench cues provide useful state information for contact-aware action refinement. Removing the intervention-censored critic also degrades final performance, with the largest drop on the harder Latch subtask, where more frequent interventions make credit assignment across human-correction boundaries more critical. The adaptation curves on Latch fur-ther show that the intervention-censored critic improves early data efficiency, yielding faster gains in both success rate and throughput. Overall, the full model achieves the best final performance and the fastest online adaptation, showing that both wrench-context conditioning and intervention-censored value learning are important for stable, data-efficient online contact adaptation. 
+
+## 5 Conclusion 
+
+We presented TORL-VLA, a VLA reinforcement learning framework for online contact adapta-tion with tactile-derived wrench feedback. TORL-VLA uses a wrench-aware VLA as an action-and-wrench reference model and refines VLA reference actions at contact-rich bottlenecks through a lightweight online actor-critic module. To learn from human-intervened real-robot data, we introduce an intervention-censored critic that reduces credit-assignment bias by preventing post-intervention success from being over-credited to preceding policy-generated actions. Real-robot experiments on long-horizon contact-rich manipulation tasks show that TORL-VLA achieves the best performance in success rates at both subtask and full-task levels, together with time-bounded execution efficiency. Further ablation studies show that wrench-aware reference generation, online actor-critic refinement, and intervention-censored value learning all contribute to the observed gains. 
+
+## 6 Limitations 
+
+Our evaluation is limited to latch-box manipulation with a few contact-rich bottlenecks, and broader validation across more objects, contact modes, environments, and robot embodiments is needed. TORL-VLA relies on reliable fingertip wrench measurements, but sensor noise, calibration errors, coordinate-frame misalignment, or hardware drift may degrade both measured feedback and pre-dicted wrench references. Finally, intervention-based learning requires human-intervened data and assumes that human interventions can reliably indicate when autonomous execution is about to fail. 8References 
+
+[1] B. Zitkovich, T. Yu, S. Xu, P. Xu, T. Xiao, F. Xia, J. Wu, P. Wohlhart, S. Welker, A. Wahid, et al. RT-2: Vision-language-action models transfer web knowledge to robotic control. In 
+
+Conference on Robot Learning , pages 2165–2183. PMLR, 2023. [2] A. O’Neill, A. Rehman, A. Maddukuri, A. Gupta, A. Padalkar, A. Lee, A. Pooley, A. Gupta, A. Mandlekar, A. Jain, et al. Open x-embodiment: Robotic learning datasets and RT-X models. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 6892– 6903. IEEE, 2024. [3] Octo Model Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees, S. Dasari, J. Hejna, C. Xu, J. Luo, T. Kreiman, Y. L. Tan, L. Y. Chen, P. Sanketi, Q. Vuong, T. Xiao, D. Sadigh, C. Finn, and S. Levine. Octo: An open-source generalist robot policy. In Proceedings of Robotics: Science and Systems , Delft, Netherlands, 2024. [4] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. P. Foster, P. R. Sanketi, Q. Vuong, T. Kollar, B. Burchfiel, R. Tedrake, D. Sadigh, S. Levine, P. Liang, and C. Finn. OpenVLA: An open-source vision-language-action model. In Proceedings of the 8th Conference on Robot Learning , volume 270 of Proceedings of Machine Learning Research ,pages 2679–2713. PMLR, 2025. [5] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [6] J. Huang, S. Wang, F. Lin, Y. Hu, C. Wen, and Y. Gao. Tactile-VLA: Unlocking vision-language-action model’s physical knowledge for tactile generalization. arXiv preprint arXiv:2507.09160 , 2025. [7] P. Hao, C. Zhang, D. Li, X. Cao, X. Hao, S. Cui, and S. Wang. TLA: Tactile-language-action model for contact-rich manipulation. Robot Learning , 3(1):17–18, 2026. [8] C. Zhang, P. Hao, X. Cao, X. Hao, S. Cui, and S. Wang. VTLA: Vision-tactile-language-action model with preference learning for insertion manipulation. arXiv preprint arXiv:2505.09577 ,2025. [9] J. Yu, H. Liu, Q. Yu, J. Ren, C. Hao, H. Ding, G. Huang, G. Huang, Y. Song, P. Cai, et al. ForceVLA: Enhancing VLA models with a force-aware MoE for contact-rich manipulation. 
+
+Advances in Neural Information Processing Systems , 38:93409–93439, 2026. [10] Y. Li, H. Jiang, J. Xia, H. Zhang, J. Du, Y. Zhou, J. Zeng, C. Hao, J. Ren, Q. Yu, et al. ForceVLA2: Unleashing hybrid force-position control with force awareness for contact-rich manipulation. arXiv preprint arXiv:2603.15169 , 2026. [11] Z. Zhang, H. Xu, Z. Yang, C. Yue, Z. Lin, H.-a. Gao, Z. Wang, and H. Zhao. TA-VLA: Elucidating the design space of torque-aware vision-language-action models. arXiv preprint arXiv:2509.07962 , 2025. [12] Z. Cheng, Y. Zhang, W. Zhang, H. Li, K. Wang, L. Song, and H. Zhang. OmniVTLA: Vision-tactile-language-action model with semantic-aligned tactile sensing. arXiv preprint arXiv:2508.08706 , 2025. [13] J. Bi, K. Y. Ma, C. Hao, M. S. Zheng, and H. Soh. VLA-Touch: Enhancing vision-language-action model with dual-level tactile feedback. IEEE Robotics and Automation Letters , 2026. [14] R. Zhao, W. Wang, Y. Ma, X. Li, F. E. H. Tay, M. H. Ang Jr., and H. Zhu. FD-VLA: Force-distilled vision-language-action model for contact-rich manipulation. arXiv preprint arXiv:2602.02142 , 2026. 9[15] K. Gubernatorov, M. Sannikov, I. Mikhalchuk, E. Kuznetsov, M. Artemov, O. F. Ouwatobi, M. Fernando, A. Asanov, Z. Guo, and D. Tsetserukou. HapticVLA: Contact-rich manipula-tion via vision-language-action model without inference-time tactile sensing. arXiv preprint arXiv:2603.15257 , 2026. [16] P. Intelligence, A. Amin, R. Aniceto, A. Balakrishna, K. Black, K. Conley, G. Connors, J. Darpinian, K. Dhabalia, J. DiCarlo, et al. π∗
+
+> 0.6
+
+: A VLA that learns from experience. arXiv preprint arXiv:2511.14759 , 2025. [17] Y. Chen, S. Tian, S. Liu, Y. Zhou, H. Li, and D. Zhao. ConRFT: A reinforced fine-tuning method for VLA models via consistency policy. In Proceedings of Robotics: Science and Systems , 2025. doi:10.15607/RSS.2025.XXI.019. [18] X. Yuan, T. Mu, S. Tao, Y. Fang, M. Zhang, and H. Su. Policy decorator: Model-agnostic online refinement for large policy model. In The Thirteenth International Conference on Learning Representations , 2025. [19] W. Xiao, H. Lin, A. Peng, H. Xue, T. He, Z. Luo, Y. Xie, F. Hu, L. Fan, G. Shi, and Y. Zhu. Self-improving vision-language-action models with data generation via residual RL. In The Fourteenth International Conference on Learning Representations , 2026. URL https:// openreview.net/forum?id=eUGoqrZ6Ea .[20] Y. Li, X. Ma, J. Xu, Y. Cui, Z. Cui, Z. Han, L. Huang, T. Kong, Y. Liu, H. Niu, et al. GR-RL: Going dexterous and precise for long-horizon robotic manipulation. arXiv preprint arXiv:2512.01801 , 2025. [21] A. Wagenmaker, Y. Zhang, M. Nakamoto, S. Park, W. Yagoub, A. Nagabandi, A. Gupta, and S. Levine. Steering your diffusion policy with latent space reinforcement learning. In 9th Annual Conference on Robot Learning , 2025. [22] C. Xu, J. T. Springenberg, M. Equi, A. Amin, A. Esmail, S. Levine, and L. Ke. RL token: Boot-strapping online RL with vision-language-action models. arXiv preprint arXiv:2604.23073 ,2026. [23] J. Luo, Z. Hu, C. Xu, Y. L. Tan, J. Berg, A. Sharma, S. Schaal, C. Finn, A. Gupta, and S. Levine. SERL: A software suite for sample-efficient robotic reinforcement learning. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 16961–16969. IEEE, 2024. [24] K. Lei, H. Li, D. Yu, Z. Wei, L. Guo, Z. Jiang, Z. Wang, S. Liang, and H. Xu. RL-100: Performant robotic manipulation with real-world reinforcement learning. arXiv preprint arXiv:2510.14830 , 2025. [25] J. Luo, C. Xu, J. Wu, and S. Levine. Precise and dexterous robotic manipulation via human-in-the-loop reinforcement learning. Science Robotics , 10(105):eads5033, 2025. [26] P. Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, et al. π0.5: a vision-language-action model with open-world generalization. 
+
+arXiv preprint arXiv:2504.16054 , 2025. [27] J.-B. Alayrac, J. Donahue, P. Luc, A. Miech, I. Barr, Y. Hasson, K. Lenc, A. Mensch, K. Mil-lican, M. Reynolds, et al. Flamingo: a visual language model for few-shot learning. Advances in neural information processing systems , 35:23716–23736, 2022. [28] J. Li, D. Li, S. Savarese, and S. Hoi. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In International conference on machine learning , pages 19730–19742. PMLR, 2023. 10 [29] D. Driess, J. Springenberg, B. Ichter, L. Yu, A. Li-Bell, K. Pertsch, A. Ren, H. Walke, Q. Vuong, L. X. Shi, et al. Knowledge insulating vision-language-action models: Train fast, run fast, generalize better. Advances in Neural Information Processing Systems , 38:102867– 102888, 2026. [30] A. J. Hancock, X. Wu, L. Zha, O. Russakovsky, and A. Majumdar. Actions as language: Fine-tuning vlms into vlas without catastrophic forgetting. arXiv preprint arXiv:2509.22195 ,2025. [31] C. Miao, T. Chang, M. Wu, H. Xu, C. Li, M. Li, and X. Wang. Fedvla: Federated vision-language-action learning with dual gating mixture-of-experts for robotic manipulation. In Pro-ceedings of the IEEE/CVF International Conference on Computer Vision , pages 6904–6913, 2025. [32] W. Shen, Y. Liu, Y. Wu, Z. Liang, S. Gu, D. Wang, T. Nian, L. Xu, Y. Qin, J. Pang, et al. Expertise need not monopolize: Action-specialized mixture of experts for vision-language-action learning. arXiv preprint arXiv:2510.14300 , 2025. [33] Z. Du, B. Liu, Y. Liang, Y. Shen, H. Cao, X. Zheng, Z. Feng, Z. Wu, J. Yang, and Y.-G. Jiang. Himoe-vla: Hierarchical mixture-of-experts for generalist vision-language-action poli-cies. arXiv preprint arXiv:2512.05693 , 2025. [34] Y. Li, P. Tang, W. Zhang, C. Zhu, Y. Duan, W. Shi, X. Zhang, Z. Yang, J. Ji, and Y. Zhang. Favla: A force-adaptive fast-slow vla model for contact-rich robotic manipulation. arXiv preprint arXiv:2602.23648 , 2026. [35] G. Ye, Z. Zhang, X. Zhao, S. Wu, H. Lu, S. Lu, and H. Liu. Learning to feel the future: Dreamtacvla for contact-rich manipulation. arXiv preprint arXiv:2512.23864 , 2025. [36] S. Ross, G. Gordon, and D. Bagnell. A reduction of imitation learning and structured predic-tion to no-regret online learning. In Proceedings of the fourteenth international conference on artificial intelligence and statistics , pages 627–635. JMLR Workshop and Conference Pro-ceedings, 2011. [37] S. Fujimoto, H. Hoof, and D. Meger. Addressing function approximation error in actor-critic methods. In International conference on machine learning , pages 1587–1596. PMLR, 2018. [38] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine. Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. In International conference on machine learning , pages 1861–1870. Pmlr, 2018. 11 A Appendix 
+
+This appendix provides implementation and experimental details omitted from the main text due to space constraints. Appendix A.1 describes the latch-box manipulation benchmarks, the success and failure criteria, and the evaluation protocol used for autonomous evaluation and online adapta-tion. Appendix A.2 summarizes the robot system, tactile-to-wrench processing, demonstrations, and online replay. Appendix A.3 details the baseline adaptation and the implementation of the wrench-aware reference model and stage-specific online actor-critic refiners. Appendix A.4 presents addi-tional diagnostics complementing the main results, including wrench and contact-state analysis and intervention-censored critic diagnostics. Appendix A.5 reports deployment inference latency. All task names, method names, and ablation names follow the notation in the main paper. 
+
+A.1 Task and Evaluation Protocol A.1.1 Latch-Box Manipulation Tasks 
+
+The real-robot evaluation is conducted on a latch-box manipulation benchmark with three contact-rich subtasks: Coffee Cup , Latch , and Egg . Each subtask contains one or more local contact-rich bottleneck stages, where the stage estimator can activate the corresponding stage-specific online refiner during execution. The workspace structure and subtask order are shared across methods, and all trials follow the same task-specific reset protocol, with object initial poses allowed to vary within predefined start regions. The three subtasks are selected to cover different contact bottlenecks. Coffee Cup evaluates tight insertion into a narrow holder under partial occlusion. Latch evaluates contact-dependent mechanical engagement, where the robot must grip, flip, and lock a latch. Egg evaluates fragile-object grasping and placement, where both insufficient and excessive contact can cause failure. For full-task evaluation, the robot starts from the same latch-box initial configuration and executes the task sequence in one autonomous rollout. A full-task rollout is counted as successful only if the robot completes Coffee Cup, Latch, and Egg sequentially without human intervention, environment reset, safety stop, object drop, or visible object damage. 
+
+A.1.2 Success and Failure Criteria 
+
+The subtasks are designed to expose contact states that may appear visually close to success while differing in physical interaction, such as partial insertion, incomplete latch engagement, or exces-sive grasping force. All trials are reset according to the same task-specific reset protocol before evaluation. The observable success and failure criteria are defined at the task-outcome level rather than by internal model signals or intermediate wrench traces, ensuring consistent evaluation across methods. Table 3 summarizes these criteria for all subtasks and the full-task evaluation. If any listed failure event occurs, the trial is marked as a failure even if human intervention could have recovered the task afterward. 
+
+A.1.3 Evaluation Metrics and Protocol 
+
+For both subtask and full-task success rates, each method is evaluated over 30 autonomous tri-als. The same task objects, workspace structure, reset procedure, action representation, control fre-quency, and receding-horizon execution protocol are used for all methods. During final autonomous evaluation, no human intervention, environment reset, safety-stop recovery, or online parameter up-date is allowed. Online parameter updates are performed only during the online data-collection phase and are not performed while reporting the final success numbers. For reference-model ab-lations, variants are evaluated directly on the three contact-rich subtasks. For online-adaptation ablations, all variants use the same frozen wrench-aware reference model, checkpoint schedule, and matched online adaptation duration and interaction budget. 12 Table 3: Observable success and failure criteria for autonomous evaluation.       
+
+> Task Success condition Failure condition Coffee Cup Pick cup; insert into holder; release; cup remains upright and stable. Holder miss; rim hang-up; partial insertion; large tilt; drop; unsafe contact. Latch Grip latch; flip toward locking direction; press into locked state; latch remains se-cured after release. Missed latch; slip during flipping; missed locking edge; incomplete lock; rebound; unsafe force. Egg Grasp egg; transfer to holder; release; egg remains stable without visible damage. Slip; drop; holder collision; rolling out af-ter release; excessive grasping force; visi-ble damage. Full Task Complete Coffee Cup, Latch, and Egg se-quentially in one autonomous rollout. Any subtask failure; human intervention; reset; safety stop; object drop; object dam-age.
+
+A.2 System, Sensing, and Data A.2.1 Robot and Sensor Setup 
+
+The robot platform consists of a Piper robotic arm equipped with a Pika gripper from Agile Robots. The visual input consists of three camera views: a global view captured by an Intel RealSense D435i camera, a fisheye view captured by the camera integrated in the Pika gripper, and a wrist view captured by an Intel RealSense D405 camera mounted on the Pika gripper. The proprioceptive state includes the robot joint positions and the gripper state. Tactile sensing is provided by two Tacta fingertip tactile sensors from EnsuringTech, mounted on the inner contact surfaces of the gripper fingers. Each sensor has a compact size of 21 mm × 18.5 mm × 4.5 mm, and each tactile pad outputs a raw 6 × 8 tactile array. Policy observations are queried and logged at 20 Hz. All modalities are timestamp-aligned during data collection. For higher-rate tactile and proprioceptive streams, the latest measurement before the query timestamp is used. For visual streams, the most recent synchronized image triplet is used. All methods that use tactile-derived wrench feedback share the same tactile preprocessing, normalization statistics, and temporal window. 
+
+A.2.2 Tactile-to-Wrench Processing 
+
+The main paper defines the tactile-derived wrench observation as wt = [ wLt , wRt ] ∈ R12 . Here we clarify how this signal is obtained from the tactile sensor interface and how temporal wrench sequences are represented in implementation. The vendor SDK exposes two levels of tactile readout. The low-level interface returns 48 tactile points arranged on a 6 × 8 pad, with a 3D force vector at each point. The high-level SDK interface provides a calibrated 6-DOF fingertip wrench estimate 
+
+[fx, f y , f z , τ x, τ y , τ z ]. We denote this SDK-estimated fingertip wrench as ˜wit ∈ R6 for each finger 
+
+i ∈ { L, R }. The left and right fingertip outputs are concatenated in a fixed order to form the 12D wrench ˜wt = [ ˜ wLt , ˜wRt ] ∈ R12 .This vendor-provided wrench abstraction decouples the policy input from the raw tactile array lay-out. It also provides a compact force–torque representation that serves as a unified downstream interface, rather than requiring the policy to process sensor-specific raw tactile layouts. For the current measured wrench used in the online refinement context, we use the SDK-estimated 12D wrench, i.e., wt = ˜wt. For temporal contact reasoning, the reference model uses J = 10 
+
+wrench samples over the most recent 2 seconds, corresponding to the recent wrench sequence 
+
+Wt = {wt−J+1 , . . . , wt} in the main paper. In implementation, before feeding this sequence into the wrench-history encoder, we apply a current-wrench-centered transform to the SDK-estimated wrench samples. Specifically, the encoder input is formed as { ˜wt−J+1 − ˜wt, . . . , ˜wt−1 − ˜wt, 0}.Similarly, the future wrench target used in joint action–wrench prediction is represented by residuals 13 ˜wt+k − ˜wt. This implementation keeps the temporal structure described in the main paper while representing wrench sequences by relative wrench changes around the current contact state. The same tactile-to-wrench preprocessing is used for all methods that consume wrench feedback, so differences between baselines and TORL-VLA come from the policy architecture and online adaptation mechanism rather than from different tactile preprocessing. 
+
+A.2.3 Training Data for Reference Model and Online Adaptation 
+
+Table 4 summarizes the main real-robot data budget used for the wrench-aware reference model and online actor-critic refinement. Full-task demonstrations are used to train the wrench-aware VLA reference model, which predicts reference action chunks and future wrench sequences. Main online interaction data are collected around contact-rich bottleneck stages for stage-specific online adaptation. Warmup settings are reported in Table 5. Table 4: Real-robot data budget for reference-model training and online adaptation. Main online interaction time denotes accumulated robot execution time during online data collection, excluding human reset, object repositioning, and environment preparation. The Egg subtask contains two contact-rich bottleneck stages: grasping and placement.          
+
+> Data source Stage / Scope Scale Demonstrations Full task 539 trajectories Main online interaction Coffee Cup 23.5 min Latch 40.3 min Egg: grasp 29.2 min Egg: place 27.8 min
+
+A.3 Implementation Details A.3.1 Baseline Adaptation 
+
+We compare all methods under the same robot platform, action representation, training demonstra-tions, execution protocol, and evaluation procedure. We do not compare against numbers reported in prior work, since robot embodiments, tactile sensors, task definitions, and data distributions differ across papers. Instead, we adapt the baselines to the same π0.5 backbone and, where applicable, the same dual-fingertip tactile-derived wrench interface used by TORL-VLA. The π0.5 baseline directly executes the pretrained VLA policy without tactile-derived wrench input. TA-VLA and ForceVLA are reimplemented on the same π0.5 backbone and adapted to the dual-fingertip wrench observation. This keeps the comparison focused on whether tactile- or force-aware offline VLA designs can improve contact-rich manipulation under the same hardware and data set-ting. TORL-VLA w/o RL directly executes the learned wrench-aware reference model, without online RL refinement. RLT uses reference-guided online refinement, but it does not incorporate wrench input during online refinement and does not include the intervention-censored critic. TORL-VLA uses the wrench-aware reference model together with wrench-conditioned online refinement and intervention-censored value learning. All online-adaptation variants use the same frozen wrench-aware reference model and the same online adaptation duration, while each variant collects its own online robot data. This ensures that the comparison between RLT, TORL-VLA, and online ablations focuses on the effect of wrench-context conditioning and intervention-censored value learning under a matched online interaction budget. 
+
+A.3.2 Wrench-Aware Reference Model 
+
+This subsection specifies the implementation details of Stage I, which are omitted from the main text for space. At each timestep t, the wrench-aware VLA reference model takes as input three 14 VLM             
+
+> Prompt
+> Global Camera
+> ·
+> ·
+> ·
+> Fisheye
+> Camera
+> Wrist Camera
+> V-L Feature
+> (Nx dvl )
+> Tactile Array
+> (2x6x8)
+> 6D Wrench Sequence
+> (2x6xJ)
+> mapping
+> Wrench Encoder
+> Wrench Token (1x dvl )
+> T&VL attention
+> Router Network
+> Expert 1
+> Expert 2
+> Expert 3
+> Expert K Softmax
+> Gated
+> Bypass
+> T&VL MoE T&VL Fused Feature ( Hx dae )
+> Wrench Aware Action Expert
+> Noised Action
+> (Hx7)
+> Noised Wrench
+> (Hx12)
+> Action Chunk
+> (Hx7)
+> Future Wrench
+> (Hx12)
+
+Figure 7: Implementation details of the wrench-aware VLA reference model. 
+
+camera views (wrist, fisheye, and global), a language instruction, robot proprioception, and tactile readings from two piezoelectric pads mounted on the inner surfaces of the gripper fingers. As described in Appendix A.2.2, the tactile readings are converted into the current measured wrench 
+
+wt, and the recent wrench window is represented in a current-wrench-centered form before being fed into the wrench-history encoder. The resulting history sequence is compressed into a fixed-size wrench token ztac  
+
+> t
+
+∈ R1×dvl by a lightweight MLP encoder. In parallel, the three camera images, language instruction, and proprioception are encoded by the VLM backbone into visual-language prefix hidden states Pt ∈ RNp×dvl .Rather than injecting the wrench token early into the VLM, we adopt a late fusion strategy. The wrench token is appended to Pt after visual-language encoding, and a self-attention layer is ap-plied to the concatenated sequence [Pt; ztac  
+
+> t
+
+] to produce the fused multimodal representation Ht ∈
+
+R(Np+1) ×dvl . This preserves the pretrained visual-semantic features while enabling cross-modal interaction with tactile-derived wrench feedback. The fused representation is then passed through a soft-routing Mixture-of-Experts module, where a router network computes per-expert weights 
+
+ρt = Softmax( Rtac (Ht)) , and the routed feature is obtained as Ft = PMm=1 ρt,m ⊙ Em(Ht). This allows the model to dynamically route features according to the current contact phase. To retain fine-grained physical information that may be diluted by the MoE transformations, we add a zero-initialized wrench-token bypass. The routed feature and the original wrench token are projected to the action horizon and combined as Gt = Π tac (Ft) + αP H
+
+> tac
+
+(ztac  
+
+> t
+
+) ∈ RH×dae , where 
+
+Πtac maps the routed feature to the action horizon, P H 
+
+> tac
+
+projects and expands the wrench token to horizon-aligned guidance tokens, and α is a learnable scalar initialized to zero. Thus, the bypass contributes nothing at the start of training and grows adaptively as the model learns to use wrench feedback. Within the flow-matching action expert, the noisy joint generation variable xfm  
+
+> t,s
+
+∈ RH×(da+12) 
+
+is processed at interpolation time s ∈ [0 , 1] to yield action-side hidden states St,s . The wrench-conditioned guidance signal is added as a residual, producing ˜St,s = St,s + Gt. A joint output head then predicts a single velocity field over the concatenated action–wrench target, which is split into action and wrench dimensions as ˆut,s = [ˆ uat,s , ˆuwt,s ]. Solving the learned flow from s = 0 to 
+
+s = 1 yields the joint prediction: a reference action chunk ˆAt:t+H−1 ∈ RH×da that serves as the motion prior for the online actor, and a future wrench sequence ˆWt:t+H−1 ∈ RH×12 that provides the expected contact cue for wrench-conditioned action refinement in Stage II. Following the pre-processing described in Appendix A.2.2, the future wrench target used in training is represented by current-centered residuals, i.e., ˜wt+k − ˜wt.15 A.3.3 Online Reference Adaptation 
+
+This subsection adds implementation details that are not fully specified in the main text. During Stage II adaptation, the wrench-aware VLA is kept frozen and only the lightweight stage-specific actor-critic refiners are updated. 
+
+Reference interface. The online refiner uses the same executable reference interface and context definition as in the main text. In implementation, the frozen wrench-aware VLA predicts a 50-step action sequence and a 50-step future wrench sequence, and the first K = 10 steps are used for online refinement and execution. At 20 Hz, this corresponds to a 0.5 s replanning interval. To obtain the compact VLA token zvla  
+
+> t
+
+, we append a learned special token to the final hidden-state sequence of the frozen wrench-aware VLA and pass the augmented sequence through a lightweight token encoder. The output at the special-token position is used as zvla  
+
+> t
+
+. The token encoder is trained before online adaptation and is frozen during online actor-critic updates. 
+
+Stage estimator routing. As shown in Figure 8, the stage estimator is a lightweight chunk-level pre-diction module rather than an action policy. Its purpose is to decide how each VLA reference chunk should be executed during Stage II adaptation. At each VLA query, the frozen wrench-aware VLA first produces the reference action chunk and the policy-side features used by the online module. The stage estimator reuses these features, including the compact VLA token context, proprioception context, and wrench context, to predict a discrete stage label and its confidence. The predicted stage label is then mapped to a runtime route before executing the next K-step action chunk. Stage Gate 
+
+## Stage Conf. 
+
+## Stage Classification Head 
+
+# Temporal Transformer Encoder 
+
+# Stream Projectors 
+
+## Proprioception Vision Token Wrench 
+
+Context Context Context 
+
+Figure 8: Stage estimator architecture. 
+
+Policy-side features are projected, tempo-rally aggregated, and used to predict a stage label and confidence for route filter-ing. The route mapping separates full-task execution into base execution and local contact-window refine-ment. Labels outside predefined contact windows are mapped to the base route, where the frozen VLA ref-erence chunk is executed directly. Only labels corre-sponding to contact-critical windows activate the as-sociated stage-specific actor-critic refiner. Therefore, the stage estimator does not assign an entire subtask to an online refiner. Instead, it only selects short win-dows in which contact-aware refinement is needed. For example, approach and inter-stage transport are usually handled by the frozen VLA, while online re-finement is activated around cup insertion, latch en-gagement/locking, egg grasping, and egg placement. To avoid unstable switching caused by isolated predic-tion noise, we apply a simple route gate before execu-tion. A predicted route is accepted only when the stage confidence exceeds 0.9 and the same mapped route is predicted for two consecutive chunks. Otherwise, the system keeps the previous stable route or falls back to the base route. Because the stage estimator reuses fea-tures already produced at the VLA query, this routing step does not require an additional VLA forward pass. Figure 9 compares the estimated stages with ground-truth annotations over a full-task rollout. The stage estimator achieves an absolute semantic accuracy of 95.5%. The remaining mismatches are concentrated near the continuous boundaries between adjacent stages. This is expected because the physical transition between two neighboring phases is gradual rather than instantaneous, and man-ual stage annotations at such boundaries can vary slightly. Direct inspection of the aligned camera observations shows that the physical manipulation states corresponding to the ground truth (GT) and estimation results (ER) are visually and functionally similar across stable intervals. Thus, these boundary-level discrepancies mainly reflect annotation ambiguity around phase transitions rather 16 0 115 230 345 460 575 690 805 920 1035 1150 1265 1380 1495 1610 1725                             
+
+> GT base
+> place coffee
+> latch lock
+> pick egg
+> place egg
+> 0115 230 345 460 575 690 805 920 1035 1150 1265 1380 1495 1610 1725
+> ER
+> begin place coffee finish place coffee begin latch lock finish latch lock
+> begin pick egg finish pick egg begin place egg finish place egg
+> begin pick egg finish pick egg begin place egg finish place egg
+> begin place coffee finish place coffee begin latch lock finish latch lock
+
+Figure 9: Detailed alignment of predicted stages against ground truth over full-task execution. 
+
+The visualization trace shows chunk-level stage estimates aligned with sequential camera obser-vations. Minor discrepancies mainly appear at continuous phase boundaries, while the physical manipulation states in GT and ER remain consistent across stable intervals. than incorrect recognition of stable task stages. In deployment, the confidence and temporal-stability gate further reduces the chance that such boundary fluctuations lead to unstable actor switching. Moreover, the stage-specific online actors operate on continuous wrench-conditioned contexts, mak-ing the refinement robust to small timing shifts around the beginning or end of a contact window. When a chunk is routed to a contact window, the corresponding stage-specific actor-critic refiner is used. The actor embeds the input groups in ct, concatenates the features, and directly outputs the refined executable chunk: 
+
+Aϕt = πϕgt (ct). (5) The actor does not predict an explicit residual added to Aref 
+
+t . Action chunks are normalized inter-nally for training and converted back to executable robot commands before deployment. 
+
+Replay buffer and control-source labels. Before main online adaptation, each stage-specific re-finer is initialized with warmup data, where execution mainly follows the VLA reference and human intervention is applied near failure or unsafe contact. After warmup, the corresponding actor snap-shot is used in closed-loop execution. Online data are stored at the executed K-step chunk level. Each replay entry contains Aref 
+
+t , the executed chunk Adata 
+
+t , robot proprioception, the current measured wrench, recent measured wrench history, the aligned predicted wrench cue ˆW ref 
+
+t , rewards, terminal flag, next context, and per-step control-source labels. For each low-level step j, σt,j ∈ { policy , human } records whether the action was generated by the learned policy or by human intervention. These labels are not actor observa-tions; they are used only for behavior regularization, intervention-boundary target construction, and diagnostics. 
+
+A.3.4 Training Details and Hyperparameters 
+
+Table 5 summarizes the key hyperparameters used for reference generation and online adaptation. We report the settings that define the reference interface, execution schedule, online update cadence, intervention-boundary construction, and stage-specific actor-critic refiners. Since the Egg subtask contains two contact-rich bottleneck stages, we use separate actor-critic refiners for egg grasping and egg placement. 17 Table 5: Key hyperparameters for reference generation and online adaptation.                                      
+
+> Reference / execution Value Reference horizon H50 Executed horizon K10 Action / wrench dimension 7 / 12 Robot command representation delta chunk Control frequency 20 Hz Replanning interval 0.5 s Wrench history length 10 Wrench history window 2.0 s Future wrench horizon 50 Future wrench loss λw0.3 VLA token dimension zvla
+> t2048 Online learning / AC Value Discount factor γ0.99 Update-to-data ratio 5Critic update frequency every step Actor update frequency every 2 steps Target-network EMA τ0.005 Actor snapshot interval 100 steps Checkpoint interval 1000 steps Intervention cost cint 1.0 Human-control threshold ρint 0.5 Warmup replay chunks 300 Warmup gradient updates 5k Hidden dimension 256 Coffee Cup AC layers 3 / 3 Egg-grasp AC layers 3 / 3 Egg-place AC layers 3 / 3 Latch AC layers 4 / 4
+
+Online learning uses replay-buffer updates. For each newly added replay transition, the learner performs five gradient updates on average; the critic is updated at every learner step, while the actor is updated every two learner steps. Checkpoints are saved every 1000 learner steps. These settings specify the TORL-VLA implementation used in our online adaptation experiments, including the execution horizon, control frequency, warmup schedule, online update cadence, and stage-specific actor-critic architecture. 
+
+A.4 Additional Diagnostics A.4.1 Wrench and Contact-State Analysis 
+
+This section analyzes tactile-derived wrench signals during contact-rich execution. The goal is not to introduce an additional benchmark metric, but to show how measured wrench and predicted future wrench behave in the task phases visualized below. 
+
+Measured contact evolution. Figures 12 and 10 show representative real-execution segments from the latch-locking and cup-insertion tasks. The wrench curves shown in this analysis are measured from the right-fingertip tactile sensor. The latch sequence in Figures 12 covers the process from the initial latch grasp to latch flipping. During this process, the commanded action changes smoothly, while the measured fingertip wrench exhibits clear temporal variation. In the cup task shown in Figures 10, the gripper must maintain a normal force fz to stably hold the cup, while also applying an appropriate downward force fy during insertion to place the cup into the holder. These examples show that the contact state in our tasks is not a simple binary contact/no-contact variable, but evolves continuously with the interaction among the robot, the manipulated object, and the environment. Beyond characterizing normal contact evolution, the wrench signal also provides cues for identifying deviations from the expected execution. For example, grasping the latch too tightly may introduce excessive contact forces that prevent the latch from being flipped. Similarly, during cup insertion, a slight positional offset may be difficult to detect from visual observations alone, but it can be revealed by abnormal variations in fy .
+
+Future-wrench prediction. Figure 13 evaluates whether the reference model can predict future contact trends. Each panel pairs the current visual observation and the observation after 50 action steps with the predicted and measured fingertip wrench norms. The examples cover latch lock-ing, cup insertion, and egg grasping, thereby testing the prediction head under mechanism con-tact, environmental contact, and delicate object contact. These curves suggest that the reference model anticipates the contact consequences of its proposed future action. Figure 11 further expands 18 Figure 10: Measured contact evolution in the cup-insertion task. The wrench curves are measured from the right-fingertip tactile sensor. The gripper maintains the normal force fz to stably hold the cup while applying an appropriate downward force fy during insertion. 
+
+Figure 11: Detailed six-dimensional future-wrench prediction on a latch-locking segment. The fig-ure compares the predicted and measured six-dimensional wrench trajectories for the left-fingertip tactile sensor, including the three force components and three torque components. This view com-plements the norm-based summaries in Figure 13 by showing whether the model captures the component-wise contact evolution. one latch-locking segment into the left-fingertip components, showing the predicted and measured force–torque trajectories along all six dimensions. 
+
+Beyond history extrapolation. A potential concern is that the future-wrench head may simply ex-trapolate the trend of the input wrench history. To probe this, we examine the examples in subpanels (a1), (b1), and (c1) of Figure 13. In these cases, the input wrench histories are equal to zero before substantial contact is established. A history-copying predictor would therefore remain near zero or continue the previous flat trend. Instead, the model predicts a future rise or change in the fingertip wrench while generating the corresponding reference action. This suggests that the reference model infers upcoming contact dynamics from the visual state and the shared action–wrench generation context, rather than merely extrapolating short-term wrench history. 
+
+A.4.2 Intervention-Censored Critic Diagnostics 
+
+This section provides process-level diagnostics for the intervention-censored critic on the Latch-Lock stage, i.e., the locking contact window within the Latch subtask. We use this stage because it contains sufficient policy-to-human boundary contexts for stable analysis. These diagnostics are not additional final evaluation metrics; they are used only to inspect whether Qic captures the in-19 tended intervention-risk signal and whether the learned actor moves away from actions with lower intervention-censored value. Unless otherwise specified, all diagnostics are computed from the fi-nal Latch-Lock online replay of the full model, and critic values are evaluated using the final critic checkpoint. 
+
+Boundary contexts and diagnostic scores. For diagnostics, we define a clean policy-generated chunk as a mostly policy-generated chunk that is not followed by an intervention-dominated chunk. A policy-to-human boundary chunk is a mostly policy-generated chunk immediately preceding an intervention-dominated chunk, using the same threshold as the intervention-boundary mask in the main method. A boundary context denotes the actor context ct associated with such a boundary chunk. These diagnostic labels are used only for offline analysis and are not provided to the actor as observations. All critic values are reported as the minimum over the double-Q pair. For AUC-based boundary-risk ranking, we use −Q(c, A ) as the score: lower critic values indicate lower predicted value, and for 
+
+Qic this is intended to correspond to higher intervention risk. Thus, a larger AUC means that a critic more reliably ranks boundary chunks above clean policy-generated chunks under this diagnostic score. 
+
+Boundary-context distribution and actor behavior. Table 6 reports two diagnostics on the final Latch-Lock replay. The left table shows how policy-to-human boundary contexts are distributed across online episodes, indicating that they are recurring contact-risk events rather than a few iso-lated outliers. The right table compares the logged pre-intervention action, the VLA reference action, and the final actor action on the same 165 boundary contexts. The final actor achieves higher average Qic value than both the logged action and the VLA reference, suggesting that the learned actor moves away from lower-IC-value actions on these boundary contexts. We call a boundary context IC-hinge-active when the reference-relative IC hinge in the actor loss is active, i.e., min i Q(i)ic (c, A ϕ) < min i Q(i)ic (c, A ref ).Table 6: Boundary-context distribution and actor behavior. Left: episode-level distribution of policy-to-human boundary contexts in the final Latch-Lock replay. Right: action comparison on the same 165 boundary contexts using the final IC critic.                            
+
+> Metric Value Episodes with replay 162 Boundary contexts 165 Episodes ≥1 boundary 125 / 162 = 77.2% Episodes ≥2 boundaries 32 / 162 = 19.8% Episodes ≥3 boundaries 8 / 162 = 4.9% Mean per episode 1.02 Median per episode 190th percentile 2Maximum per episode 3Actor diagnostic Value Logged Qic (c, A data )-1.003 Reference Qic (c, A ref )-0.573 Final actor Qic (c, A ϕ)-0.271
+> ∆Qic : actor vs. reference +0.301
+> ∆Qic : actor vs. logged data +0.731 IC-hinge-active boundary contexts 21 / 165 = 12.73%
+
+Boundary-risk separation. Table 7 compares Qic and Qtask on clean policy-generated chunks and policy-to-human boundary chunks. Clean Mean and Boundary Mean denote the average critic values on the two groups, and Clean–Boundary is their difference. AUC is computed using −Q(c, A ) as the boundary-risk score. The IC critic separates boundary chunks from clean chunks much more clearly than the task critic, supporting the separation between task-return estimation and intervention-risk modeling. 
+
+Actor checkpoint comparison. Table 8 compares actor checkpoints saved at learner global steps 10k, 20k, and 33k. To avoid comparing values from drifting critic checkpoints, we use the final 
+
+Qic as a fixed diagnostic scorer for all actor checkpoints. The comparison is retrospective: all checkpoints are evaluated on the same final boundary-context set, although not all of these contexts were present in replay at earlier checkpoints. A boundary context is counted as IC-hinge-active at a checkpoint if the actor action at that checkpoint has lower IC value than the VLA reference under the same context. A 10k IC-hinge-active context is considered resolved if it is no longer IC-hinge-active 20 Table 7: Boundary-risk separation by task and IC critics. AUC is computed using −Q(c, A ) as the boundary-risk score; for Qic , lower values are intended to indicate higher intervention risk.                                
+
+> Critic / Action Clean Mean Boundary Mean Clean–Boundary AUC ↑
+> Qic (c, A data )0.073 -1.003 1.076 0.999
+> Qic (c, A ref )-0.007 -0.573 0.565 0.913
+> Qic (c, A ϕ)0.091 -0.271 0.363 0.806
+> Qtask (c, A data )0.333 0.247 0.086 0.621
+> Qtask (c, A ref )0.316 0.241 0.074 0.626
+> Qtask (c, A ϕ)0.351 0.272 0.079 0.618
+
+under the final actor. The number of IC-hinge-active boundary contexts decreases from 89 /165 at 10k to 21 /165 at the final 33k checkpoint, indicating that the actor progressively reduces boundary contexts where its action has lower IC value than the VLA reference. Table 8: Actor checkpoint comparison on boundary contexts. The final IC critic is used as a fixed scorer on the same final boundary-context set. Checkpoints are indexed by learner global step. Margin statistics are computed only on the 89 contexts that are IC-hinge-active at the 10k checkpoint.         
+
+> Retrospective actor diagnostic Value IC-hinge-active contexts at 10k global-step checkpoint 89 / 165 = 53.94% IC-hinge-active contexts at 20k global-step checkpoint 66 / 165 = 40.00% IC-hinge-active contexts at final 33k global-step checkpoint 21 / 165 = 12.73% 10k IC-hinge-active contexts resolved by final actor 71 / 89 = 79.8% Mean margin on 10k IC-hinge-active contexts -0.207 Mean margin on the same contexts at final 33k checkpoint +0.213 Mean margin improvement on the same contexts +0.421
+
+Online intervention behavior. Table 9 reports rollout-level process diagnostics during late online training. These statistics are not used as final autonomous evaluation metrics. Human-Controlled Step Ratio is computed at the low-level control-step level as the fraction of steps involving human control, and Avg. Human Interventions counts human takeover events per episode. Compared with the variant without the IC critic under the same late-training window, the full model shows lower human-intervention reliance and more intervention-free episodes during late online training. This is consistent with the intended role of Qic : reducing policy behaviors that tend to lead into human correction. Table 9: Latch-Lock online intervention diagnostics. Statistics are computed over late online training rollouts and are not used as final autonomous evaluation metrics. Human-Controlled Step Ratio is computed at the low-level control-step level, and Avg. Human Interventions counts human takeover events per episode.                 
+
+> Variant / Window Human-Controlled Step Ratio ↓
+> Avg. Human Interventions ↓
+> Intervention-Free Episodes ↑
+> w/o IC Critic, last 100 ep. 27.78% 13.40 11.0% Full model, last 100 ep. 25.32% 10.68 29.0% w/o IC Critic, last 50 ep. 25.42% 13.10 12.0% Full model, last 50 ep. 18.12% 7.48 40.0%
+
+A.5 Deployment Efficiency A.5.1 Deployment Inference Latency 
+
+Table 10 reports deployment-time inference latency measured on a single NVIDIA RTX 4090 GPU with batch size one. We measure online policy computation only, excluding robot com-munication, observation acquisition, low-level controller execution, and environment preparation. 21 All policy-query latencies are averaged over 30 timed warm-call queries after excluding the first JIT/initialization call and using five warmup queries. During a TORL-VLA policy query, the frozen wrench-aware VLA generates the reference action sequence and predicted future wrench sequence. The stage estimator performs chunk-level routing using policy-query features and does not require an additional VLA forward pass. When the cur-rent chunk is routed to a contact-critical stage, the corresponding stage-specific online actor refines the reference action chunk. The reported TORL-VLA total is measured end-to-end for this actor-refinement route, rather than obtained by summing separately measured module times. The base 
+
+π0.5 row is included only as a reference-policy comparison and is not part of the TORL-VLA total. Table 10: Deployment inference latency. Mean warm-call latency is measured on a single NVIDIA RTX 4090 GPU with batch size one.               
+
+> Module / Query Timed Calls Mean Latency Base π0.5policy query (comparison) 30 94.7 ms TORL-VLA wrench-aware reference query 30 100.2 ms Stage estimator routing 30 1.7 ms Stage-specific online actor 30 1.1 ms End-to-end TORL-VLA query with actor refinement 30 103.0 ms
+
+Compared with the base π0.5 policy query, the full TORL-VLA actor-refinement route increases mean policy-query latency by 8.3 ms, corresponding to an 8.8% relative overhead. The stage esti-mator and online actor add only a few milliseconds of latency, indicating that TORL-VLA introduces lightweight deployment overhead while retaining the same real-time policy-query regime. 22 (a) Initial latch-grasping phase 
+
+> (b) Latch-flipping phase
+
+Figure 12: Measured contact evolution in the latch-locking task. Each panel shows synchronized camera views, the measured wrench (fx, f y , f z , τ x, τ y , τ z ) from the right-fingertip tactile sensor, and action traces. The sequence covers the process from initially grasping the latch to flipping it. 23 (a1) Latch task: beginning of locking (a2) Latch task: end of locking   
+
+> (b1) Cup task: cup grasping (b2) Cup task: insertion into the holder
+> (c1) Egg task: beginning of grasping (c2) Egg task: end of grasping
+
+Figure 13: Future-wrench prediction examples across the latch, cup, and egg tasks. Each panel shows the current and post-50-step observations above, and compares the predicted future wrench norms with the measured wrench norms from the left and right fingertip tactile sensors below. 24

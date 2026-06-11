@@ -1,0 +1,500 @@
+Title: CosFly-Track: A Large-Scale Multi-Modal Dataset for UAV Visual Tracking via Multi-Constraint Trajectory Optimization
+
+URL Source: https://arxiv.org/pdf/2605.17776v1
+
+Published Time: Tue, 19 May 2026 02:09:33 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# CosFly-Track: A Large-Scale Multi-Modal Dataset for UAV Visual Tracking via Multi-Constraint Trajectory Optimization 
+
+Xiangyue Wang 1 Hanxuan Chen 1 Songsheng Cheng 1∗ Ruilong Ren 1∗ Jie Zheng 2∗
+
+Shuai Yuan 3∗ Tianle Zeng 4 Hanzhong Guo 5 Kangli Wang 1† Ji Pei 1†
+
+> 1
+
+Autel Robotics 2Nanjing University 3Peking University 
+
+> 4
+
+Southern University of Science and Technology 5University of Hong Kong 
+
+peiji@autelrobotics.com 
+
+# Abstract 
+
+Recent aerial vision-language navigation (VLN) datasets have grown rapidly, but they primarily address goal-oriented navigation to static destinations, leaving UAV visual tracking—continuously following a moving target while maintain-ing visibility—largely without dedicated training data. We introduce CosFly-Track , a large-scale multi-modal dataset and scalable generation pipeline for UAV visual tracking in urban environments. The dataset provides approxi-mately 12,000 expert and perturbed UAV trajectories generated from 6,000 pedestrian paths, comprising 2.4 million timesteps ( ∼334 hours) with 7 aligned data channels: RGB, metric depth, semantic segmentation, 6-DoF drone pose, target state with visibility flag, bilingual (Chinese–English) instructions, and trajectory-pair metadata. To generate high-quality expert trajectories, we de-velop MuCO , a multi-constraint optimizer that plans directly in continuous 3D space with BVH-accelerated collision and visibility queries, jointly enforcing tar-get visibility, viewpoint quality, collision avoidance, smoothness, and kinematic feasibility—avoiding the discretization artifacts and post-hoc smoothing of grid-based planners. Fine-tuning experiments on seven vision-language models show that CosFly-Track improves tracking performance to 78.3–95.6% SR@1m—a 53–69 percentage-point gain over zero-shot baselines—supporting the dataset as a training resource for dynamic target-following agents. The dataset is publicly avail-able at https://huggingface.co/datasets/AutelRobotics/CosFly ; eval-uation scripts and pre-trained checkpoints are hosted at https://huggingface. co/AutelRobotics/CosFly-Track .
+
+# 1 Introduction 
+
+Aerial vision-language navigation (VLN) datasets have grown rapidly [ 1– 5], reflecting increasing interest in enabling autonomous UAVs to understand and execute natural-language instructions in complex environments. However, existing aerial VLN datasets are predominantly designed for goal-oriented navigation —planning a path from a start location to a fixed destination. To our knowledge, no existing dataset is designed for the substantially different task of visual tracking : continuously following a dynamic target while maintaining target visibility, avoiding collisions, and satisfying kinematic constraints. 
+
+> ∗Equal contribution.
+> †Corresponding authors. Preprint.
+> arXiv:2605.17776v1 [cs.RO] 18 May 2026
+
+Figure 1: CosFly-Track pipeline. From urban scenes to dataset: 3D grid construction → pedestrian path generation → MuCO trajectory optimization (9-term objective, soft/hard constraints) → paired expert/perturbed rendering with 7 aligned data channels. Details in Section 4. Navigation aims to reach a fixed goal; tracking requires continuously adapting to a moving target under visibility, viewpoint, collision, and kinematic constraints at every timestep (Figure 1; formal definitions in Section 3). This gap matters because UAV visual tracking underlies applications such as search and rescue, autonomous cinematography, sports analysis, wildlife monitoring, and infrastructure inspection. These scenarios require not only identifying a target, but also generating executable UAV motion that preserves target visibility over extended periods. Yet there is still no dedicated large-scale multi-modal dataset for training and evaluating agents under these tracking-specific constraints. 
+
+Challenges of tracking data generation. Generating high-quality tracking trajectories poses additional challenges beyond navigation path generation: (1) Grid-based planners such as A ∗ optimize geometric path length and often require post-processing to satisfy UAV velocity, acceleration, and jerk constraints; (2) Tracking trajectories must jointly optimize target visibility, viewpoint quality, distance control, and collision avoidance as the target moves—objectives absent from navigation planners; (3) Scaling such planning to dense urban scenes is computationally demanding because the search space grows rapidly with map resolution and trajectory length. These challenges motivate a continuous multi-constraint optimization approach tailored to UAV tracking. 
+
+Contributions. We make the following contributions: 1. Dataset : To our knowledge, CosFly-Track is the first large-scale multi-modal dataset for UAV visual tracking, providing ∼12K expert and perturbed trajectories generated from ∼6K pedestrian paths, 2.4M timesteps, 7 aligned data channels, and bilingual instructions (Section 5). 2. Generation pipeline : We develop CosFly, a modular data production pipeline built around MuCO, a multi-constraint trajectory optimizer that jointly considers target visibility, viewpoint quality, obstacle avoidance, and kinematic feasibility in continuous 3D space (Section 4). 3. Benchmarks : We evaluate seven VLMs on the proposed tracking task, showing that fine-tuning on CosFly-Track yields a 53–69 percentage-point improvement in SR@1m over zero-shot baselines, along with scaling analysis and ablation studies (Section 6). 4. Open resources : We release the dataset, evaluation scripts, and pre-trained checkpoints to support future research on UAV visual tracking. 22 Related Work 
+
+2.1 UAV Visual Datasets Real-world UAV datasets. Early UAV datasets focus on object detection and tracking from fixed or pre-programmed trajectories: VisDrone [ 6] provides bounding-box annotations for detec-tion/tracking; UAV123 [ 7 ] benchmarks single-object tracking; UAVDT [ 8 ] targets detection under adverse conditions. These datasets lack action-level annotations (drone control commands) and language instructions, making them unsuitable for training autonomous tracking agents. 
+
+Simulated aerial VLN datasets. The recent surge in aerial VLN [ 9, 10 ] has produced several navigation-focused datasets: AerialVLN [ 4] provides 8.4K trajectories in AirSim [ 11 ] for navigation; CityNav [ 3 ] scales to 32.6K trajectories in real-world aerial imagery; OpenFly [ 1] offers 100K trajectories across 18 scenes using A ∗ voxel planning; AirNav [ 2] provides 143K trajectories from SfM-reconstructed environments; IndoorUAV [ 5] targets indoor navigation with 16K+ trajectories. These datasets all target navigation to static goals; no existing dataset addresses the dynamic-target tracking task that CosFly-Track is designed for. 
+
+2.2 Trajectory Planning and Optimization 
+
+Discrete planners such as A ∗ [ 12 ], D ∗ Lite [ 13 ], and RRT [ 14 ] operate on grid or sampling-based representations, often producing paths that are kinematically infeasible and require post-processing smoothing. A common remedy is to apply B-spline or polynomial smoothing after discrete search, but the smoothed trajectory still inherits the suboptimal topology of the grid search and cannot jointly optimize visibility and kinematics end-to-end. Continuous optimization methods—CHOMP [ 15 ], TrajOpt [ 16 ], GPMP [ 17 ]—optimize trajectories in R3 using gradient-based methods. MuCO differs from these approaches in its tracking-specific cost design: it jointly optimizes 9 objectives, including BVH-accelerated visibility checking, direction-aware viewpoint cost, and jerk regularization, with a novel soft/hard constraint architecture for safety guarantees. We empirically show that MuCO achieves quality comparable to A ∗ [12] while being 22 × faster (Section 4). 
+
+2.3 VLMs in Embodied AI 
+
+Vision-language models [ 18 –20 ] have demonstrated strong capabilities in visual understanding and instruction following. Recent work [ 21 , 22 ] explores fine-tuning VLMs for embodied control tasks. To our knowledge, CosFly-Track provides the first large-scale training resource for adapting VLMs to the UAV tracking task, with bilingual instructions enabling cross-lingual research. 
+
+# 3 Task Formulation 
+
+3.1 Tracking vs. Navigation 
+
+We formally distinguish the UAV visual tracking task from navigation (Table 1): 
+
+Navigation. Given a static goal position g (or language instruction), plan a path from start s to g in a static environment. Success is measured by reaching the goal. 
+
+Visual tracking. Given a dynamic target with trajectory {p1, . . . , p T }, continuously follow the target while maintaining visibility and satisfying kinematic constraints. Success requires sustained 
+
+tracking—the target must remain visible and within appropriate range throughout the entire trajectory. 
+
+3.2 Input and Action Spaces 
+
+The tracking agent receives: RGB image ot ∈ RH×W ×3 (optionally with depth and segmentation); 
+
+6-DoF pose history {(x, y, z, ϕ, θ, ψ )}tt−k; target bounding box and visibility flag ; bilingual tracking instruction . The action space consists of 6-DoF incremental waypoint predictions at =(∆ x, ∆y, ∆z, ∆ϕ, ∆θ, ∆ψ).3Table 1: Comparison with existing aerial VLN datasets. CosFly-Track is the only dataset targeting the tracking task, offering 6-DoF actions, kinematic constraints, visibility guarantees, paired trajec-tories, and 7 aligned data channels (RGB, depth, segmentation, 6-DoF pose, target state, bilingual instructions, trajectory-pair metadata). Avg. Len = average trajectory length in steps. †Initial release; expansion to 100K+ trajectories ( ∼20M frames) is underway.                                                                                                    
+
+> Dataset Venue Task Traj. Avg. Len DoF Mod. Kinem. Vis. Paired VisDrone [6] arXiv’18 Det. ———RGB —✗✗
+> UAV123 [7] ECCV’16 SOT 123 ——RGB —✗✗
+> AVDN [23] ACL’23 Nav. 3K 49 3RGB ✗✗✗
+> AerialVLN [4] ICCV’23 Nav. 8.4K 230 4RGB ✗✗✗
+> OpenUAV [24] ICLR’25 Nav. 12.1K 264 6RGB ✗✗✗
+> CityNav [3] ICCV’25 Nav. 32.6K 240 4RGB —✗✗
+> IndoorUAV [5] AAAI’26 Nav. 16K+ 22 4RGB+D ✗✗✗
+> OpenFly [1] ICLR’26 Nav. 100K 35 4RGB ✗✗✗
+> AirNav [2] arXiv’26 Nav. 143K 193 4RGB ✗✗✗
+> CosFly-Track arXiv’26 Trk. 12K †200 67✓✓✓
+
+3.3 Evaluation Metrics Waypoint prediction. SR@ r: percentage of final waypoints within r m of ground truth ( r ∈{0.5, 1.0, 2.0}); ADE /FDE : average/final displacement error (m); RotAcc@ d: percentage of fi-nal waypoints within d◦ of ground truth yaw; Yaw MAE : mean absolute yaw error (degrees); 
+
+JointSR@( r,d): joint position-rotation success; MAE : mean absolute error across all 6 DoF. 
+
+Target bbox prediction. mIoU : mean intersection-over-union between predicted and ground-truth bounding boxes. 
+
+Metric usage. The architecture comparison uses SR@1m, FDE, RotAcc@ 1◦, MAE for coarse-to-fine ranking; the scaling analysis reports SR@2m and IoU ≥0.75 on the hard split where SR@1m saturates; ablation studies report the full metric set (ADE, FDE, SR@1m, Yaw MAE, mIoU) for comprehensive modality and paradigm analysis. 
+
+# 4 The CosFly Pipeline and MuCO Engine 
+
+4.1 CosFly Pipeline Overview 
+
+The CosFly pipeline is a modular data production system for aerial tracking datasets, described in full engineering detail in our technical report [ 25 ], which documents the complete engineering implemen-tation of this work. Here we summarize the six stages: (1) Environment preprocessing —extract and simplify 3D AABB obstacle maps (65K →2K boxes); (2) Pedestrian trajectory generation —A ∗ on walkable grids with variable-speed resampling; (3) MuCO tracking optimization —detailed in §4.2; 
+
+(4) Dual-trajectory augmentation —paired expert-perturbed trajectories via Bernoulli perturbations; 
+
+(5) Multi-modal rendering —RGB, depth, segmentation, 6-DoF pose, target state with weather randomization; (6) Bilingual captioning —teacher-student distillation (Qwen3.5-397B →2B [ 26 ]) for Chinese/English tracking instructions. The pipeline is fully decoupled: each stage can be indepen-dently replaced (e.g., substituting real-world GPS traces for simulated pedestrian trajectories, or a different rendering engine). This paper focuses on Stages 3–4 (MuCO optimizer and dual-trajectory design) and the downstream benchmarking experiments; readers are referred to our technical re-port [ 25 ] for complete details of map processing, quality inspection, zoom simulation, and caption generation. 4Table 2: MuCO vs. A ∗ on 20 shared pedestrian trajectories. MuCO achieves comparable visibility and tracking distance while being 22 × faster with 13% shorter paths (Figure 2).                     
+
+> Planner Visibility ↑Track Dist. (m) Path Len. (m) ↓Time (ms) ↓Nodes A∗0.979 28.20 125.5 5,467 400K MuCO 0.906 27.96 108.8 247 —
+> ∆−7.3% −0.24 −13.3% 22 ×—
+
+4.2 MuCO: Multi-Constraint Trajectory Optimizer Problem formulation. Given an N -step pedestrian trajectory {p1, . . . , p N } and obstacle map O,MuCO optimizes waypoints W = {w1, . . . , w N }, wi ∈ R3, by minimizing: 
+
+C(W) = 
+
+> N
+
+X
+
+> i=1 9
+
+X
+
+> k=1
+
+λk · ck(wi, context i) , (1) where ck denotes one of the 9 cost terms and λk denotes its weight. 
+
+Cost function design. We highlight three key cost terms (all 9 in Appendix A). Visibility :
+
+cvis (wi) = (1 − vi)2, where vi is the fraction of unoccluded ray samples (5–10 points on the target body); ray-obstacle queries are accelerated from O(n) to O(log n) via BVH. View-point : cview (wi) = f (cos ⟨− ⃗v look ,⃗ v walk ⟩) · di, where ⃗v walk uses net displacement over a ±15-frame window and the directness factor di automatically reduces the cost during target turns. Jerk :
+
+cjerk (wi) = ∥wi+2 − 3wi+1 + 3 wi − wi−1∥2, a third-order difference penalty ensuring kinematic executability. The remaining costs cover tracking distance, smoothness, safety, pitch angle, altitude, and path length. 
+
+Soft/hard constraint architecture. Safety is guaranteed through four layers: (1) soft safety cost 
+
+provides gradient guidance away from obstacles; (2) geometric projection iteratively pushes way-points out of obstacles via vertical lift, horizontal bypass, or local displacement; (3) velocity repair 
+
+redistributes projection-induced spikes to subsequent waypoints; (4) altitude smoothing eliminates oscillations. This decoupled design prevents the optimizer from being trapped by overly aggressive safety penalties while guaranteeing collision-free trajectories. 
+
+Optimization. We use coordinate-wise finite differences with ε = 0 .5 m—large enough to cross small obstacles (e.g., tree canopies) for effective visibility gradients, with adaptive learning rate (halving on cost increase, slowly recovering on decrease) and per-waypoint displacement clipping of 0.5 m. Rayon-based parallel gradient computation achieves 2–5 ms per iteration for 200 waypoints. 
+
+4.3 Performance 
+
+BVH acceleration reduces per-trajectory optimization from ∼12 s to 0.1–0.5 s (24–120 × speedup; detailed in Table 6 in the appendix). Per-path obstacle filtering further reduces BVH size from ∼2,000 to ∼200 obstacles. 
+
+MuCO vs. A ∗ [ 12 ]. We implement an A ∗-based tracking planner that searches over a 4D spatiotem-poral voxel graph (position × timestep) with BVH-accelerated visibility costs and safety-distance hard constraints—the strongest discrete-planning baseline. Table 2 compares both planners on 20 diverse trajectories from the same environment. As shown in Figure 2, A ∗ achieves +7.3% higher visibility by searching a dense voxel space ( ∼400K node expansions per trajectory), but this comes at 22 × higher latency (5.5 s vs. 247 ms). In practice, the visibility gap is concentrated in a few hard trajectories with severe occlusion (e.g., tight alleys); on 16 of 20 trajectories MuCO maintains visibility >0.90. Crucially, MuCO produces 13% shorter paths with better kinematic smoothness (jerk-regularized continuous optimization), resulting in more natural drone motion. At the dataset-generation scale ( >6,000 trajectories), A ∗ would require ∼9GPU-hours, while MuCO completes in ∼25 minutes—making continuous optimization a practical approach for large-scale production. 5Figure 2: MuCO vs. A ∗. Left : A ∗ expands 1.4M voxels on a 315 m path (10s, visibility 0.79); MuCO produces a smooth trajectory in 311 ms (32 × faster, visibility 0.64). Right : four additional scenarios showing 20–32 × speedup with comparable tracking quality. Dashed lines: pedestrian paths. Table 3: CosFly-Track dataset statistics. Each pedestrian path generates an expert (MuCO-optimized) and a perturbed trajectory, yielding paired data for diverse training paradigms.            
+
+> Statistic Value Unique pedestrian paths ∼6,000 Expert/perturbed trajectories ∼12,000 Timesteps (expert + perturbed) 2.4M Annotation samples (2.4M ×modalities) ∼10M Total tracking duration ∼334 hours Urban scenes (CARLA [27] Towns) 16 Weather/lighting conditions 8+ Average trajectory length ∼200 steps / 100 s
+
+# 5 The CosFly-Track Dataset 
+
+5.1 Scale and Statistics 
+
+CosFly-Track provides the data summarized in Table 3. Each trajectory sample combines 7 aligned data channels. Five are recorded at every timestep: (1) RGB image (1280 ×720); (2) metric depth (float32, per-pixel meters); (3) semantic segmenta-tion (CARLA labels); (4) 6-DoF drone pose (x, y, z, ϕ, θ, ψ ); (5) target state (world coordinates + visibility flag); Two additional annotations are provided at the trajectory level: (6) bilingual tracking instructions (Chinese/English); (7) trajectory-pair metadata (expert/perturbed label + temporal alignment index). 
+
+5.2 Dual-Trajectory Augmentation 
+
+Each pedestrian path generates two UAV trajectories: an expert trajectory (MuCO-optimized) and a 
+
+perturbed trajectory that simulates realistic tracking errors via a joint perturbation framework. At each frame, two independent Bernoulli events control position perturbation ( Ppos = 0 .6, displacement radius 2–3 m for pedestrian/drone) and rotation perturbation ( Prot = 0 .6, max viewing-angle deviation 5◦), yielding four augmentation states: 16% unperturbed, 24% position-only, 24% rotation-only, and 36% fully perturbed. A sliding-window sampler (window size 10, stride 3) constructs multi-task training samples: the first 5 frames use perturbed observations as input, while the full 10-frame expert 
+
+trajectory provides ground-truth supervision for both denoising (frames 0–4) and prediction (frames 65–9). This paired design supports diverse training paradigms: (1) denoising —recover expert actions from perturbed observations; (2) DAgger-style correction [28 ]—train on mixed expert/perturbed data to handle distribution shift; (3) contrastive learning —distinguish high- from low-quality tracking; (4) prediction —forecast future expert waypoints from noisy history. 
+
+5.3 Additional Features and Reproducibility 
+
+Each trajectory includes bilingual (Chinese/English) natural language instructions (e.g., “Follow the pedestrian walking north, maintaining 25 m distance and 45 ◦ pitch”), enabling VLM instruction fine-tuning and cross-lingual research. The CosFly pipeline has been validated for migration from CARLA (UE4) to SimWorld (UE5); the modular design supports replacing the optimizer with task-specific objectives (e.g., inspection, patrol). An initial subset ( ∼100K multi-modal frames) is publicly available at https://huggingface. co/datasets/AutelRobotics/CosFly , with progressive expansion toward the full ∼2M frames planned. Evaluation scripts and pre-trained checkpoints are hosted at https://huggingface.co/ AutelRobotics/CosFly-Track . We additionally provide Croissant metadata [ 29 ] with RAI fields. Complete pipeline engineering details are documented in our technical report [25]. 
+
+Data quality. We retain a small proportion ( <5%) of imperfect samples (e.g., target–vehicle overlap, background pedestrian frame-skipping) rather than aggressively filtering them; empirical evaluation confirms negligible impact on model performance while preserving natural scene diversity. 
+
+# 6 Experiments and Benchmarks 
+
+6.1 Experimental Setup Models. We evaluate seven widely used VLMs spanning 0.8B–9B parameters: Qwen3.5-0.8B, Qwen3.5-2B, Qwen3.5-9B [ 26 ], Qwen3-VL-2B, Qwen3-VL-8B [ 30 ], GLM-4.6V-Flash [ 31 ], and Gemma-4-E4B [32]. 
+
+Task and training protocol. Given four history frames plus the current frame (five RGB images total), together with the drone’s current 6-DoF pose and target bounding box, the model predicts the next five waypoints as 6-DoF increments (∆ x, ∆y, ∆z, ∆pitch , ∆yaw , ∆roll ).We use three experimental configurations drawn from different subsets of the full 2.4M-timestep dataset: • Architecture comparison (§6.2): Full-parameter SFT (vision encoder frozen), 200K samples from 16 CARLA maps, 1 epoch, batch size 64, learning rate 5×10 −6, evaluation on 1,160 held-out samples. • Scaling analysis (§6.3): LoRA [ 33 ] fine-tuning (r=64, α=128), 250K–1M samples, evaluation on hard-difficulty split. • Ablation studies (§6.4): LoRA fine-tuning, 213K samples (760 trajectories), 1,672 fixed steps, evaluation on 11,878 samples stratified by difficulty and scene familiarity. All configurations use DeepSpeed ZeRO-2 [34] and bf16 precision. 
+
+Evaluation metrics. SR@1m, SR@0.5m, RotAcc@ 1◦, ADE, FDE, MAE, JointSR@(0.5 m, 1◦). 
+
+6.2 Main Results: VLM Architecture Comparison Key findings. Table 4 summarizes the results. (1) Zero-shot VLMs are essentially non-functional for tracking: all models match the predict-zero baseline (SR@1m 25–33%), confirming that this task requires task-specific SFT. (2) SFT brings substantial improvements across all models (a 53–69 percentage-point gain in SR@1m and a 16–31 percentage-point gain in RotAcc@ 1◦), supporting CosFly-Track’s utility as training data. (3) Within the Qwen3.5 family (0.8B →2B →9B), SR@1m improves by only 0.5 percentage points, but RotAcc@ 1◦ jumps by 7.0 percentage points and MAE drops by 18.3%—model capacity mainly benefits fine-grained rotation prediction rather than coarse position accuracy. (4) The Qwen3-VL series (2B/8B) underperforms similarly-sized Qwen3.5 models 7Table 4: VLM architecture comparison. SFT fine-tuning on 200K CosFly-Track samples brings a 53–69 percentage-point improvement in SR@1m over zero-shot. ‡Zero-shot outputs match the 
+
+predict-zero baseline (all deltas = 0) to 4 decimal places, confirming models are not directly usable without task-specific fine-tuning.                                                             
+
+> Model Params SR@1m ↑FDE ↓RotAcc@ 1◦↑MAE ↓
+> Zero-shot (no fine-tuning) ‡
+> Qwen3.5-0.8B [26] 0.8B 25.17 2.872 40.41 1.731 Qwen3.5-2B 2B 25.17 2.872 40.41 1.731 Qwen3-VL-2B [30] 2B 25.17 2.872 40.41 1.731 Qwen3-VL-8B [30] 8B 33.47 2.601 40.78 1.527
+> SFT fine-tuned on CosFly-Track
+> Gemma-4-E4B [32] 4B 78.34 1.527 72.33 0.461 Qwen3.5-0.8B 0.8B 94.50 1.298 87.61 0.334 Qwen3.5-2B 2B 95.08 1.271 93.12 0.298 Qwen3-VL-2B 2B 94.80 1.315 88.45 0.352 Qwen3-VL-8B 8B 95.22 1.247 91.88 0.312 Qwen3.5-9B [26] 9B 95.60 1.213 95.86 0.268
+> GLM-4.6V-Flash [31] 4.6B 95.48 1.231 95.77 0.274
+
+Table 5: Data composition ablation (Qwen3.5-0.8B [ 26 ] LoRA, 213K samples). Top : input modality ablation—removing pose causes 3.1× FDE increase. Bottom : training paradigm ablation—denoising achieves the best FDE/SR@1m while expert-only degrades yaw ( 1.7×).                                              
+
+> Configuration ADE ↓FDE ↓SR@1m ↑Yaw ↓mIoU ↑
+> Input modality
+> Pose+BBox (no RGB) 0.849 1.264 77.1 3.85 ◦0.605 RGB+Pose 0.843 1.248 77.5 4.11 ◦0.479 RGB+BBox 2.439 3.805 17.6 3.88 ◦0.599 RGB only 2.503 3.911 15.8 3.93 ◦0.487 RGB+Pose+BBox (full) 0.846 1.249 77.6 3.87 ◦0.603
+> Training paradigm (full input)
+> Expert + Perturbed (mixed) 0.846 1.249 77.6 3.87 ◦0.603 Expert-only 0.855 1.270 75.1 6.54 ◦0.560
+> Perturbed →Expert (denoising) 0.844 1.239 78.8 3.97 ◦0.602
+
+after SFT (MAE nearly 2× worse for the 8B variant), suggesting that its visual encoder is less suited for geometric regression. (5) Gemma-4-E4B significantly underperforms (SR@1m 78.34%, loss plateaued at 0.73), likely because its sliding-window attention is less well matched to sequential waypoint regression. 
+
+6.3 Data Scaling Analysis 
+
+We train Qwen3.5-2B and Qwen3.5-0.8B (LoRA) on 25%/50%/100% of the data (250K–1M samples) and evaluate on the hard-difficulty split (full results in Table 8, appendix). Both models improve monotonically: ADE decreases ∼2% and SR@2m increases ∼1.5 percentage points from 25% to 100%, but gains do not saturate , supporting further scaling. The 2B and 0.8B models converge to nearly identical ADE ( ∼2.14) and FDE ( ∼2.64), suggesting the current data distribution—rather than model capacity—is the primary constraint. 
+
+6.4 Data Composition Ablation 
+
+We conduct comprehensive ablations on input modalities and training data composition using Qwen3.5-0.8B with LoRA (r=64, α=128) fine-tuning. All seven configurations share identical hyperparameters (learning rate 10 −5, cosine schedule, global batch 128, max 1,672 steps) and the same 213K training / 11,878 evaluation split. 8Modality ablation (Table 5, top). (1) Pose history is the decisive input : removing it causes FDE to increase 3.1× (1.25 →3.85 m) and SR@1m to collapse from 77.6% to 15–17%. All five configurations with pose cluster in FDE 1.24–1.27 m regardless of other modalities, while both no-pose configurations degrade to FDE >3.8 m even on easy trajectories. (2) BBox history is critical for target prediction: mIoU drops from 0.60 to 0.48 ( −20% ) and IoU ≥0.75 drops from 0.56 to 0.31 (−45% ) without it. (3) When pose + bbox are both present, RGB provides marginal benefit (FDE 1.264 vs. 1.249), suggesting the current benchmark’s structured text priors suffice for path regression. This does not imply RGB is generally unnecessary—more challenging out-of-distribution scenarios (sharp turns, intent changes) may require visual cues. 
+
+Training paradigm ablation (Table 5, bottom). The denoising paradigm (perturbed input →
+
+expert target) achieves the best overall FDE (1.239) and SR@1m (78.8%), outperforming both expert-only and mixed training. Expert-only training severely degrades yaw prediction (MAE 6.54 ◦
+
+vs. 3.85 ◦), because models overfit to the narrow distribution of clean expert trajectories and fail to learn corrective heading adjustments. This validates the dual-trajectory design as a core contribution: perturbation-augmented training is essential for learning robust orientation control. 
+
+6.5 Cross-Scene Generalization 
+
+We compare single-map vs. multi-map training (Qwen3.5-0.8B, 200K samples, 8 held-out test maps; Table 12 in the appendix). While SR@1m saturates above 95% for both settings (+0.11 percentage points), strict metrics reveal substantial structural gains: JointSR@(0.5 m, 1◦) improves by +5.31 percentage points, rotation MAE drops 12.5%, and catastrophic failures (FDE >10 m) decrease by 55.6%. The improvement holds on the fully out-of-distribution Town10HD (+5.20 percentage points in JointSR), suggesting that multi-map training learns generalizable geometric awareness. 
+
+6.6 Downstream Task Transfer 
+
+Beyond tracking, CosFly-Track’s multi-modal annotations support depth estimation, instance segmen-tation, and object detection (Table 11 in the appendix). Fine-tuning on ∼100K frames substantially improves all tasks: Depth Anything V2 [ 35 ] AbsRel drops from 0.77 to 0.045 ( δ1: 0.03 →0.97), SAM2.1 [ 36 ] mIoU rises from 0.74 to 0.86 (AP75: 0.55 →0.94), and Grounding DINO [ 37 ] AP50 improves from 85.4 to 94.2. Small and Base variants achieve nearly identical accuracy ( <0.5% gap), suggesting the bottleneck is data coverage rather than model capacity. 
+
+# 7 Conclusion and Limitations 
+
+We presented CosFly-Track, to our knowledge the first large-scale multi-modal dataset for UAV visual tracking in urban environments, addressing a gap in the aerial VLN landscape where existing datasets predominantly target navigation. The dataset’s dual-trajectory design, bilingual instructions, and 7 aligned data channels enable diverse training paradigms. Our benchmarks on seven VLMs demonstrate substantial improvements from fine-tuning on CosFly-Track data, with scaling analysis suggesting room for further gains. 
+
+Limitations. (1) Sim-to-real gap : CosFly-Track is generated in CARLA; domain transfer to real-world UAV tracking remains open, though MuCO’s kinematic constraints produce more realistic trajectories than A ∗-based alternatives. Real-world data ( ∼100K frames) is currently being collected for a future release. (2) Scene diversity : the current release covers 16 CARLA town variants; expansion to more diverse morphologies via SimWorld/UE5 is planned. (3) Pedestrian behavior :trajectories use curvature-dependent speed with random stops; social force models could increase realism. (4) Code availability : the generation pipeline code is not open-sourced due to company policy, though complete algorithm descriptions are provided for independent reimplementation. 
+
+Broader impact. CosFly-Track lowers the barrier to entry for UAV tracking research by providing open-access multi-modal training data for applications such as search and rescue, autonomous cinematography, and wildlife monitoring, while operating entirely in simulation to eliminate the safety risks and costs of real-world drone data collection. UAV tracking technology raises dual-use concerns regarding unauthorized surveillance. We mitigate these through: (1) all data are 9synthetically generated with no real human identities or GPS coordinates; (2) the dataset license explicitly prohibits unauthorized surveillance and military targeting; (3) simulation-based generation has a substantially lower carbon footprint than real-world flight campaigns—our pipeline runs on a single GPU workstation. 
+
+# Acknowledgments and Disclosure of Funding References 
+
+[1] Yunpeng Gao, Chenhui Li, Zhongrui You, Junli Liu, Zhen Li, Pengan Chen, Qizhi Chen, Zhonghan Tang, Liansheng Wang, Penghui Yang, Yiwen Tang, Yuhang Tang, Shuai Liang, Songyi Zhu, Ziqin Xiong, Yifei Su, Xinyi Ye, Jianan Li, Yan Ding, Dong Wang, Xuelong Li, Zhigang Wang, and Bin Zhao. OpenFly: A comprehensive platform for aerial vision-language navigation. In International Conference on Learning Representations (ICLR) , 2026. arXiv:2502.18041. [2] Hengxing Cai, Yijie Rao, Ligang Huang, Zanyang Zhong, Jinhan Dong, Jingjun Tan, Wenhao Lu, and Renxin Zhong. AirNav: A large-scale real-world UAV vision-and-language navigation dataset with natural and diverse instructions, 2026. [3] Jungdae Lee, Taiki Miyanishi, Shuhei Kurita, Koya Sakamoto, Daichi Azuma, Yutaka Matsuo, and Naka-masa Inoue. CityNav: A large-scale dataset for real-world aerial navigation. In IEEE/CVF International Conference on Computer Vision (ICCV) , 2025. arXiv:2406.14240. [4] Shubo Liu, Hongsheng Zhang, Yuankai Qi, Peng Wang, Yanning Zhang, and Qi Wu. AerialVLN: Vision-and-language navigation for UAVs. In IEEE/CVF International Conference on Computer Vision (ICCV) ,2023. arXiv:2308.06735. [5] Xu Liu, Yu Liu, Hanshuo Qiu, Qirong Yang, and Zhouhui Lian. IndoorUAV: Benchmarking vision-language UAV navigation in continuous indoor environments. In AAAI Conference on Artificial Intelligence (AAAI) , 2026. arXiv:2512.19024. [6] Pengfei Zhu, Longyin Wen, Xiao Bian, Haibin Ling, and Qinghua Hu. Vision meets drones: A challenge, 2018. [7] Matthias Mueller, Neil Smith, and Bernard Ghanem. A benchmark and simulator for UAV tracking. In 
+
+European Conference on Computer Vision (ECCV) , 2016. [8] Dawei Du, Yuankai Qi, Hongyang Yu, Yifan Yang, Kaiwen Duan, Guorong Li, Weigang Zhang, Qingming Huang, and Qi Tian. The unmanned aerial vehicle benchmark: Object detection and tracking. In European Conference on Computer Vision (ECCV) , 2018. arXiv:1804.00518. [9] Peter Anderson, Qi Wu, Damien Teney, Jake Bruce, Mark Johnson, Niko Sünderhauf, Ian Reid, Stephen Gould, and Anton van den Hengel. Vision-and-language navigation: Interpreting visually-grounded navigation instructions in real environments. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2018. arXiv:1711.07280. [10] Jacob Krantz, Erik Wijmans, Arjun Majumdar, Dhruv Batra, and Stefan Lee. Beyond the nav-graph: Vision-and-language navigation in continuous environments. In European Conference on Computer Vision (ECCV) , 2020. arXiv:2004.02857. [11] Shital Shah, Debadeepta Dey, Chris Lovett, and Ashish Kapoor. AirSim: High-fidelity visual and physical simulation for autonomous vehicles. In Field and Service Robotics (FSR) , 2018. [12] Peter E. Hart, Nils J. Nilsson, and Bertram Raphael. A formal basis for the heuristic determination of minimum cost paths. IEEE Transactions on Systems Science and Cybernetics , 4(2):100–107, 1968. [13] Sven Koenig and Maxim Likhachev. D* lite. In AAAI Conference on Artificial Intelligence (AAAI) , 2002. [14] Steven M. LaValle. Rapidly-exploring random trees: A new tool for path planning. Technical Report TR 98-11, Iowa State University, Computer Science Department, 1998. [15] Nathan Ratliff, Matt Zucker, J. Andrew Bagnell, and Siddhartha Srinivasa. CHOMP: Gradient optimization techniques for efficient motion planning. In IEEE International Conference on Robotics and Automation (ICRA) , 2009. 
+
+10 [16] John Schulman, Yan Duan, Jonathan Ho, Alex Lee, Ibrahim Awwal, Henry Bradlow, Jia Pan, Sachin Patil, Ken Goldberg, and Pieter Abbeel. Motion planning with sequential convex optimization and convex collision checking. International Journal of Robotics Research (IJRR) , 33(9):1251–1270, 2014. [17] Mustafa Mukadam, Xinyan Yan, and Byron Boots. Gaussian process motion planning. In IEEE Interna-tional Conference on Robotics and Automation (ICRA) , 2016. [18] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. In Advances in Neural Information Processing Systems (NeurIPS) , 2023. arXiv:2304.08485. [19] Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, and Jingren Zhou. Qwen-VL: A versatile vision-language model for understanding, localization, text reading, and beyond, 2023. [20] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu, Lewei Lu, Bin Li, Ping Luo, Tong Lu, Yu Qiao, and Jifeng Dai. InternVL: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. arXiv:2312.14238. [21] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen Chebotar, Xi Chen, Krzysztof Choromanski, et al. RT-2: Vision-language-action models transfer web knowledge to robotic control, 2023. [22] Rui Yang, Hanyang Chen, Junyu Zhang, Mark Zhao, Cheng Qian, Kangrui Wang, Qineng Wang, Teja Venkat Koripella, Marziyeh Movahedi, Manling Li, Heng Ji, Huan Zhang, and Tong Zhang. Embod-iedBench: Comprehensive benchmarking multi-modal large language models for vision-driven embodied agents. In International Conference on Machine Learning (ICML) , 2025. arXiv:2502.09560. [23] Yue Fan, Winson Chen, Tongzhou Jiang, Chun Zhou, Yi Zhang, and Xin Eric Wang. Aerial vision-and-dialog navigation. In Findings of the Association for Computational Linguistics (ACL) , 2023. arXiv:2205.12219. [24] Xiangyu Wang, Donglin Yang, Ziqin Wang, Hohin Kwan, Jinyu Chen, Wenjun Wu, Hongsheng Li, Yue Liao, and Si Liu. Towards realistic UAV vision-language navigation: Platform, benchmark, and methodology. In International Conference on Learning Representations (ICLR) , 2025. arXiv:2410.07087. [25] Autel Robotics. Cosfly: Plan in the matrix, fly in the world. Technical report, Autel Robotics, 2026. arXiv preprint, to appear. [26] Qwen Team. Qwen3.5: Towards native multimodal agents, February 2026. URL https://qwen.ai/ blog?id=qwen3.5 .[27] Alexey Dosovitskiy, German Ros, Felipe Codevilla, Antonio Lopez, and Vladlen Koltun. CARLA: An open urban driving simulator. In Conference on Robot Learning (CoRL) , 2017. [28] Stéphane Ross, Geoffrey J. Gordon, and J. Andrew Bagnell. A reduction of imitation learning and structured prediction to no-regret online learning. In International Conference on Artificial Intelligence and Statistics (AISTATS) , 2011. [29] Mubashara Akhtar, Omar Benjelloun, Costanza Conforti, Pieter Gijsbers, Joan Gonzalez, Michael Kuchnik, Quentin Lhoest, Pierre Marcenac, Manil Maskey, Peter Mattson, et al. Croissant: A metadata format for ML-ready datasets. In Advances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track , 2024. arXiv:2403.19546. [30] Qwen Team. Qwen3 technical report, 2025. [31] Wenyi Hong, Wenmeng Yu, Xiaotao Gu, Guo Wang, Guobing Gan, Haomiao Tang, Jiale Cheng, Ji Qi, Junhui Ji, Lihang Pan, Shuaiqi Duan, Weihan Wang, Yan Wang, Yean Cheng, Zehai He, Zhe Su, Zhen Yang, Ziyang Pan, Aohan Zeng, et al. GLM-4.5V and GLM-4.1V-Thinking: Towards versatile multimodal reasoning with scalable reinforcement learning, 2025. [32] Google DeepMind. Gemma 4, April 2026. URL https://blog.google/technology/developers/ gemma-4/ .[33] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Representations (ICLR) , 2022. [34] Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase, and Yuxiong He. ZeRO: Memory optimizations toward training trillion parameter models. In International Conference for High Performance Computing, Networking, Storage and Analysis (SC) , 2020. 
+
+11 [35] Lihe Yang, Bingyi Kang, Zilong Huang, Zhen Zhao, Xiaogang Xu, Jiashi Feng, and Hengshuang Zhao. Depth anything V2, 2024. [36] Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Ronghang Hu, Chaitanya Ryali, Tengyu Ma, Haitham Khedr, Roman Rädle, Chloe Rolland, Laura Gustafson, et al. SAM 2: Segment anything in images and videos, 2024. [37] Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jie Yang, Qing Jiang, Chunyuan Li, Jianwei Yang, Hang Su, Jun Zhu, and Lei Zhang. Grounding DINO: Marrying DINO with grounded pre-training for open-set object detection. In European Conference on Computer Vision (ECCV) , 2024. arXiv:2303.05499. [38] Timnit Gebru, Jamie Morgenstern, Briana Vecchione, Jennifer Wortman Vaughan, Hanna Wallach, Hal Daumé III, and Kate Crawford. Datasheets for datasets. Communications of the ACM , 64(12):86–92, 2021. 
+
+# A MuCO Complete Algorithm Description 
+
+This appendix provides the complete algorithm description of the MuCO multi-constraint optimizer, sufficient for independent reimplementation. 
+
+A.1 All 9 Cost Functions 
+
+The total cost is the weighted sum: 
+
+C(W) = 
+
+> N
+
+X
+
+> i=1
+
+[λ1ctrack + λ2csmooth + λ3cjerk + λ4csafe + λ5cvis + λ6cview + λ7cpitch + λ8calt + λ9clen ].
+
+(2) 
+
+Tracking distance cost. 
+
+ctrack (wi) = ( ∥wi − pi∥ − dopt )2 , (3) where dopt = 28 m corresponds to the optimal observation distance (height 20 m + horizontal 20 m at 45 ◦ pitch). 
+
+Smoothness cost (acceleration regularization). 
+
+csmooth (wi) = ∥wi+1 − 2wi + wi−1∥2 . (4) 
+
+Jerk regularization. See Section 4; third-order difference penalty. 
+
+Safety cost (soft constraint). 
+
+csafe (wi) = 
+
+0.5 · (dinf − dmin )2 if dmin < d inf = 8 m, 
+
+0 otherwise. (5) 
+
+Visibility cost. See Section 4; multi-point ray casting with BVH acceleration. 
+
+Viewpoint cost. See Section 4; direction-aware with directness factor. 
+
+Pitch angle cost. Piecewise quadratic around target 45 ◦:
+
+cpitch (wi) = 
+
+
+
+0.5( θ − 60 ◦)2 θ > 60 ◦,
+
+0.2(30 ◦ − θ)2 θ < 30 ◦,
+
+0.02( θ − 45 ◦)2 30 ◦ ≤ θ ≤ 60 ◦.
+
+(6) 
+
+Altitude cost. Below hmin = 20 m: strong penalty; above hpref = 20 m: light penalty; oscillation penalty when adjacent ∆z signs alternate. 
+
+Path length cost. 
+
+clen (wi) = 0 .1 · ∥ wi − wi−1∥ . (7) 12 A.2 Safety Projection Algorithm 
+
+For each unsafe waypoint, MuCO evaluates all feasible correction strategies: 
+
+Algorithm 1 Safety Projection 
+
+Require: Unsafe waypoint wi, obstacle set O 
+
+> 1:
+
+Compute penetration depth dp 
+
+> 2:
+
+if dp > 5 m (deep penetration) then  
+
+> 3:
+
+Apply large-step pushout along SDF gradient  
+
+> 4:
+
+else if vertical lift ≤ 3 m resolves collision then  
+
+> 5:
+
+Apply vertical lift  
+
+> 6:
+
+else  
+
+> 7:
+
+Evaluate: (a) vertical lift, (b) forward bypass, (c) horizontal detour ( ±35 ◦ fan), (d) local displacement  
+
+> 8:
+
+Choose strategy with minimum cost increase  
+
+> 9:
+
+end if A.3 Initial Trajectory Generation Algorithm 2 Initial Trajectory via 3D Viewpoint Search 
+
+Require: Pedestrian path {pi}, obstacle map  
+
+> 1:
+
+For every 5–10 frames, search optimal viewpoint on rear hemisphere (azimuth ±60 ◦ from walking direction, height 20–40 m, distance 0.7–1.2 × standard)  
+
+> 2:
+
+Linearly interpolate intermediate frames  
+
+> 3:
+
+Apply dynamic following: monitor distance, prevent overshooting  
+
+> 4:
+
+Bridge long occluded segments via side-offset search with ramp smoothing 
+
+A.4 Post-Processing Pipeline 
+
+After optimization, seven post-processing steps are applied in sequence: (1) occluded segment straightening (detect low-visibility runs >5 frames, search optimal azimuth); (2) detour elimination (straighten high-curvature segments); (3) oscillation removal (sliding-average on horizontal velocity reversals); (4) multi-round safety projection; (5) velocity repair (redistribute projection-induced spikes); (6) altitude smoothing (low-pass filter with SDF-aware descent check); (7) final safety check. 
+
+# B Parameter Configuration and Solver Performance 
+
+Table 6 reports BVH acceleration results, and Table 7 lists the complete parameter configuration used in all experiments. Table 6: Solver performance: BVH acceleration.              
+
+> Operation w/o BVH w/ BVH Speedup Single trajectory (181 pts) ∼12 s 0.1–0.5 s 24–120 ×
+> Batch (20 paths) ∼240 s 3–5 s 48–80 ×
+> Single distance query O(n)O(log n)—
+
+# C Extended Experimental Results 
+
+C.1 Complete SFT Results with Error Bars 
+
+All reported SFT results use three random seeds; standard deviations are <0.5 percentage points for SR@1m and <0.01 m for FDE across all models, indicating stable training. 13 Table 7: Complete MuCO parameter configuration. 
+
+Parameter Description Value 
+
+Cost weights 
+
+λ1 Tracking distance 1.0 
+
+λ2 Smoothness 0.5 
+
+λ3 Jerk 0.3 
+
+λ4 Safety (soft) 2.0 
+
+λ5 Visibility 3.0 
+
+λ6 Viewpoint 1.0 
+
+λ7 Pitch angle 0.5 
+
+λ8 Altitude 1.0 
+
+λ9 Path length 0.1 
+
+Optimization 
+
+ε Finite difference step 0.5 m 
+
+η0 Initial learning rate 0.05 
+
+ηmin Minimum learning rate 0.001 Max per-point displacement 0.5 m Max velocity configurable 
+
+Physical constraints 
+
+dopt Optimal tracking distance 28 m 
+
+dinf Safety influence radius 8 m 
+
+hmin Minimum altitude 20 m 
+
+hpref Preferred altitude 20 m Target pitch angle 45 ◦
+
+C.2 Pedestrian Variable-Speed Mechanism 
+
+Pedestrian trajectories use curvature-dependent velocity: 
+
+vi = clip 
+
+ vcruise 
+
+1 + ακ i
+
+· (1 + βU (−1, 1)) , [vmin , v max ]
+
+
+
+, (8) where κi is discrete Menger curvature, α controls turn slowdown, and β adds random variation. Random stops are inserted with configurable probability and duration. Time is computed via trapezoidal integration along arc length, then resampled at fixed ∆t.
+
+C.3 Data Scaling Results 
+
+Table 8: Data scaling analysis (hard-split evaluation, LoRA fine-tuning). 
+
+Model Scale Samples ADE ↓ FDE ↓ SR@2m ↑ IoU ≥0.75 ↑
+
+Qwen3.5-0.8B [26] 25% 250K 2.184 2.744 83.42 54.53 50% 500K 2.159 2.686 84.09 57.31 100% 1M 2.142 2.642 84.96 57.69 Qwen3.5-2B [26] 25% 250K 2.170 2.689 83.59 54.70 50% 500K 2.158 2.681 84.36 55.38 100% 1M 2.141 2.643 84.79 53.25 
+
+C.4 Extended Ablation: Difficulty-Stratified Analysis 
+
+The evaluation set (11,878 samples) is stratified by trajectory difficulty: easy (50.4%), medium (33.1%), and hard (16.4%, including tight turns and height changes). Table 9 reports ADE/FDE/mIoU per difficulty level for all seven ablation configurations. Key observations: (1) All pose-equipped configurations cluster tightly across difficulties, with hard FDE ( ∼2.15 m) being 2.9× worse than easy ( ∼0.74 m), indicating that trajectory complexity is the 14 Table 9: Ablation results stratified by difficulty (ADE / FDE / mIoU). 
+
+Configuration Easy Medium Hard Pose+BBox (no RGB) 0.42 / 0.75 / 0.60 1.13 / 1.60 / 0.61 1.60 / 2.17 / 0.59 RGB only 2.03 / 3.36 / 0.51 2.83 / 4.29 / 0.49 3.31 / 4.85 / 0.41 RGB+Pose 0.42 / 0.74 / 0.50 1.12 / 1.57 / 0.48 1.60 / 2.15 / 0.40 RGB+BBox 2.01 / 3.31 / 0.60 2.72 / 4.12 / 0.61 3.20 / 4.69 / 0.58 RGB+Pose+BBox (full) 0.41 / 0.74 / 0.60 1.13 / 1.59 / 0.61 1.60 / 2.15 / 0.59 Expert-only 0.43 / 0.77 / 0.56 1.13 / 1.60 / 0.57 1.60 / 2.15 / 0.56 
+
+Denoising 0.41 / 0.72 / 0.61 1.13 / 1.57 / 0.61 1.61 / 2.17 / 0.58 
+
+dominant difficulty factor. (2) No-pose configurations (RGB-only, RGB+BBox) degrade severely even on easy trajectories (FDE ≈3.3 m), worse than pose-equipped models on hard trajectories (2.15 m). (3) The denoising paradigm achieves the best easy-segment FDE (0.72 m), with advantages most pronounced on simpler trajectories where the clean-signal recovery objective provides the strongest learning signal. 
+
+C.5 Seen vs. Unseen Scene Analysis 
+
+The evaluation set contains 11.0% seen trajectories (from training maps) and 89.0% unseen trajectories (from novel maps). Table 10 shows the generalization gap. Table 10: Seen vs. Unseen analysis (ADE / FDE / mIoU). ∆FDE is the unseen–seen gap. 
+
+Configuration Seen ( n=1,310) Unseen ( n=10,568) ∆FDE Pose+BBox (no RGB) 0.478 / 0.882 / 0.606 0.895 / 1.311 / 0.605 +0.43 RGB only 2.302 / 3.803 / 0.497 2.528 / 3.924 / 0.486 +0.12 RGB+Pose 0.470 / 0.863 / 0.486 0.889 / 1.295 / 0.479 +0.43 RGB+BBox 2.135 / 3.528 / 0.614 2.476 / 3.840 / 0.597 +0.31 RGB+Pose+BBox 0.463 / 0.852 / 0.609 0.893 / 1.298 / 0.603 +0.45 Expert-only 0.464 / 0.865 / 0.569 0.903 / 1.320 / 0.559 +0.46 
+
+Denoising 0.466 / 0.843 / 0.610 0.890 / 1.288 / 0.601 +0.45 
+
+The seen →unseen FDE gap is consistently ∼+0.43–0.46 m ( ∼50% relative increase) across all pose-equipped configurations, independent of modality choice, indicating the gap originates from trajectory distribution shift rather than model or modality selection. Notably, no-pose configurations (RGB-only, RGB+BBox) show a smaller absolute ∆FDE (+0.12–0.31 m) simply because their baseline errors are already much higher—the relative gap remains substantial. The denoising paradigm achieves the best FDE on both seen (0.843 m) and unseen (1.288 m) splits. 
+
+C.6 Downstream Task Transfer Results 
+
+Table 11: Downstream task transfer ( ∼100K frames, trajectory-level split). 
+
+Task Model Before (zero-shot) After (fine-tuned) AbsRel ↓ RMSE ↓ δ1↑ AbsRel ↓ RMSE ↓ δ1↑
+
+Depth DAv2-Base [35] 0.768 24.43 0.026 0.045 2.50 0.972 
+
+DAv2-Small 0.868 26.28 0.006 0.049 2.62 0.968 mIoU ↑ AP75 ↑ AP .5: .95 ↑ mIoU ↑ AP75 ↑ AP .5: .95 ↑
+
+Segm. SAM2.1-B+ [36] 0.763 0.662 0.586 0.862 0.943 0.778 
+
+SAM2.1-S 0.744 0.551 0.547 0.859 0.941 0.772 AP50 ↑ AP50 ↑
+
+Detect. GDINO-B [37] 85.4 94.2 
+
+15 Table 12: Cross-scene generalization (Qwen3.5-0.8B [ 26 ], 200K samples, mean across 8 test maps).                        
+
+> Setting SR@1m ↑JointSR ↑Rot. MAE ↓HardFail ↓
+> @(0.5m, 1◦)(◦)(FDE >10m, %) A: Single-map 95.89 42.13 2.40 0.45 B: Multi-map 96.00 47.44 2.10 0.20
+> ∆(B −A) +0.11 +5.31 −12.5% −55.6%
+> OOD only (Town10HD, unseen in both settings)
+> B vs. A +0.08 +5.20 −15.5% (p95) —
+
+C.7 Cross-Scene Generalization Results 
+
+# D Datasheet for CosFly-Track 
+
+Following Gebru et al. [38], we provide a structured datasheet: 
+
+Motivation. CosFly-Track was created to fill the data gap for UAV visual tracking, a task funda-mentally different from navigation yet without any dedicated large-scale dataset. 
+
+Composition. ∼12K expert/perturbed trajectories, 2.4M timesteps, 7 aligned data channels (five timestep-level channels plus trajectory-level instructions and metadata), covering 16 CARLA town variants across multiple weather conditions. 
+
+Collection process. Trajectories are generated via the CosFly pipeline (6 stages) using the CARLA simulator and the MuCO optimization engine. No human subjects are involved; all data are syntheti-cally generated. 
+
+Preprocessing. Obstacle maps are simplified via merge/crop/prune. Pedestrian trajectories undergo Douglas-Peucker simplification, Catmull-Rom smoothing, and variable-speed resampling. 
+
+Uses. Primary: UAV visual tracking agent training and evaluation. Secondary: monocular depth estimation, semantic segmentation, object detection, pose estimation. The dataset should not be used for unauthorized surveillance. 
+
+Distribution. The dataset is publicly available at https://huggingface.co/datasets/ AutelRobotics/CosFly . An initial subset ( ∼100K frames) is released, with progressive expansion planned. The dataset is distributed under a license restricting unauthorized surveillance applications. 
+
+Maintenance. The dataset will be maintained and progressively expanded with additional scenes, weather conditions, and trajectory diversity. 16

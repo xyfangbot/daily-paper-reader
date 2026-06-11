@@ -1,0 +1,516 @@
+Title: NORM-Nav: Zero-Shot Mobile Robot Navigation with Natural Language Behavioral Constraints
+
+URL Source: https://arxiv.org/pdf/2605.16979v1
+
+Published Time: Tue, 19 May 2026 00:47:27 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# NORM-Nav: Zero-Shot Mobile Robot Navigation with Natural Language Behavioral Constraints 
+
+Dongjie Huo 1* , Junhui Wang 2,3* ‡, Chao Gao 2†, Yan Qiao 3, Dong Zhang 1, Guyue Zhou 2,4 †
+
+Abstract — Mobile robots operating in human-centered en-vironments must generate not only collision-free paths but also trajectories that follow local behavioral conventions. Con-ventional costmap-based navigation emphasizes geometric fea-sibility and often overlooks such requirements, which can result in socially inappropriate behaviors. This paper presents NORM-Nav, a zero-shot framework that integrates natural language behavioral constraints into costmap-based planning. An LLM parses each instruction into structured constraints and grounds them using real-time vision–LiDAR perception. These constraints are encoded as multi-layer costmaps that represent geometric, semantic, directional, and velocity cues and are directly compatible with standard grid-based planners. Simulation and real-world experiments indicate that NORM-Nav improves task success rates and produces trajectories closer to human references than representative baselines. The project website is available at https://ei-nav.github.io/NO RM-Nav .
+
+I. I NTRODUCTION 
+
+Mobile robots are increasingly deployed in complex and dynamic environments shared with humans. In such settings, effective navigation requires more than collision-free path planning. Robots must also conform to behavioral rules that are implicitly expected by people [1], [2], such as keeping to one side of a corridor or adjusting speed when approaching vulnerable road users. While trajectories that disregard these conventions may remain geometrically feasible, they often appear unnatural, socially inappropriate, or unsafe, thereby limiting the acceptance of robots in human environments. Representative examples of such behavioral expectations are illustrated in Fig. 1. Costmap-based navigation frameworks continue to serve as the backbone of most deployed systems due to their computational efficiency and robustness [3], [4]. These ap-proaches typically represent the environment as a grid in which all free space is treated as traversable. As a result, they fail to distinguish between semantically different re-gions, for example, sidewalks and grassy areas, and can-not adapt to context-specific behavioral requirements [5]. Furthermore, reliance on purely geometric perception can 
+
+* Equal contribution. 
+
+‡ Project lead. 
+
+† Corresponding authors. 
+
+> 1
+
+College of Information Science and Technology, Beijing University of Chemical Technology, 2Institute for AI Industry Research (AIR), Tsinghua University, 3Institute of Systems Engineering and Collaborative Laboratory for Intelligent Science and Systems, Macau University of Science and Technology, 4School of Vehicle and Mobility, Tsinghua University. Sponsored by Xinchen Qihang Inc. and XIAOMI Fund, and supported by the National Natural Science Foundation of China (No. 52475005), and in part by the Fundamental Research Funds for the Central Universities under Grant PY2505. Please go through the curtain.                                        
+
+> Curtain
+> (b)
+> Please go around the manhole
+> cover from the left side .
+> Manhole Cover
+> (c)
+> Speed Curve
+> Move quickly
+> Move slowly
+> (a)
+> Please walk on the right side of the crosswalk and move to the left
+> side of the car .Walk quickly while crossing the crosswalk, and
+> slow down when passing by the car .
+
+Fig. 1. Examples of robot navigation under natural language behavioral constraints. The blue line indicates the executed trajectory, while the red line shows a human-preferred reference path. The robot is able to (a) adjust its speed while complying with behavioral constraints, (b) traverse perceptually detected but traversable obstacles such as curtains, and (c) comply with side-specific instructions, such as bypassing a manhole cover from the left even though it is physically traversable. 
+
+result in misinterpretation. Tall grass may be treated as an obstacle, whereas lightweight curtains at a doorway may be mistakenly perceived as rigid barriers. Such limitations reduce efficiency and prevent robots from exhibiting socially compliant behaviors. Learning-based approaches have been investigated to alle-viate these challenges [6]–[8]. These methods directly map natural language and sensory input to low-level actions, providing flexibility in principle. However, they often depend on large-scale datasets that are costly to collect and seldom capture the diversity of real-world environments. Conse-quently, they tend to generalize poorly to unseen scenarios and may exhibit brittle or opaque behaviors. Reinforcement and imitation learning strategies offer richer modeling of behaviors [9], [10], but require substantial training effort and remain sensitive to distribution shifts, which constrains their practicality. Large language models (LLMs) can parse natural language instructions and support rule-related reasoning without task-specific training [11], [12]. Combined with camera–LiDAR perception, they can translate free-form instructions into structured navigation constraints [13]. This enables integrat-ing user intent into planning while retaining the modularity of classical navigation frameworks. This work proposes NORM-Nav , a zero-shot navigation framework that integrates natural language behavioral con-straints into costmap-based planning. NORM-Nav converts each instruction into structured constraints (spatial prefer-
+
+> arXiv:2605.16979v1 [cs.RO] 16 May 2026
+
+ence, velocity adjustment, and traversability) and grounds them through real-time vision–LiDAR fusion. The con-straints are encoded as multi-layer costmaps that are directly consumable by standard grid-based planners. We evaluate NORM-Nav in simulation and real-world experiments. Relative to representative baselines, NORM-Nav achieves higher success rates, follows user-specified behavioral constraints more consistently, and produces tra-jectories that are closer to human references. The main contributions are summarized as follows:  
+
+> •
+
+We propose NORM-Nav, a zero-shot navigation frame-work that translates natural language behavioral con-straints into structured planning cues and integrates them into costmap-based navigation.  
+
+> •
+
+We present a modular, plug-in design that augments standard costmap-based stacks without changes to the underlying planner.  
+
+> •
+
+We demonstrate the effectiveness of NORM-Nav through simulation and real-world experiments. II. R ELATED WORK 
+
+A. Semantic Extensions to Classical Navigation 
+
+Costmap-based frameworks remain the cornerstone of classical robot navigation, where the environment is dis-cretized into free and occupied cells [14]. While compu-tationally efficient and widely deployed, such representa-tions cannot account for semantic or socially motivated preferences. To address this limitation, researchers have proposed augmenting costmaps with semantic information [15], [16]. By embedding contextual cues, robots are able to differentiate between regions that are geometrically alike but behaviorally distinct. For example, Zhang et al. [17] combined an LLM with a vision–language model (VLM) to reinterpret LiDAR returns, allowing objects such as cur-tains to be considered traversable. While these techniques demonstrate the benefit of linking semantics with navigation, they are difficult to generalize to broader behavioral norms. Instead of embedding fixed semantic priors into costmaps, we enable flexible interpretation of semantic instructions through a structured integration with classical navigation, thereby retaining robustness while extending behavioral variety. 
+
+B. Language-Driven Navigation 
+
+End-to-end vision–language navigation (VLN) methods map user instructions and sensory observations into motion policies through a unified model [18], [19]. These approaches achieve competitive performance in benchmark evaluations [6]–[8], but real-world deployment remains challenging. The main difficulties include dependence on large-scale annotated datasets [20], limited generalization to unseen environments [21], and fragile behavior under perceptual uncertainties [22]. Zero-shot methods attempt to address these limitations by leveraging pretrained LLMs and VLMs to interpret instruc-tions without task-specific supervision [23]–[25]. Natural language is converted into structured representations and aligned with open-vocabulary visual recognition [26]–[28], thereby supporting flexible generalization. Nevertheless, their low decision frequency often hinders reliable deployment in realistic settings. Hybrid methods have therefore been proposed to combine semantic reasoning with traditional planning. BehAV [13] integrates language-specified con-straints into classical planning, enhancing interpretability. Our method follows a similar philosophy but adopts a more generalized formulation. Instead of tightly coupling language constraints to planning rules, we introduce a lightweight semantic reasoning module that maps free-form instructions onto structured navigation primitives. This design preserves the efficiency and reliability of costmap-based navigation, while offering broader adaptability to diverse behavioral instructions. III. P ROBLEM FORMULATION 
+
+This work considers the problem of robot path planning under natural language behavioral constraints with real-time perception. The robot is placed in an environment with a start position S and a goal position T , and is provided with a set of behavioral constraints C stated in natural language. Examples include instructions such as “avoid walking on the grass,” “keep to the right side of the road,” or “pass vehicles on the left.” The objective is to generate a feasible trajectory 
+
+τ from S to T that satisfies all constraints in C.During navigation, the robot continuously acquires multi-modal sensory observations Ot from its onboard LiDAR and camera at time step t. These data are essential for detecting obstacles, identifying semantic elements, and associating the behavioral constraints with the current environment. As the robot progresses, the planned trajectory must be adaptively updated based on the latest perception to ensure that all specified constraints are respected. Formally, let P denote the set of all feasible trajectories from S to T that are consistent with the robot’s motion ca-pabilities and the observed environment {Ot}. The problem is to find an optimal trajectory 
+
+τ ∗ = arg min   
+
+> τ∈P
+
+J(τ ) subject to τ |= C, (1) where J(τ ) is a navigation cost function, and τ |= C
+
+indicates that τ fulfills all constraints in C after they are interpreted and grounded through real-time sensory percep-tion. In summary, the inputs to the problem consist of the nav-igation pair (S, T ), the sensory stream {Ot}, and the natural language constraints C, while the output is an executable trajectory τ ∗ that minimizes J(τ ) and satisfies C. The key challenge lies in transforming inherently ambiguous natural language instructions into reliable, perception-grounded con-straints and in ensuring that the derived trajectory remains both feasible and compliant as the environment evolves. IV. M ETHODOLOGY 
+
+This work proposes a zero-shot navigation framework that enables robots to interpret and execute behavioral constraints expressed in natural language without relying on additional task-specific training. The core idea is to integrate LLMs with conventional costmap-based navigation so that planned Semantic                     
+
+> Segmentation
+> LiDAR -Camera
+> Fusion
+> Pointcloud
+> Denoising
+> Semantic Object Modeling
+> Sensor Fusion
+> Behavioral Instruction Parsing
+> Online Constraints
+> (Short -term Specifications)
+> Offline Constraints
+> (Long -term S pecifications )
+> Instruction
+> Merging
+> Instruction
+> Parsing
+> LLM
+> Pointcloud
+> RGB Image
+> Object Pointcloud
+> AABB
+> Object Modeling
+> Multi -layer Costmap
+> Geometric Traversability Layer
+> Obstacle Pointcloud
+> Pointcloud
+> Ground
+> Removal GT Layer
+> AABB Behavioral
+> Constraints
+> Semantic
+> Traversability
+> Layer
+> Directional Constraint Layer
+> Velocity
+> Constraint
+> Layer
+> Integration with Planning
+> Velocity Command
+> Motion Planning
+> SB Costmap
+> Global Planner
+> (A*, RRT, ...)
+> Local Planner
+> (TEB, DWA, ...)
+> KB Costmap
+> Robot
+> Behavior -aware Costmap Fusion
+> Kinematic Behavioral Costmap
+> VC Layer KB Costmap
+> Spatial Behavioral Costmap
+> GT Layer ST Layer
+> Traversability
+> Fusion
+> SB Costmap
+> DC Layer
+
+Fig. 2. The architecture of the proposed method for zero-shot navigation under natural language behavioral constraints. The system integrates LLMs with vision–LiDAR perception and encodes parsed behavioral instructions into multi-layer costmaps for motion planning. Output                                                                                                        
+
+> {crosswalk ,right , fast, traversable }
+> {car, left, slow, non -traversable }
+> ...... Given online and offline behavioral constraints, the task is to extract only
+> behavioral landmarks .Each landmark is mapped into astructured tuple {object_list ,
+> direction_constrain ,velocity_constrain ,traversability_constrain }, where object_list
+> denotes the target object, direction_constrain contain (left, right, center),
+> velocity_constrain contain (slow, normal, fast ), and traversability_constrain contain
+> (traversable or non -traversable) .If conflicts arise between offline and online instructions,
+> the online instructions take precedence .The output should be in JSON format containing
+> t h e e x t ra c te d {o b j e c t_ l is t ,d i re c t io n _ c o n s t r a i n ,v e lo c i ty _ co n s t ra i n ,
+> traversability_constrain }.
+> LLM
+> Online Constraints :Please walk on the right side of
+> the crosswalk, then go around the car from the left
+> side .When passing the car, walk slowly .
+> Off line Constraints :Walk quickly while crossing the
+> crosswalk .
+
+Behavioral Constraint Instructions 
+
+Fig. 3. Example of parsing online and offline behavioral constraints into structured representations. 
+
+trajectories remain both geometrically feasible and behav-iorally appropriate. Instead of relying solely on geometric representations, the framework parses long-term rules and short-term situational instructions into structured constraints, grounds them through real-time fusion of visual and Li-DAR perception, and encodes them within the cost space. These constraints are organized into multi-layer costmaps that incorporate geometric, semantic, spatial, and kinematic information, which are subsequently fused to guide planning. The overall system architecture is illustrated in Fig. 2. 
+
+A. Behavioral Instruction Parsing 
+
+Natural language provides a direct and flexible interface for humans to specify navigation behaviors. To accommo-date instructions with different temporal scopes, behavioral constraints are categorized into two groups. 
+
+1) Offline constraints: The set of offline behavioral con-straints is defined as 
+
+Lof f = {Lof f 
+
+1 , L of f 
+
+2 , . . . , L of f m }, (2) where each Lof f i encodes global requirements that remain valid for the entire task, such as “ keep right when walking on the road ” or “ avoid entering the grass .” 
+
+2) Online constraints: The set of online behavioral con-straints is defined as 
+
+Lon = {Lon 
+
+1 , L on 
+
+2 , . . . , L on n }, (3) where each Lon j specifies short-term requirements triggered by particular situations, such as “ slow down near the car ”or “ pass through the curtain .” 
+
+3) Unified constraints: For subsequent processing, the two sets are merged into a unified specification: 
+
+L = Lof f ∪ L on . (4) This specification is then parsed by an LLM into astructured representation, as illustrated in Fig. 3. 
+
+C = {(Oi, d i, v i, t i) | i = 1 , . . . , r }, (5) where Oi denotes the referenced object, di encodes spatial preference, vi indicates velocity requirements, and ti rep-resents semantic traversability. Through this process, both long-term norms and short-term situational instructions are cast into a unified symbolic form that can guide perception and planning. Table I summarizes the definition and representative values of each element. The LLM interprets free-form natural lan-guage instructions and maps them into these representative values, thereby producing consistent structured tuples. 
+
+B. Semantic Object Modeling 
+
+To interpret behavioral constraints within the observed environment, semantic object models are constructed via camera–LiDAR fusion in two stages: open-vocabulary se-mantic grounding and multi-frame aggregation. 
+
+1) Open-vocabulary semantic grounding: Given an RGB image It ∈ RH×W ×3 at time step t and the textual descrip-tion of an object Oi, GSAM2 [29] generates a binary mask 
+
+Mi. The pixel set corresponding to Oi is 
+
+Si = {(u, v ) | Mi(u, v ) = 1 } (6) The LiDAR point cloud at time t is denoted as Pt = {pj =(xj , y j , z j )}Nj=1 . Each point pj is projected to the image TABLE I DEFINITION AND REPRESENTATIVE VALUES FOR EACH ELEMENT IN STRUCTURED BEHAVIORAL CONSTRAINTS                                    
+
+> Symbol Meaning Representative Values Example Instruction
+> OiReferenced object pedestrian, vehicle, grass, crosswalk, . . . “Walk on the crosswalk”, “Avoid the grass”
+> diDirectional preference {∅ , left, right, middle }“Pass the car on the left”, “Keep to the right side of the road”
+> viVelocity requirement {∅ , slow, normal, fast }“Walk slowly near the car”, “Move quickly when crossing the street”
+> tiSemantic traversability {∅ , traversable, non-traversable }“Go through the curtain”, “Lawn is non-traversable” TABLE II ASSIGNMENT OF (c1, c 2, c 3)UNDER DIFFERENT DIRECTIONAL CONSTRAINTS
+> Constraint c1c2c3
+> left cmin 12(cmin +cmax )cmax
+> right cmax 12(cmin +cmax )cmin
+> middle cmax cmin cmax
+
+plane via the projection matrix and is associated with Oi
+
+if its projection lies in Si, yielding the object-specific subset 
+
+P ti ⊆ Pt.
+
+2) Multi-frame aggregation: To enhance robustness, ob-ject models are aggregated over a sliding temporal window. At each time step t, P ti is refined using DBSCAN [30] to suppress noise, resulting in ˆP ti . The temporally aggregated model is 
+
+Pi(t) = 
+
+> t
+
+[  
+
+> τ=t−T+1
+
+ˆP τi (7) where T is the aggregation horizon. On the bird’s-eye view (BEV) plane, object Oi is approximated by an axis-aligned bounding box (AABB) given by 
+
+Bi =
+
+
+
+min 
+
+> p∈Pi
+
+(x, y ), max 
+
+> p∈Pi
+
+(x, y )
+
+
+
+(8) This BEV-projected bounding box provides a compact rep-resentation for encoding behavioral constraints in costmap construction. 
+
+C. Multi-layer Costmap with Semantic Guidance 
+
+Trajectories consistent with natural language constraints are generated by constructing a multi-layer costmap. Four complementary layers are considered: geometric traversabil-ity, semantic traversability, directional constraints, and veloc-ity constraints. 
+
+1) Geometric Traversability Layer: This layer encodes free space and obstacle occupancy. From Pt, ground points and points above the maximum robot height hmax are removed. The remaining obstacles form 
+
+P obs t = {pj | zmin < z j < h max , p j /∈ P ground t } (9) where P ground t denotes estimated ground. Each obstacle is projected onto a BEV grid to yield 
+
+Cgeo (u, v ) = 
+
+(
+
+255 , ∃pj ∈ P obs t s.t. πBEV (pj ) = ( u, v )100 , otherwise (10) with πBEV (·) the projection function. 
+
+2) Semantic Traversability Layer: Semantic information from C is incorporated. For object Bi with semantic traversability ti, the average geometric cost is 
+
+¯Cgeo (Bi) = 1
+
+|Bi|
+
+X
+
+> (u,v )∈Bi
+
+Cgeo (u, v ) (11) If ti = ∅, it is inferred as 
+
+ti =
+
+(
+
+non-traversable , ¯Cgeo (Bi) > τ 
+
+traversable , otherwise (12) The semantic traversability cost is then defined as 
+
+Csem (u, v ) = 
+
+
+
+1, (u, v ) ∈ Bi, t i = traversable 
+
+2, (u, v ) ∈ Bi, t i = non-traversable 
+
+0, otherwise (13) This step allows dynamic regulation of traversable regions based on semantic priors. 
+
+3) Directional Constraint Layer: Directional constraints are employed to encode side-specific navigation preferences with respect to semantic objects. When an instruction speci-fies di̸ = ∅, the bounding box Bi of the corresponding object is first enlarged by a margin d if ti = non-traversable, so that the constraint also applies around the obstacle boundary for safe planning. For cost assignment, three boundary values (c1, c 2, c 3) are placed along the lateral axis of Bi, with their values deter-mined by the directional rule (see Table II). As illustrated in Fig. 4, the bounding box is divided into two consecutive regions. The cost distribution is obtained through piecewise interpolation:  
+
+> •
+
+from c1 to c2 across the first region,  
+
+> •
+
+from c2 to c3 across the second region. Both regions are interpolated using the same function. Let 
+
+u denote the horizontal coordinate of a grid cell. The interpolation function is expressed as 
+
+C(u) = 
+
+
+
+c1 + ( c2 − c1)
+
+ u − u1
+
+u2 − u1
+
+α
+
+, u ∈ [u1, u 2],
+
+
+
+c2 + ( c3 − c2)
+
+ u − u2
+
+u3 − u2
+
+α
+
+, u ∈ [u2, u 3],
+
+(14) where (u1, u 2, u 3) denote the left boundary, midpoint, and right boundary of Bi, and the parameter α > 0 controls the sharpness of the gradient. When α = 1 , the interpolation is linear. The operator ⌊·⌋ ensures that the interpolated costs are discretized to integer values for consistency with the grid-based costmap. The preferred side specified by AABB 
+
+𝑐 1 𝑐 2 𝑐 3
+
+𝑢 
+
+𝑣 
+
+𝑜  𝑢 1 𝑢 2 𝑢 3    
+
+> Interpolation 𝐶 spat 𝑢 ,𝑣 Fig. 4. Illustration of the directional constraint layer.
+
+the instruction corresponds to the low-cost region, whereas the non-preferred side is penalized by higher costs. The resulting cost field allows standard planners to naturally generate trajectories that adhere to side-specific navigation preferences. 
+
+4) Velocity Constraint Layer: Velocity rules are encoded when vi̸ = ∅. The resulting cost field is 
+
+Cvel (u, v ) = 
+
+
+
+cmin , (u, v ) ∈ Bi, v i = slow 
+
+12 (cmin + cmax ), (u, v ) ∈ Bi, v i = normal 
+
+cmax , (u, v ) ∈ Bi, v i = fast 
+
+0, otherwise (15) 
+
+D. Behavior-aware Costmap Fusion 
+
+The four layers are combined into two categories of behav-ioral costmaps: a spatial behavioral costmap Cspat , derived from geometric, semantic, and directional constraints; and a kinematic behavioral costmap Cvel , derived from velocity preferences. 
+
+1) Spatial Behavioral Costmap: Geometric and semantic traversability layers are first fused: 
+
+I(u, v ) = 12 Cgeo ⊙ (1 − Csem )( 2 − Csem )+ 100 · Csem ⊙ (2 − Csem )+ 12 · 255 · Csem ⊙ (Csem − 1)
+
+(16) where ⊙ denotes element-wise multiplication and 1, 2 are matrices of all ones and all twos. This step corrects LiDAR perception results using semantic input. The result I is further combined with Cdir :
+
+Cspat (u, v ) = 1(I = 255) ⊙ 255 + 1(I̸ = 255) ⊙ 1(Cdir > 0) ⊙ Cdir 
+
++ 1(I̸ = 255) ⊙ 1(Cdir = 0) ⊙ I
+
+(17) where 1(·) is an indicator function. 
+
+2) Kinematic Behavioral Costmap: The kinematic be-havioral costmap Ckin is directly constructed from Cvel 
+
+(Sec. IV-C.4) and encodes localized velocity modulation without further fusion. Together, the spatial behavioral costmap Cspat and the kine-matic costmap Ckin provide complementary guidance. The spatial term enforces geometric and semantic traversability as well as directional preferences, whereas the kinematic term regulates local velocity. The planner then leverages these fused costmaps to generate trajectories that are collision-free and aligned with natural language behavioral specifications. 
+
+E. Integration with Planning 
+
+The fused behavioral costmaps are subsequently utilized by the motion planning to generate executable trajectories. The spatial behavioral costmap and the kinematic behavioral costmap play complementary roles. Each contributes a dis-tinct function, and together they ensure that the robot follows paths that are both geometrically feasible and consistent with behavioral specifications provided in natural language. 
+
+1) Spatial Behavioral Costmap for Geometric Optimiza-tion: The spatial behavioral costmap Cspat can be directly applied to planners that operate on a grid-based repre-sentation of the environment. In this configuration, Cspat 
+
+augments the standard geometric costmap so that behavioral requirements, including keeping to a specific side of a road or avoiding restricted regions, are incorporated into the optimization process. Because Cspat maintains compatibility with existing costmap-based frameworks, no modification to the underlying planning algorithms is required. This modular integration preserves generality while embedding behavior awareness into the trajectory generation process. 
+
+2) Kinematic Behavioral Costmap for Velocity Regula-tion: The kinematic behavioral costmap Ckin provides a complementary function by regulating the velocity of the robot during execution. Instead of influencing the spatial structure of the trajectory, Ckin specifies speed constraints for the cell currently occupied by the robot. The cost value at the corresponding grid location is mapped into an admissible limit on translational velocity, which is forwarded to the local planner. In this way, the robot is able to adjust its speed dynamically according to user instructions, for example, slowing down near vehicles or increasing velocity when crossing a crosswalk. In combination, the two costmaps provide a unified mecha-nism for integrating behavioral constraints with conventional planning algorithms. The spatial behavioral costmap guides the generation of paths that adhere to traversability and direc-tional preferences, while the kinematic behavioral costmap ensures that execution speed respects context-dependent motion requirements. Together, these mechanisms enable conventional planning algorithms to produce trajectories that are both socially acceptable and context aware. V. E XPERIMENTAL RESULTS 
+
+A. Experimental Setup 
+
+We conduct experiments in simulation and real-world environments to evaluate the effectiveness of the proposed method. 
+
+1) Simulation Environment: The MEDIUM environment from OpenBench [3] is used to examine navigation perfor-mance under various behavioral constraints. The simulated platform is a four-wheeled differential-drive robot equipped with a Livox MID-360 LiDAR and an RGB-D camera. 60cm      
+
+> 75cm 125cm
+> Livox MID -360
+> RealSense D455 Onboard Computer
+> Scout 2.0
+> (a) (b) Fig. 5. The experimental robot platform: (a) front view and (b) side view.
+
+2) Real-world Platform: For physical validation, we em-ploy a SCOUT 2.0 differential-drive mobile robot (Fig. 5). The platform is equipped with a Livox MID-360 LiDAR for 3D perception, an Intel RealSense D455 depth camera for RGB-D sensing, and an onboard computer (AMD R9-7945HX CPU, NVIDIA RTX 4060 GPU) for real-time processing. The LiDAR is tilted at an angle of 20 degrees to scan the ground. 
+
+3) Evaluation Metrics: We assess navigation performance using four adopted metrics:  
+
+> •
+
+Success Rate (SR) : the proportion of successful trials in which the robot reaches the goal while fully respecting all behavioral constraints.  
+
+> •
+
+Success weighted by Path Length (SPL) [31] : a com-bined measure of efficiency that reflects both success rate and path optimality relative to the shortest feasible trajectory.  
+
+> •
+
+Fr´ echet Distance (FD) [32] : the similarity between the executed trajectory and a human teleoperated reference path, where smaller values indicate closer alignment to human-preferred navigation.  
+
+> •
+
+Behavioral Following Accuracy (BFA) [13] : the fraction of the executed trajectory length that is consistent with the specified behavioral constraints. 
+
+4) Implementation Details: Behavioral instructions are parsed using Qwen-VL-Max . In costmap construction, both the spatial and kinematic constraint layers employ cmin = 0 
+
+and cmax = 255 , with the interpolation parameter in Eq. 14 fixed at α = 3 .0. The costmap resolution is set to 0.05 mover a horizon of 10 m × 10 m. For path generation, the global planner adopts the A* algorithm, while local trajectory optimization is performed using the Timed Elastic Band (TEB) planner. 
+
+B. Evaluation of Navigation Performance 
+
+We evaluate the proposed method against representa-tive language-driven navigation approaches, including Be-hAV [13], InstructNav [28], and the interactive navigation framework (INF) [17]. All task instructions are expressed in natural language and are divided into four categories:  
+
+> •
+
+Region-Following Task: Robots are required to approach or traverse designated semantic regions while following specified behavioral constraints.  
+
+> •
+
+Region-Avoidance Task: Robots are required to actively avoid certain semantic regions or obstacles while re-specting the given behavioral constraints.                                                                         
+
+> TABLE III EVALUATION OF NAVIGATION PERFORMANCE
+> Task Method SR ( ↑)SPL ( ↑)FD ( ↓)BFA ( ↑)
+> Region Following Task BehAV 60% 19.63% 4.21 62% InstructNav 50% 15.14% 5.36 58% INF ––––NORM-Nav 90% 65.77% 2.14 89%
+> Region Avoidance Task BehAV 60% 38.34% 2.82 64% InstructNav 40% 17.68% 5.10 61% INF ––––NORM-Nav 90% 58.92% 2.16 87%
+> Traversable Obstacle Task BehAV 0% –––InstructNav 0% –––INF 70% 52.14% 2.23 67% NORM-Nav 80% 67.26% 1.35 84%
+> Combined Tasks BehAV 30% 18.62% 7.02 39% InstructNav 20% 12.21% 6.45 36% INF ––––NORM-Nav 90% 54.87% 3.01 85%
+> •
+
+Traversable-Obstacle Task: Robots are required to navigate through regions that conventional LiDAR-based systems detect as obstacles but that are in fact traversable.  
+
+> •
+
+Combined Task: Robots are required to perform all of the above simultaneously, following designated regions and avoiding restricted areas while satisfying behavioral constraints. In all tasks, success is defined only when the robot reaches the goal while fully complying with the given instructions. The results are summarized in Table III, and the performance of each method is analyzed across the four task types. In the region-following task, NORM-Nav achieves the best performance across all metrics. It follows instructions such as moving along a specified region or keeping to one side with high accuracy. The relatively small FD indicates close alignment with human-operated trajectories, while the high SPL shows improved efficiency. BehAV, relying only on VLM-based reasoning, completes some tasks but with inefficient paths. InstructNav depends on landmark-based navigation and frequently fails with large landmarks such as crosswalks. Both baselines deviate substantially from human-like trajectories when side-specific instructions are required. In the region-avoidance task, BehAV shows higher trajec-tory similarity in successful cases due to its cost-map design for non-traversable regions. InstructNav produces unstable paths because of its reliance on landmarks. NORM-Nav completes avoidance tasks consistently and achieves the best performance across all metrics. In the traversable-obstacle task, BehAV and InstructNav fail to traverse regions misclassified as obstacles. INF suc-cessfully handles traversable obstacles but does not account for behavioral preferences, leading to degraded performance in combined scenarios. NORM-Nav overcomes these limita-tions by traversing misclassified obstacles while simultane-ously following user-specified constraints, giving it a clear advantage. In the combined task, users provide instructions that inte-BehAV  Teleoperated Trajectory  InstructNav  NOR M-Nav  Starting Point  End Point   
+
+> Please cross at the crosswalk. Please walk around the lawn on the right side. Please keep to the right side of the crosswalk
+> and pass on the left side of the car.
+
+(a)  (b)             
+
+> Please walk on the crosswalk while driving .Please go around the right side of the lawn Please walk right side of the crosswalk and go
+> to the left of the car.
+
+(a)  (b) 
+
+(c)      
+
+> BehAV Human Control InstructNav OPEN -BehAV Start Point End Point
+
+Fig. 6. Simulation results on three representative navigation tasks. The proposed method produces stable trajectories that closely follow human-operated reference paths, outperforming baseline approaches. Please keep to the left side of the crosswalk.  Please go around the robot on the left side,     
+
+> and around the people on the right side. Please keep to the right side of the road .
+> Starting Point End Point NOR M-Nav Teleoperated Trajectory
+
+(a)  (b)  (c) 
+
+Fig. 7. Real-world demonstrations of behavior-constrained navigation. The proposed method successfully follows natural language instructions without collisions, generating stable trajectories that remain close to human-operated reference paths. 
+
+grate all subtasks. NORM-Nav successfully executes these instructions and achieves superior results in all metrics. The generated trajectories are more efficient, and closer to human-operated trajectories compared with the baselines. 
+
+C. Evaluation of Cost Distribution Shaping 
+
+To evaluate the influence of the interpolation parameter α
+
+on navigation performance, we configured different α values in NORM-Nav. As defined in Eq. 14, α determines the non-linear interpolation of cost values, thereby shaping the distribution of preference enforcement around objects. The experimental results are illustrated in Fig. 8. When α < 1.0, the robot trajectories exhibit weak ad-herence to the directional preferences. When α = 1 .0, the generated paths moderately reflect the intended constraints. When α > 1.0, the robot follows the instructions more strictly. In summary, Fig. 8 reveals that smaller α values fa-vor conservative trajectories with greater obstacle clearance, while larger values enhance behavioral fidelity. Empirical observations suggest that settings with α > 1.0 provide the most appropriate balance between safety and compliance with user-specified constraints. 
+
+D. Evaluation of Speed Constraints 
+
+The ability of the proposed method to enforce speed-related behavioral constraints is evaluated through instruc-tions specifying three velocity modes: quickly, slowly, and normal (default), as illustrated in Fig. 1. The results show that the robot adapts its translational velocity in real time according to the given commands: traversal speed increases in regions, decreases when instructed to move slowly near objects such as vehicles, and remains at a default pace when Start ing Point                 
+
+> End Point
+> Please keep to the right side of the crosswalk
+> and pass to the left of the car.
+> (a)
+> 结论：梯度变化越大，偏
+> Teleoperated Trajectory
+> Please walk around the lawn on the right side.
+> (b)
+> 𝜶 =𝟎 .𝟓
+> 𝜶 =𝟐 .𝟎
+> 𝜶 =𝟏 .𝟎
+> 𝜶 =𝟑 .𝟎
+> 𝜶 =𝟎 .𝟏
+
+Fig. 8. Effect of interpolation parameter α on trajectory generation. Larger 
+
+α values lead to stronger compliance with directional preferences, while smaller values produce more conservative paths. 
+
+no explicit constraints are imposed. These observations indi-cate that natural language instructions are reliably translated into consistent low-level velocity control within the proposed method. 
+
+E. Real-World Task Demonstrations 
+
+We conduct representative real-world tests covering region following, region avoidance, traversable obstacle handling, and combined behaviors. Goal points are manually set, and behavioral constraints are given in natural language. As shown in Fig. 7, the robot follows side-specific rules, such as keeping to the right of a road or bypassing pedestri-ans from the instructed side, and it reaches the goals without collisions. It also passes through a curtain that LiDAR misclassifies as non-traversable and avoids a manhole cover from the left, even though the cover is not detected as an obstacle. These demonstrations confirm that the method reliably executes natural language instructions and generates safe, ef-ficient, and human-like trajectories. In particular, the method correctly handles obstacles with ambiguous traversability se-mantics, such as curtains or manhole covers, which are prone to misclassification in conventional LiDAR-based navigation. VI. C ONCLUSION 
+
+In this work, we present NORM-Nav, a zero-shot naviga-tion framework that integrates natural language behavioral constraints into costmap-based planning. The framework parses free-form instructions with a language model, grounds them through vision–LiDAR perception, and encodes them into multi-layer costmaps so that planned trajectories remain both geometrically feasible and socially compliant. Experi-ments in simulation and real-world environments show that NORM-Nav achieves higher success rates, greater efficiency, closer adherence to behavioral rules, and stronger alignment with human-preferred paths than representative baselines. The results indicate that NORM-Nav provides a practical and generalizable solution for behavior-aware navigation. REFERENCES [1] L. Yue, D. Zhou, L. Xie, F. Zhang, Y. Yan, and E. Yin, “Safe-vln: Collision avoidance for vision-and-language navigation of autonomous robots operating in continuous environments,” IEEE Robot. Autom. Lett. , vol. 9, no. 6, pp. 4918–4925, 2024. [2] D. Zhang, D. Huo, M. Zhou, and Z. Cao, “MPC-DS: A safe path track-ing method for agvs in dynamic environments with dense obstacles,” 
+
+IEEE Trans. Intell. Transp. Syst. , 2025. [3] J. Wang et al. , “Openbench: A new benchmark and baseline for semantic navigation in smart logistics,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2025, pp. 16 202–16 208. [4] J. Wang, D. Huo, Y. Shi, C. Gao, Y. Qiao, and G. Zhou, “Open: Lightweight map-based semantic navigation for gps-free last-mile delivery,” IEEE Trans. Autom. Sci. Eng. , vol. 22, pp. 20 713–20 725, 2025. [5] S. Macenski, F. Mart´ ın, R. White, and J. G. Clavero, “The marathon 2: A navigation system,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS) . IEEE, 2020, pp. 2718–2725. [6] J. Lin et al. , “Advances in embodied navigation using large language models: A survey,” arXiv preprint arXiv:2311.00530 , 2025. [7] W. Wu, T. Chang, X. Li, Q. Yin, and Y. Hu, “Vision-language navigation: A survey and taxonomy,” Neural Comput. Appl. , vol. 36, no. 7, pp. 3291–3316, 2023. [8] Y. Zhang et al. , “Vision-and-language navigation today and tomorrow: A survey in the era of foundation models,” Trans. Mach. Learn. Res. ,2024. [9] K. Weerakoon, A. J. Sathyamoorthy, U. Patel, and D. Manocha, “TERP: Reliable planning in uneven outdoor environments using deep reinforcement learning,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2022, pp. 9447–9453. [10] J. Jiang, Y. Yang, Y. Deng, C. Ma, and J. Zhang, “BEVNav: Robot autonomous navigation via spatial-temporal contrastive learning in bird’s-eye view,” IEEE Robot. Autom. Lett. , vol. 9, no. 12, pp. 10 796– 10 802, 2024. [11] S. Minaee et al. , “Large language models: A survey,” arXiv preprint arXiv:2402.06196 , 2025. [12] D. Shah, B. Osi´ nski, B. Ichter, and S. Levine, “LM-Nav: Robotic navigation with large pre-trained models of language, vision, and action,” in Proc. Conf. Robot Learn. (CoRL) . PMLR, 2023, pp. 492–504. [13] K. Weerakoon et al. , “Behav: Behavioral rule guided autonomy using vlms for robot navigation in outdoor scenes,” in Proc. IEEE Int. Conf. Robot. Automat. (ICRA) , 2025, pp. 7044–7051. [14] K. Zheng, “ROS navigation tuning guide,” in Robot Operating System (ROS): The Complete Reference (Vol. 6) , A. Koubaa, Ed. Cham: Springer, 2021, pp. 197–226. [15] E. Sani, A. Sgorbissa, and S. Carpin, “Improving the ros 2 navigation stack with real-time local costmap updates for agricultural applica-tions,” in Proc. IEEE Int. Conf. Robot. Automat. (ICRA) . IEEE, 2024, pp. 17 701–17 707. [16] L. Mao, G. Warnell, P. Stone, and J. Biswas, “Pacer: Preference-conditioned all-terrain costmap generation,” IEEE Robot. Autom. Lett. ,2025. [17] Z. Zhang, A. Lin, C. W. Wong, X. Chu, Q. Dou, and K. S. Au, “Interactive navigation in environments with traversable obstacles using large language and vision-language models,” in Proc. IEEE Int. Conf. Robot. Automat. (ICRA) . IEEE, 2024, pp. 7867–7873. [18] R. Liu, W. Wang, and Y. Yang, “Volumetric environment repre-sentation for vision-language navigation,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR) , 2024, pp. 16 317–16 328. [19] J. Zhang et al. , “Navid: Video-based vlm plans the next step for vision-and-language navigation,” Robot. Sci. Syst. , 2024. [20] Z. Wang et al. , “Scaling data generation in vision-and-language navigation,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV) , 2023, pp. 12 009–12 020. [21] N. Hirose, C. Glossop, A. Sridhar, D. Shah, O. Mees, and S. Levine, “Lelan: Learning a language-conditioned navigation policy from in-the-wild videos,” arXiv preprint arXiv:2410.03603 , 2024. [22] C. Glossop, W. Chen, A. Bhorkar, D. Shah, and S. Levine, “CAST: Counterfactual labels improve instruction following in vision-language-action models,” arXiv preprint arXiv:2508.13446 , 2025. [23] N. Yokoyama, S. Ha, D. Batra, J. Wang, and B. Bucher, “Vlfm: Vision-language frontier maps for zero-shot semantic navigation,” in Proc. IEEE Int. Conf. Robot. Automat. (ICRA) . IEEE, 2024, pp. 42–48. [24] V. S. Dorbala, G. Sigurdsson, R. Piramuthu, J. Thomason, and G. S. Sukhatme, “Clip-nav: Using clip for zero-shot vision-and-language navigation,” arXiv preprint arXiv:2211.16649 , 2022. [25] M. Ahn et al. , “Do as i can, not as i say: Grounding language in robotic affordances,” arXiv preprint arXiv:2204.01691 , 2022. [26] G. Zhou, Y. Hong, Z. Wang, X. E. Wang, and Q. Wu, “Navgpt-2: Unleashing navigational reasoning capability for large vision-language models,” in Eur. Conf. Comput. Vis. Springer, 2024, pp. 260–278. [27] Y. Kuang, H. Lin, and M. Jiang, “Openfmnav: Towards open-set zero-shot object navigation via vision-language foundation models,” arXiv preprint arXiv:2402.10670 , 2024. [28] Y. Long, W. Cai, H. Wang, G. Zhan, and H. Dong, “Instructnav: Zero-shot system for generic instruction navigation in unexplored environment,” arXiv preprint arXiv:2406.04882 , 2024. [29] T. Ren et al. , “Grounded SAM: Assembling open-world models for diverse visual tasks,” arXiv preprint arXiv:2401.14159 , 2024. [30] D. Deng, “DBSCAN clustering algorithm based on density,” in 2020 7th Int. Forum on Elect. Eng. Automat. (IFEEA) . IEEE, 2020, pp. 949–953. [31] P. Anderson et al. , “On evaluation of embodied navigation agents,” 
+
+arXiv preprint arXiv:1807.06757 , 2018. [32] B. Aronov, S. Har-Peled, C. Knauer, Y. Wang, and C. Wenk, “Fr´ echet distance for curves, revisited,” in Eur. Symp. algorithmss . Springer, 2006, pp. 52–63.

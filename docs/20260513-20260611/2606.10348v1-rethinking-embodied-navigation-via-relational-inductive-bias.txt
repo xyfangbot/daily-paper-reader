@@ -1,0 +1,404 @@
+Title: Rethinking Embodied Navigation via Relational Inductive Bias
+
+URL Source: https://arxiv.org/pdf/2606.10348v1
+
+Published Time: Wed, 10 Jun 2026 00:28:27 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Rethinking Embodied Navigation via Relational Inductive Bias 
+
+Weitao An 1, Chenghao Xu 2, Xu Yang 1, Cheng Deng 2
+
+1School of Electronic Engineering, Xidian University, Xi’an 710071, China 
+
+2School of Information Science and Engineering, Hohai University, Nanjing 210098, China 
+
+Abstract 
+
+Object navigation requires an embodied agent to progres-sively localize a target object in an unknown environment through visual observations. Existing methods typically rely on open-vocabulary detectors or vision-language models (VLMs) to answer the question of where to search , i.e., where the target is likely to appear. However, they often overlook an equally critical question: what not to trust , namely, which se-mantic cues are unreliable. Semantic cues produced by open-vocabulary perception are frequently subject to systematic misleading evidence: visual similarity can induce false pos-itives, static priors are difficult to update once contradicted, and the lack of embodied verification may lead to repeated failed exploration, continuously contaminating map updates and navigation decisions. Fundamentally, such erroneous ev-idence is not merely random noise, but is deeply rooted in the structured biases of object relations in real-world scenes. To address this issue, we propose DB-Nav , an embodied nav-igation framework that dynamically reshapes the navigation search space through action-conditioned dual relational bi-ases. We factorize target-centric object relations into two syn-ergistic biases: an Activation Bias , which propagates posi-tive search evidence through contextual co-occurrence, and an Inhibition Bias , which suppresses unreliable regions by explicitly modeling perceptual confusion and action-level fal-sification. These dual biases are unified into a Relational Activation–Inhibition Exploration Graph, which converts on-line visual observations and failed access events into seman-tic sources that dynamically modulate the exploration value of frontiers. Experiments on standard ObjectNav benchmarks demonstrate that DB-Nav significantly outperforms existing methods in both success rate (SR) and SPL. Without rely-ing on costly and fragile online VLM reasoning, DB-Nav provides a lightweight, interpretable, and robust navigation framework for robot navigation under noisy open-vocabulary perception. 
+
+Introduction 
+
+Embodied object navigation requires an agent to explore an unknown environment and reach a target object cate-gory (Batra et al. 2020). Beyond spatial mapping and path planning, the agent must interpret target semantics, scene context, and uncertain perceptual information (Savva et al. 2019; Chang et al. 2017; Ramakrishnan et al. 2021). In in-door environments, targets are often occluded, small, distant, start 
+
+> (a)False target(detector error)
+> a high-confidence but incorrect 'sofa'
+> detection on a visually similar chair.
+> (b)Semantic-only search
+> The agent is repeatedly attracted
+> to the false target and waste
+> exploration.
+> 4.Bias-conditional target
+> The target is confirmed only when it
+> remains reliable after dual-bias
+> verification.
+> 3.Action-Level Falsification
+> The agent visits the TV area but finds
+> no target, producing negative evidence.
+> Why static priors can mislead?
+> Static priors may lead to over-trust in
+> a region, resulting in ineffective
+> exploration.
+> 2.Positive-prior attraction is not enough
+> 1.Failure of existing searches
+> living
+> room
+> Ours
+> Semantic-only
+> Static Prior-guided
+> Negative evidence
+> Inhibition field
+> Activation field
+
+Figure 1: Motivation of DB-Nav. Existing ObjectNav meth-ods mainly focus on where to search , and may be misled by visually similar distractors or unverified semantic cues. In contrast, DB-Nav explicitly models both positive contex-tual affinity and negative inhibition, allowing the agent to identify promising regions while suppressing unreliable ev-idence. or visually similar to distractors, making open-world object search challenging. Existing methods can be divided into three strategies. Learning-based policies map observations and goals to ac-tions, but often rely on large-scale training and environment-specific distributions (Gupta et al. 2017; Wijmans et al. 2020; Ye et al. 2021). Map-driven methods construct oc-cupancy, semantic, object, or scene graphs for frontier se-lection and target search (Chaplot et al. 2020c,b; Georgakis et al. 2021; Deitke, Xie, and Chen 2022; Wang, Gupta, and Singh 2023; Chen, Zhou, and Li 2024), yet their decisions are tightly coupled with perception outputs; once false pos-itives, missed detections, or category confusion enter the map, they may continuously affect exploration. Egocentric online methods use first-person observations and vision-language reasoning for flexible planning (Yokoyama et al. 2024; Kim, Park, and Lee 2024; Li, Xu, and Chen 2024; Yokoyama, Tanaka, and Saito 2025; Zhang, Li, and Wang 2025; Liu, Chen, and Wang 2025; Huang, Zhang, and Sun 2025; Chen and Zhang 2026; Wang and Li 2026), but remain sensitive to local views, prompt design, and unstable model outputs. Despite different implementations, these methods commonly rely on semantic observations, learned priors, or 
+
+> arXiv:2606.10348v1 [cs.RO] 9 Jun 2026
+
+commonsense reasoning to guide search. However, under noisy open-vocabulary perception, se-mantic guidance can also become a source of system-atic misleading evidence. As illustrated in Fig. 1, high-confidence false positives, missed detections, and visually similar distractors may attract the agent toward unproduc-tive regions. Static room- or scene-level priors provide only coarse guidance: they cannot sufficiently distinguish high-value contextual cues from high-risk distractors during local frontier selection, and are difficult to update once contra-dicted by embodied observations. Therefore, robust Object-Nav should not only infer where to search , but also decide 
+
+what not to trust . Existing methods often lack an explicit mechanism for suppressing unreliable semantic cues after observation or failed access, causing misleading evidence to repeatedly influence frontier selection. We observe that both target occurrence and target con-fusion are shaped by object relations in real-world scenes. Co-occurrence relations between the target and contextual objects indicate regions worth exploring, whereas confusion relations between the target and visually similar distractors reveal regions whose evidence should not be over-trusted. This suggests that reliable embodied search should dynami-cally exploit positive relational cues while suppressing neg-ative ones, rather than treating all semantic evidence as uni-formly beneficial. Motivated by these observations, we propose DB-Nav ,a navigation framework that dynamically modulates the search field through dual relational biases. Target-centric object relations are factorized into positive affinity bias, which activates promising regions based on contextual co-occurrence, and negative inhibition bias, which suppresses unreliable regions caused by perceptual confusion or failed embodied verification. These biases are unified in a dynamic Relational Activation–Inhibition Exploration Graph, con-verting online object observations and failed access events into local activation or inhibition sources on the map. DB-Nav then updates the search field and frontier values through these dual biases, and commits to a target only when object-level evidence is sufficiently reliable, enabling more robust and efficient navigation without relying on costly online VLM or LLM reasoning. In summary, our contributions are threefold: • We introduce a relational-bias perspective, reformulating embodied navigation as a search-space modulation prob-lem jointly governed by positive affinity and negative in-hibition biases. • We propose DB-Nav, which converts target-centric rela-tional biases into a relational activation–inhibition explo-ration graph, activating high-potential regions and sup-pressing distractor regions to guide online frontier selec-tion. • We validate DB-Nav through extensive experiments on standard ObjectNav benchmarks, demonstrating im-proved success rate and path efficiency, and robustness under noisy open-vocabulary perception. 
+
+Related Work 
+
+Object Navigation with Semantic Mapping 
+
+Object navigation has been extensively studied in Habi-tat, Matterport3D, Gibson, AI2-THOR, RoboTHOR, and HM3D (Savva et al. 2019; Chang et al. 2017; Xia et al. 2018; Kolve et al. 2017; Deitke et al. 2020; Ramakrishnan et al. 2021), and the ObjectNav benchmark standardizes evalua-tion of agents that locate target objects in unseen environ-ments (Batra et al. 2020). Methods range from learned vi-sual policies to modular mapping-and-planning (Gupta et al. 2017; Wijmans et al. 2020; Ye et al. 2021), often relying on explicit spatial or semantic memories including fron-tier exploration, Neural SLAM, topological and semantic maps (Yamauchi 1997; Chaplot et al. 2020a,c; Georgakis et al. 2021). Representative methods such as Goal-Oriented Semantic Exploration and PONI (Chaplot et al. 2020b; Ra-makrishnan et al. 2022) use semantic maps to select long-term goals, but typically treat semantic cues only as posi-tive evidence. DB-Nav instead modulates frontier selection when cues can be both informative and misleading. 
+
+Structured Scene Priors for Navigation 
+
+Structured scene priors infer likely target locations beyond geometry. Scene priors, occupancy anticipation, 3D scene graphs, open-vocabulary 3D representations, and object-centric maps have been used for navigation (Yang et al. 2019; Ramakrishnan, Al-Halah, and Grauman 2020; Ar-meni et al. 2019; Peng et al. 2023; Gu et al. 2024; Werby et al. 2024). Recent methods transfer structured scene rep-resentations to zero-shot navigation via soft constraints, scene-graph prompting, Voronoi-based topology, and dy-namic object-relation graphs (Zhou et al. 2023; Yin et al. 2024; Wu et al. 2024; Tang et al. 2024), but mostly use re-lations as positive priors. DB-Nav factorizes target-centric relations into dual roles: affinity activates promising fron-tiers, while inhibition suppresses unreliable regions caused by visual confusion or failed verification. 
+
+Open-Vocabulary Object Navigation 
+
+Open-vocabulary ObjectNav leverages vision-language models (CLIP, BLIP-2 (Radford et al. 2021; Li et al. 2023)) and open-vocabulary detectors (GroundingDINO, Segment Anything, MobileSAM, YOLO-World, OWL-ViT (Liu et al. 2023; Kirillov et al. 2023; Zhang et al. 2023; Cheng et al. 2024; Minderer et al. 2022)) to extend navigation beyond fixed categories. Methods such as ZSON, CoW, VLFM, OpenFMNav, OVExp, and ApexNav (Majumdar et al. 2022; Gadre et al. 2023; Yokoyama et al. 2024; Kuang, Lin, and Jiang 2024; Wei et al. 2024; Zhang et al. 2025) enable zero-shot search or adaptive exploration, but remain vulnerable to false positives and unverified contextual cues. DB-Nav com-plements these by keeping the perception stack while adding a lightweight relational decision layer that converts semantic observations into activation and inhibition evidence. 
+
+Method 
+
+Task Definition. We consider zero-shot 3D indoor object navigation , where an agent receives first-person observa-habitat 
+
+3 Bias-conditioned Frontier                          
+
+> Frontier ranking
+> Frontier 𝐀 (𝐀 )𝐀 (𝐀 )𝐀 (𝐀 )𝐀 (𝐀 )𝐀 (𝐀 )
+> 𝐀 10.82 0.91 0.10 0.28 0.93
+> 𝐀 20.75 0.63 0.18 0.30 0.64
+> 𝐀 30.85 0.35 0.70 0.29 0.31
+> 𝐀 40.43 0.47 0.22 0.24 0.44
+> High semantic response but also
+> high inhibition →low utility
+> Decision gate
+> Reliable
+> target
+> Explore best
+> frontier( 𝐀 1)
+> Commit target
+> Yes No
+> Failed access →inhibition update
+
+2 Activation-Inhibition Search Field   
+
+> Activation 𝐀 (𝐀 ):
+> Positive activation propagates
+> from target-related context.
+> Bias-shaped frontier graph:
+> Each frontier receives activation
+> and inhibition before ranking.
+> What not to trust: 𝐀 (𝐀 )
+> Similar objects and
+> failed visits inhibit
+> unreliable frontiers
+> A(f)
+> I(f)
+> Activation
+> (positive bias)
+> Inhibition
+> (negative bias)
+> Frontier node
+> Selected frontier
+
+habitat 
+
+> Goal:
+> microwave
+
+Activation bias    
+
+> kitchen table cabinet countertop
+
+Inhibition bias  
+
+> oven tv monitor
+
+...         
+
+> Role Commit Activate Inhibit
+> Target -
+> Context --
+> Similar --
+
+1 Relational B ias 
+
+1 2 3 4 5 6   
+
+> Goal:microwave
+> Observe Explore Rerank frontiers Propagate bias Verify/Falsify Search field update
+
+Figure 2: Overview of DB-Nav. Given a target category, DB-Nav first constructs target-centric category-role vectors that assign semantic cues to commitment, activation, and inhibition roles. Online object observations are converted into object-level relational evidence through multi-view accumulation and multi-label object-role competition. Positive affinity cues generate activation over promising frontiers, while similar distractors and failed access events generate inhibition over unreliable regions. The agent finally selects frontiers through bias-conditioned score updating and commits to the target only when object-level evidence is sufficiently reliable. tions ot and a target category g at each discrete time step 
+
+t, and succeeds only if it executes S TOP within a predefined success radius of the target object before reaching the maxi-mum step budget. 
+
+Method Overview. As shown in Fig. 2, DB-Nav re-shapes frontier exploration through target-centric dual rela-tional biases. Given a target category, we first assign open-vocabulary semantic cues to three action roles: target com-mitment, positive activation, and negative inhibition. On-line observations are then accumulated into object-level re-lational evidence through multi-view label competition. Fi-nally, DB-Nav propagates activation from target evidence as well as contextual evidence, and propagates inhibition from visually similar distractors or failed access events. It then updates frontier scores with these dual biases, and switches to target commitment only when the object-level evidence is sufficiently reliable. 
+
+Target-centric Relational Bias Construction 
+
+Given a target category g, DB-Nav first constructs a target-centric relational bias that converts open-vocabulary per-ception outputs from category labels into action-aware re-lational evidence. Unlike methods that treat target detec-tions solely as positive semantic cues, we assign each target-related category ℓ a three-dimensional category-role vector: 
+
+bg (ℓ) = [ cg (ℓ), a g (ℓ), i g (ℓ)] ⊤ ∈ { 0, 1}3, (1) where cg (ℓ) indicates whether category ℓ provides target-commitment evidence, ag (ℓ) indicates whether it provides positive search activation, and ig (ℓ) indicates whether it pro-vides negative inhibition. Target categories and their syn-onyms are encoded as [1 , 1, 0] ⊤, contextual co-occurrence categories as [0 , 1, 0] ⊤, and visually similar distractors as 
+
+[0 , 0, 1] ⊤.The online perception module produces object observa-tions: 
+
+di = ( pi, s i, ℓ i), (2) where pi ∈ R2 is the projected map position, si ∈ [0 , 1] 
+
+is the detection confidence, and ℓi is the detected category. These observations provide the spatial, confidence, and se-mantic information required to build object-level relational evidence. Since open-vocabulary detections are noisy, the same physical object may be assigned different labels across views. DB-Nav therefore maintains each object cluster as a multi-label entity instead of fixing its semantic role from a single observation. For each object cluster o and candidate label ℓ ∈ L (o), we estimate a label reliability score: 
+
+ρo(ℓ) = mo(ℓ) qo(ℓ), (3) T=1 T=2 T=3 T=4     
+
+> Task 1 Task 2
+> Agent Pose Distractor Cue Falsified Evidence Hypothesis Node Hypothesis Diffusion Traveled Path
+
+Figure 3: Temporal evolution of relational activation–inhibition propagation. Contextual observations generate hypothesis nodes and diffusion fields, while distractor cues and falsified evidence suppress unreliable regions. As exploration proceeds, DB-Nav dynamically updates the search field for subsequent frontier selection. where mo(ℓ) denotes the accumulated multi-view observa-tion mass of assigning label ℓ to object o, and qo(ℓ) denotes the fused confidence of this label. The dominant label is then selected through multi-label competition: 
+
+ℓ⋆o = arg max  
+
+> ℓ∈L (o)
+
+ρo(ℓ). (4) The reliability of the selected label is further converted into an object-level evidence strength: 
+
+ro = σ (ρo(ℓ⋆o)) , (5) where σ(·) is a bounded normalization function. Finally, the object-level relational evidence is obtained by assigning the dominant label to its target-centric action role: 
+
+ho = robg (ℓ⋆o) = hco, h ao , h io
+
+⊤ . (6) Here, hco, hao , and hio denote target-commitment evidence, positive activation evidence, and negative inhibition evi-dence, respectively. This multi-label object-role competition makes the object role depend on accumulated multi-view ev-idence rather than a single noisy detection, while exposing a unique action role for downstream activation–inhibition propagation. 
+
+Relational Activation–Inhibition Propagation 
+
+Based on the object-level relational evidence, DB-Nav prop-agates local object observations into the frontier decision space. At decision step t, we construct a local relational graph: 
+
+Gt = ( Vt, Et), (7) where Vt contains object evidence nodes Ot, contextual hy-pothesis nodes Ht, negative evidence nodes Yt, and candi-date frontiers Ft. The edge set Et encodes local spatial ad-jacency among nodes, such that relational evidence is prop-agated only within a local neighborhood. Each node v ∈ V t
+
+has a 2D map position pv .We define the spatial propagation kernel as: 
+
+κ(pv , pu) = exp 
+
+
+
+− ∥pv − pu∥2
+
+R
+
+
+
+I [∥pv − pu∥2 ≤ R] ,
+
+(8) where R is the propagation radius and I[·] is the indicator function. This kernel implements distance-decayed propa-gation over local graph neighborhoods. For a candidate frontier f ∈ F t, its relational activation is defined as: 
+
+At(f ) = X
+
+> o∈O t
+
+hco,t κ(pf , po) + X
+
+> q∈H t
+
+aq,t κ(pf , pq ), (9) where hco,t denotes the target-commitment evidence of ob-ject o, and Ht = Ψ h(Octx  
+
+> t
+
+) denotes the set of contextual hypothesis nodes generated from contextual objects Octx  
+
+> t
+
+=
+
+{o ∈ O t | cg (ℓ⋆o) = 0 , a g (ℓ⋆o) = 1 }. For each hypothesis node q ∈ H t, pq and aq,t denote its position and activation strength, respectively. The first term propagates direct tar-get or synonym evidence from observed objects, while the second term expands context-induced hypotheses to nearby candidate frontiers. Similarly, the relational inhibition of frontier f is defined as: 
+
+It(f ) = X
+
+> o∈O t
+
+hio,t κ(pf , po) + X
+
+> n∈Y t
+
+an,t κ(pf , pn), (10) where hio,t is the inhibition evidence mainly induced by vi-sually similar distractors, and an,t is the strength of nega-tive evidence node n. Failed access events are incorporated Table 1: Comparison with representative ObjectNav methods. TF denotes training-free navigation. ZS denotes zero-shot setting. LLM denotes online LLM reasoning. Method TF ZS LLM HM3Dv2 HM3Dv1 MP3D SR ↑ SPL ↑ SR ↑ SPL ↑ SR ↑ SPL ↑
+
+PONI (Ramakrishnan et al. 2022) ✗ ✗ ✗ – – – – 31.8 12.1 ProcTHOR (Deitke, Xie, and Chen 2022) ✗ ✗ ✗ – – 54.4 31.8 – –ZSON (Majumdar et al. 2022) ✗ ✓ ✗ – – 25.5 12.6 15.3 4.8 CoW (Gadre et al. 2023) ✓ ✓ ✗ – – 32.0 18.1 9.2 4.9 ESC (Zhou et al. 2023) ✓ ✓ ✓ – – 39.2 22.3 28.7 14.2 L3MVN (Wang, Gupta, and Singh 2023) ✓ ✓ ✓ 36.3 15.7 50.4 23.1 34.9 14.5 PixNav (Chen, Zhou, and Li 2024) ✓ ✓ ✓ – – 37.9 20.5 – –VoroNav (Wu et al. 2024) ✓ ✓ ✓ – – 42.0 26.0 – –InstructNav (Kim, Park, and Lee 2024) ✓ ✓ ✓ 58.0 20.9 58.0 20.9 – –VLFM (Yokoyama et al. 2024) ✓ ✓ ✗ 63.6 32.5 52.5 30.4 36.4 17.5 TriHelper (Li, Xu, and Chen 2024) ✓ ✓ ✓ – – 56.5 25.3 – –SG-Nav (Yin et al. 2024) ✓ ✓ ✓ 49.6 25.5 54.0 24.9 40.2 16.0 ImagineNav (Yokoyama, Tanaka, and Saito 2025) ✓ ✓ ✓ – – 53.0 23.8 – –UniGoal (Zhang, Li, and Wang 2025) ✓ ✓ ✓ – – 54.0 24.9 41.0 16.4 MFNP (Liu, Chen, and Wang 2025) ✓ ✓ ✓ – – 58.3 26.7 41.1 15.4 CoS (Chen and Zhang 2026) ✓ ✓ ✗ – – 55.9 29.1 37.6 17.6 PanoNav (Wang and Li 2026) ✓ ✓ ✓ – – 45.2 29.8 – –
+
+DB-Nav ✓ ✓ ✗ 74.5 36.8 60.5 32.1 40.1 17.2 
+
+into Yt: when a frontier is visited without obtaining a re-liable target candidate, DB-Nav generates or strengthens a negative evidence node at that position, which suppresses nearby frontiers in subsequent decisions. Thus, contextual cues are treated as verifiable hypotheses rather than static positive priors. In summary, At(f ) encodes where to search , while It(f )
+
+encodes where not to trust . Through graph-based activation– inhibition propagation, DB-Nav dynamically reshapes the frontier search space with both positive and negative rela-tional cues. Figure 3 visualizes this temporal update process. 
+
+Bias-conditioned Exploration and Target Commitment 
+
+Given the candidate frontier set Ft, DB-Nav updates the original semantic response of each frontier through dual-bias modulation. Let S0 
+
+> t
+
+(f ) denote the base semantic response of frontier f , which is computed using BLIP-2 (Li et al. 2023) to measure the semantic alignment between the target cat-egory and detected object regions, and let eSt(f ) denote its bias-conditioned updated score. We compute: 
+
+eSt(f ) = S0 
+
+> t
+
+(f ) + At(f )1 + It(f ) + ¯Ct(f ) , (11) where At(f ) and It(f ) are the activation and inhibition terms defined in Eq. 9 and Eq. 10, and ¯Ct(f ) is the nor-malized path cost from the current agent position to fron-tier f . This update increases the priority of frontiers sup-ported by target-related semantic and contextual evidence, while suppressing frontiers associated with distractors, fal-sified regions, repeated visits, or high navigation cost. The next exploration frontier is selected by: 
+
+f ⋆t = arg max  
+
+> f∈F t
+
+eSt(f ). (12) In addition to frontier exploration, DB-Nav uses the com-mitment channel to decide when to switch from exploration to target commitment. Specifically, we define: 
+
+o⋆t = arg max 
+
+> o∈O t
+
+hco,t , Γt = I
+
+h
+
+hco⋆t ,t ≥ θ
+
+i
+
+, (13) where hco,t is the target-commitment evidence of object o,
+
+θ is the commitment threshold, and Γt is the commitment gate. The final decision at step t is: 
+
+πt =
+
+πcommit (o⋆t ), Γt = 1 ,πexplore (f ⋆t ), Γt = 0 . (14) Thus, DB-Nav performs bias-conditioned exploration before the target is reliably verified, and switches to target commit-ment only when object-level evidence is sufficiently strong. Once the commitment gate is activated, DB-Nav invokes the Target-Seeking Planner (TSP) to directly approach the selected target candidate. This prevents premature stopping caused by noisy open-vocabulary detections while reducing repeated exploration of unreliable regions. 
+
+Experiment 
+
+Experiment Setup 
+
+Datasets. We evaluate DB-Nav in the Habitat simulator on three standard ObjectNav benchmarks: HM3Dv1, HM3Dv2, and MP3D (Ramakrishnan et al. 2021; Yadav et al. 2022; Chang et al. 2017). HM3Dv1 contains 2,000 episodes across 20 scenes and 6 goal categories. HM3Dv2 contains 1,000 episodes across 36 scenes and 6 goal categories. MP3D con-tains 2,195 episodes across 11 scenes and 21 goal categories. ApexNav        
+
+> Scene 1:
+> 4ok3usBNeis
+> Task 1(Id:1)
+> Ours
+> Scene 1:
+> 4ok3usBNeis
+> ApexNav
+> Scene 2:
+> 5cdEh9F2hJL
+> Ours
+> Scene 2:
+> 5cdEh9F2hJL
+> 3618 22
+> Task 2(Id:3) Task 3(Id:4) Task 4(Id:6)
+> Theoretical Shortest Path Ours Path Target Area
+
+Figure 4: Trajectory comparison between the baseline method and ours on representative ObjectNav tasks. Our method reduces redundant exploration and selects more re-liable search directions under noisy semantic observations. 
+
+Implementation details. All methods are evaluated under the same Habitat ObjectNav protocol and use identical pa-rameters across HM3Dv1, HM3Dv2, and MP3D. The agent acts in a discrete action space, including M OVE FORWARD 
+
+(0 .25m) , T URN LEFT (30 ◦), T URN RIGHT (30 ◦), and S TOP ,with a maximum budget of 500 steps per episode. The agent operates within a perception range of [0 .0m , 5.0m] , and suc-cess is determined by the Habitat evaluator’s 0.2m valid-STOP criterion. To isolate the effect of executive control, all variants adopt the same perception–mapping–planning stack, using YOLO/GroundingDINO, MobileSAM, and BLIP-2. All experiments are run on a single NVIDIA RTX A6000 GPU with approximately 8GB of memory. 
+
+Evaluation metrics. We evaluate navigation performance using Success Rate (SR) and Success weighted by Path Length (SPL). All results are reported in percentages. For ablation analysis, we additionally report SoftSPL to mea-sure partial progress toward the goal even when an episode is not successful. 
+
+Main Results 
+
+Comparison with representative ObjectNav methods. 
+
+Table 1 compares DB-Nav with representative ObjectNav methods across HM3Dv2, HM3Dv1, and MP3D. DB-Nav achieves the best performance on HM3Dv2 and HM3Dv1, obtaining 74.5 SR and 36.8 SPL on HM3Dv2, and 60.5 SR and 32.1 SPL on HM3Dv1. Compared with VLFM, which is also training-free, zero-shot, and does not rely on on-line LLM reasoning, DB-Nav improves SR by 10.9 points and SPL by 4.3 points on HM3Dv2. On HM3Dv1, DB-Nav also outperforms recent zero-shot and LLM-based meth-ods, showing that relational activation–inhibition improves both search success and path efficiency. On MP3D, DB-Nav achieves competitive performance without online LLM rea-soning. Its lightweight relational decision layer provides a favorable trade-off between accuracy, robustness, and infer-ence cost under noisy open-vocabulary perception. Table 2: Ablation study of DB-Nav variants on the HM3Dv2 validation set. 
+
+Method SR ↑ SPL ↑ SoftSPL ↑
+
+w/o Activation Bias 65.4 29.2 32.0 w/o Similar Inhibition 69.8 33.0 35.7 w/o Failed Access 71.3 32.7 35.5 w/o Multi-label Competition 66.7 30.4 33.3 DB-Nav Full 74.5 36.8 38.9 
+
+Table 3: Effect of object detectors on navigation per-formance (HM3Dv1 val). G-DINO represents Ground-ingDINO. Each method is shown with two detector variants. Method Detector SR ↑ SPL ↑ SoftSPL ↑
+
+VLFM G-DINO 45.6 26.1 -YOLO + G-DINO 52.5 30.4 -ApexNav G-DINO 43.7 23.7 26.4 YOLO + G-DINO 52.8 27.1 30.1 DB-Nav G-DINO 57.3 29.4 32.9 YOLO + G-DINO 60.5 32.1 34.5 
+
+Qualitative analysis. Figure 5 and Figure 4 provide qual-itative evidence for the proposed dual-bias mechanism. In noisy open-vocabulary perception, the baseline can be mis-led by high-confidence false detections or miss the target under unreliable observations. DB-Nav mitigates these fail-ures by suppressing false-positive regions through inhibition evidence and recovering from weak target evidence through contextual activation and action-level verification. As a re-sult, DB-Nav produces more reliable trajectories, reduces re-dundant exploration, and selects search directions that better align with the target area. 
+
+Ablation Analysis 
+
+Ablation study. Table 2 evaluates the contribution of each core component on the HM3Dv2 validation set. Removing the activation bias causes a substantial drop from 74.5 to 65.4 SR, demonstrating the importance of positive contex-tual affinity for identifying promising search regions. Re-moving similar-object inhibition also degrades performance, reducing SR to 69.8 and SPL to 33.0, confirming that vi-sually similar distractors can mislead open-vocabulary nav-igation. Without failed-access memory, SR drops to 71.3, indicating that action-level falsification helps avoid repeated exploration of already verified but unproductive regions. Re-moving multi-label competition reduces SR to 66.7 and SPL to 30.4, showing that multi-view label evidence is important for robust object-role assignment under noisy detections. 
+
+Effect of object detectors. Table 3 studies the impact of perception quality on navigation performance. Replac-ing G-DINO with the stronger YOLO+G-DINO perception stack improves all methods, confirming that better open-vocabulary detection generally benefits ObjectNav. How-Table 4: Efficiency comparison on HM3D. LLM Calls de-notes the average number of online LLM calls per episode. Runtime is measured in seconds per episode. Method SR ↑ LLM Calls ↓ Steps ↓ Runtime (s) ↓
+
+L3MVN 51.5 35.0 194.1 1047.7 PixNav* 48.2 58.1 278.7 276.4 SG-Nav 54.2 122.3 300.0 728.5 InstructNav* 54.4 113.6 320.5 458.8 ASCENT 57.6 2.0 171.4 190.3 
+
+DB-Nav 60.5 0.0 144.0 101.8 Baseline 
+
+> False attraction
+> Ours
+> Baseline
+> Target missed
+> Ours
+> Scene 1: False Positive Suppression
+> Scene 2: False Negative Recovery
+
+Figure 5: Qualitative analysis under noisy open-vocabulary perception. In Scene 1, high-confidence false detections attract the baseline toward unreliable regions, while DB-Nav suppresses false-positive attraction. In Scene 2, the baseline misses the target under unreliable observa-tions, whereas DB-Nav recovers through contextual activa-tion and action-level verification. ever, DB-Nav consistently outperforms VLFM and Apex-Nav under both detector settings. With G-DINO alone, DB-Nav achieves 57.3 SR, outperforming VLFM by 11.7 points and ApexNav by 13.6 points. With YOLO+G-DINO, DB-Nav further improves to 60.5 SR and 32.1 SPL. These results suggest that DB-Nav does not merely benefit from stronger detectors, but more effectively converts noisy semantic out-puts into reliable activation and inhibition evidence. 
+
+Efficiency & Sensitivity Analysis 
+
+Efficiency comparison. Table 4 compares DB-Nav with representative LLM- or VLM-based ObjectNav methods in terms of online reasoning cost and runtime. Many recent methods require frequent online LLM calls, leading to high runtime per episode. For example, SG-Nav and InstructNav require more than 100 online LLM calls per episode on av-erage. In contrast, DB-Nav does not rely on online LLM rea-soning. It achieves the best SR among the compared meth-ods while using fewer navigation steps and lower runtime. This demonstrates that that the proposed relation-based de-cision layer is both effective and lightweight. 1.8 2.0 2.3 2.5     
+
+> Propagation Radius (R)
+> 71
+> 72
+> 73
+> 74
+> 75
+> Success Rate (%)
+> 0.40 0.45 0.50 0.55
+> Commitment Threshold ( )
+> 73.0
+> 73.5
+> 74.0
+> 74.5
+> Success Rate (%)
+> 34.5
+> 35.0
+> 35.5
+> 36.0
+> 36.5
+> 37.0
+> SPL (%)
+> 35.5
+> 36.0
+> 36.5
+> 37.0
+> SPL (%)
+
+Figure 6: Hyperparameter sensitivity analysis on the HM3Dv2 validation set. DB-Nav achieves the best over-all performance at R = 2 .3 and θ = 0 .45 .Table 5: Relation source analysis on HM3Dv2. LLM Re-lation reports the mean and standard deviation over three in-dependently generated relation sets. Relation Source SR ↑ SPL ↑ SoftSPL ↑
+
+No Relation 58.6 25.4 26.3 Random Relation 61.2 27.1 28.3 LLM Relation 73 .7±1.4 35 .9±1.0 37 .3±0.9
+
+Default Relation 74.5 36.8 38.1 Hyperparameter sensitivity. Figure 6 reports the sensi-tivity of DB-Nav to the propagation radius R and the com-mitment threshold θ on the HM3Dv2 validation set. DB-Nav remains stable within a reasonable range of hyperparame-ter values, and the best overall performance is achieved at 
+
+R = 2 .3 and θ = 0 .45 , which are used as the default set-tings in our experiments. Table 5 analyzes how different relation sources affect nav-igation performance. Without relational information, perfor-mance drops significantly to 58.6 SR and 25.4 SPL, indi-cating that relational cues are essential for effective search-space modulation. Random relations provide only limited improvements, suggesting that arbitrary semantic cues do not contribute meaningfully. Biased relations generated by the LLM also yield clear gains, demonstrating that mean-ingful target-centric affinity and inhibition structures play a key role in guiding robust navigation. 
+
+Conclusion 
+
+We presented DB-Nav , a zero-shot embodied navigation framework that uses dual relational biases to dynamically guide exploration in unknown environments. By factoriz-ing target-centric object relations into positive activation and negative inhibition, DB-Nav modulates frontier scores and commits to targets only when object-level evidence is reli-able. Extensive experiments demonstrate that DB-Nav im-proves success rate and path efficiency, reduces redundant exploration, and is robust under noisy open-vocabulary per-ception. Ablation and detector analyses validate the con-tributions of each component and the importance of struc-tured relational reasoning. This work provides a lightweight, interpretable, and training-free solution for reliable open-vocabulary embodied object navigation. References 
+
+Armeni, I.; He, Z.-Y.; Gwak, J.; Zamir, A. R.; Fischer, M.; Malik, J.; and Savarese, S. 2019. 3D Scene Graph: A Struc-ture for Unified Semantics, 3D Space, and Camera. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Batra, D.; Gokaslan, A.; Kembhavi, A.; Maksymets, O.; Mottaghi, R.; Savva, M.; Toshev, A.; and Wijmans, E. 2020. ObjectNav Revisited: On Evaluation of Embodied Agents Navigating to Objects. arXiv:2006.13171. Chang, A. X.; Dai, A.; Funkhouser, T.; Halber, M.; Niess-ner, M.; Savva, M.; Song, S.; Zeng, A.; and Zhang, Y. 2017. Matterport3D: Learning from RGB-D Data in Indoor Envi-ronments. In Proceedings of the International Conference on 3D Vision (3DV) .Chaplot, D. S.; Gandhi, D.; Gupta, A.; Malik, J.; and Salakhutdinov, R. 2020a. Learning to Explore using Active Neural SLAM. In Proceedings of the International Confer-ence on Learning Representations (ICLR) .Chaplot, D. S.; Gandhi, D.; Gupta, A.; and Salakhutdinov, R. 2020b. Object Goal Navigation using Goal-Oriented Se-mantic Exploration. In Advances in Neural Information Pro-cessing Systems (NeurIPS) .Chaplot, D. S.; Salakhutdinov, R.; Gupta, A.; and Gupta, S. 2020c. Neural Topological SLAM for Visual Navigation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Chen, R.; and Zhang, X. 2026. CoS: Contextual Object Se-mantics for Zero-Shot Navigation. In AAAI Conference on Artificial Intelligence .Chen, X.; Zhou, M.; and Li, T. 2024. PixNav: Pixel-Level Visual Navigation for Zero-Shot Object Goals. In Interna-tional Conference on Robotics and Automation (ICRA) .Cheng, T.; Song, L.; Ge, Y.; Liu, W.; Wang, X.; and Shan, Y. 2024. YOLO-World: Real-Time Open-Vocabulary Object Detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Deitke, M.; Han, W.; Herrasti, A.; Kembhavi, A.; Kolve, E.; Mottaghi, R.; Salvador, J.; Schwenk, D.; VanderBilt, E.; Wallingford, M.; Weihs, L.; Yatskar, M.; and Farhadi, A. 2020. RoboTHOR: An Open Simulation-to-Real Embodied AI Platform. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Deitke, T.; Xie, L.; and Chen, R. 2022. ProcTHOR: Procedural Object Navigation in Simulated Environments. In Advances in Neural Information Processing Systems (NeurIPS) .Gadre, S. Y.; Wortsman, M.; Ilharco, G.; Schmidt, L.; and Song, S. 2023. CoWs on Pasture: Baselines and Benchmarks for Language-Driven Zero-Shot Object Navigation. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Georgakis, G.; Bucher, B.; Schmeckpeper, K.; Singh, S.; and Daniilidis, K. 2021. Learning to Map for Active Semantic Goal Navigation. In Proceedings of the IEEE/CVF Interna-tional Conference on Computer Vision (ICCV) .Gu, Q.; Kuwajerwala, A.; Morin, S.; Jatavallabhula, K. M.; Sen, B.; Agarwal, A.; Rivera, C.; Paul, W.; Ellis, K.; Chel-lappa, R.; Gan, C.; de Melo, C. M.; Tenenbaum, J. B.; Tor-ralba, A.; Shkurti, F.; and Paull, L. 2024. ConceptGraphs: Open-Vocabulary 3D Scene Graphs for Perception and Plan-ning. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA) .Gupta, S.; Tolani, V.; Davidson, J.; Levine, S.; Sukthankar, R.; and Malik, J. 2017. Cognitive Mapping and Planning for Visual Navigation. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) .Huang, W.; Zhang, L.; and Sun, J. 2025. ASCENT: Floor-Aware Zero-Shot Object Goal Navigation. In ICRA .Kim, S.; Park, J.; and Lee, H. 2024. InstructNav: Instruction-Guided Zero-Shot Object Navigation. In Conference on Robot Learning (CoRL) .Kirillov, A.; Mintun, E.; Ravi, N.; Mao, H.; Rolland, C.; Gustafson, L.; Xiao, T.; Whitehead, S.; Berg, A. C.; Lo, W.-Y.; Dollar, P.; and Girshick, R. 2023. Segment Anything. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Kolve, E.; Mottaghi, R.; Han, W.; VanderBilt, E.; Weihs, L.; Herrasti, A.; Gordon, D.; Zhu, Y.; Gupta, A.; and Farhadi, A. 2017. AI2-THOR: An Interactive 3D Environment for Visual AI. arXiv:1712.05474. Kuang, Y.; Lin, H.; and Jiang, M. 2024. OpenFMNav: To-wards Open-Set Zero-Shot Object Navigation via Vision-Language Foundation Models. In Findings of the Associ-ation for Computational Linguistics: NAACL .Li, J.; Li, D.; Savarese, S.; and Hoi, S. 2023. BLIP-2: Boot-strapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models. In Proceedings of the International Conference on Machine Learning (ICML) .Li, Z.; Xu, Q.; and Chen, R. 2024. TriHelper: Tri-Modal Guidance for Zero-Shot Object Navigation. In IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) .Liu, F.; Chen, R.; and Wang, J. 2025. MFNP: Multi-Factor Navigation Policies for Zero-Shot Object Goals. In ICRA .Liu, S.; Zeng, Z.; Ren, T.; Li, F.; Zhang, H.; Yang, J.; Jiang, Q.; Li, C.; Yang, J.; Su, H.; Zhu, J.; and Zhang, L. 2023. Grounding DINO: Marrying DINO with Grounded Pre-Training for Open-Set Object Detection. arXiv:2303.05499. Majumdar, A.; Aggarwal, G.; Devnani, B.; Hoffman, J.; and Batra, D. 2022. ZSON: Zero-Shot Object-Goal Navigation using Multimodal Goal Embeddings. In Advances in Neural Information Processing Systems (NeurIPS) .Minderer, M.; Gritsenko, A.; Stone, A.; Neumann, M.; Weissenborn, D.; Dosovitskiy, A.; Mahendran, A.; Arnab, A.; Dehghani, M.; Shen, Z.; Wang, X.; Zhai, X.; Kipf, T.; and Houlsby, N. 2022. Simple Open-Vocabulary Object De-tection with Vision Transformers. In Proceedings of the Eu-ropean Conference on Computer Vision (ECCV) .Peng, S.; Genova, K.; Jiang, C.; Tagliasacchi, A.; Polle-feys, M.; and Funkhouser, T. 2023. OpenScene: 3D Scene Understanding with Open Vocabularies. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) .Radford, A.; Kim, J. W.; Hallacy, C.; Ramesh, A.; Goh, G.; Agarwal, S.; Sastry, G.; Askell, A.; Mishkin, P.; Clark, J.; Krueger, G.; and Sutskever, I. 2021. Learning Transferable Visual Models From Natural Language Supervision. In Pro-ceedings of the International Conference on Machine Learn-ing (ICML) .Ramakrishnan, S. K.; Al-Halah, Z.; and Grauman, K. 2020. Occupancy Anticipation for Efficient Exploration and Navi-gation. In Proceedings of the European Conference on Com-puter Vision (ECCV) .Ramakrishnan, S. K.; Chaplot, D. S.; Al-Halah, Z.; Malik, J.; and Grauman, K. 2022. PONI: Potential Functions for ObjectGoal Navigation with Interaction-Free Learning. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition (CVPR) .Ramakrishnan, S. K.; Gokaslan, A.; Wijmans, E.; Maksymets, O.; Clegg, A.; Turner, J.; Undersander, E.; Galuba, W.; Westbury, A.; Chang, A. X.; Savva, M.; Zhao, Y.; and Batra, D. 2021. Habitat-Matterport 3D Dataset. In Advances in Neural Information Processing Systems Datasets and Benchmarks Track .Savva, M.; Kadian, A.; Maksymets, O.; Zhao, Y.; Wijmans, E.; Jain, B.; Straub, J.; Liu, J.; Koltun, V.; Malik, J.; Parikh, D.; and Batra, D. 2019. Habitat: A Platform for Embodied AI Research. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Tang, Y.; Wang, M.; Deng, Y.; Zheng, Z.; Zhong, J.; and Yue, Y. 2024. OpenObject-NAV: Open-Vocabulary Object-Oriented Navigation Based on Dynamic Carrier-Relationship Scene Graph. arXiv:2409.18743. Wang, J.; and Li, P. 2026. PanoNav: Panoramic Observation for Zero-Shot Object Navigation. In AAAI Conference on Artificial Intelligence .Wang, L.; Gupta, A.; and Singh, A. 2023. L3MVN: Learn-ing Multi-View Navigation Policies for Zero-Shot Object Goal Navigation. In IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) .Wei, M.; Wang, T.; Chen, Y.; Wang, H.; Pang, J.; and Liu, X. 2024. OVExp: Open Vocabulary Exploration for Object-Oriented Navigation. arXiv:2407.09016. Werby, A.; Huang, C.; Buchner, M.; Valada, A.; and Bur-gard, W. 2024. Hierarchical Open-Vocabulary 3D Scene Graphs for Language-Grounded Robot Navigation. In Pro-ceedings of Robotics: Science and Systems (RSS) .Wijmans, E.; Kadian, A.; Morcos, A. S.; Lee, S.; Essa, I.; Parikh, D.; Savva, M.; and Batra, D. 2020. DD-PPO: Learning Near-Perfect PointGoal Navigators from 2.5 Bil-lion Frames. In Proceedings of the International Conference on Learning Representations (ICLR) .Wu, P.; Mu, Y.; Wu, B.; Hou, Y.; Ma, J.; Zhang, S.; and Liu, C. 2024. VoroNav: Voronoi-Based Zero-Shot Object Navigation with Large Language Model. In Proceedings of the International Conference on Machine Learning (ICML) .Xia, F.; Zamir, A. R.; He, Z.; Sax, A.; Malik, J.; and Savarese, S. 2018. Gibson Env: Real-World Perception for Embodied Agents. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) .Yadav, K.; Ramrakhya, R.; Ramakrishnan, S. K.; Gervet, T.; Turner, J.; Gokaslan, A.; Maestre, N.; Chang, A. X.; Batra, D.; Savva, M.; Clegg, A. W.; and Chaplot, D. S. 2022. Habitat-Matterport 3D Semantics Dataset. In Ad-vances in Neural Information Processing Systems Datasets and Benchmarks Track .Yamauchi, B. 1997. A Frontier-Based Approach for Au-tonomous Exploration. In Proceedings of the IEEE In-ternational Symposium on Computational Intelligence in Robotics and Automation (CIRA) .Yang, W.; Wang, X.; Farhadi, A.; Gupta, A.; and Mottaghi, R. 2019. Visual Semantic Navigation using Scene Priors. In Proceedings of the International Conference on Learning Representations (ICLR) .Ye, J.; Batra, D.; Das, A.; and Wijmans, E. 2021. Auxiliary Tasks and Exploration Enable ObjectGoal Navigation. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) .Yin, H.; Xu, X.; Wu, Z.; Zhou, J.; and Lu, J. 2024. SG-Nav: Online 3D Scene Graph Prompting for LLM-Based Zero-Shot Object Navigation. In Advances in Neural Information Processing Systems (NeurIPS) .Yokoyama, H.; Tanaka, K.; and Saito, N. 2025. ImagineNav: Vision-Language Grounded Zero-Shot Navigation. In Inter-national Conference on Learning Representations (ICLR) .Yokoyama, N.; Ha, S.; Batra, D.; Wang, J.; and Bucher, B. 2024. VLFM: Vision-Language Frontier Maps for Zero-Shot Semantic Navigation. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA) .Zhang, C.; Han, D.; Qiao, Y.; Kim, J. U.; Bae, S.-H.; Lee, S.; and Hong, C. S. 2023. Faster Segment Any-thing: Towards Lightweight SAM for Mobile Applications. arXiv:2306.14289. Zhang, H.; Li, P.; and Wang, Y. 2025. UniGoal: Unified Goal Representation for Zero-Shot Object Navigation. In CVPR .Zhang, M.; Du, Y.; Wu, C.; Zhou, J.; Qi, Z.; Ma, J.; and Zhou, B. 2025. ApexNav: An Adaptive Exploration Strat-egy for Zero-Shot Object Navigation with Target-Centric Semantic Fusion. arXiv:2504.14478. Zhou, K.; Zheng, K.; Pryor, C.; Shen, Y.; Jin, H.; Getoor, L.; and Wang, X. E. 2023. ESC: Exploration with Soft Com-monsense Constraints for Zero-Shot Object Navigation. In 
+
+Proceedings of the International Conference on Machine Learning (ICML) .

@@ -1,0 +1,744 @@
+Title: Mind Your Steps: A General Learning Framework for Accurate Humanoid Foothold Tracking
+
+URL Source: https://arxiv.org/pdf/2606.08253v1
+
+Published Time: Tue, 09 Jun 2026 00:56:52 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# Mind Your Steps: A General Learning Framework for Accurate Humanoid Foothold Tracking 
+
+Alessandro Montenegro 1, Shihao Li 2, Puze Liu 2, 3, :, Alberto Maria Metelli 1, and Jan Peters 3–6 
+
+> 1
+
+Politecnico di Milano 2Tongji University 3Technische Universit¨ at Darmstadt 4hessian.AI 
+
+> 5
+
+German Research Center for Artificial Intelligence (DFKI) 6Robotics Institute Germany (RIG) 
+
+Project Website: https://montenegroalessandro.github.io/mind-your-steps/ 
+
+Abstract —Enabling humanoid robots to operate in complex, dynamic environments remains a critical challenge, fundamentally limited by the ability to navigate robustly, safely, and accurately. While reinforcement learning with velocity-commanded policies has achieved remarkable robustness in humanoid locomotion, this approach lacks explicit control of the foothold placement, leading to unsafe behavior, such as stepping onto human feet, or imprecise navigation, hindering the following manipulation task. Conversely, explicit foothold-tracking policies offer a promising alternative by directly being commanded with target foot poses. However, existing approaches are often limited by unrealistic state assumptions, compromising real-world deployment, or they are part of staged pipelines, making them tied to specific downstream tasks. In this work, we introduce a novel, lightweight framework for training general-purpose 3D foothold-tracking policies. By dynamically providing footstep support through a goal sampler, this method enables the learned policy to be agnostic to specific terrains. Our new target representation effectively mitigates challenges arising in the real world, such as noisy and inaccurate pose estimation and foot contact estimation. Designed for direct real-world transfer, our policy acts as a standalone low-level controller that can be seamlessly paired with various high-level foothold generators. We demonstrate the effectiveness of our framework through extensive experiments in simulation and in the real world. By coupling our policy with different upstream planners, we achieve natural and accurate locomotion in challenging settings, paving the way for loco-manipulation tasks in complex environments. 
+
+I. I NTRODUCTION 
+
+Recent research on humanoid robotics has demonstrated remarkable progress, enabling humanoids to perform agile and highly dynamic behaviors such as backflips and flying kicks. Despite these achievements, enabling humanoids to operate autonomously in real-world environments remains a critical challenge. A fundamental prerequisite for real-world deployment is the ability to navigate safely, accurately, and reliably in everyday settings [ 19 , 34 , 3, 11 ]. In realistic environments, humanoid robots must contend with numerous challenges, including obstacle avoidance, interaction with humans, traversal of slopes and stairs, and locomotion over uneven or irregular terrain [ 50 , 14 , 42 ]. In such conditions, stable locomotion critically depends on precise and informed foot placement, as feasible footholds are often sparse and constrained. Consequently, endowing humanoids with con-
+
+> :
+
+Correspondence to: Puze Liu ( puze_liu@tongji.edu.cn ). 
+
+trollers capable of constraining foot placements to valid and safe contact regions explicitly is a critical problem. Given its fundamental importance, legged locomotion has become one of the most studied fields in robotics. Exten-sive investigation, spanning model-based [ 34 , 43 , 16 ], data-driven [ 22 , 20 , 27 , 23 , 29 , 51 , 5 , 12 , 24 , 3], and hybrid methodologies [ 48 , 8, 45 , 31 , 17 , 14 ], has yielded approaches with remarkable robustness in both simulation and real-world deployment. However, the predominant paradigm remains the integration of vision pipelines with velocity-commanded policies [ 42 , 14 , 11 , 4]. In this setting, the control policy typically relies on height map observations and auxiliary reward terms to implicitly select valid footholds while steering the robot away from unsteppable areas. However, the inherent mismatch between continuous velocity commands and discrete foot placement results in degraded tracking accuracy and reduced efficiency in reaching the target. Since the aforementioned methodologies do not allow for direct control over the robot’s foot placement, explicit foothold-commanded policies have recently emerged as a promising alternative paradigm [ 32 , 44 , 7 , 14 , 41 ]. These approaches are designed to enhance accuracy on foot placement targets and enable more flexible gait generation and motion capabilities. However, existing implementations remain severely limited in scope and practicality, far from general-purpose utility. Most have been studied solely in simulation [ 32 , 44 ], exist only in preliminary forms restricted to simple forward walking on flat terrain [ 7], or are embedded as low-level components within specific, monolithic pipelines [ 32 , 14 ]. Consequently, they often fail to support direct real-world usage and remain closely coupled to specific downstream tasks. 
+
+Original Contribution. Motivated by achieving stable and accurate locomotion via foothold-conditioned policies, in this work we propose a novel, lightweight, and model-free framework for training general-purpose 3D foothold-tracking policies. Such foothold-trackers are agnostic to the high-level planner and ready for immediate deployment, enabling seamless integration with diverse downstream tasks. Our specific contributions are as follows:  
+
+> ‚
+
+We propose a framework designed to train policies relying solely on proprioception, gait phase, and stance-relative foothold targets. By expressing commands in the stance-foot frame, the goal remains constant throughout the 
+
+> arXiv:2606.08253v1 [cs.RO] 6 Jun 2026
+
+Fig. 1: Training and Deployment Architecture. Overview of the training and deployment architecture. Policy. The policy 
+
+πθ receives proprioception oproprio ,t , the previous action at´1, the foothold goal gt, and the gait phase ϕt. It outputs joint position targets for an underlying PD controller. Goal Generator. This modular component supplies foothold targets to the policy. During training , a procedural Goal Sampler generates synthetic targets to enforce tracking accuracy. During deployment 
+
+(simulation or real-world), this is replaced by task-specific planners, such as a vision-based estimator extracting visual targets from the ground or a teleoperation interface defining step direction, length, and yaw orientation. swing phase, removing the need for precise base state estimation [ 32 , 44 ]. To this end, we propose a novel Goal Sampler (GS) capable of generating feasible 3D foothold targets during training. Our GS does not tie with specific predefined terrains, enabling a general-purpose policy for downstream tasks. Coupled with specific reward terms balancing tracking accuracy with natural locomotion, this enables the agent to achieve accurate foot placement capabilities, thus generalizing locomotion in settings where real-world-like hurdles are present.  
+
+> ‚
+
+Leveraging the independence of our foothold-tracking policy, we show its modularity by pairing it with various high-level planners in simulation. We validate performance on tasks such as goal reaching, cluttered environment navigation, and narrow paths and staircases traversal. In most scenarios, we compare against standard velocity-commanded policy, showing that our approach leads to more efficient and robust solutions.  
+
+> ‚
+
+We deploy the foothold-tracking policy on the Booster T1 humanoid hardware. By integrating a simple vision-based foothold generator, we show zero-shot sim-to-real transfer, tracking the predefined foothold target successfully. This validates the framework’s potential as a foundational block for complex loco-manipulation systems. Figure 1 shows the proposed training and deployment pipeline. II. R ELATED WORK 
+
+Locomotion Over Sparse Footholds. Locomotion over sparse footholds, where the main complexity arises from the combinatorial nature of foothold selection [ 6], has been extensively studied as a perceptive locomotion problem using model-based methods [ 34 , 43 , 16 ]. Specifically, the literature has focused on developing hierarchical controllers relying on complex pipelines integrating perception, planning, and control [ 10 , 15 , 25 , 26 , 9, 28 ]. While years of research led to high-performing, lightweight, and interpretable approaches [ 34 ], these methods often suffer from the common pitfalls of model-based control. Indeed, they are highly sensitive to model discrepancies and violations of modeling assumptions. Such problems are especially exacerbated in real world locomotion tasks due to the difficulty of terrain modeling, potentially resulting in unsafe or unreliable behavior during deployment. To overcome the limitations of model-based methods, re-search has shifted toward model-free Reinforcement Learn-ing [RL, 40 ], which learns control policies directly via inter-action without relying on explicit priors. Leveraging domain randomization, these approaches have demonstrated remarkable robustness and generalization, enabling effective deployment on real-world hardware [ 22 , 20 , 27 , 23 , 29 , 51 , 5 , 12 , 24 , 3]. Typically, they learn velocity-tracking policies [ 1, 46 , 5, 47 , 50 ]paired with high-level vision components [ 11 , 4] whose integration is required in sparse foothold scenarios to identify valid places to step on. A major issue in end-to-end model-free-based methodologies arises from the sparsity of valid footholds which results in sparse reward signals and frequent early episode terminations. To mitigate these limitations, the literature employed curriculum learning [ 30 ] and proposed specialized reward structures and architectures, such as a reward account for foot geometry [ 42 ] or an attention-based terrain map [11] to achieve robust terrain-aware locomotion. Another approach to addressing the limitations of both model-based and end-to-end model-free methodologies relies on hybrid architectures that combine the two [ 48 , 8 , 45 , 31 , 17 , 14 ]. The objective is to train agents starting from physics priors [ 21 ], aiming to retain the best of both worlds: high interpretability, robustness, and generalization capabilities. Model-based and model-free techniques can be merged in various ways. For instance, RL has been employed to generate trajectories that are subsequently tracked by model-based controllers [ 48 , 8 , 45 ], or conversely, to train policies capable of tracking model-based planners [ 17 , 14 ]. While hybrid approaches preserve the benefits of both paradigms, they also inherit their respective pitfalls. Specifically, they rely on models that may fail when discrepancies with reality are significant. Furthermore, they can be computationally demanding and often require substantial implementation effort, particularly when extending established open-source robot locomotion frameworks [e.g., 2]. 
+
+Learning Foothold-Tracking Controllers. Learning foothold-tracking controllers has gained significant attention in recent years. In most cases, such controllers function as part of two-stage architectures, serving as a bridge between high-level vision pipelines and underlying PD controllers to achieve accu-rate locomotion on sparse footholds. However, these approaches often rely on unrealistic modeling assumptions, making them unsuitable for real-world deployment. For instance, Peng et al. [32] proposed DeepLoco , a two-stage architecture for terrain-aware humanoid locomotion employed solely in simulation. Besides requiring proprioceptive information and a gait phase indicator [37 ] as input, the tracker additionally requires observing binary ground contact flags which are difficult to estimate accurately in the real world. Furthermore, the foothold goals consist of target positions for the next two steps [ 49 ] and a target root heading, all expressed in the root frame, as also done in [ 39 ]. This implies that real-world deployment would require precise state estimation/localization. Moreover, during training, foothold targets are extracted from motion capture clips to enforce stylistic mimicry. Despite these limitations, [ 32 ]is considered a seminal work, inspiring numerous follow-up studies [ 41 , 17 , 11 ]. Another key study focusing on simulation-based foothold tracking is [ 44 ]. The authors demonstrate that employing a carefully designed curriculum and a lightweight foothold sampler facilitates learning a tracker capable of traversing stepping stones and generalizing to continuous terrains. As with [ 32 ], the reliance on binary contact states and body-frame targets renders such controllers difficult to deploy in the real world, likely necessitating specific high-level wrappers. Moving toward real-world applicability, Duan et al. [7] extended the work of Xie et al. [44] . During training, they synchronize touchdown events with the gait clock and focus on forward motion on flat terrain. While simple, this approach paves the way for more sophisticated approaches capable of navigating real-world terrains for general-purpose tasks. More recently, Huang et al. [14] proposed an architecture specifically designed for traversing narrow paths in the real world, leveraging a Linear Inverted Pendulum (LIP) model [ 19 ]. Then, they integrate a lightweight LiDAR-based perception module to refine the LIP-proposed footholds [38, 18]. While foothold trackers have proven to be valuable for achieving robust and accurate locomotion by enabling full control over foot placement, to the best of our knowledge, they have been employed primarily as subordinate compo-nents within specific high-level pipelines. Furthermore, they often lack generality regarding downstream tasks or upstream gait generators and frequently face challenges in real-world deployment due to the reliance on specific, hard-to-estimate information in their observation space. III. P ROBLEM FORMULATION 
+
+In RL, the environment is modeled as a Markov Decision Process [MDP, 35 ]. An MDP is represented by M :“pS, A, p, r, ρ 0, γ, T q, where S Ď RdS and A Ď RdA are the measurable state and action spaces; p : S ˆ A ÝÑ ∆pSq1
+
+is the transition model, where pps1|s, aq is the probability density of landing in state s1 P S by playing action a P A
+
+in state s P S; r : S ˆ A ÝÑ r´ Rmax , R max s is the reward function, where rps, aq is the reward the agent gets when playing action a in state s; ρ0 P ∆pSq is the initial-state distribution; γ P r 0, 1s is the discount factor. A trajectory 
+
+τ “ p sτ, 1, aτ, 1, . . . , sτ,T , aτ,T q of length T P N Y t`8u is a sequence of T state-action pairs. In the following, we refer to T as the set of all trajectories. The discounted return of a trajectory τ P T is Rpτ q :“ řTt“1 γt´1rpsτ,t , aτ,t q. 2
+
+Most of the times, especially in robotics, at the interaction instant t the agent is not provided with the full state st, but just with a partial observation of it. Specifically, it is provided with ot P O Ď RdO , which can be expressed as ot “ f pstq,where f : S Ñ O. Furthermore, as commonly done in this setting [ 42 , 14 , 17 , 11 ], we frame our problem as a goal-based RL one, meaning that we extend the observation space to incorporate a goal set G Ď RdG , part of the state space of the MDP. Thus, the goal gt P G influences the reward function r.An RL agent interacts with the environment according to a 
+
+parametric stochastic policy πζ : OˆG Ñ ∆pAq, where ζ P Z
+
+is the policy parameterization in the parameter space Z Ď RdZ .The policy is employed to sample actions at „ πζ p¨ | ot, gtq
+
+to be played at every interaction instant t, being conditioned on the observation ot P O and the goal gt P G. The performance of a policy πθ is assessed via the expected return J : Z Ñ R,which is defined as: Jpζq :“ Eτ „pζ rRpτ qs , where pζ pτ q is the density function of a trajectory τ induced by πζ . The goal is to learn the optimal policy πζ‹ , with ζ‹ P arg max ζPZ Jpζq.IV. M ETHODOLOGY 
+
+In this section, we detail the proposed framework. First, we define the foothold command formulation provided as input to the policy and describe the observation space, which is explicitly designed to facilitate real-world deployment. Next, we outline the characteristics of our training pipeline, detailing the employed agent structure and the goal sampler functioning. Finally, we introduce the reward function, focusing on the specific terms for foothold tracking and locomotion style. 
+
+A. Goal and Observation Formulation 
+
+At each time step t, the policy observes proprioceptive infor-mation oproprio :“ p θbase , ω, q, 9qq (including base orientation 
+
+θbase , base angular velocity ω, joint positions q and velocities 
+
+9q) along with a goal command specifying the desired footholds           
+
+> 1∆pXqis the set of probability distributions over a measurable space X.
+> 2We let γ“1only when Tă `8 .
+
+in terms of position and yaw orientation. We formulate the foothold target goal as a vector gt, defined as: 
+
+gt :“ p slpt; slψt; sr pt; sr ψtq ,
+
+where slpt, sr pt P R3 denote the position offsets of the next desired left and right footholds, expressed in the current stance foot frame . Similarly, slψt, sr ψt represent the desired orientations (expressed as quaternions) in the stance foot frame .As these foothold targets are expressed in the stance foot frame , the targets are holding a constant value during each swing phase, significantly reducing target variability during movement compared to previous methods [32, 44, 39]. The agent also observes gait phase information: ϕt :“pcos p2πϕ tq; sin p2πϕ tqq , where ϕt P r 0, 1s. If ϕt P r 0, 0.5q,the left foot acts as the swing foot; otherwise, the right foot swings. As commonly done in this setting [ 32 , 37 , 44 ], we consider the phase variable to evolve like a clock, enforcing a constant locomotion cadence. Specifically, it evolves according to ϕt`1 Ð ϕt ` δϕ mod 1 , where δϕ is the fixed gait offset determining the rapidity of gait phase switches. 
+
+Design Choices. Several aspects of this formulation differ from prior art. First, all targets in gt are expressed in the stance-foot frame . Consequently, the target remains constant until a phase switch occurs. Notice that the target corresponding to the current stance foot is effectively a zero offset (identity pose) for the whole phase duration. This contrasts with methods using the base frame [ 32 , 44 , 14 , 39 ] or the specific foot frame [ 7]. This choice facilitates real-world deployment by removing the need for precise base state estimation (localization) to update targets in real-time, as the relative command remains constant throughout the swing phase. Second, we avoid providing binary ground contact flags [ 32 , 44 ], which are difficult to estimate reliably on hardware. Finally, by explicitly commanding 3D positions and yaw orientations, we ensure general-purpose navigation capabilities on complex terrain, surpassing prior works that control only subsets of these dimensions [ 7, 14 ]. Indeed, by training agents to track full 3D foothold targets, the humanoid enables omnidirectional locomotion (forward, backward, and lateral) while simultaneously controlling swing foot height and orientation. This comprehensive set of control possibilities allows the agent to execute precise footstep plans and complex walking patterns. 
+
+B. Training Architecture and Goal Sampling 
+
+For training our policy, we employ asymmetric Proximal Policy Optimization (PPO) [ 36 , 33 ], a common used model-free RL algorithm in locomotion [ 3 ]. We build upon the open-source library LocoMuJoCo [ 2], originally designed for velocity-commanded tasks, adapting its infrastructure to support our foothold-tracking framework. 
+
+Agent Structure. As done in asymmetric actor-critic, the actor πζ , which is parameterized by a 512 ˆ256 ˆ128 network, receives proprioceptive observation as input, whereas the critic network shares the same network structure but takes privileged state as observation. The overall observation of the actor is 
+
+xt :“ `oproprio ,t ; at´1; ϕt; gt
+
+˘,
+
+Fig. 2: Goal Sampling. Representation of the sampling process during a left-swing phase ( ϕt ă 0.5). The global vectors ˆumove 
+
+and ˆufeet define the nominal locomotion heading and foot orientation, fixed for the entire episode. At each gait switch, the angles α and β are sampled from independent uniform distributions to perturb the nominal directions. The scalars d and 
+
+z determine the planar distance and vertical offset, respectively, relative to the current stance foot. where the components are defined in the preceding section. In addition to the actor’s observation, the critic also observes the linear velocity of the robot base vbase . Regarding the output action at „ πθ p¨ | xtq, we consider at to specify the target joint positions for a low-level PD controller, a common hierarchy in the literature [ 32 , 14 , 11 ]. In this work, we target the Booster T1 humanoid, though the formulation is robot-agnostic. Figure 1 illustrates the complete architecture. 
+
+Goal Sampling. During training, we employ a Goal Sampler (GS) responsible for generating feasible foothold targets and supports. In the following, we denote quantities in the world frame w unless otherwise specified. We remark that the GS operates just in simulation, while the agent is then provided with the observation described above. At the beginning of each episode (t “ 1), the GS defines the global locomotion heading. It samples a desired movement direction θmove P r´ π, π q and a nominal feet orientation θfeet P r´ π, π q. These global directions 
+
+remain constant throughout the episode to enforce motion consistency. The gait phase ϕ1, defining the start of the motion with either the left or the right foot, is initialized conditioned to 
+
+θmove or sampled at random whenever possible. Target sampling 
+
+is triggered at every gait phase switch (i.e., whenever the swing and stance roles swap). The GS computes the target position 
+
+> w
+
+ptgt and yaw orientation wψtgt for the swing foot as follows: 1) The GS samples a deviation angle α „ Upαmin , α max q3
+
+and a step length d „ Updmin , d max q. The planar displacement is computed by perturbing the nominal movement direction θmove :
+
+∆p “ p d cos pθmove ` αq; d sin pθmove ` αq; 0 q .
+
+This ensures that while the robot follows a general direction, it must handle lateral and angular variations.   
+
+> 3Upa, b qdenotes a uniform distribution continuous in ra, b s.
+
+2) Similarly, the target foot yaw is generated by perturb-ing the global feet orientation with an offset β „
+
+Upβmin , β max q, yielding wψtgt “ θfeet ` β.3) The vertical component is sampled as an offset z „
+
+Upzmin , z max q relative to the current stance foot height. The final world-frame target is: 
+
+> w
+
+ptgt “ wsp ` ∆p ` p 0; 0; zq .
+
+Crucially, to ensure physical feasibility in simulation, we implement a terrain adaptation mechanism: the environment consists of moving pillars that automatically adjust their height to match the sampled z-coordinate of the target, guaranteeing a valid contact surface. Finally, the sampled target pwptgt , wψtgt q is transformed into current stance foot frame and clipped to feasible region to avoid leg crossing p s
+
+> l
+
+pt, s
+
+> l
+
+ψtq , where l P t l, r u depending on the current swing foot index, to build the goal vector gt as previously described. We highlight that in gt the part related to the stance foot is taken as the offsets in the stance foot frame of the last observed position and orientation of the stance foot itself at the gait switch instant . To enable standing capabilities ,with probability phold , the GS enters a “hold-still” mode. In this case, the target position is set to maintain a nominal stance width relative to the stance foot, the orientation is aligned with the current stance foot (identity relative quaternion), and the gait phase is frozen providing the agent with ϕt “ p 0; 0 q for every t in which the GS remains in the still mode. Figure 2 shows the sampling strategy. 
+
+Additional Training Details. As previously mentioned, we utilize Asymmetric PPO [ 36 , 33 ], a standard model-free RL algorithm in robot learning [ 3]. Specifically, we adopt an asym-metric actor-critic architecture, where the critic has access to privileged simulation states unavailable to the actor. We define an episode as terminated (absorbing state) if the robot’s base height falls below a critical threshold. Furthermore, we employ extensive domain randomization , including perturbations to link geometries, masses, and contact friction, as well as observation noise and external force disturbances (simulating kicks). Further details are provided in the supplementary material. Finally, we implement a two-stage training curriculum. Initially, we train the agent on flat terrain ( zmin “ zmax “ 0) to learn a robust planar tracker, then we fine-tune the agent on full 3D terrain. 
+
+C. Reward Design 
+
+The reward function is mainly composed by tracking reward terms, the responsible ones for making the agent learn foothold-tracking capabilities and penalization terms employed to enforce a natural locomotion style. Penalization terms, which are taken from the velocity-based locomotion reward implemented in LocoMuJoCo [ 2], allow to learn a natural locomotion style, without relying on motion capture-based terms [ 32 ]. In this section we focus on tracking terms, while the penalization ones are detailed in appendix. 
+
+Foothold-Tracking Terms. The fundamental term of our reward function is represented by the one responsible for tracking the goal gt. Let pw 
+
+> l
+
+¯pt; w 
+
+> l
+
+¯ψtq, with l P t l, r u, be 
+
+Fig. 3: Swing-based Reward. Illustration of the desired swing interval. The reward term rfeet incentivizes foot clearance specifically when the phase variable ϕt lies within the window 
+
+2δsw . A non-zero reward is accumulated only if the correct foot breaks contact with the ground during this allotted time. the target foothold positions and orientations to be tracked by both feet. We define the foothold-tracking term as follows: 
+
+rtrack pst, atq “ rsw pst, atq ` rst pst, atq,
+
+where rsw and rst refer to the swing and stance foot, respectively. Notice that we explicited the fact that this reward term depends on the state st rather than on the observation ot, since it needs world frame coordinates, always accessible in simulation. Specifically, we define swing -related term as: 
+
+rsw pst, atq “ ω1 exp `´ξ1} w
+
+> l
+
+pt,xy ´ w 
+
+> l
+
+¯pt,xy }22
+
+˘
+
+` ω2 exp `´ξ2pw
+
+> l
+
+pt,z ´ w 
+
+> l
+
+¯pt,z q2˘
+
+` ω3 exp 
+
+´
+
+´ξ3
+
+`w
+
+> l
+
+ψt ´ w 
+
+> l
+
+¯ψt
+
+˘2¯
+
+,
+
+where l P t l, r u depends on the current ϕt value, w
+
+> l
+
+ψt and w 
+
+> l
+
+¯ψt
+
+are the yaws (wrapped in r´ π, π q) relative to the quaternions 
+
+> w
+> l
+
+ψt and w 
+
+> l
+
+¯ψt, and pt,xy and pt,z represent the planar and the height components of vector pt, respectively. The rsw pst, atq
+
+explicitly allows the policy to track the 3D target foothold for the swinging foot. Notice that decoupling planar and height components in rsw pst, atq allows to define different sharpness coefficients ξ1 and ξ2. In this context, this is needed given the different ranges covered by planar and height components. Finally, the stance reward term rst pst, atq is designed to retain the final value of the swing reward rsw computed at the moment of touchdown. Specifically, for the entire duration of the stance phase, this term equals the accuracy achieved by the foot at the instant it transitioned from swing to stance. 
+
+Feet Swing Term. To ensure adherence to the commanded gait schedule, we introduce the term rfeet . This reward encour-ages the feet to lift during the allotted swing phase defined by the variable ϕt. Similar swing-phase incentives are standard in humanoid locomotion frameworks [ 2]. As depicted in Figure 3, we employ a temporal window within each gait phase where foot clearance is mandatory. Formally: 
+
+rfeet pst, atq “ ωfeet 1 t| ϕt ´ 0.25 | ď δsw u ¨ Cl
+
+` ωfeet 1 t| ϕt ´ 0.75 | ď δsw u ¨ Cr ,
+
+where δsw represents the half-width of the swing window, and Cl (l P t l, r u) acts as a binary “no-contact” indicator Fig. 4: Evaluation Tasks in Simulation. Simulation environ-ments considered in Section V. Evaluations were conducted on: goal reaching, narrow bridge traversal, navigation in cluttered environments, and stairs and ramp climbing. (returning 1 when the foot is in the air). Also in this case, this term depends on the full state st rather than the observation 
+
+ot, as it relies on ground truth contact data. Note that, unlike the tracking term, rfeet is purely locomotion-related and does not depend on the foothold goal gt.
+
+Swing Knee Height Term. The last fundamental tracking term encourages the robot to raise the knee of the swing leg, a particularly important skill when tracking the z component of the desired foothold. Specifically, lifting the knee ensures sufficient clearance to bring the swing foot to the target height, avoiding collisions with steps or obstacles. This term is defined exclusively for the swing leg. The reward term is as follows: 
+
+rkpst, atq “ ωk exp 
+
+´
+
+´ξk max `w
+
+> l
+
+pt,z ` δk ´ w
+
+> l,k
+
+pt,z , 0˘2¯
+
+,
+
+where l P t l, ru depends on the current ϕt to select the swing leg, w
+
+> l
+
+pt,z is the z target for the swing foot in the world frame, 
+
+δk is a slack representing a knee clearance margin, and w
+
+> l,k
+
+pt,z 
+
+is the world-frame z coordinate of the knee joint of the swing leg. This term is one-sided: the reward is maximal whenever the knee exceeds the threshold w
+
+> l
+
+pt,z ` δk, and decays otherwise. V. E XPERIMENTS 
+
+We evaluate the effectiveness of the proposed framework in simulation by comparing our Foothold-Tracking (FT) policy (πFT ) against a state-of-the-art Velocity-Tracking (VT) baseline (πVT ) trained via LocoMuJoCo [ 2 ]. Due to the discrepancy of the command types, to ensure a fair comparison, both policies are trained within a equivalent command region, where velocity command vFT can be converted by the foot distance vVT and frequency ν as dFT vVT “ 2dFT ν. Through 0.20 0.10 0.05 Target threshold (m) 
+
+0
+
+3
+
+6
+
+9
+
+> Time (s)
+> Foothold-Tracking Velocity-Tracking
+
+5.3 5.5 5.8 5.9 6.5 7.0 
+
+Fig. 5: Goal-Reaching Experiment. Time required to reach a target below different thresholds. Mean mean and standard deviation are shown for each setting with 1000 trials. a comprehensive set of carefully designed experiments, we demonstrate the agility, accuracy, and flexibility of our FT policy, showing that it enables a general-purpose locomotion policy with a wide range of motion capabilities. We use multiple task-specific high-level planners for πFT in each experiment. This highlights the framework’s modularity, demonstrating that the learned policy serves as a general-purpose low-level controller capable of seamless integration with diverse upstream generators. Evaluation environments are illustrated in Figure 4. 
+
+A. Goal Reaching Task 
+
+We first evaluate the policies on the task of reaching a goal precisely and efficiently, which is an essential requirement for whole-body manipulation tasks. Here, we deploy a variant of πFT trained on flat ground to isolate planar maneuvering performance. Targets are sampled in a r´ 3, 3sm region, and task success is defined by multiple distance-based thresholds. Additionally, we compare πFT against πFT-R , a baseline identical to our method except that foothold targets are expressed in the root frame rather than the stance foot frame. This ablation isolates the contribution of the stance-foot frame formulation. 
+
+High-Level Planners. For πFT and πFT-R , we implement a simple planner that generates footholds along the vector connecting the robot’s base position to the goal. The step length is clamped to a maximum of 0.5 m, and footholds are constrained to feasible regions to prevent leg crossing. In the meantime, the foot orientation is steered towards the target direction to encourage forward walking. Footholds are generated respecting the gait frequency the policy saw during training. For πVT , we employ a standard proportional controller: the target velocity is computed as vcmd “ Kppgoal ´ pbase q,saturated to the robot’s maximum velocity limits. The angular velocity is controlled by a separate P-controller to maintain the heading towards the target. In both methods, we assume the base positions are directly observable. Although unrealistic for real-world deployments, it allows us to decouple the effect from the localization errors encountered by both methods. 
+
+FT vs. VT. We quantify performance by measuring the time-to-goal under three distinct acceptance radii, specifically, 
+
+0.2m, 0.1m, and 0.05 m. For each threshold, we evaluate 1,000 Policy                  
+
+> (σxyz (m), σyaw (deg)) FT (Ours) —FT-R (0, 0) FT-R (3e´2, 2.0) FT-R (6e´2, 3.0) Accuracy (cm)
+> (mean ˘std )2.15 ˘0.164 1.66 ˘0.170 2.07 ˘0.237 2.86 ˘0.264
+
+TABLE I: Frame Ablation. Foothold-tracking accuracy across 1000 targets on flat terrain, comparing πFT and πFT ´R.
+
+σxyz (m) and σyaw (deg) are the position and yaw noise scales for estimating base estimation errors for πFT ´R.trials with randomly sampled target positions. As shown in Figure 5, πFT consistently outperforms πVT , reaching the target significantly faster across all acceptance radii. This performance gain exhibit higher agility of the foot-tracking policy due to explicit control of the feet. Notably, as the success threshold decreases, the time-to-goal increases for πFT by only 5.3%, whereas πVT exhibits a substantially larger increase of 18.9%. This degradation for πFT majorly stems from the inherit mismatch between the continuous velocity commands and discretized footstep execution, which necessitates multiple correcting steps near the target. On the contrary, foothold-tracking directly command next foothold based on its current state and is therefore limited mainly by tracking accuracy. The results validate that explicit foothold control enables more aggressive and precise maneuvering compared to velocity-based commands, further narrowing the gap between high-level planning and low-level execution. 
+
+Frame Ablation. Table I reports foothold-tracking accuracy across 1000 targets on flat terrain. To simulate real-world deployment conditions, we inject uniform noise into the base state estimate of πFT ´R, considering two noise scales to cover a range from mild to realistic localization error. Without noise, 
+
+πFT ´R improves over πFT in tracking accuracy, as the root frame provides a precise target signal under ideal conditions. However, performance degrades sharply even under small noise magnitudes, demonstrating that root-frame policies are sensitive to localization errors. By contrast, πFT is unaffected by state estimation noise by design, validating the stance-foot frame as the more robust formulation for real-world deployment. 
+
+B. Narrow Bridge Traversal 
+
+In this experiment, we challenge motion accuracy between two tracking policies ( πFT and πVT ) in a narrow bridge traversal task as shown in Fig 4-UpperRight. This scenario demands high-precision foot placement, as the tolerance for error is extremely low. The robot is initialized at a different location, aiming to pass a bridge with different widths and lengths. 
+
+High-Level Planners. Both agents employ similar planners introduced in the goal-reaching experiment, with additional task-specific modifications. In particular, auxiliary waypoints are placed at the entrance and exit of the bridge to enforce the robot moving parallel to the bridge’s longitudinal direction. Due to the bridge’s restricted width, successful traversal requires precise lateral control. For πFT , the planner generates foothold targets that explicitly maintain the robot’s footsteps near the centerline of the bridge. For πVT , we increase the control gain on the robot’s heading direction to correct deviations that could otherwise result in a fall. 234100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 
+
+> Foothold-Tracking
+
+89.0 99.2 99.2 58.8 99.0 99.2 36.6 93.5 97.9 
+
+> Velocity-Tracking
+
+40 60 80 100 
+
+> Success rate (%)
+
+0.15 0.2 0.25 23418.47 18.48 18.47 23.45 23.47 23.46 27.99 28.24 28.12 
+
+0.15 0.2 0.25 24.03 20.89 20.97 35.60 26.04 26.01 42.45 32.02 31.23 
+
+20 30 40 50 
+
+> Time (s)
+
+Bridge width (m) Bridge length (m) 
+
+Fig. 6: Narrow Bridge Experiment. The success rate( Ò) and traversing time( Ó) to cross a narrow bridge of different widths and lengths. Bridge width varies from 0.15 to 0.25m and length varies from 2 to 4m. Each configuration is conducted with 1000 trials with randomly sampled initial states and targets.             
+
+> # Cones Success (%) Fall (%) Plan fail (%) 10 99 1015 98 0220 90 010
+
+TABLE II: Cluttered Environment Experiment. 100 episodes in a 6 m ˆ 6 m workspace with randomly placed cones. 
+
+Results. We evaluate performance by measuring both success rate and traversal time across a range of bridge widths (0.15–0.25 m) and lengths (2–4 m). While both methods achieve high success rates, for less challenging configurations with a wider and shorter bridge, our πFT controller consistently completes the traversal in less time, indicating more efficient motion execution. As the task difficulty increases, in the critical scenarios with a width of 0.15m, narrower than the robot’s foot length, the success rates for the VT controller drops drasticaly, whereas the FT-controller maintains almost the same performance. This is because the FT-tracking explicitly sets the desired target to be at the center of the bridge, eliminating the errors derived from proportional controller. Our foothold tracking controller provides a transparent and interpretable control interface enabling precise step-level reasoning and cor-rection. This capability is crucial for safety-critical locomotion tasks, where accurate contact placement is required to prevent catastrophic failures, demonstrating the suitability of foothold-based control for real-world, constrained navigation scenarios. 
+
+C. Traversing Complex Environments 
+
+Finally, we demonstrate the integration of the trained πFT in four additional tasks: cluttered environment traversal, straight and spiral staircase climbing, and ramp traversal. 
+
+Traversing Cluttered Environments. Here the humanoid Step Length (m) Step Height (m) 0.08 0.10 0.11 0.115 0.12 0.125 0.13 0.300                             
+
+> 95% R:3 B:2 0.059 ˘0.089 76% R:19 B:5 0.071 ˘0.049 60% R:40 B:0 0.081 ˘0.048 52% R:34 B:14 0.090 ˘0.048 56% R:39 B:5 0.083 ˘0.041 38% R:47 B:15 0.095 ˘0.038 12% R:70 B:18 0.108 ˘0.039
+> 0.325
+> 100% R:0 B:0 0.038 ˘0.005 100% R:0 B:0 0.041 ˘0.006 92% R:5 B:3 0.050 ˘0.029 89% R:11 B:0 0.053 ˘0.027 74% R:22 B:4 0.068 ˘0.042 30% R:54 B:16 0.104 ˘0.045 6% R:80 B:14 0.115 ˘0.038
+> 0.350
+> 100% R:0 B:0 0.040 ˘0.005 99% R:1 B:0 0.045 ˘0.022 100% R:0 B:0 0.045 ˘0.016 96% R:2 B:2 0.050 ˘0.022 89% R:7 B:4 0.066 ˘0.056 47% R:34 B:19 0.106 ˘0.060 19% R:58 B:23 0.136 ˘0.057
+> 0.375
+> 100% R:0 B:0 0.048 ˘0.011 100% R:0 B:0 0.052 ˘0.010 99% R:0 B:1 0.054 ˘0.017 86% R:4 B:10 0.058 ˘0.019 88% R:8 B:4 0.079 ˘0.100 87% R:6 B:7 0.087 ˘0.112 46% R:23 B:31 0.113 ˘0.086
+
+(a) Straight Stairs.                                   
+
+> Step Length (m) Step Height (m) 0.08 0.10 0.11 0.115 0.12 0.125 0.13 0.300
+> 97% R:2 B:1 0.045 ˘0.017 82% R:17 B:1 0.061 ˘0.029 40% R:40 B:20 0.082 ˘0.028 21% R:61 B:18 0.104 ˘0.031 14% R:71 B:15 0.114 ˘0.034 19% R:73 B:8 0.112 ˘0.030 14% R:72 B:14 0.132 ˘0.053
+> 0.325
+> 97% R:2 B:1 0.049 ˘0.044 91% R:3 B:6 0.060 ˘0.025 77% R:15 B:8 0.066 ˘0.035 58% R:20 B:22 0.085 ˘0.040 66% R:31 B:3 0.082 ˘0.050 29% R:59 B:12 0.097 ˘0.038 17% R:62 B:21 0.104 ˘0.031
+> 0.350
+> 96% R:0 B:4 0.061 ˘0.068 94% R:4 B:2 0.065 ˘0.088 91% R:3 B:6 0.074 ˘0.098 84% R:8 B:8 0.084 ˘0.095 79% R:13 B:8 0.093 ˘0.107 57% R:25 B:18 0.097 ˘0.059 28% R:55 B:17 0.132 ˘0.061
+> 0.375
+> 91% R:4 B:5 0.081 ˘0.038 90% R:4 B:6 0.090 ˘0.137 96% R:1 B:3 0.069 ˘0.048 93% R:1 B:6 0.089 ˘0.126 74% R:7 B:19 0.097 ˘0.067 54% R:16 B:30 0.125 ˘0.107 17% R:45 B:37 0.155 ˘0.097
+
+(b) Spiral Stairs. 
+
+TABLE III: Traversing Straight and Spiral Stairs. Each cell reports success rate, riser-contact falls (R) and balance falls (B), and mean ˘ std 3D foot placement error (m). 100 evaluations with initial robot yaw sampled from Up´ π{6, π, 6q.is tasked with navigating a 6 ˆ6 m region with up to 20 traffic cones, as shown in Figure 4. We employ Anytime Repairing A ˚
+
+(ARA ˚) planner [ 13 ] to generate a sequence of foothold targets. The target candidates are selected from a set defined within the policy’s training range. We evaluate scenarios with 10, 15, and 20 traffic cones, conducting 100 trials for each configuration. Table II shows that our πFT integrates seamlessly with the planner across all tested cases, with only one falling case observed. Failures are primarily due to the planning algorithms not finding a feasible path within the time budget. 
+
+Traversing Straight Stairs. We evaluate the 3D-trained 
+
+πFT on a structured obstacle comprising an ascending staircase (5 steps), a landing platform, and a descending staircase (5 steps). πFT was trained with elevation targets sampled in 
+
+r´ 0.15 , 0.15 s m. We analyze performance over 100 episodes, randomizing the initial yaw orientation in Up´ π{6, π {6q and varying stair geometry (step length and height). A deterministic planner feeds πFT with 3D footholds matching the terrain profile. Table IIIa shows that as the step height increases, the step length becomes a decisive factor: shorter steps leave little margin for tracking errors, as the swing foot must lift nearly vertically to clear the riser, making even minor inaccuracies likely to cause collisions. Longer steps provide a greater safety margin, allowing the policy to tolerate small placement imperfections without contacting the subsequent riser. This is further confirmed by the failure mode breakdown. At shorter step lengths, failures are dominated by riser contacts, reflecting the tight clearance constraints. As step length enlarges, riser-contact failures decrease and balance-related falls become the primary failure mode, a consequence of the wider stance required to sustain a longer gait cycle. 
+
+Traversing Spiral Stairs. We further evaluate the 3D-trained πFT on a more challenging terrain consisting of an ascending staircase with rotating steps ( ´10 ˝ yaw offset per step) terminating on a flat platform, designed to emulate a spiral staircase and to validate the omnidirectional capabilities of policies trained within the proposed framework. The policy is identical to that used in the straight staircase experiment. Table IIIb shows that the results mirror those of the straight staircase: longer steps consistently reduce riser-contact failures. However, due to the step rotation, targets are no longer placed at uniform lateral and vertical distances, meaning that further       
+
+> Step Length (m) Final Rise (m) 0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.300
+> 100% B:0 0.039 ˘0.009 100% B:0 0.046 ˘0.007 99% B:1 0.058 ˘0.015 76% B:24 0.133 ˘0.093 47% B:53 0.155 ˘0.085 7% B:93 0.319 ˘0.172 0% B:100 0.350 ˘0.154
+> 0.325
+> 100% B:0 0.037 ˘0.004 100% B:0 0.043 ˘0.009 99% B:1 0.057 ˘0.015 96% B:4 0.092 ˘0.071 87% B:13 0.120 ˘0.060 35% B:65 0.230 ˘0.140 5% B:95 0.338 ˘0.151
+> 0.350
+> 100% B:0 0.040 ˘0.011 100% B:0 0.045 ˘0.010 97% B:3 0.064 ˘0.049 96% B:4 0.090 ˘0.051 89% B:11 0.110 ˘0.057 68% B:32 0.199 ˘0.113 6% B:94 0.380 ˘0.170
+> 0.375
+> 100% B:0 0.054 ˘0.019 100% B:0 0.065 ˘0.016 95% B:5 0.104 ˘0.060 85% B:15 0.115 ˘0.064 47% B:53 0.173 ˘0.065 46% B:54 0.207 ˘0.101 57% B:43 0.201 ˘0.103
+
+TABLE IV: Traversing Ramps. Each cell reports success rate, balance falls (B), and mean ˘ std 3D foot placement error (m). 100 evaluations with initial robot yaw „ Up´ π{6, π {6q). increasing the step length does not monotonically reduce failures. As evidenced by the results, the optimal step length is 0.35 m, beyond which balance-related failures begin to increase. Together with the straight staircase experiment, these results confirm that πFT is capable of complex omnidirectional locomotion while operating without terrain perception, relying solely on proprioception. 
+
+Traversing Ramps. Finally, we evaluate πFT on an addi-tional obstacle, structurally analogous to the straight staircase scenario, but replacing discrete steps with continuous ascending and descending ramps of varying inclination. This experiment is critical for assessing the generalization capabilities of a policy trained within the proposed framework. Indeed, as described in Section IV, the 3D fine-tuning stage employs moving pillars as contact surfaces, meaning the policy never encounters sloped foot placements during training. Successfully traversing ramps therefore requires the policy to generalize its z-tracking capabilities to unseen foot pitch configurations. Table IV shows that πFT handles this setting effectively. A trend consistent with the staircase experiments emerges: longer steps yield higher success rates as task difficulty increases. However, this phenomenon has a different explanation here. At high inclinations with short steps, the robot loses balance due to the steep vertical rise demanded per foothold. Conversely, excessively long steps also increase balance failures, as the robot must sustain a longer gait cycle. The optimal step length sits around 0.35 m across most inclinations. These results confirm that the proposed framework produces policies with strong generalization capabilities. Fig. 7: Real-World Deployment. Sequence of the robot tasked with traversing a corridor while stepping on predefined targets. Markers are detected via the onboard camera and then mapped to valid footholds targets in the stance foot frame via a transformation by forward kinematics. For each pose snapshot, we display the corresponding camera frame with highlighted targets. The second pose from the right details the target generation logic during a gait phase switch. Here, the right foot becomes the new stance foot. VI. R EAL -W ORLD RESULTS 
+
+In the real-world experiment, to avoid additional complexity introduced by the localization problem, we employ a vision-based foothold tracking task to verify our FT policy. As illustrated in Figure 7, a sequence of blue circular markers is manually placed on the ground in a corner of a corridor to serve as visual foothold targets. We use the onboard RealSense D455 camera of the Booster T1 robot to extract the targets. By fusing RGB-based target detection, the depth measurements, and the robot’s kinematic model, we compute the relative transformations between the targets and the robot’s current stance foot. The foothold orientations are heuristically determined based on the upcoming swing targets to ensure the feasibility of the future targets. A snapshot of the target detection results is illustrated in Figure 7. Due to delays introduced by camera frame rate limitations, communication latency, and policy inference time, the swing foot may not reach the commanded foothold exactly at the nominal swing–stance transition defined by the gait phase. To address this issue, we implement a simple delay compensation mechanism that repeats the same gait phase ϕt and foothold target gt until the relative height between the swing and the stance foot falls below a threshold, ensuring the relative targets are computed with the next stance on the ground. 
+
+Results . We evaluate the system over 20 real-world trials, including both forward and backward traversals in the corridor with manual resets. An uncut video of the experiments is provided as supplementary. Despite sensing noise and system delays, the robot achieves 93.08% success of stepping on designated foothold targets while maintaining stable locomotion. These results demonstrate the practical viability of the proposed FT controller in real-world settings, even when driven by imperfect visual perception. The primary sources of foot-placement error arise from motion-induced image blur, which degrades target detection accuracy, and from depth sensing artifacts, as the depth camera is not optimized for highly dynamic motion. Furthermore, although the sim-to-real gap is significantly mitigated by the large-scale domain randomization, it also poses costs in losing tracking accuracy. Despite the presence of tracking error, this experiment successfully verifies that πFT can be seamlessly integrated into sophisticated high-level planners to support various downstream tasks. VII. C ONCLUSION 
+
+In this work, we present a general foothold-conditioned training framework that integrates seamlessly with a wide range of high-level planning algorithms. By introducing a general-purpose 3D goal sampler, our approach enables adaptive terrain generation and supports stable foot placement. To address the limitations of prior methods that rely on accurate pose estimation or explicit foot–contact estimation, we represent foothold targets in the stance-foot frame and hold them constant throughout each swing phase. This design ensures consistent target tracking and robust execution. Through extensive com-parisons with a standard velocity-tracking policy, we show that our foothold tracking controller achieves more agile and efficient goal reaching, delivers consistent performance in precision-critical tasks, and robustly traverses challenging cluttered environments and staircases. Finally, we validate the real-world deployability of our approach through a fully vision-based foothold tracking experiment, demonstrating reliable sim-to-real transfer without reliance on external localization. Together, these results highlight the practicality, versatility, and robustness of the proposed framework for humanoid locomotion in complex safety-critical scenarios. ACKNOWLEDGMENTS 
+
+This publication was funded with the contribution of Minis-tero dell’Universit `a e della ricerca pursuant to D.D. n. 7206 of 17 April 2025 – BANDO FIS 2. Project FIS-2023-02598 (Starting Grant), title: “Unified Learning from Diverse Human Feedback” (HUmLrn). CUP: D53C25000710001. The project is supported by the Fundamental Research Funds for the Central Universities. REFERENCES 
+
+[1] Ananye Agarwal, Ashish Kumar, Jitendra Malik, and Deepak Pathak. Legged locomotion in challenging terrains using egocentric vision. In Conference on robot learning ,pages 403–415. PMLR, 2023. [2] Firas Al-Hafez, Guoping Zhao, Jan Peters, and Davide Tateo. Locomujoco: A comprehensive imitation learning benchmark for locomotion. In 6th Robot Learning Workshop, NeurIPS , 2023. [3] Lingfan Bao, Joseph Humphreys, Tianhu Peng, and Chengxu Zhou. Deep reinforcement learning for bipedal locomotion: A brief survey. arXiv preprint arXiv:2404.17070 , 2024. [4] Qingwei Ben, Botian Xu, Kailin Li, Feiyu Jia, Wentao Zhang, Jingping Wang, Jingbo Wang, Dahua Lin, and Jiangmiao Pang. Gallant: Voxel grid-based humanoid locomotion and local-navigation across 3d constrained terrains. arXiv preprint arXiv:2511.14625 , 2025. [5] Xuxin Cheng, Kexin Shi, Ananye Agarwal, and Deepak Pathak. Extreme parkour with legged robots. In 
+
+2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 11443–11450. IEEE, 2024. [6] Thomas Corb `eres, Carlos Mastalli, Wolfgang Merkt, Jaehyun Shim, Ioannis Havoutis, Maurice Fallon, Nicolas Mansard, Thomas Flayols, Sethu Vijayakumar, and Steve Tonneau. Perceptive locomotion through whole-body mpc and optimal region selection. IEEE Access , 2025. [7] Helei Duan, Ashish Malik, Jeremy Dao, Aseem Saxena, Kevin Green, Jonah Siekmann, Alan Fern, and Jonathan Hurst. Sim-to-real learning of footstep-constrained bipedal dynamic walking. In 2022 International Conference on Robotics and Automation (ICRA) , pages 10428–10434. IEEE, 2022. [8] Siddhant Gangapurwala, Mathieu Geisert, Romeo Or-solino, Maurice Fallon, and Ioannis Havoutis. Rloc: Terrain-aware legged locomotion using reinforcement learning and optimal control. IEEE Transactions on Robotics , 38(5):2908–2927, 2022. [9] Ruben Grandia, Fabian Jenelten, Shaohui Yang, Farbod Farshidian, and Marco Hutter. Perceptive locomotion through nonlinear model-predictive control. IEEE Trans. Robotics , 39(5):3402–3421, 2023. [10] Robert J. Griffin, Georg Wiedebach, Stephen McCrory, Sylvain Bertrand, Inho Lee, and Jerry E. Pratt. Footstep planning for autonomous walking over rough terrain. In 
+
+19th IEEE-RAS International Conference on Humanoid Robots, Humanoids 2019, Toronto, ON, Canada, October 15-17, 2019 , pages 9–16. IEEE, 2019. [11] Junzhe He, Chong Zhang, Fabian Jenelten, Ruben Grandia, Moritz B ¨acher, and Marco Hutter. Attention-based map encoding for learning generalized legged locomotion. 
+
+Science Robotics , 10(105):eadv3604, 2025. [12] Tairan He, Chong Zhang, Wenli Xiao, Guanqi He, Changliu Liu, and Guanya Shi. Agile but safe: Learning collision-free high-speed legged locomotion. arXiv preprint arXiv:2401.17583 , 2024. [13] Armin Hornung, Andrew Dornbush, Maxim Likhachev, and Maren Bennewitz. Anytime search-based footstep planning with suboptimality bounds. In 2012 12th IEEE-RAS International Conference on Humanoid Robots (Humanoids 2012) , pages 674–679. IEEE, 2012. [14] TianChen Huang, Runchen Xu, Yu Wang, Wei Gao, and Shiwu Zhang. Traversing narrow paths: A two-stage reinforcement learning framework for robust and safe humanoid walking. arXiv preprint arXiv:2508.20661 ,2025. [15] Fabian Jenelten, Takahiro Miki, Aravind E Vijayan, Marko Bjelonic, and Marco Hutter. Perceptive locomotion in rough terrain–online foothold optimization. IEEE Robotics and Automation Letters , 5(4):5370–5376, 2020. [16] Fabian Jenelten, Ruben Grandia, Farbod Farshidian, and Marco Hutter. Tamols: Terrain-aware motion optimization for legged systems. IEEE Transactions on Robotics , 38 (6):3395–3413, 2022. [17] Fabian Jenelten, Junzhe He, Farbod Farshidian, and Marco Hutter. Dtc: Deep tracking control. Science Robotics , 9 (86):eadh5401, 2024. [18] Tobias Johannink, Shikhar Bahl, Ashvin Nair, Jianlan Luo, Avinash Kumar, Matthias Loskyll, Juan Aparicio Ojea, Eugen Solowjow, and Sergey Levine. Residual reinforcement learning for robot control. In 2019 inter-national conference on robotics and automation (ICRA) ,pages 6023–6029. IEEE, 2019. [19] Shuuji Kajita, Fumio Kanehiro, Kenji Kaneko, Kiyoshi Fujiwara, Kensuke Harada, Kazuhito Yokoi, and Hirohisa Hirukawa. Biped walking pattern generation by using preview control of zero-moment point. In 2003 IEEE international conference on robotics and automation (Cat. No. 03CH37422) , volume 2, pages 1620–1626. IEEE, 2003. [20] Ashish Kumar, Zipeng Fu, Deepak Pathak, and Jitendra Malik. Rma: Rapid motor adaptation for legged robots. 
+
+arXiv preprint arXiv:2107.04034 , 2021. [21] Ho Jae Lee, Seungwoo Hong, and Sangbae Kim. Inte-grating model-based footstep planning with model-free reinforcement learning for dynamic legged locomotion. In 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 11248–11255. IEEE, 2024. [22] Joonho Lee, Jemin Hwangbo, Lorenz Wellhausen, Vladlen Koltun, and Marco Hutter. Learning quadrupedal loco-motion over challenging terrain. Science robotics , 5(47): eabc5986, 2020. [23] Junfeng Long, Zirui Wang, Quanyi Li, Jiawei Gao, Liu Cao, and Jiangmiao Pang. Hybrid internal model: Learning agile legged locomotion with simulated robot response. arXiv preprint arXiv:2312.11460 , 2023. [24] Gabriel B Margolis, Ge Yang, Kartik Paigwar, Tao Chen, and Pulkit Agrawal. Rapid locomotion via reinforcement learning. The International Journal of Robotics Research ,43(4):572–587, 2024. [25] Carlos Mastalli, Ioannis Havoutis, Michele Focchi, Dar-win G Caldwell, and Claudio Semini. Motion planning for quadrupedal locomotion: Coupled planning, terrain mapping, and whole-body control. IEEE Transactions on Robotics , 36(6):1635–1648, 2020. [26] Oliwier Melon, Romeo Orsolino, David Surovik, Mathieu Geisert, Ioannis Havoutis, and Maurice Fallon. Receding-horizon perceptive trajectory optimization for dynamic legged locomotion with learned initialization. In 2021 IEEE International Conference on Robotics and Automa-tion (ICRA) , pages 9805–9811. IEEE, 2021. [27] Takahiro Miki, Joonho Lee, Jemin Hwangbo, Lorenz Wellhausen, Vladlen Koltun, and Marco Hutter. Learning robust perceptive locomotion for quadrupedal robots in the wild. Science robotics , 7(62):eabk2822, 2022. [28] Bhavyansh Mishra, Duncan Calvert, Sylvain Bertrand, Jerry Pratt, Hakki Erhan Sevil, and Robert Griffin. Efficient terrain map using planar regions for footstep planning on humanoid robots. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 8044–8050. IEEE, 2024. [29] I Nahrendra, Byeongho Yu, and Hyun Myung. Dreamwaq: Learning robust quadrupedal locomotion with implicit terrain imagination via deep reinforcement learning. arXiv preprint arXiv:2301.10602 , 2023. [30] Sanmit Narvekar, Bei Peng, Matteo Leonetti, Jivko Sinapov, Matthew E Taylor, and Peter Stone. Curriculum learning for reinforcement learning domains: A framework and survey. Journal of Machine Learning Research , 21 (181):1–50, 2020. [31] Shafeef Omar, Lorenzo Amatucci, Victor Barasuol, Giulio Turrisi, and Claudio Semini. Safesteps: Learning safer footstep planning policies for legged robots via model-based priors. In 2023 IEEE-RAS 22nd International Conference on Humanoid Robots (Humanoids) , pages 1–8. IEEE, 2023. [32] Xue Bin Peng, Glen Berseth, KangKang Yin, and Michiel Van De Panne. Deeploco: Dynamic locomotion skills using hierarchical deep reinforcement learning. Acm transactions on graphics (tog) , 36(4):1–13, 2017. [33] Lerrel Pinto, Marcin Andrychowicz, Peter Welinder, Wojciech Zaremba, and Pieter Abbeel. Asymmetric actor critic for image-based robot learning. In Proceedings of Robotics: Science and Systems , Pittsburgh, Pennsylvania, June 2018. doi: 10.15607/RSS.2018.XIV.008. [34] Jerry Pratt, John Carff, Sergey Drakunov, and Ambarish Goswami. Capture point: A step toward humanoid push recovery. In 2006 6th IEEE-RAS international conference on humanoid robots , pages 200–207. Ieee, 2006. [35] Martin L. Puterman. Markov Decision Processes: Discrete Stochastic Dynamic Programming . Wiley Series in Probability and Statistics. John Wiley & Sons, 2014. [36] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [37] Jonah Siekmann, Yesh Godse, Alan Fern, and Jonathan Hurst. Sim-to-real learning of all common bipedal gaits via periodic reward composition. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pages 7309–7315. IEEE, 2021. [38] Tom Silver, Kelsey Allen, Josh Tenenbaum, and Leslie Kaelbling. Residual policy learning. arXiv preprint arXiv:1812.06298 , 2018. [39] Rohan P Singh, Mehdi Benallegue, Mitsuharu Morisawa, Rafael Cisneros, and Fumio Kanehiro. Learning bipedal walking on planned footsteps for humanoid robots. In 
+
+2022 IEEE-RAS 21st International Conference on Hu-manoid Robots (Humanoids) , pages 686–693. IEEE, 2022. [40] Richard S Sutton, Andrew G Barto, et al. Reinforce-ment learning: An introduction , volume 1. MIT press Cambridge, 1998. [41] Vassilios Tsounis, Mitja Alge, Joonho Lee, Farbod Farshidian, and Marco Hutter. Deepgait: Planning and control of quadrupedal gaits using deep reinforcement learning. IEEE Robotics and Automation Letters , 5(2): 3699–3706, 2020. [42] Huayi Wang, Zirui Wang, Junli Ren, Qingwei Ben, Tao Huang, Weinan Zhang, and Jiangmiao Pang. Beamdojo: Learning agile humanoid locomotion on sparse footholds. 
+
+Robotics: Science and Systems (RSS) , 2025. [43] Alexander W Winkler, C Dario Bellicoso, Marco Hutter, and Jonas Buchli. Gait and trajectory optimization for legged systems through phase-based end-effector parameterization. IEEE Robotics and Automation Letters ,3(3):1560–1567, 2018. [44] Zhaoming Xie, Hung Yu Ling, Nam Hee Kim, and Michiel Van De Panne. Allsteps: curriculum-driven learning of stepping stone skills. In Computer Graphics Forum , volume 39, pages 213–224. Wiley Online Library, 2020. [45] Zhaoming Xie, Xingye Da, Buck Babich, Animesh Garg, and Michiel van de Panne. Glide: Generalizable quadrupedal locomotion in diverse environments with a centroidal model. In International workshop on the algorithmic foundations of robotics , pages 523–539. Springer, 2022. [46] Ruihan Yang, Ge Yang, and Xiaolong Wang. Neural volumetric memory for visual locomotion control. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 1430–1440, 2023. [47] Ruiqi Yu, Qianshi Wang, Yizhen Wang, Zhicheng Wang, Jun Wu, and Qiuguo Zhu. Walking with terrain reconstruc-tion: Learning to traverse risky sparse footholds. arXiv preprint arXiv:2409.15692 , 2024. [48] Wenhao Yu, Deepali Jain, Alejandro Escontrela, Atil Iscen, Peng Xu, Erwin Coumans, Sehoon Ha, Jie Tan, and Tingnan Zhang. Visual-locomotion: Learning to walk on complex terrains with vision. In 5th Annual Conference on Robot Learning , 2021. [49] Petr Zaytsev, S Javad Hasaneini, and Andy Ruina. Two steps is enough: No need to plan far ahead for walking balance. In 2015 IEEE International Conference on Robotics and Automation (ICRA) , pages 6295–6300. IEEE, 2015. [50] Chong Zhang, Nikita Rudin, David Hoeller, and Marco Hutter. Learning agile locomotion on risky terrains. In 
+
+2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 11864–11871. IEEE, 2024. [51] Ziwen Zhuang, Zipeng Fu, Jianren Wang, Christo-pher Atkeson, Soeren Schwertfeger, Chelsea Finn, and Hang Zhao. Robot parkour learning. arXiv preprint arXiv:2309.05665 , 2023. APPENDIX 
+
+Here, we present additional details for the experiments presented in the main paper. All the media reporting videos for the real-world experiment and the simulated ones can be found in the attached zip and in the project website (https://montenegroalessandro.github.io/mind-your-steps/ ). 
+
+A. Observations for Actor and Critic Networks 
+
+The table below details the observations received by the actor and critic networks, specifying whether the components are subject to noise. 
+
+Network Observation Noise Actor 
+
+Base Angular Velocity ✓
+
+Projected Gravity ✓
+
+Joint Positions ✓
+
+Joint Velocities ✓
+
+Last Action ✗
+
+Goal ✗
+
+Critic 
+
+Base Linear Velocity ✗
+
+Base Angular Velocity ✗
+
+Projected Gravity ✗
+
+Joint Positions ✗
+
+Joint Velocities ✗
+
+Last Action ✗
+
+Goal ✗
+
+B. Domain Randomization 
+
+We detail the domain randomization parameters below. Randomization is applied at the beginning of each episode, with the exception of external disturbances, which occur at each timestep with a certain probability. For each parameter, we define the randomization method as follows:  
+
+> ‚
+
+Direct : The value is uniformly sampled from the specified interval and directly employed.  
+
+> ‚
+
+Multiplier : A scaling factor is uniformly sampled from the reported range and multiplied by the nominal value.  
+
+> ‚
+
+Additive U: An offset is sampled uniformly from the range and added to the nominal value.  
+
+> ‚
+
+Additive N : Noise is sampled from a Normal distribution with the specified scale and added to the nominal value.                                                                                    
+
+> Parameter Type Value / Range
+> Global Dynamics & Inertial Properties
+> Gravity ( z-axis) Direct r9.51 ,10 .11 sm/s 2
+> Root Body Mass Multiplier r0.8,1.2s
+> Link Mass Multiplier r0.9,1.1s
+> CoM Displacement ( x, y, z )Additive Ur´ 0.05 ,0.05 sm
+> Terrain Contact Properties (Floor & Pillars)
+> Tangential Friction Direct r0.5,1.5s
+> Torsional Friction Direct r0.1,0.3s
+> Rolling Friction Direct r8ˆ10 ´5,1.2ˆ10 ´4s
+> Actuation & Joint Properties
+> Joint Damping Direct r0.005 ,0.03 sNms/rad Joint Friction Loss Direct r0.0,1.0sNm Joint Armature Direct r0.007 ,0.03 skg m 2
+> KP Gain Noise Additive Ur´ 0.15 ¨KP,0.15 ¨KPs
+> KD Gain Noise Additive Ur´ 0.5¨KD,0.5¨KDs
+> Observation Noise
+> Joint Position Additive N˘0.03 rad Joint Velocity Additive N˘0.3rad/s Angular Velocity Additive N˘0.2rad/s Projected Gravity Vector Additive N˘0.015
+> External Disturbances
+> Random Kicks (Velocity) Additive U
+> (Per-step w.p. 0.004 )r0.1,0.4sm/s
+
+C. PPO Common Training Hyperparameters 
+
+The table below details the PPO hyperparameters common to both the flat-terrain and z-tracking training configurations. 
+
+Parameter Value 
+
+PPO Algorithm 
+
+Discount Factor ( γ) 0.995 
+
+GAE Parameter ( λ) 0.95 
+
+Clipping Range ( ϵ) 0.2
+
+Entropy Coefficient 0.01 
+
+Value Function Coefficient 0.5
+
+Max Gradient Norm 1.0
+
+Adaptive Learning Rate 
+
+Initial Learning Rate 1 ˆ 10 ´5
+
+Min Learning Rate 1 ˆ 10 ´6
+
+Max Learning Rate 0.01 
+
+KL Target 0.02 
+
+KL Margin 1.5
+
+KL Scale Factor 1.5
+
+Employed Samples 
+
+Parallel Environments 8192 
+
+Horizon Steps 50 
+
+Update Epochs 20 
+
+Mini-batches per Epoch 1
+
+Observation Normalization True Reward Normalization True Observation History Length 1
+
+Policy Network 
+
+Hidden Layers 512 ˆ 256 ˆ 128 
+
+Activation Function ELU Initial Action Std 0.135 
+
+Learnable Action Std True 
+
+D. Additional Reward Terms 
+
+While Section IV details the main tracking terms, i.e., rtrack and rfeet , here we specify the additional reward terms employed and report the common used coefficients’ values (Table V). For other penalization terms, please refer to the 
+
+CrispBoosterLocomotionReward in [2], upon which our implementation is based. 
+
+Reward Term Description Coefficients 
+
+rjnt pst, atq “ ωjnt exp `´ξjnt }qjnt ,t ´ ¯qjnt }22
+
+˘ Tracks upper body joint reference ¯qjnt . ωjnt “ ξjnt “ 4
+
+rbh pst, atq “ ´ ωbh pwbpt,z ´ wb ¯pz q2 Tracks CoM height reference wb ¯pz . ωbh “ 10 
+
+rar pst, atq “ ´ ωar }at ´ at´1}22 Penalizes large action changes (smoothness). ωar “ 3
+
+rfs pst, atq “ ´ ωfs 
+
+ř 
+
+> lPt l,r u
+
+} w 
+
+> l
+
+9pt ¨ Cl}22 Penalizes foot velocity during ground contact (no-slip). ωfs “ 4
+
+TABLE V: Additional reward terms and their coefficients. For the sake of completeness, we additionally report (Table VI) the terms we detailed in Section IV.                                        
+
+> Reward Term Description Coefficients
+> rfeet pst,atq(See Section IV) Enforces feet swinging in the allotted period. ωfeet “6,δsw “0.1
+> rtrack pst,atq(See Section IV) Tracks desired foothold targets. ω1“ω2“ω3“5
+> ξ1“ξ3“100 ,ξ2“200
+> rkpst,atq(See Section IV) Enforces the knee of the swinging foot to stay above a certain height. ωk“4,ξk“200
+> δk“0.25
+
+TABLE VI: Tracking and feet swing reward terms and their coefficients. E. Details on the Employed Velocity-based Policy 
+
+In Section V, we compare our approach against a velocity-tracking policy πVT , trained via the LocoMuJoCo pipeline [ 2]. Specifically, πVT shares the same observation vector as our πFT :
+
+xt “ p oproprio ,t ; at´1; ϕt; gtq ,
+
+where the goal gt specifies the target base velocity and height: 
+
+gt “
+
+´wb 9¯px; wb 9¯py ; wb 9¯ψ; wb ¯pz
+
+¯
+
+.
+
+Here, wb 9¯px and wb 9¯py denote the target longitudinal and lateral velocities, wb 9¯ψ is the target angular velocity, and wb ¯pz is the target base height. We highlight an additional difference regarding the primary tracking objectives compared to πFT . While the foothold-tracking policy aims at minimizing the error terms detailed in Section IV, πVT utilizes a standard velocity-tracking reward defined as: 
+
+rtrack pst, atq “ ω1 exp `´ξ1pwb 9pt,x ´ wb 9¯pxq2˘
+
+` ω2 exp `´ξ2pwb 9pt,y ´ wb 9¯py q2˘
+
+` ω3 exp 
+
+´
+
+´ξ3pwb 9ψt ´ wb 9¯ψq2
+
+¯
+
+,
+
+with coefficients set to ω1 “ ω2 “ 1.5, ω3 “ 1, and ξ1 “ ξ2 “ ξ3 “ 4. Base height tracking follows the formulation described in Appendix D, while all other regularization terms remain identical to those used for πFT . Finally, the target velocities are sampled uniformly: wb 9¯px „ Up´ 0.8, 0.8q m/s, wb 9¯py „ Up´ 0.5, 0.5q m/s, and wb 9¯ψ „ Up´ 1.5, 1.5q rad/s. 
+
+F. Training Parameters for the Policy Used for Flat Terrains 
+
+The following details hold for both πFT and πFT ´R, i.e., the FT policy with targets represented int he stance foot frame and in the root frame, respectively. The policies were trained with PPO for a total of 10 9 timesteps. The table below reports the values used for the goal parameters. Parameters defined by a range are sampled uniformly from the specified interval according to the schedule described in Section IV, while scalar values denote parameters kept constant throughout training.                       
+
+> Parameter Value / Range
+> Step Generation
+> Movement Direction ( θmove )r´ π, π qrad Feet Direction ( θfeet )0rad Step Length ( d)r0.2,0.5sm
+> θmove Perturbation ( α)r´ 2π{9,2π{9srad
+> θfeet Perturbation ( β)r´ π{6, π {6srad Height Offset ( z)0m
+> Gait Constraints
+> Minimum Feet Distance 0.10 mHold Still Probability ( phold )0.1
+> Hold Still Feet Width 0.20 m
+
+For the reward terms, we employed the values detailed in Appendix D, but setting ω2 “ 0 in order to exclude the tracking of the z-component. Moreover, we set ωk “ 0 in order to exclude the swinging knee height term. 
+
+G. Training Parameters for the Policy Used for Stairs 
+
+In this experiment, the policy was trained using PPO for 1.2 ¨ 10 9 timesteps, initialized from the flat-terrain policy weights. The table below lists the goal parameters. Ranges imply uniform sampling according to the schedule in Section IV, while scalar values denote constant parameters. The reward terms are detailed in Appendix D.                          
+
+> Parameter Value / Range
+> Step Generation
+> Movement Direction ( θmove )πx rad, x„Bp0.5q
+> Feet Direction ( θfeet )0rad Step Length ( d)r0.2,0.4sm
+> θmove Perturbation ( α)r´ π{18 , π {18 srad
+> θfeet Perturbation ( β)r´ π{18 , π {18 srad Height Offset ( z)r´ 0.15 ,0.15 sm
+> Gait Constraints
+> Minimum Feet Distance 0.10 mHold Still Probability ( phold )0
+> Hold Still Feet Width 0.20 m
+
+Notably, for this task, we restricted the motion to strictly forward or backward directions, without the possibility of staying still. This is denoted in the table by θmove “ πx , where x „ Bp0.5q represents a Bernoulli variable yielding discrete values 
+
+t0, 1u with equal probability. Notice that the fact that the robot is just trained to go forward or backward it is not restricting the robot’s curving capabilities, as demonstrated by the spiral stairs experiment. 
+
+On Moving Pillars Terrain. To ensure continuous foothold availability, we employed a dynamic terrain system comprising three dynamic pillars, with a diameter of 0.3 m and friction features matching the floor. These pillars are placed such that whenever a new foot placement target is sampled, the currently free pillar is relocated to the goal position. We define a pillar as free when it is not currently supporting a foot. To ensure valid placements, we employ a rejection sampling mechanism (2048 batched samples) that prevents collisions with the robot’s feet or the active stance pillars. Furthermore, to mitigate early termination caused by minor planar tracking errors, we implement an adaptive landing mechanism. During the final portion of the swing phase (specifically when ϕt P r 0.25 ` δsw , 0.5q or ϕt P r 0.75 ` δsw , 1s, see Figure 3), the target pillar shifts its 
+
+xy -position to track the swinging foot’s projection. Crucially, the pillar’s height z remains fixed to the originally sampled value. 
+
+H. High-Level Planners 
+
+In this section, we detail the high-level planners employed for both the simulated experiments and the real-world deployment. 
+
+Goal-Reaching Planner. For the goal-reaching task, πFT is guided by a deterministic foothold planner. At each gait update, the goal position and base position are expressed in the stance-foot frame as sg p and sbp, respectively. If the planar Euclidean distance to the goal falls below a threshold } sg pxy ´ sbpxy }2 ď ϵ, the robot is commanded to stand still, marking task completion. Otherwise, the target for the next swing foot is generated based on the difference vector d “ sg p ´ sbp. The target yaw is computed as θ “ clip patan2 pdy , dxq, ´60 ˝, 60 ˝q, while the foot target is calculated as s
+
+> ˝
+
+p “ 12 Isdfeet vfeet ` dmax d 
+
+> }d}2
+
+, where dfeet 
+
+prescribes the nominal distance between two feet, dmax is the maximum distance per step, vfeet “ r 0, 1s⊺, and Is P t´ 1, 1u is indicator of the swing foot, ´1 for right foot swinging and 1 for left foot swinging. Notice that for πFT ´R the same procedure applies, but then the policy is fed with the goal gt components expressed in the root frame . The resulting swing target is clipped to satisfy the feasible constraints to avoid leg crossing. Finally, the planner constructs the goal vector gt in the stance-foot frame as described in Section IV: the stance foot reference is set to zero position offset and identity orientation quaternion, while the swing foot reference is the one computed by the planner. Conversely, for the velocity-tracking baseline πVT , a P-controller converts the body-frame planar position error into linear velocity commands (scaled to respect limits), while a separate clipped P-controller generates the yaw rate ωz to align the heading with the goal. The maximum velocity of the VT baseline is clamped to the trained range comparable to the FT policy. The maximum velocity vmax is computed by the maximum step distance 
+
+dmax and gait frequency fgait , i.e., vmax “ dmax {fgait . We swept the P-gain to choose the best performing one. 
+
+Narrow Bridge Traversal. This task comprises an initial platform, a central narrow bridge, and a final goal platform. While the approach and run-out sections utilize the previously described goal-reaching planner, the bridge traversal requires a modified planner for lateral walking. The path is defined by a set of ordered waypoints P “ t piuN ´1 
+
+> i“0
+
+, tracked via a progress index i.To traverse the bridge, the agent adopts a lateral gait strategy. Consequently, the planner sets the target yaw perpendicular to the local path segment ppi´1 Ñ piq, subject to clipping for meeting yaw constraints. Simultaneously, the foothold position is projected onto the segment connecting pi´1 and pi, ensuring strict alignment with the bridge centerline. 
+
+Cluttered Environment Traversal. In this task, the robot is task with reaching a goal position while avoiding obstacles populating the navigation environment. To generate collision-free foothold targets, we employ a search-based footstep planner [ 13 ]. The planner operates on a discretized lattice of stance-foot poses s “ p x, y, θ q, expanding states via alternating support and relative step actions a “ p ∆x, ∆y, ∆θq. The transition model utilizes a finite action set A defined by discrete parameters: 
+
+∆x P t 0.0, 0.10 , 0.20 u m, ∆y P t 0.20 , 0.25 , 0.30 , 0.35 u m, and ∆θ P t 0, ˘10 ˝, ˘20 ˝, ˘30 ˝u. Given a stance pose s and an action a P A, a successor state s1 “ tps, aq is generated and snapped to the lattice resolution for hashing. Candidate transitions are filtered by feasibility constraints, including step-length bounds and a minimum inter-foot lateral spacing under alternating support. Furthermore, collision checking discards successors where the foot geometry overlaps with environmental obstacles. Node expansion is prioritized using a Euclidean distance heuristic hpsq “ } pb ´ pg }2, estimating the cost to the goal pg . The search algorithm minimizes a weighted evaluation function f psq “ gpsq ` w h psq, where gpsq represents the accumulated path cost from the start node (with weight w “ 5). Finally, the computed foothold sequence is encoded into the goal observation gt
+
+for the policy, as detailed in Section IV. 
+
+Stairs Traversal. To evaluate the policy on the stairs climbing task, we implemented a deterministic high-level planner that supplies foothold targets. The obstacle geometry is parameterized by the step length , defining the stairs’ steps depth; the step height , defining the stairs’ steps height; the platform length , specifying the flat landing separating the ascending and descending sections; and the feet width , determining the lateral spacing between the left and right foot trajectories. Additionally, we define a set of approaching steps on flat terrain before and after the staircase to stabilize the gait. Based on these dimensions, the planner pre-computes two distinct, parallel sequences of 3D foothold coordinates, Pl “ t wlpiuN ´1 
+
+> i“0
+
+and Pr “ t wr piuN ´1 
+
+> i“0
+
+, for the left and right feet respectively. The sequence follows the fixed topology enforced by the obstacle’s terrain profile: an initial flat approach, an ascending staircase, a central landing platform, a descending staircase, and a final flat run-out. During execution, the robot tracks its progress using two indices, il and ir , pointing to the current target in Pl and Pr . The starting swing foot is selected based on the robot’s initial yaw orientation. At each gait phase switch (swing Ñ stance), the indices are updated to enforce an alternating gait: if the right foot is becoming the swing foot, its target index advances as ir Ð il ` 1;conversely, if the left foot swings, il Ð ir ` 1. Finally, the planner outputs the goal gt in the stance-foot frame , as described in Section IV. Specifically, the reference for the incoming stance foot is set to a zero position and identity orientation offset, while the reference for the incoming swing foot is computed as the relative transformation between the current stance foot and the target foothold retrieved from the plan. 
+
+Real-World Vision-Based Planner. As mentioned in Section VI, the hardware experiments on the Booster T1 humanoid rely on a high-level planner driven by a computer vision module exploiting the onboard camera. The task involves navigating a corridor by stepping onto manually placed circular markers. We employ the onboard color camera, a RealSense D455, to detect these targets. Specifically, at each gait switch instant, the planner fuses RGB detection with depth measurements to extract the next foothold position in the camera frame. Using the robot’s kinematics, this target is transformed into the current stance-foot frame to compute the relative position offsets required by the policy as detailed in Section IV (keeping the stance foot offsets at zero). Orientation targets are determined heuristically to ensure kinematic feasibility. Finally, as already described in Section VI, to account for real-world latencies and imperfect ground contacts, we do not adhere strictly to the open-loop gait clock. Instead, the gait signal is frozen (repeating the last value) until the relative vertical distance between the stance and swing feet falls below a safety threshold, ensuring robust ground contact before transitioning. 
+
+I. Section V’s Extended Tables 
+
+Here, we report extended tables for the experiments conducted in Section V. Specifically, we include results for the straight and spiral staircase traversal experiments.                                                  
+
+> Step Length (m) Step Height (m) 0.01 0.02 0.04 0.08 0.10 0.11 0.115 0.12 0.125 0.13 0.300
+> 100% R:0 B:0 0.033 ˘0.006 100% R:0 B:0 0.034 ˘0.003 100% R:0 B:0 0.036 ˘0.005 95% R:3 B:2 0.059 ˘0.089 76% R:19 B:5 0.071 ˘0.049 60% R:40 B:0 0.081 ˘0.048 52% R:34 B:14 0.090 ˘0.048 56% R:39 B:5 0.083 ˘0.041 38% R:47 B:15 0.095 ˘0.038 12% R:70 B:18 0.108 ˘0.039
+> 0.325
+> 100% R:0 B:0 0.034 ˘0.004 100% R:0 B:0 0.034 ˘0.005 100% R:0 B:0 0.036 ˘0.003 100% R:0 B:0 0.038 ˘0.005 100% R:0 B:0 0.041 ˘0.006 92% R:5 B:3 0.050 ˘0.029 89% R:11 B:0 0.053 ˘0.027 74% R:22 B:4 0.068 ˘0.042 30% R:54 B:16 0.104 ˘0.045 6% R:80 B:14 0.115 ˘0.038
+> 0.350
+> 100% R:0 B:0 0.039 ˘0.010 100% R:0 B:0 0.038 ˘0.011 100% R:0 B:0 0.041 ˘0.018 100% R:0 B:0 0.040 ˘0.005 99% R:1 B:0 0.045 ˘0.022 100% R:0 B:0 0.045 ˘0.016 96% R:2 B:2 0.050 ˘0.022 89% R:7 B:4 0.066 ˘0.056 47% R:34 B:19 0.106 ˘0.060 19% R:58 B:23 0.136 ˘0.057
+> 0.375
+> 100% R:0 B:0 0.049 ˘0.012 100% R:0 B:0 0.052 ˘0.022 100% R:0 B:0 0.048 ˘0.010 100% R:0 B:0 0.048 ˘0.011 100% R:0 B:0 0.052 ˘0.010 99% R:0 B:1 0.054 ˘0.017 86% R:4 B:10 0.058 ˘0.019 88% R:8 B:4 0.079 ˘0.100 87% R:6 B:7 0.087 ˘0.112 46% R:23 B:31 0.113 ˘0.086
+
+TABLE VII: Traversing Straight Stairs. Each cell reports success rate, riser-contact falls (R) and balance falls (B), and mean ˘ std 3D foot placement error (m). 100 evaluations with initial robot yaw sampled from Up´ π{6, π, 6q.                                                 
+
+> Step Length (m) Step Height (m) 0.01 0.02 0.04 0.08 0.10 0.11 0.115 0.12 0.125 0.13 0.300
+> 100% R:0 B:0 0.057 ˘0.008 99% R:0 B:1 0.053 ˘0.012 96% R:4 B:0 0.049 ˘0.020 97% R:2 B:1 0.045 ˘0.017 82% R:17 B:1 0.061 ˘0.029 40% R:40 B:20 0.082 ˘0.028 21% R:61 B:18 0.104 ˘0.031 14% R:71 B:15 0.114 ˘0.034 19% R:73 B:8 0.112 ˘0.030 14% R:72 B:14 0.132 ˘0.053
+> 0.325
+> 98% R:0 B:2 0.066 ˘0.015 97% R:2 B:1 0.066 ˘0.020 97% R:3 B:0 0.061 ˘0.020 97% R:2 B:1 0.049 ˘0.044 91% R:3 B:6 0.060 ˘0.025 77% R:15 B:8 0.066 ˘0.035 58% R:20 B:22 0.085 ˘0.040 66% R:31 B:3 0.082 ˘0.050 29% R:59 B:12 0.097 ˘0.038 17% R:62 B:21 0.104 ˘0.031
+> 0.350
+> 94% R:2 B:4 0.079 ˘0.039 97% R:1 B:2 0.082 ˘0.030 97% R:1 B:2 0.080 ˘0.029 96% R:0 B:4 0.061 ˘0.068 94% R:4 B:2 0.065 ˘0.088 91% R:3 B:6 0.074 ˘0.098 84% R:8 B:8 0.084 ˘0.095 79% R:13 B:8 0.093 ˘0.107 57% R:25 B:18 0.097 ˘0.059 28% R:55 B:17 0.132 ˘0.061
+> 0.375
+> 96% R:1 B:3 0.092 ˘0.044 97% R:2 B:1 0.095 ˘0.051 98% R:1 B:1 0.099 ˘0.026 91% R:4 B:5 0.081 ˘0.038 90% R:4 B:6 0.090 ˘0.137 96% R:1 B:3 0.069 ˘0.048 93% R:1 B:6 0.089 ˘0.126 74% R:7 B:19 0.097 ˘0.067 54% R:16 B:30 0.125 ˘0.107 17% R:45 B:37 0.155 ˘0.097
+
+TABLE VIII: Traversing Spiral Stairs. Each cell reports success rate, riser-contact falls (R) and balance falls (B), and mean ˘ std 3D foot placement error (m). 100 evaluations with initial robot yaw sampled from Up´ π{6, π, 6q.

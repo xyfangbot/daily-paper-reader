@@ -1,0 +1,246 @@
+Title: IMPACT: Learning Internal-Model Predictive Control for Forceful Robotic Manipulation
+
+URL Source: https://arxiv.org/pdf/2606.10818v1
+
+Published Time: Wed, 10 Jun 2026 01:11:56 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# IMPACT: Learning Internal-Model Predictive Control for Forceful Robotic Manipulation 
+
+Jiawei Gao 1 Chaoqi Liu 1 Peilin Wu 1 Haonan Chen 1,2 Yilun Du 1
+
+> 1
+
+Harvard University 2Stanford University 
+
+https://gao-jiawei.com/IMPACT/ 
+
+Figure 1: We demonstrate the effectiveness of our framework across a variety of forceful manipu-lation tasks. (a) In heavy-object pick-and-place tasks (2.5 kg and 5.0 kg), the robot must generate forces that compensate for object gravity. (b) In calligraphy writing tasks, the robot is required to apply forces in the surface-normal direction of the table while simultaneously commanding motion in the tangential direction. (c) In disturbance compensation tasks, the robot must complete the task while adapting to varying object dynamics. 
+
+Abstract: Real-world robotic manipulation tasks often involve forceful interac-tions with the environment, such as using tools of varying weights, transporting objects with different masses, and performing contact-rich tasks like table wiping. Previous learning-based approaches typically employ imitation learning policies that output target end-effector poses tracked by low-level impedance controllers. In these systems, forceful interactions are either implicitly realized through steady-state tracking errors or explicitly commanded using wrist force/torque or tactile sensors. However, implicit approaches generalize poorly across object weights, while explicit approaches require specialized hardware and increase system com-plexity. In this work, we propose IMPACT , a framework that decouples these forceful tasks into task-planning and internal-model-based predictive control. Ex-tensive simulation and real-world experiments demonstrate that the proposed framework achieves higher success rates and improved generalization to unseen object weights, as well as better safety and energy efficiency. 
+
+Keywords: Robot learning, Forceful manipulation, Predictive control 
+
+> arXiv:2606.10818v1 [cs.RO] 9 Jun 2026
+
+## 1 Introduction 
+
+Figure 2: Control diagram of our frame-work . A task-space impedance controller pro-vides feedback regulation based on tracking error, while an internal model learns online from joint measurements to generate feedforward torque commands that compensate for persistent environment-induced interaction forces. General-purpose robot learning systems hold the promise of enabling robots to acquire a wide range of manipulation skills, to autonomously learn from their experience and mistakes, and to adapt flexibly to new environments and sce-narios. Learning-based approaches address this goal by training visuomotor policies [1, 2, 3, 4, 5, 6, 7, 8] using imitation learning algo-rithms [9, 10, 11, 12, 13] on human demon-stration datasets [14, 15, 16]. The policies are trained to imitate the demonstrated behav-iors, learning to generate appropriate action se-quences conditioned on observations. Typically, “actions” are represented as target end-effector poses or joint position commands, which are tracked by a low-level position controller [1, 17]. However, in scenarios involving force-ful interactions with the environment, such as manipulating heavy objects, using tools [18, 10], or performing tasks that require significant contact forces, the policies need to not only specify desired kinematic trajectories, but also generate the necessary task-relevant interaction forces. Previous methods address this issue by either explicitly commanding force-aware actions with information from force-torque sensors [19, 20, 21, 5], or implicitly learning to modulate forces from datasets or reward functions [22, 23, 24]. However, the explicit approach requires accurate force–torque sensors mounted at the robot’s wrist, increasing system complexity. For the implicit approach, the policy must generate appropriate forces from the demonstration data, which couples task planning with object-dependent dynamics. Take the task of lifting objects of varying weights as an example: the policy must learn to overshoot and create a steady-state end-effector tracking error to compensate for the object gravity. This approach not only makes the learning problem more difficult, requiring substantially more data, but also leads to poor generalization to out-of-distribution object properties. On the other hand, humans demonstrate robust and adaptive motor control capabilities when manip-ulating objects of varying weights and dynamics [25]. Humans do not have accurate force-torque sensors at their wrists, yet they can effortlessly lift and manipulate objects with widely different weights and dynamics. The key mechanism behind this ability is that the cerebellum builds inter-nal models of the body and external objects based on prior experience [26, 27, 28], and utilizes these models to generate appropriate feedforward forces to counteract predictable disturbances such as object gravity [29, 30, 31, 32, 33]. Inspired by this, we propose IMPACT , an Internal-Model Predictive Con Trol framework for forceful robotic manipulation tasks. The core idea is that, rather than explicitly measuring interaction forces with mounted force-torque sensors, we use joint torque readings and the manipulator equation to estimate interaction forces, and use online gradient descent to learn an internal model that predicts these interaction forces based on the history of states and actions. During task execution, the learned internal model is then used to compensate for the predicted interaction forces in a feedforward manner within the real-time control loop. The illustration of the control diagram is shown in Fig. 2. We evaluate our framework on a suite of forceful manipulation tasks, including lifting objects of varying weights, compensating for external disturbances, and performing hybrid position–force con-trol tasks such as calligraphy writing. To systematically study the effectiveness of the proposed method compared to baseline methods, we performed controlled experiments in simulation, where we varied the object-dynamics properties during testing to evaluate the generalization ability of dif-ferent methods. We further validate our framework on a real-world Franka FR3 robot, demonstrating its capability to handle a wide range of forceful manipulation tasks in real-world settings. 2Figure 3: Overview of IMPACT and comparison with implicit force control method . (a) In implicit force control, forces are generated implicitly by the policy through producing virtual target trajectories that induce tracking errors, which are converted into interaction forces by a low-level impedance controller. (b) In IMPACT , the controller generates desired interaction forces: an internal model predicts contact and payload-induced forces and compensates via feedforward commands. 
+
+## 2 Methods 
+
+We consider forceful robotic manipulation tasks under varying environment dynamics, including lifting objects with different weights and hybrid position–force tasks such as table wiping. These tasks require the system to jointly generate motion trajectories and interaction forces. As described in section 2.1, our framework uses a diffusion policy [1] to imitate demonstration data and produce desired future end-effector trajectories, while interaction forces are handled online by the controller. The core idea of our method is to learn an internal model that predicts and compensates for slowly varying external wrenches , such as payload-induced forces, while maintaining compliant behavior during contact. External wrenches are estimated from joint measurements (section 2.2) and decom-posed into fast transients and slowly varying components using a first-order low-pass filter. The resulting slow-varying wrench, which captures persistent effects such as object weight or steady contact forces, is used as the supervision signal for training the internal model. During interaction, the internal model consumes a short history of joint states and end-effector mea-surements and is trained online via gradient descent to predict the slow-varying external wrench (section 2.3). This internal model is critical because the filtered wrench estimate converges slowly by design in order to suppress noise. Once learned, the internal model enables the controller to im-mediately apply appropriate feedforward compensation when encountering a previously seen pay-load, without waiting for the slow wrench estimate to converge. The pseudo-code of the overall control loop is shown in algorithm 1 in the Appendix. 
+
+2.1 Background: Imitation Learning Policy Training and Impedance Control 
+
+We train an imitation-learning policy πθ that outputs a horizon of desired end-effector target poses 
+
+Xdt:t+Hp conditioned on an observation history Ot−Ho+1: t. At inference time, target poses are exe-cuted in a receding-horizon fashion. The planned trajectories are then sent to a low-level controller to generate joint torque commands τ . Specifically, let x = ( p, R) ∈ SE (3) denote the end-effector pose, with position p ∈ R3 and orientation R ∈ SO (3) , and let xd denote the desired end-effector pose. The task-space pose error is defined as e =
+
+ pd − p
+
+Log  RdR⊤
+
+, where Log( ·) maps a rotation matrix to its axis-angle representation. A task-space impedance controller generates the desired in-teraction wrench wimp = Ke − D ˙x, where K and D are positive-definite stiffness and damping matrices, respectively, and ˙x denotes the end-effector spatial velocity. The robot dynamics are gov-erned by the manipulator equation M(q)¨ q+C(q, ˙q) ˙ q+g(q) = τ +τ ext , where q, ˙q, and ¨q denote joint positions, velocities, and accelerations, respectively. For tasks involving forceful interactions, 3the external wrench wext at the end effector induces joint torques τ ext = J⊤wext , where J is the end-effector Jacobian. 
+
+2.2 Estimating External Wrenches with Joint Torque Residuals 
+
+Unmodeled interactions, including payload weight and contact forces, induce an external wrench 
+
+wext ∈ R6 at the end effector, which produces joint torques: τ ext = J(q)⊤wext . Using measured joint torques τ meas , we compute a model-based torque prediction τ model = M(q)ˆ¨q + C(q, ˙q) ˙ q +
+
+g(q) + τ fric ( ˙ q), where ˆ¨q is estimated from encoder measurements. The torque residual τ res =
+
+τ meas −τ model therefore captures the effect of unmodeled external interactions. The external wrench estimate is obtained by solving a regularized least-squares problem: 
+
+ˆwext = arg min  
+
+> w
+
+J⊤w − τ res  
+
+> 22
+
++ λ2∥w∥22, (1) yielding the closed-form solution ˆwext =  JJ ⊤ + λ2I−1 Jτ res . However, the resulting estimate 
+
+ˆwext is inherently noisy due to modeling errors, sensor noise, and unmodeled high-frequency in-teractions. To isolate the component suitable for prediction and feedforward compensation, we maintain a slowly varying estimate wslow using a first-order low-pass filtering update, 
+
+wslow (t + ∆ t) = wslow (t) + η clip( ˆ wext (t) − wslow (t)) , (2) where η ∈ (0 , 1) is the adaptation rate and clip( ·) applies per-axis saturation. This tracks persis-tent external wrenches while attenuating high-frequency disturbances. The resulting slow wrench estimate serves as the supervision signal for training the internal model. 
+
+2.3 Internal Model Learning and Feedforward Compensation 
+
+The slow-varying external wrench wslow captures persistent interaction effects such as payload-induced forces or steady contact forces. Rather than directly using wslow for compensation, which converges slowly by design, we introduce an internal model that learns to predict this quantity from the robot’s recent state history. Specifically, the internal model parameterizes a predictor wpred =
+
+Mϕ(zt−L:t), where zt−L:t denotes a short horizon of joint states and end-effector measurements, and Mϕ is trained online to approximate the slow-varying external wrench. To improve robustness and prevent adaptation to noisy transients, the internal model is updated only when its prediction deviates significantly from the measured interaction forces. Once the prediction error falls below the threshold, learning is suspended, and the internal model output is treated as a reliable prediction. After learning, the internal model enables predictive force compensation . When the robot encoun-ters a previously learned interaction condition, the predicted wrench wpred is immediately applied as a feedforward command, wff = wpred , without waiting for the slow external wrench estimate to converge. This anticipatory compensation reduces steady-state tracking error and prevents large deflections in the impedance controller. The feedforward wrench is then mapped to joint torques via 
+
+τ ff = J(q)⊤wff , and is added to the impedance control law as in algorithm 1. Substituting the total torque command into the robot dynamics, the closed-loop system obeys 
+
+M(q)¨ q + C(q, ˙q) ˙ q + g(q) = τ imp + τ ff + τ null + τ ext , (3) where τ ext = J(q)⊤wext represents joint torques induced by external interaction forces, τ imp 
+
+denotes the impedance feedback term, τ null enforces secondary objectives, and τ ff is the predictive feedforward compensation term. 
+
+## 3 Experiments 
+
+To evaluate the effectiveness of IMPACT for forceful robotic manipulation tasks, we conduct exten-sive experiments in both simulation and real-world settings. Experiment results demonstrate that our framework achieves higher success rates and better out-of-distribution generalization capabil-ities compared to standard learning-based baselines, particularly in scenarios involving significant changes in object mass and dynamics. 4Figure 4: Simulation Experiments Setup . We set up tasks in the MuJoCo simulator for con-trolled evaluation of the proposed framework against baseline methods. The teleoperation, data-postprocessing, and policy training pipelines are consistent with the real-robot experiments, ensur-ing a fair comparison. 
+
+3.1 Experiments Setup 
+
+Figure 5: Real-World Setup . We use a Nin-tendo Switch Joy-Con to teleoperate the Franka FR3 robot to pick up dumbbells weighing 2.5 kg and 5 kg. The teleoperation data are collected at 30 Hz and used to train the policies. 
+
+Real-World Experiments. We conduct real-world experiments using a 7-DOF Franka FR3 manipulator operating in a tabletop workspace monitored by two fixed-base RGB-D cameras (Fig. 5). The action space is 8-dimensional, consisting of end-effector Cartesian pose com-mands and gripper actuation. Observations and actions are synchronized and recorded at 30 Hz for policy training. To evaluate the effective-ness of our framework under varying object dy-namics, we conduct experiments using dumb-bells weighing 2.5 kg and 5 kg. Demonstration data are collected for a pick-and-place task us-ing the 2.5 kg dumbbell, and the trained frame-work is evaluated on both the 2.5 kg and 5 kg dumbbells without providing explicit informa-tion about the object weight. 
+
+Simulation Benchmark. We use the MuJoCo physics engine [34] to simulate the Franka FR3 robot in a tabletop manipulation environment with two virtual RGB-D cameras (Fig. 4). The scene contains task-relevant objects, including a hammer and a target basket, whose positions are ran-domized across episodes. Expert demonstrations are generated via motion planning. We use sim-ulation to conduct controlled experiments with varying hammer mass, where the hammer mass is randomized from 0.1 to 10 kg, and evaluate the effectiveness of our framework through repeated multi-episode evaluations to ensure statistical significance. 
+
+Baseline Methods. We compare IMPACT with the following learning-based baselines: 1) 
+
+Vanilla DP. A standard Diffusion Policy (DP) [1] trained using demonstrations collected at a single nominal object mass. This corresponds to imitation learning policies trained only with light objects. In MuJoCo, we fix the hammer mass to 0.2 kg and collect 200 demonstration episodes. 2) Augmented DP. To evaluate whether scaling demonstration data alone enables the policy to master the task, we collect demonstrations across a broad range of object masses using a domain-randomization strategy. In MuJoCo, we randomly sample the hammer mass from 0.1 to 8 kg and collect 200 demonstration episodes. In baseline methods, learned policies output target end-effector poses, which are tracked by the low-level impedance controller. The stiffness and damping parame-ters are fixed. 50246810       
+
+> Mass (kg) 0.00.20.40.60.81.0
+> 0.70 0.74 0.56 0.00 0.00 0.00 0.00 0.00 0.25 0.64 0.68 0.62 0.58 0.52 0.38 0.24 0.00 0.46 0.86 0.88 0.84 0.76 0.76 0.62 0.34 0.26 0.67
+> Task Success Rate
+> Vanilla DP Augmented DP IMPACT
+
+Figure 6: Simulation Benchmarking. Evaluation of task success rates in the MuJoCo simulation benchmark across varying object masses (0–10 kg). x axis denotes the object mass, z axis denotes the task success rate, and y axis represents different methods. While Vanilla DP (trained on 0.2 kg) fails to generalize and Augmented DP (trained on 0.1–8.0 kg) degrades at high payload ( > 8 kg), 
+
+IMPACT maintains superior performance across the entire physical range despite being trained ex-clusively on the nominal mass. 
+
+3.2 Effectiveness of IMPACT in Simulation and Real-world Benchmarks Controlled experiments in Simulation. To rigorously evaluate the effectiveness of our approach, we conduct controlled experiments in the MuJoCo simulator, where we can systematically vary the object mass and evaluate the robustness of different methods to out-of-distribution dynamics. Success rates across benchmarks are reported in Fig. 6. In this setup, both IMPACT and Vanilla DP are trained exclusively at a nominal object mass of 0.2 kg, whereas Augmented DP is trained from demonstrations collected across a wide range of masses (0.1–8.0 kg). Our results show that the performance of Vanilla DP decreases as the object mass increases, indi-cating overfitting to the nominal training dynamics and limited generalization to changes in object mass. Augmented DP improves robustness relative to the vanilla baseline by training on a wider range of masses, but its success rate still drops at higher masses, especially when the mass is outside the training distribution (e.g., > 8 kg). In contrast, IMPACT maintains high success rates across the entire evaluated mass range and outperforms both baselines. Notably, IMPACT achieves better performance than Augmented DP despite having no prior exposure to varied object masses during training, indicating that explicitly modeling and compensating for payload dynamics leads to better generalization than relying solely on increased data diversity. 
+
+Real-world experiments on Franka-FR3 robot. We also evaluate our method on real-world forceful manipulation tasks using the Franka FR3 robot, as shown in Fig. 5.         
+
+> Method Train Mass (kg) Test 2.5 kg Test 5 kg
+> Vanilla DP 2.5 18 / 25 0 / 25
+> Augmented DP 2.5 + 5.0 9 / 25 5 / 25
+
+IMPACT 2.5 22 / 25 21 / 25 
+
+Table 1: Real-World Benchmarking. Success rates when evaluating policies on 2.5 kg and 5 kg dumbbells under different training distributions. The task involves picking up and placing dumb-bells of varying mass (2.5 kg and 5 kg) on a ta-ble. We compare the performance of IMPACT 
+
+against the two baselines, which are trained us-ing demonstration data collected at the nomi-nal mass (2.5 kg) and across a range of masses (2.5 kg and 5 kg), respectively. Experiments shown in Table 1 indicate that IMPACT outper-forms both baselines in terms of success rates on both the nominal and heavier dumbbells, demon-strating generalization capabilities. 63.3 Analysis and ablations of IMPACT 0 10 20 30 40 Time (s) 010 20 30 40 50 60 Force (N)         
+
+> Phase A (a) Estimated Wrench Applied Wrench Weight Estimate Surprise Gate
+> 020 40 60 80 100 120 Time (s) 010 20 30 40 50 60 Force (N)
+> Phase B Phase C (b)
+
+Figure 7: Visualization of the key metrics dur-ing the task protocol . We visualize the inter-nal model behavior across three phases: (A) ini-tial weight learning via surprise gate activation, (B) zero-delay feedforward compensation for a known load, and (C) gate reactivation for unex-pected mass increase (2.5 kg to 5 kg). To understand the underlying mechanisms that contribute to the superior performance of 
+
+IMPACT , we conduct a detailed analysis of the internal model’s behavior and its impact on control performance. We design a task protocol that we use the policy trained on datasets col-lected at 2.5 kg to pick up the 2.5 kg dumbbell, let the controller learn and adapt online. When the policy successfully finishes the pick-and-place task, we reset the environment, and let the policy finish this task again. Then, we switch to the 5 kg dumbbell without any prior infor-mation to the policy, and test the policy’s abil-ity to re-adapt to the new dynamics. We record the key metrics, including the applied wrench, estimated external wrench, internal model pre-dictions, and pose tracking error throughout the episode to analyze how IMPACT adapts to changes in payload dynamics. The overall visu-alization can be found in Fig. 8, and we provide zoom-in visualizations of the internal model be-havior in Fig. 7 and the pose tracking perfor-mance in Fig. 10. We also test the performance of baseline methods on this task protocol using impedance control without feedforward com-pensation, and the results are shown in Fig. 9. When the policy first picks up the 2.5 kg dumbbell, the surprise gate activates due to the unex-pected load, allowing the internal model to rapidly converge to an accurate estimate of the external wrench. This corresponds to the Phase A in Fig. 7, where the internal model quickly learns to predict the external load, and the feedforward compensation effectively cancels the load, result-ing in low pose error (Fig. 10). This is essentially an online-learning process, where the internal model learns to predict the external load based on the observed discrepancies between the measured and expected torques, and the feedforward compensation allows the controller to maintain accurate tracking despite the presence of the load. In the second stage, when the policy continues to per-form the pick-and-place task with the 2.5 kg dumbbell, since the internal model has already built an accurate representation of the environmental dynamics, the surprise gate remains inactive, and the feedforward compensation continues to effectively cancel the external load, maintaining low pose error, which corresponds to Phase B in Fig. 7. In the third stage, when the dumbbell is switched to 5 kg without any prior information, the internal model’s internal dynamics representation still re-mains the case of 2.5 kg, which leads to a significant increase in the prediction error of the external load. Thus, the surprise gate reactivates, allowing the internal model to rapidly update its predictions to account for the new dynamics, which corresponds to Phase C in Fig. 7. This experiment demonstrates the key advantages of IMPACT : 1) the ability to rapidly learn and adapt to new dynamics through the surprise gate mechanism, and 2) the ability to maintain accurate control performance through feedforward compensation based on internal model predictions, even in the presence of significant changes in object mass and dynamics. In contrast, the baseline impedance controller without feedforward compensation (Fig. 9) exhibits significant steady-state error across all phases due to the lack of load compensation, highlighting the importance of the internal model and feedforward compensation in achieving robust performance under varying dynamics. 74 Related Work 
+
+Position-Force Control for Robotic Manipulation Impedance control and hybrid position–force control [35, 36, 37, 38, 39] are widely used for forceful robotic manipulation tasks. In task and motion planning, desired interaction forces can be planned by creating virtual targets, with an impedance controller generating the corresponding forces [40, 41, 42, 43, 44, 45]. Recently, the community has begun to use learning-based visuomotor policies for forceful manipulation tasks. Desired forces can be explicitly commanded using force–torque sensors mounted at the robot end effector [21, 19, 20, 46, 47, 48, 49]: during data collection, interaction forces are recorded, and policies are trained to predict both target trajectories and the required interaction forces. Alterna-tively, desired forces can be generated implicitly by having the policy output virtual target trajec-tories, with a low-level impedance controller producing interaction forces through feedback con-trol [22, 50, 51, 52]. However, the explicit methods require additional force sensors, increasing sys-tem cost and complexity, while implicit methods struggle to generalize to object dynamics outside the collected dataset [53]. Our method, in contrast, decouples high-level learning from low-level control: the high-level policy outputs planned trajectories, while the low-level controller uses an internal model to predict interaction forces and compensate for them via feedforward commands. 
+
+Motor Learning in Human Cerebellum and Internal Model Control Our work has connections to neuroscience hypotheses on motor control and the mechanisms of cerebellum. The cerebellum is recognized as a key component of motor learning, enabling humans and animals to acquire skilled movements and adapt to novel dynamics [26, 54, 55, 56]. The key mechanism behind this is, the cerebellum constructs an internal model of environmental dynamics and refines it through prac-tice and adaptation [27, 28]. This internal model supports predictive control [31, 32], allowing the nervous system to anticipate the sensory consequences of actions and produce smooth, accurate movements [33, 30, 29]. Motivated by these insights, cerebellum-inspired architectures have been explored across a range of robotic domains, including motion planning [57, 58], locomotion [59, 60], multi-robot coordination [61], and skill learning for Vision–Language–Action models [62]. In par-allel, internal model control (IMC) in control theory [63] formalizes similar ideas and has been successfully applied to robotic manipulation tasks such as grip force modulation [64], stiffness regulation [65], and feedforward compensation in unstable interactions [66]. Building on these principles, our approach focuses on leveraging cerebellar-style predictive compensation for robotic manipulation under varying and unknown object dynamics. By learning an internal model of inter-action forces, the controller generates feedforward force commands that adapt to changes in object properties, improving both control performance and learning efficiency. 
+
+## 5 Conclusion 
+
+In this work, we presented IMPACT , a framework for forceful robotic manipulation that decouples high-level visuomotor planning from low-level force compensation through an internal-model-based controller. We evaluated the proposed framework in both simulation and real-world experiments across a range of forceful manipulation tasks, including lifting objects of varying weights, distur-bance compensation, and hybrid position–force control tasks. The results demonstrate that our ap-proach significantly improves robustness and generalization to unseen object dynamics compared to implicit force control methods and data augmentation baselines, while maintaining accurate trajec-tory tracking and stable contact behavior. 
+
+Limitations However, our current framework can only build internal models of dynamic proper-ties that are directly related to forceful interactions, such as object gravity, contact stiffness, and friction. Our method cannot be directly applied to non-rigid-body objects, such as deformable ob-jects, fluids, and granular materials, which require modeling of more complex dynamic properties, such as deformation, flow, and particle interactions. To make this internal-model framework more general, future work will explore extending the internal model to handle more complex contact conditions and integrating richer sensory modalities for broader classes of manipulation tasks. 8References 
+
+[1] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [2] Y. Ze, G. Zhang, K. Zhang, C. Hu, M. Wang, and H. Xu. 3d diffusion policy: Generalizable visuomotor policy learning via simple 3d representations. arXiv preprint arXiv:2403.03954 ,2024. [3] M. Reuss, M. Li, X. Jia, and R. Lioutikov. Goal-conditioned imitation learning using score-based diffusion policies. arXiv preprint arXiv:2304.02532 , 2023. [4] R. Wolf, Y. Shi, S. Liu, and R. Rayyes. Diffusion models for robotic manipulation: A survey. 
+
+Frontiers in Robotics and AI , 12:1606247, 2025. [5] H. Chen, J. Xu, H. Chen, K. Hong, B. Huang, C. Liu, J. Mao, Y. Li, Y. Du, and K. Driggs-Campbell. Multi-modal manipulation via multi-modal policy consensus. arXiv preprint arXiv:2509.23468 , 2025. [6] B. Zitkovich, T. Yu, S. Xu, P. Xu, T. Xiao, F. Xia, J. Wu, P. Wohlhart, S. Welker, A. Wahid, et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In 
+
+Conference on Robot Learning , pages 2165–2183. PMLR, 2023. [7] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [8] S. H. Høeg, A. Vaaler, C. Liu, O. Egeland, and Y. Du. Hybrid diffusion for simultaneous symbolic and continuous planning, 2025. URL https://arxiv.org/abs/2509.21983 .[9] A. Hussein, M. M. Gaber, E. Elyan, and C. Jayne. Imitation learning: A survey of learning methods. ACM Computing Surveys (CSUR) , 50(2):1–35, 2017. [10] H. Chen, C. Zhu, S. Liu, Y. Li, and K. R. Driggs-Campbell. Tool-as-interface: Learning robot policies from observing human tool use. In 3rd RSS Workshop on Dexterous Manipulation: Learning and Control with Diverse Data , 2025. [11] M. Zare, P. M. Kebria, A. Khosravi, and S. Nahavandi. A survey of imitation learning: Algo-rithms, recent developments, and challenges. IEEE Transactions on Cybernetics , 2024. [12] Z. Hou, T. Zhang, Y. Xiong, H. Pu, C. Zhao, R. Tong, Y. Qiao, J. Dai, and Y. Chen. Diffusion transformer policy. arXiv preprint arXiv:2410.15959 , 2024. [13] C. Liu, H. Chen, S. H. Høeg, S. Yao, Y. Li, K. Hauser, and Y. Du. Flexible multitask learning with factorized diffusion policy. arXiv preprint arXiv:2512.21898 , 2025. [14] A. Khazatsky, K. Pertsch, S. Nair, A. Balakrishna, S. Dasari, S. Karamcheti, S. Nasiriany, M. K. Srirama, L. Y. Chen, K. Ellis, et al. Droid: A large-scale in-the-wild robot manipulation dataset. arXiv preprint arXiv:2403.12945 , 2024. [15] P. Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, et al. π0.5: a vision-language-action model with open-world generalization. 
+
+arXiv preprint arXiv:2504.16054 , 2025. [16] A. O’Neill, A. Rehman, A. Maddukuri, A. Gupta, A. Padalkar, A. Lee, A. Pooley, A. Gupta, A. Mandlekar, A. Jain, et al. Open x-embodiment: Robotic learning datasets and rt-x models: Open x-embodiment collaboration 0. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 6892–6903. IEEE, 2024. 9[17] C. Chi, Z. Xu, C. Pan, E. Cousineau, B. Burchfiel, S. Feng, R. Tedrake, and S. Song. Universal manipulation interface: In-the-wild robot teaching without in-the-wild robots. arXiv preprint arXiv:2402.10329 , 2024. [18] L. Wang, J. Zhao, Y. Du, E. H. Adelson, and R. Tedrake. Poco: Policy composition from and for heterogeneous robot learning. arXiv preprint arXiv:2402.02511 , 2024. [19] J. J. Liu, Y. Li, K. Shaw, T. Tao, R. Salakhutdinov, and D. Pathak. Factr: Force-attending curriculum training for contact-rich policy learning. arXiv preprint arXiv:2502.17432 , 2025. [20] H. Xue, J. Ren, W. Chen, G. Zhang, Y. Fang, G. Gu, H. Xu, and C. Lu. Reactive diffusion policy: Slow-fast visual-tactile policy learning for contact-rich manipulation. arXiv preprint arXiv:2503.02881 , 2025. [21] Y. Hou, Z. Liu, C. Chi, E. Cousineau, N. Kuppuswamy, S. Feng, B. Burchfiel, and S. Song. Adaptive compliance policy: Learning approximate compliance for diffusion guided control. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 4829– 4836. IEEE, 2025. [22] X. Zhang, L. Sun, Z. Kuang, and M. Tomizuka. Learning variable impedance control via inverse reinforcement learning for force-related tasks. IEEE Robotics and Automation Letters ,6(2):2225–2232, 2021. [23] T. Portela, G. B. Margolis, Y. Ji, and P. Agrawal. Learning force control for legged manip-ulation. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 15366–15372. IEEE, 2024. [24] P. Zhi, P. Li, J. Yin, B. Jia, and S. Huang. Learning unified force and position control for legged loco-manipulation. arXiv preprint arXiv:2505.20829 , 2025. [25] E. Todorov. Optimality principles in sensorimotor control. Nature neuroscience , 7(9):907–915, 2004. [26] D. Marr. A theory of cerebellar cortex. The Journal of physiology , 202(2):437–470, 1969. [27] D. M. Wolpert, R. C. Miall, and M. Kawato. Internal models in the cerebellum. Trends in cognitive sciences , 2(9):338–347, 1998. [28] H. Imamizu and M. Kawato. Cerebellar internal models: implications for the dexterous use of tools. The Cerebellum , 11(2):325–335, 2012. [29] D. W. Franklin, E. Burdet, K. P. Tee, R. Osu, C.-M. Chew, T. E. Milner, and M. Kawato. Cns learns stable, accurate, and efficient movements using a simple algorithm. Journal of neuroscience , 28(44):11165–11173, 2008. [30] D. W. Franklin, G. Liaw, T. E. Milner, R. Osu, E. Burdet, and M. Kawato. Endpoint stiffness of the arm is directionally tuned to instability in the environment. Journal of Neuroscience , 27 (29):7705–7716, 2007. [31] A. J. Bastian. Learning to predict the future: the cerebellum adapts feedforward movement control. Current opinion in neurobiology , 16(6):645–649, 2006. [32] I. Pisotta and M. Molinari. Cerebellar contribution to feedforward control of locomotion. 
+
+Frontiers in human neuroscience , 8:475, 2014. [33] E. Burdet, R. Osu, D. W. Franklin, T. E. Milner, and M. Kawato. The central nervous system stabilizes unstable dynamics by learning optimal impedance. Nature , 414(6862):446–449, 2001. 10 [34] E. Todorov, T. Erez, and Y. Tassa. Mujoco: A physics engine for model-based control. In IROS ,pages 5026–5033. IEEE, 2012. ISBN 978-1-4673-1737-5. URL http://dblp.uni-trier. de/db/conf/iros/iros2012.html#TodorovET12 .[35] M. H. Raibert and J. J. Craig. Hybrid position/force control of manipulators. Journal of dynamic systems, measurement, and control , 103(2):126–133, 1981. [36] N. Hogan. Impedance control: An approach to manipulation. In 1984 American control conference , pages 304–313. IEEE, 1984. [37] M. T. Mason. Compliance and force control for computer controlled manipulators. IEEE Transactions on Systems, Man, and Cybernetics , 11(6):418–432, 2007. [38] T. Yoshikawa. Dynamic hybrid position/force control of robot manipulators–description of hand constraints and calculation of joint driving force. IEEE Journal on Robotics and Automa-tion , 3(5):386–392, 2003. [39] B. Siciliano and L. Villani. Robot force control . Springer Science & Business Media, 1999. [40] M. Yashinski. Performing forceful robot manipulation tasks. Science Robotics , 9(87): eado8051, 2024. [41] R. Holladay, T. Lozano-P´ erez, and A. Rodriguez. Robust planning for multi-stage forceful manipulation. The International Journal of Robotics Research , 43(3):330–353, 2024. [42] R. Holladay, T. Lozano-P´ erez, and A. Rodriguez. Planning for multi-stage forceful manip-ulation. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pages 6556–6562. IEEE, 2021. [43] R. Holladay, T. Lozano-P´ erez, and A. Rodriguez. Force-and-motion constrained planning for tool use. In 2019 IEEE/RSJ international conference on intelligent robots and systems (IROS) ,pages 7409–7416. IEEE, 2019. [44] A. Pasricha, J. Koh, J. Vakil, and A. Roncone. Dynamics-compliant trajectory diffusion for super-nominal payload manipulation. arXiv preprint arXiv:2508.21375 , 2025. [45] X. Guo, G. He, J. Xu, M. Mousaei, J. Geng, S. Scherer, and G. Shi. Flying calligrapher: Contact-aware motion and force planning and control for aerial manipulation. IEEE Robotics and Automation Letters , 2024. [46] X. Xu, Y. Hou, Z. Liu, and S. Song. Compliant residual dagger: Improving real-world contact-rich manipulation with human corrections. arXiv preprint arXiv:2506.16685 , 2025. [47] N. Geiger, T. Asfour, N. Hogan, and J. Lachner. Diffusion-based impedance learning for contact-rich manipulation tasks. arXiv preprint arXiv:2509.19696 , 2025. [48] G. Lee, Y. Lee, K. Kim, S. Lee, S. Noh, S. Back, and K. Lee. Manipforce: Force-guided policy learning with frequency-aware representation for contact-rich manipulation. arXiv preprint arXiv:2509.19047 , 2025. [49] H. Choi, Y. Hou, C. Pan, S. Hong, A. Patel, X. Xu, M. R. Cutkosky, and S. Song. In-the-wild compliant manipulation with umi-ft. arXiv preprint arXiv:2601.09988 , 2026. [50] M. Ulmer, E. Aljalbout, S. Schwarz, and S. Haddadin. Learning robotic manipulation skills using an adaptive force-impedance action space. arXiv preprint arXiv:2110.09904 , 2021. [51] R. Mart´ ın-Mart´ ın, M. A. Lee, R. Gardner, S. Savarese, J. Bohg, and A. Garg. Variable impedance control in end-effector space: An action space for reinforcement learning in contact-rich tasks. In 2019 IEEE/RSJ international conference on intelligent robots and sys-tems (IROS) , pages 1010–1017. IEEE, 2019. 11 [52] F. J. Abu-Dakka, L. Rozo, and D. G. Caldwell. Force-based learning of variable impedance skills for robotic manipulation. In 2018 IEEE-RAS 18th International Conference on Hu-manoid Robots (Humanoids) , pages 1–9. IEEE, 2018. [53] E. Aljalbout, F. Frank, P. van der Smagt, and A. Paraschos. The shortcomings of force-from-motion in robot learning. arXiv preprint arXiv:2407.02904 , 2024. [54] E. R. Kandel. Principles of neural science, 2000. [55] J. S. Albus. A theory of cerebellar function. Mathematical biosciences , 10(1-2):25–61, 1971. [56] J. C. Eccles. The cerebellum as a neuronal machine . Springer Science & Business Media, 2013. [57] S. Tolu, M. C. Capolei, L. Vannucci, C. Laschi, E. Falotico, and M. V. Hernandez. Acerebellum-inspired learning approach for adaptive and anticipatory control. International journal of neural systems , 30(01):1950028, 2020. [58] O. Zahra, D. Navarro-Alarcon, and S. Tolu. Vision-based control for robots by a fully spiking neural system relying on cerebellar predictive learning. arXiv preprint arXiv:2011.01641 ,2020. [59] J. Long, Z. Wang, Q. Li, J. Gao, L. Cao, and J. Pang. Hybrid internal model: Learning agile legged locomotion with simulated robot response. arXiv preprint arXiv:2312.11460 , 2023. [60] J. Long, J. Ren, M. Shi, Z. Wang, T. Huang, P. Luo, and J. Pang. Learning humanoid locomo-tion with perceptive internal model. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 9997–10003. IEEE, 2025. [61] J. Gao, Z. Wang, Z. Xiao, J. Wang, T. Wang, J. Cao, X. Hu, S. Liu, J. Dai, and J. Pang. Coohoi: Learning cooperative human-object interaction with manipulated object dynamics. Advances in Neural Information Processing Systems , 37:79741–79763, 2024. [62] H. Tan, X. Hao, C. Chi, M. Lin, Y. Lyu, M. Cao, D. Liang, Z. Chen, M. Lyu, C. Peng, et al. Roboos: A hierarchical embodied framework for cross-embodiment and multi-agent collabo-ration. arXiv preprint arXiv:2505.03673 , 2025. [63] C. E. Garcia and M. Morari. Internal model control. a unifying review and some new results. 
+
+Industrial & Engineering Chemistry Process Design and Development , 21(2):308–323, 1982. [64] M. Kawato. Internal models for motor control and trajectory planning. Current opinion in neurobiology , 9(6):718–727, 1999. [65] G. Ganesh, A. Albu-Sch¨ affer, M. Haruno, M. Kawato, and E. Burdet. Biomimetic motor behavior for simultaneous adaptation of force, impedance and trajectory in interaction tasks. In 2010 IEEE International Conference on Robotics and Automation , pages 2705–2711. IEEE, 2010. [66] C. Yang, G. Ganesh, S. Haddadin, S. Parusel, A. Albu-Schaeffer, and E. Burdet. Human-like adaptation of force and impedance in stable and unstable interactions. IEEE transactions on robotics , 27(5):918–930, 2011. 12 A Appendix 
+
+We provide a detailed description of the IMPACT framework, including the algorithmic implemen-tation, hyper-parameters, and visualizations of the internal model learning and predictive control process in real-world experiments. 
+
+A.1 Internal Model Learning and Predictive Control of IMPACT 
+
+We summarize the whole pipeline of IMPACT in algorithm 1, which includes the policy inference, impedance control, external wrench estimation, internal model prediction, and predictive compensa-tion steps. Note that this is for policy inference, the policy is trained following the standard diffusion policy training pipeline [1]. 
+
+Algorithm 1 IMPACT framework 
+
+Require: Policy πθ ; impedance gains (K, D); observation history Ot
+
+1: for each policy update time tk (30Hz) do 
+
+2: Xdtk :tk +Hp ← πθ (Otk )
+
+3: for each control step t ∈ [tk, t k+1 ) (1000Hz) do 
+
+4: xd ← S (Xd, t )
+
+5: Compute pose error e and Jacobian J
+
+6: wimp ← Ke − DJ ˙q
+
+7: τ imp ← J⊤wimp 
+
+8: (External wrench estimation) 
+
+9: r ← τ meas − τ model 
+
+10: ˆwext ← (JJ ⊤ + λ2I)−1Jr 
+
+11: wslow ← LowPass( ˆ wext )
+
+12: (Internal model prediction) 
+
+13: wpred ← M ϕ(zt−L:t)
+
+14: (Predictive compensation) 
+
+15: wff ← wpred 
+
+16: τ ff ← J⊤wff 
+
+17: (Torque command) 
+
+18: τ ← τ imp + τ ff + τ null 
+
+19: Apply τ
+
+20: end for 
+
+21: end for 
+
+The key hyperparameters used by the policy, controller, wrench estimator, and internal model are summarized in Table 2. 
+
+Hyperparameter Symbol Value 
+
+Policy prediction horizon Hp 32 Observation history length Ho 2Impedance stiffness gains K diag(400 , 400 , 400 , 30 , 30 , 30) 
+
+Impedance damping gains D diag(40 , 40 , 40 , 10 .95 , 10 .95 , 10 .95) 
+
+Wrench regularization weight λ 0.02 Low-pass adaptation rate η force: 2.0 s −1, torque: 1.0 s −1
+
+Low-pass filter time constant – 0.0495 s Clip saturation bounds – 10 N, 1 Nm Internal model history length L 32 Internal model learning rate – 0.01 Internal model update threshold – surprise ≥ 5 N; slow-wrench rate ≤ 0.2 Policy update frequency – 30 Hz Controller frequency – 1000 Hz 
+
+Table 2: Hyperparameters used by the policy, controller, wrench estimator, and internal model. 13 A.2 Additional Real-World Visualizations 
+
+We record the key metrics during real-world experiments, including the applied wrench, estimated external wrench, and internal model predictions, as described in section 3.3. The procedure is: we first test the policy trained on the 2.5 kg dumbbell to pick-and-place the 2.5 kg dumbbell (Window 1), and perform this task for multiple times, then we switch to the 5 kg dumbbell without any prior information (Window 2). The overall visualization of the whole process is shown in Fig. 8, where we can see that the internal model successfully learns to predict the external wrench induced by the 2.5 kg dumbbell in Window 1, and keep this internal representation until the load change is detected in Window 2, where the internal model then rapidly re-adapts to the new load in Window 2 upon detecting the load discrepancy. 0 50 100 150 200 250 300 Time (s) 010 20 30 40 50 60 Forces (N) Window 1 Window 2 
+
+> Applied Wrench Weight Estimate Estimated Wrench
+
+Figure 8: Example visualization of one real-world episode. 3D visualization of applied wrench, estimated wrench, and internal weight estimates. IMPACT demonstrates successful mass identi-fication in Window 1 (2.5 kg) and rapid re-adaptation in Window 2 (5 kg) upon detecting load discrepancies. Also, we compare the pose tracking performance of the baseline impedance controller and IMPACT 
+
+in the real-world experiments. As shown in Fig. 9, the baseline impedance controller exhibits signif-icant steady-state pose tracking error across all phases due to the lack of load compensation, while 
+
+IMPACT effectively cancels the external loads through feedforward compensation, maintaining pose error within the noise floor (red region) as shown in Fig. 10. This demonstrates the effectiveness of the internal model learning and predictive control mechanism in IMPACT for handling varying and unknown object dynamics in real-world manipulation tasks. 14 0 20 40 60 80 100 120 140 160 Time (s) 
+
+−0.10 
+
+−0.05 0.00 0.05 0.10 0.15 0.20 Pose error z (m) 
+
+Phase A Phase B Phase C Pose Error (z) Figure 9: Baseline Impedance Control. Significant steady-state error is observed across all phases due to the lack of load compensation. −0.050     
+
+> −0.025 0.000 0.025 0.050 0.075 0.100 0.125 0.150 Pose error z (m)
+> −0.050
+> −0.025 0.000 0.025 0.050 0.075 0.100 0.125 0.150 Pose error z (m)
+> 010 20 30 40 Time (s) 010 20 30 40 50 60 Force (N)
+
+Phase A (a) Applied Wrench Pose Error (z)       
+
+> 020 40 60 80 100 120 Time (s) 010 20 30 40 50 60 Force (N)
+
+Phase B Phase C (b) 
+
+Figure 10: IMPACT Performance. The feedforward wrench effectively cancels external loads, maintaining pose error within the noise floor (red region). 15

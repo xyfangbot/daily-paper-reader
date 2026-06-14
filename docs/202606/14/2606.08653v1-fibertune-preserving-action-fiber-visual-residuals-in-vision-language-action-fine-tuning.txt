@@ -1,0 +1,718 @@
+Title: FiberTune: Preserving Action-Fiber Visual Residuals in Vision-Language-Action Fine-Tuning
+
+URL Source: https://arxiv.org/pdf/2606.08653v1
+
+Published Time: Tue, 09 Jun 2026 01:17:11 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# FIBER TUNE : Preserving Action-Fiber Visual Residuals in Vision-Language-Action Fine-Tuning 
+
+Haihao Lin 1∗ Xiangsheng Huang 2 Xiao Yang 1 Weibang Zhou 1
+
+Yiqi Zhang 3 Bo Yang 3 Simin Zeng 1 Jiawei Yang 4
+
+Zhengyang Wang 4 Jiahui Du 41University of Chinese Academy of Sciences 
+
+> 2
+
+Hebei Key Laboratory of Cognitive Intelligence, Xiong’an Institute of Innovation 
+
+> 3
+
+Hebei University of Technology 4Beijing Information Science and Technology University 
+
+Abstract: Action-supervised fine-tuning of VLA policies fits demonstrations ef-fectively but constrains only the directions that change predicted actions, leaving visual structure consistent across action-equivalent states free to collapse. We for-malize this as residual visual collapse along local action fibers and propose F IB -
+
+> ER
+
+TUNE , a training-time objective that preserves teacher-structured visual resid-uals without adding inference-time overhead. F IBER TUNE uses an online action probe to estimate action-predictive feature directions, filters them from interme-diate visual-token representations, and aligns the resulting probe-filtered residuals to a frozen visual teacher while regularizing their effective rank. Under identical training conditions, F IBER TUNE improves over task-loss-only fine-tuning in every one of six controlled simulation settings spanning two benchmarks and two archi-tectures ( π0.5 and OpenVLA-OFT), as well as on physical SO-101 pick-place; representative gains include +10.7 pp SR(5) on long-horizon CALVIN ABC →Dand physical SO-101 task success rising from 72.7% to 78.1%. Residual diagnos-tics show that these gains coincide with increased probe-filtered residual teacher alignment and effective rank, consistent with the action-fiber motivation. 
+
+Keywords: Vision-Language-Action Models, Representation-Preserving Fine-Tuning, Robot Manipulation 
+
+1 Introduction 
+
+Language-conditioned robot learning has progressed from grounding language in affordances, task-conditioned imitation, and multimodal prompts to modern VLA policies that directly map obser-vations and instructions to robot actions [1, 2, 3, 4]. Large VLA policies such as RT-1, RT-2, RoboFlamingo, OpenVLA, OpenVLA-OFT, Octo, CogACT, and π0-style policies have made it practical to adapt pretrained visual and language representations to robot control through action-supervised fine-tuning [5, 6, 7, 8, 9, 10, 11, 12, 13]. This adaptation is central to modern robot learning, but action-supervised losses constrain only the directions that change predicted actions — visual factors consistent across action-equivalent states receive no direct gradient and can compress during fine-tuning. For example, color, category, background, nearby distractors, or future-relevant object state can be visually meaningful while requiring the same short-horizon end-effector com-mand. We formalize this through local action fibers : for a supervised action target a, the action fiber is the set of representations that produce the same prediction under hθ ; action loss constrains directions that cross fibers but leaves fiber-tangent directions — where action-equivalent visual structure lives — without direct gradient pressure. Prior work has observed that VLA fine-tuning degrades inher-ited visual representations [14, 15, 16] and proposed broad preservation objectives; the action-fiber 
+
+> *
+
+Corresponding author: linhaihao24@mails.ucas.ac.cn 
+
+> arXiv:2606.08653v1 [cs.CV] 7 Jun 2026
+
+framing sharpens this to the question of which visual structure to preserve after filtering out the action-predictive component. We introduce F IBER TUNE , a training-time residual preservation objective for VLA fine-tuning. F IB -
+
+> ER
+
+TUNE first estimates action-predictive feature directions using an online action probe. It then applies the complementary feature-space filter to token representations, yielding a probe-filtered residual. A frozen visual teacher supplies a training-time reference for the residual visual struc-ture; F IBER TUNE aligns centered, normalized residual token directions to the teacher and adds an effective-rank residual prior to prevent the residual from collapsing into a small number of teacher-correlated directions. At deployment, the policy is unchanged: the teacher, probe, and auxiliary adapter are removed. Holding initialization, data, budget, and evaluator fixed, F IBER TUNE improves over task-loss-only fine-tuning in every one of six controlled simulation settings and on physical SO-101. On the CALVIN ABC →D chain evaluator, F IBER TUNE raises a π0.5 task-loss baseline from 3.837 to 4.116 average subtasks and improves SR from 61.4% to 72.1%. On LIBERO, gains hold from both general and adapted checkpoints and transfer to an independent OpenVLA-OFT fine-tuning stack. On physical SO-101 pick-place, F IBER TUNE improves task success from 72.7% to 78.1%, with the largest gain on the held-out green block condition. Representation diagnostics show increased residual teacher alignment and effective rank, while full-token alignment can raise aggregate teacher similarity without strengthening residual structure. Our contributions are: • We formulate residual visual collapse in VLA fine-tuning through local action fibers, clarifying why action-supervised losses can discard visually meaningful but action-equivalent factors. • We propose F IBER TUNE , an inference-free training-time objective that uses action-probe filtering to apply teacher alignment only to residual visual tokens, together with an effective-rank residual prior. • We demonstrate consistent gains over task-loss-only fine-tuning across CALVIN, LIBERO ( π0.5
+
+and OpenVLA-OFT), and physical SO-101, under fixed training conditions, and connect the gains to residual representation diagnostics. 
+
+2 Related Work 
+
+Vision-language-action policies. Robot foundation models increasingly combine pretrained vi-sion and language representations with action decoders for manipulation and embodied control. Earlier systems grounded language in affordance scoring, zero-shot imitation, multimodal prompt-ing, and embodied multimodal models [1, 2, 3, 4]. RT-1 and RT-2 demonstrated large-scale real-world robot policies and web-knowledge transfer to actions [5, 6]. RoboFlamingo, OpenVLA, and OpenVLA-OFT adapt pretrained vision-language models into robot policies and practical fine-tuning recipes [7, 8, 9], while Octo, CogACT, and π0-family policies explore generalist policy learn-ing with different VLA training designs [10, 11, 12, 13]. Recent work also studies reinforced fine-tuning and long-horizon VLA execution [17, 18, 19]. FIBER TUNE is a training-time regularizer: it acts on intermediate visual-token representations during fine-tuning and introduces no additional parameters, modules, or inference-time overhead. 
+
+Action-supervised policy learning. Strong robot policies often reduce adaptation to supervised prediction of continuous actions, action chunks, or denoising targets. ACT and Diffusion Policy established high-performing action-sequence and diffusion-based visuomotor imitation recipes [20, 21]. Recent VLA recipes extend this pattern with faster parallel decoding and action tokenization [9, 22]. These objectives provide direct behavioral supervision but do not specify how much non-action visual structure should remain in intermediate representations, motivating the residual-preservation question studied here. 2Representation preservation in VLA fine-tuning. Several recent papers identify representation degradation as a bottleneck for VLA adaptation. BlindVLA introduced a frozen-teacher visual align-ment protocol that maps VLA visual tokens through a lightweight fixed adapter and aligns them to teacher patch features with a cosine loss [14]. MAPS preserves vision-language representations through module-wise proximity scheduling [16]. Spatial Forcing aligns VLA features to spatial foundation representations [23]. RS-CL uses robot-state-aware contrastive regularization to shape control-relevant representations [24]. These methods motivate representation preservation; their objectives generally operate on full representations, teacher spaces, state metrics, or architectural constraints. F IBER TUNE adopts the frozen-teacher/fixed-adapter alignment protocol from this line of work, but changes the aligned object: the teacher signal is applied after filtering action-predictive directions, and the residual is regularized by an effective-rank prior. 
+
+Information and anti-collapse principles. Our objective uses conditional information preser-vation as its design principle and implements it through trainable residual surrogates of the ideal mutual-information objective. This places F IBER TUNE near information bottleneck views [25, 26], LangForce’s language/action conditional-information analysis of shortcut behavior [27], and representation-rank diagnostics [28]. The effective-rank prior follows the same broad anti-collapse tradition as variance/covariance regularization in self-supervised learning [29, 30], but it is applied to action-filtered residual directions rather than generic image representations. We quantify these representation-geometry properties using CKA [31] to measure alignment between spaces and ef-fective rank [28] to track covariance spread. 
+
+3 Method 
+
+FIBER TUNE targets the part of the visual-token representation that is weakly constrained by ac-tion supervision. We first identify this residual under a local action-fiber view, then describe the trainable probe-filtered residual used during fine-tuning. Below we state the trainable objective; the appendices collect the projector derivation, probe estimator, and implementation protocol. 
+
+3.1 Action fibers and residual visual collapse 
+
+Let V , L, and A denote the visual observation, language instruction, and supervised action tar-get. For a sample (v, ℓ, a ), consider an intermediate visual-token representation Rθ (v, ℓ ) =[r1, . . . , r Tv ] ∈ RTv ×d. A local prediction map hθ maps these tokens to the supervised action target, and the task loss penalizes prediction errors through Ltask . For a fixed local target value, the corresponding action fiber is the level set of representations that induce the same supervised action target under the current policy head. Linearizing the local prediction map around the pooled visual feature ¯Rθ = T −1
+
+> v
+
+P 
+
+> t
+
+rt gives 
+
+hθ (Rθ + ∆ R) ≈ hθ (Rθ ) + Jθ ∆¯ r, (1) where ∆¯ r = T −1
+
+> v
+
+P 
+
+> t
+
+∆rt and Jθ is the Jacobian of the supervised action target with respect to ¯Rθ .Directions in Row( Jθ ) change the supervised action target to first order and are directly constrained by the task loss. Under this pooled feature-axis linearization, directions in Null( Jθ ) are tangent to the action fiber to first order: they produce no first-order change in the supervised action target, and therefore incur no first-order task-loss change. We denote by Uθ the feature-axis projection of Rθ
+
+onto Null( Jθ ). Visual factors such as object identity, color, distractors, or future-relevant state can reside in Uθ and can be compressed during fine-tuning without a first-order penalty from the local action target. Let τ be a frozen visual teacher, let Z = τ (V ) be its visual-token representation, and let Zc denote its token-centered form. The teacher is introduced as a training-time reference that makes residual visual preservation optimizable from the action dataset. F IBER TUNE uses the following conditional information objective as a preservation principle: 
+
+max  
+
+> θ
+
+I(Uθ ; Zc | A, L ) s.t. Ltask (θ) ≤ ϵ, (2) 3action decoder    
+
+> action probe
+> adapter
+> center + norm center + norm
+> spectrum
+> task loss rank loss alignment loss
+
+FiberTune    
+
+> Dataset
+> visual observation language prompt
+> Fine-Tuning
+> vision-language encoder
+> FiberTune Branch
+> training objective
+> Frozen Teacher
+> intermediate tokens
+> action prediction
+> action label
+> action-predictive part
+> residual part
+> student directions
+> teacher
+> teacher directions
+
+Figure 1: FIBER TUNE overview. Standard VLA fine-tuning does not supervise the action-orthogonal residual, allowing generalizable visual structure to collapse during adaptation. FIB -
+
+ER TUNE adds two training-time objectives—probe-filtered alignment to a frozen teacher and an effective-rank prior on the filtered residual—to preserve this structure; the teacher, probe, and aux-iliary losses are removed at deployment. Expanding by the chain rule gives 
+
+I(Uθ ; Zc | A, L ) = H(Uθ | A, L ) − H(Uθ | Zc, A, L ), (3) which identifies two complementary pressures. The first term, H(Uθ | A, L ), is the conditional entropy of the residual: maximizing it encourages the residual to span a high-rank subspace rather than collapsing onto a few dominant directions. The second term, H(Uθ | Zc, A, L ), is the residual uncertainty unexplained by the teacher: minimizing it encourages the residual to be predictable from teacher visual structure, i.e., to preserve the visual content the teacher encodes. 
+
+3.2 From ideal residuals to a computable probe-filtered residual 
+
+Computing Uθ exactly requires the local Jacobian of a large nonlinear VLA policy throughout fine-tuning, which is impractical. F IBER TUNE instead uses a scalable probe approximation to the same first-order geometry. The approximation estimates which feature directions are locally predictive of the supervised action target and removes those directions from the token representation. Concretely, FIBER TUNE fits a lightweight linear action probe from stop-gradient pooled visual-token features to the local supervised continuous action vector. The probe row space estimates the local action-predictive feature directions. Writing the resulting feature filter as Pprobe , F IBER TUNE applies the complementary filter to the same visual-token set: 
+
+Rpf = Rθ (I − Pprobe ). (4) Here Rpf is a scalable approximation to Uθ , with Rθ Pprobe being the action-predictive component removed by the filter. During the policy update, Pprobe is treated as a fixed filter: auxiliary gradients 4flow through Rpf to Rθ , while the probe is updated only via its own action-regression objective. Because the probe is trained on pooled visual-token features, Pprobe acts as shared feature-channel directions across all visual-token positions, consistent with the channel-wise structure of transformer hidden states. 
+
+3.3 Teacher-conditioned residual alignment 
+
+With Rpf in hand, we address the second pressure from Eq. (3): direct action supervision provides no target for action-preserving visual variation, so F IBER TUNE uses a frozen visual teacher as a training-time reference for residual visual structure. Like BlindVLA [14], we use a frozen teacher and a fixed randomly initialized per-token MLP adapter g; unlike BlindVLA, we apply the loss to the probe-filtered residual Rpf rather than the full hidden state, and we center both representations along the token axis via CT = ITv − T −1 
+
+> v
+
+11 ⊤ before normalization so that cosine similarity acts on token-relative structure rather than the shared mean direction. The loss is computed on matched image-token spans: index t ranges over paired student and teacher visual tokens from the corre-sponding image view; language and action tokens are excluded. Let Yθ = norm( CT g(Rpf )) and 
+
+˜Z = norm( Zc); the alignment loss is 
+
+Lalign = −Et
+
+h
+
+cos( Yθ,t , ˜Zt)
+
+i
+
+. (5) 
+
+3.4 Effective-rank residual prior 
+
+The first pressure from Eq. (3) requires maximizing H(Uθ | A, L ): spreading residual energy across directions rather than concentrating it. Alignment alone does not guarantee this; it can satisfy the teacher objective by concentrating teacher-correlated information onto a few dominant directions. Following covariance-spread anti-collapse objectives and rank diagnostics for learned representa-tions [29, 30, 28], we therefore regularize the shape of the batch-token residual covariance. For covariance eigenvalues {λi}Ki=1 of the probe-filtered residual samples in the VLA feature space be-fore applying g, where K is the number of eigenvalues in the empirical spectrum, let pi = λi/ P 
+
+> j
+
+λj
+
+and Hshape (Rpf ) = −(P 
+
+> i
+
+pi log pi)/ log K. We set Lrank = −Hshape (Rpf ), encouraging residual energy to occupy multiple directions. The final training objective is 
+
+L = Ltask + λalign Lalign + λrank Lrank . (6) 
+
+4 Experiments 
+
+4.1 Experimental setup 
+
+A task configuration is defined by its benchmark/task, policy, and initialization. Within each con-figuration, Baseline and F IBER TUNE share the training data, optimization budget, evaluator, and model-selection rule. 
+
+Benchmarks and metrics. We evaluate on two simulation benchmarks. CALVIN ABC →D eval-uates multi-step language-conditioned manipulation with average completed subtasks and success at sequence lengths 1–5 using a chain evaluator over 1000 trials [32]. LIBERO evaluates standard manipulation suites with a four-suite protocol, using 10 tasks and 50 episodes per suite [33]. 
+
+Policies and initializations. We evaluate π0.5 policies on CALVIN and LIBERO using OpenPI-family source policies [13]; fine-tuning and LIBERO evaluation use the LeRobot stack [34], while CALVIN evaluation uses the RLinf chain-evaluation bridge [35, 36]. We evaluate OpenVLA-OFT policies on LIBERO using the original LIBERO environment [9]. For both backbones, we include general and adapted starting checkpoints to test first adaptation and continued specialization sepa-rately. 5Table 1: Main results under controlled fine-tuning. FIBER TUNE outperforms the task-loss base-line in all six settings. Behavior values are primary single-seed runs (per-family default seed); the supplementary reports multi-seed averages and Wilson 95% confidence intervals. 
+
+Benchmark / task Policy Initialization Metric Baseline FIBER TUNE Gain CALVIN ABC →D π0.5 general checkpoint Avg. seq. len. 0.796 1.012 +0.216 CALVIN ABC →D π0.5 general checkpoint SR (5) (%) 0.4 1.3 +0.9 CALVIN ABC →D π0.5 adapted checkpoint Avg. seq. len. 3.837 4.116 +0.279 CALVIN ABC →D π0.5 adapted checkpoint SR (5) (%) 61.4 72.1 +10.7 LIBERO π0.5 general checkpoint SR (%) 92.35 93.35 +1.00 LIBERO π0.5 adapted checkpoint SR (%) 95.75 97.10 +1.35 LIBERO OpenVLA-OFT general checkpoint SR (%) 42.50 48.95 +6.45 LIBERO OpenVLA-OFT adapted checkpoint SR (%) 95.35 96.15 +0.80 0  
+
+> 1
+> 2
+> General start
+> Avg. seq. len.
+> 0%
+> 1%
+> 2%
+> General start
+> SR (5)
+> 0
+> 2
+> 4
+> Adapted start
+> Avg. seq. len.
+> 0%
+> 50%
+> 100%
+> Adapted start
+> SR (5)
+> 80%
+> 90%
+> 100%
+> π0.5
+> General start
+> 80%
+> 90%
+> 100%
+> π0.5
+> Adapted start
+> 40%
+> 50%
+> OpenVLA-OFT
+> General start
+> 80%
+> 90%
+> 100%
+> OpenVLA-OFT
+> Adapted start
+> CALVIN ABC→D
+> LIBERO
+> Baseline FiberTune
+
+Figure 2: Behavior improvements under controlled fine-tuning protocols. FIBER TUNE consis-tently outperforms the task-loss baseline across all benchmarks and policies. 
+
+Baselines and controlled training protocol. Each comparison fixes the benchmark/task, policy, initialization, training data, budget, evaluator, and model-selection rule; within this protocol, the task-loss baseline and F IBER TUNE differ only in their fine-tuning objective. F IBER TUNE -specific choices — residual layer, teacher-token span, and auxiliary loss scales — are set per backbone before any result is collected and held constant across all rows for that backbone. Full protocol details are in the appendices. 
+
+4.2 Benchmark fine-tuning results 
+
+Table 1 reports the primary behavior results, organized by task configuration; further details are in the appendices. 
+
+CALVIN long-horizon chain evaluation. FIBER TUNE improves average sequence length from 3.837 to 4.116 and SR(5) from 61.4% to 72.1%. From a general (pre-CALVIN) π0.5 checkpoint, both methods remain far from task completion under the fixed budget (SR(5) 0.4% vs 1.3%); we report this setting for completeness rather than as a primary result. 
+
+LIBERO standard benchmark. FIBER TUNE improves π0.5 success from 92.35% to 93.35% from a general checkpoint and from 95.75% to 97.10% from an adapted checkpoint. Gains across both benchmarks confirm that F IBER TUNE is effective under different task distributions and evalu-ation environments. 
+
+Cross-architecture OpenVLA-OFT transfer. FIBER TUNE also transfers to a different architec-ture: it improves OpenVLA-OFT LIBERO success from 42.50% to 48.95% from a general Open-VLA checkpoint and from 95.35% to 96.15% from an adapted OpenVLA-OFT policy, showing that the gains hold across policy architectures and fine-tuning stages. 64.3 Real-world SO-101 pick-place 
+
+Table 2: SO-101 physical pick-place results. 
+
+FIBER TUNE improves success rates across all stages and block colors, including the held-out OOD green block. 
+
+Stage / Condition Baseline FIBER TUNE Gain 
+
+Physical stage breakdown 
+
+Contact 120/128 (93.8%) 124/128 (96.9%) +3.1 Lift 104/128 (81.2%) 106/128 (82.8%) +1.6 Task success 93/128 (72.7%) 100/128 (78.1%) +5.5 
+
+Task success by color 
+
+ID colors 78/96 (81.2%) 80/96 (83.3%) +2.1 OOD green 15/32 (46.9%) 20/32 (62.5%) +15.6 
+
+On the physical SO-101 pick-place task, un-der the same controlled protocol, F IBER TUNE 
+
+improves task success from 72.7% to 78.1% over 128 trials spanning three in-distribution block colors and one held-out green condi-tion. ID-color success improves from 81.2% to 83.3%; the held-out green condition im-proves from 46.9% to 62.5%. On the held-out green condition the gain is largest in magnitude (46.9% →62.5%); given the small per-condition sample ( n = 32 ), we treat this as sugges-tive physical-robot evidence for improved color generalization, with the inference-time policy unchanged. Instruction: "pick up the {color} block and put it into the black box"                  
+
+> Yellow block
+> in-distribution color
+> start final
+> Orange block
+> in-distribution color
+> start final
+> Purple block
+> in-distribution color
+> start final
+> Green block
+> out-of-distribution color
+> start final
+> The same 32 placements are used for each color and policy.
+> Four-square 16 trials Upright tri. 8 trials Inverted tri. 8 trials
+> upright tilted upright tilted upright tilted
+> SO-101 pick-place tasks
+> Placement schedule
+
+Figure 3: Real-world SO-101 evaluation protocol. The green block is the held-out OOD color; all other conditions are in-distribution. 
+
+4.4 Representation diagnostics 
+
+The central diagnostic question is whether F IBER TUNE changes the probe-filtered residual in ways that are visible beyond aggregate success rates. Table 3 reports the available representation diag-nostics for the matched behavior comparisons. We use linear CKA and participation-ratio effective rank as established representation-similarity and covariance-spread diagnostics [31, 28]. Across all settings, F IBER TUNE increases both residual teacher CKA and residual effective rank. These diagnostics use metrics distinct from the training losses — effective rank is a participation ratio rather than the optimized spectral-entropy prior, and CKA is measured on the probe-filtered resid-ual before the adapter g rather than on the post-g alignment target — so their consistent increase is representation-level evidence that F IBER TUNE preserves higher-rank, teacher-correlated residual structure, in line with the action-fiber motivation. Further diagnostics are in the appendices. 7Table 3: Representation diagnostics for controlled comparisons. FIBER TUNE increases both metrics in every setting. 
+
+Evaluation setting Method Behavior Residual CKA Residual eff. rank CALVIN / π0.5 / general Baseline 0.796 0.112 4.24 CALVIN / π0.5 / general FIBER TUNE 1.012 0.481 76.61 
+
+CALVIN / π0.5 / adapted Baseline 3.837 0.202 8.35 CALVIN / π0.5 / adapted FIBER TUNE 4.116 0.467 58.84 
+
+LIBERO / π0.5 / general Baseline 92.35 0.154 6.94 LIBERO / π0.5 / general FIBER TUNE 93.35 0.680 78.30 
+
+LIBERO / π0.5 / adapted Baseline 95.75 0.194 6.37 LIBERO / π0.5 / adapted FIBER TUNE 97.10 0.414 44.88 
+
+LIBERO / OpenVLA-OFT / general Baseline 42.50 0.380 39.89 LIBERO / OpenVLA-OFT / general FIBER TUNE 48.95 0.717 52.26 
+
+LIBERO / OpenVLA-OFT / adapted Baseline 95.35 0.349 35.42 LIBERO / OpenVLA-OFT / adapted FIBER TUNE 96.15 0.670 48.79 0.0  
+
+> 0.4
+> 0.8
+> General start
+> Resid. CKA
+> 0.112
+> 0.481
+> 0.0
+> 0.4
+> 0.8
+> Adapted start
+> Resid. CKA
+> 0.202
+> 0.467
+> 0.0
+> 0.4
+> 0.8
+> General start
+> Resid. CKA
+> 0.154
+> 0.680
+> 0.0
+> 0.4
+> 0.8
+> Adapted start
+> Resid. CKA
+> 0.194
+> 0.414
+> 0.0
+> 0.4
+> 0.8
+> General start
+> Resid. CKA
+> 0.380
+> 0.717
+> 0.0
+> 0.4
+> 0.8
+> Adapted start
+> Resid. CKA
+> 0.349
+> 0.670
+> 0
+> 40
+> 80
+> General start
+> Eff. rank
+> 4.2
+> 76.6
+> 0
+> 40
+> 80
+> Adapted start
+> Eff. rank
+> 8.3
+> 58.8
+> 0
+> 40
+> 80
+> General start
+> Eff. rank
+> 6.9
+> 78.3
+> 0
+> 40
+> 80
+> Adapted start
+> Eff. rank
+> 6.4
+> 44.9
+> 0
+> 40
+> 80
+> General start
+> Eff. rank
+> 39.9 52.3
+> 0
+> 40
+> 80
+> Adapted start
+> Eff. rank
+> 35.4
+> 48.8
+
+CALVIN ABC→D LIBERO / π0.5 LIBERO / OFT 
+
+Baseline FiberTune 
+
+Figure 4: Residual geometry diagnostics across six controlled settings. FIBER TUNE increases residual CKA and effective rank in all six settings. 
+
+4.5 Component ablations Table 4: Component ablation on CALVIN. The effective-rank prior is the dominant single component; filtering action-predictive directions before alignment is necessary, and the combination achieves the best re-sult. 
+
+Variant Teacher signal Rank prior Avg. seq. SR(5)% Baseline none no 3.837 61.4 Full-token align. full tokens no 3.685 58.3 Full-token + rank full tokens yes 3.956 65.6 Residual align. pf-residual no 3.980 66.2 Residual rank only none yes 4.064 70.5 FIBER TUNE pf-residual yes 4.116 72.1 
+
+The ablations in Table 4 separate the source of the CALVIN gain. Full-token teacher alignment falls below the task-loss base-line, suggesting that, under matched loss weights, full-token alignment is not benefi-cial here whereas filtering action-predictive directions before alignment helps. The effective-rank prior alone recovers most of the gain, making it the dominant single component; residual alignment adds an incremental benefit, and the combination gives the best average sequence length and SR(5). Together, the ablations support the action-fiber motivation: maintaining spread in the action-orthogonal residual subspace is a primary source of the gain. 
+
+5 Conclusion 
+
+Action-supervised fine-tuning constrains directions that cross action fibers but leaves fiber-tangent visual structure — where action-equivalent factors such as object color, category, and future-relevant state reside — without direct gradient pressure. FIBER TUNE addresses this by filtering action-predictive directions before applying teacher alignment and by maintaining the effective rank of the residual, both at training time only. Across CALVIN, LIBERO, and physical SO-101, F IB -
+
+ER TUNE consistently outperforms task-loss-only fine-tuning; representation diagnostics and com-8ponent ablations connect the gains to residual spread maintenance rather than teacher supervision alone. Explicitly regularizing the action-orthogonal residual subspace is a lightweight complement to standard task-loss fine-tuning with meaningful impact on behavioral generalization. 
+
+Limitations 
+
+FIBER TUNE introduces some training-time overhead: a frozen teacher, an online probe, and aux-iliary losses are required during fine-tuning, although inference remains unchanged. The probe-filtered residual is a first-order, pooled-feature approximation to the local action-fiber residual; in settings where action prediction is highly nonlinear or where visual token positions contribute het-erogeneously to the action target, the approximation may break down. We use benchmark-specific fixed auxiliary-to-task loss scales selected from short calibration runs; these scales are not auto-matically transferred across benchmarks, and broader automatic balancing is left for future work. Finally, physical-robot evidence is limited to a single task and manipulator; failure modes under more diverse real-world conditions remain uncharacterized and will require future investigation. 
+
+Acknowledgments 
+
+This work was supported in part by the Regional Innovation and Development Joint Fund of the National Natural Science Foundation of China under Grant U24A6005. 9References 
+
+[1] M. Ahn, A. Brohan, N. Brown, Y. Chebotar, O. Cortes, B. David, C. Finn, C. Fu, K. Gopalakr-ishnan, K. Hausman, et al. Do as i can, not as i say: Grounding language in robotic affordances. 
+
+arXiv preprint arXiv:2204.01691 , 2022. [2] E. Jang, A. Irpan, M. Khansari, D. Kappler, F. Ebert, C. Lynch, S. Levine, and C. Finn. Bc-z: Zero-shot task generalization with robotic imitation learning. In Conference on Robot Learn-ing , pages 991–1002. PMLR, 2022. [3] Y. Jiang, A. Gupta, Z. Zhang, G. Wang, Y. Dou, Y. Chen, L. Fei-Fei, A. Anandkumar, Y. Zhu, and L. Fan. VIMA: Robot manipulation with multimodal prompts. In International Conference on Machine Learning , pages 14975–15022, 2023. [4] D. Driess, F. Xia, M. S. M. Sajjadi, C. Lynch, A. Chowdhery, B. Ichter, A. Wahid, J. Tompson, Q. Vuong, T. Yu, et al. Palm-e: An embodied multimodal language model. In International Conference on Machine Learning , pages 8469–8488, 2023. [5] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Haus-man, A. Herzog, J. Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. In 
+
+Robotics: Science and Systems , 2023. doi:10.15607/rss.2023.xix.025. [6] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, X. Chen, K. Choromanski, T. Ding, D. Driess, A. Dubey, C. Finn, et al. RT-2: Vision-language-action models transfer web knowledge to robotic control. In Proceedings of the Conference on Robot Learning , 2023. [7] X. Li, M. Liu, H. Zhang, C. Yu, J. Xu, H. Wu, C. Cheang, Y. Jing, W. Zhang, H. Liu, et al. Vision-language foundation models as effective robot imitators. In International Conference on Learning Representations , 2024. [8] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, Q. Vuong, T. Kollar, B. Burchfiel, R. Tedrake, D. Sadigh, S. Levine, P. Liang, and C. Finn. Openvla: An open-source vision-language-action model. In Proceedings of the Conference on Robot Learning , 2024. [9] M. J. Kim, C. Finn, and P. Liang. Fine-tuning vision-language-action models: Optimizing speed and success. arXiv preprint arXiv:2502.19645 , 2025. [10] Octo Model Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees, S. Dasari, J. Hejna, C. Xu, T. Kreiman, Y. L. Tan, L. Y. Chen, P. Sanketi, Q. Vuong, T. Xiao, D. Sadigh, C. Finn, and S. Levine. Octo: An open-source generalist robot policy. In Robotics: Science and Systems ,2024. [11] Q. Li, Y. Liang, Z. Wang, L. Luo, X. Chen, M. Liao, F. Wei, Y. Deng, S. Xu, Y. Zhang, et al. CogACT: A foundational vision-language-action model for synergizing cognition and action in robotic manipulation. arXiv preprint arXiv:2411.19650 , 2024. [12] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Haus-man, B. Ichter, S. Jakubczak, T. Jones, L. Ke, S. Levine, A. Li-Bell, M. Mothukuri, S. Nair, K. Pertsch, L. X. Shi, J. Tanner, Q. Vuong, A. Walling, H. Wang, and U. Zhilinsky. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 ,2024. [13] Physical Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, M. Y. Galliker, D. Ghosh, L. Groom, K. Hausman, B. Ichter, S. Jakubczak, T. Jones, L. Ke, D. LeBlanc, S. Levine, A. Li-Bell, M. Mothukuri, S. Nair, K. Pertsch, A. Z. Ren, L. X. Shi, L. Smith, J. T. Springenberg, K. Stachowicz, J. Tanner, Q. Vuong, H. Walke, A. Walling, H. Wang, L. Yu, and U. Zhilinsky. π0.5: A vision-language-action model with open-world generalization. arXiv preprint arXiv:2504.16054 , 2025. 10 [14] N. Kachaev, M. Kolosov, D. Zelezetsky, A. K. Kovalev, and A. I. Panov. Don’t blind your vla: Aligning visual representations for ood generalization. arXiv preprint arXiv:2510.25616 ,2025. [15] Z. Zhang, X.-H. Chen, Y. Wang, Y. Sun, W. Luo, H. Ren, H. Lin, and Y. Yu. On the represen-tation degradation in vision-language-action models. OpenReview , 2025. [16] C. Huang, M. M. Zhang, R. Azarcon, G. Chou, and Z. Kira. Maps: Preserving vision-language representations via module-wise proximity scheduling for better vision-language-action gen-eralization. arXiv preprint arXiv:2511.19878 , 2025. [17] Y. Chen, S. Tian, S. Liu, Y. Zhou, H. Li, and D. Zhao. Conrft: A reinforced fine-tuning method for vla models via consistency policy. arXiv preprint arXiv:2502.05450 , 2025. [18] D. Huang, Z. Fang, T. Zhang, Y. Li, L. Zhao, and C. Xia. Co-rft: Efficient fine-tuning of vision-language-action models through chunked offline reinforcement learning. arXiv preprint arXiv:2508.02219 , 2025. [19] Y. Fan, P. Ding, S. Bai, X. Tong, Y. Zhu, H. Lu, F. Dai, W. Zhao, Y. Liu, S. Huang, Z. Fan, B. Chen, and D. Wang. Long-vla: Unleashing long-horizon capability of vision language action model for robot manipulation. arXiv preprint arXiv:2508.19958 , 2025. [20] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn. Learning fine-grained bimanual manipulation with low-cost hardware. In Robotics: Science and Systems , 2023. doi:10.15607/rss.2023.xix. 016. [21] C. Chi, S. Feng, Y. Du, Z. Xu, E. Cousineau, B. Burchfiel, and S. Song. Diffusion policy: Visuomotor policy learning via action diffusion. In Robotics: Science and Systems , 2023. [22] K. Pertsch, K. Stachowicz, B. Ichter, D. Driess, S. Nair, Q. Vuong, O. Mees, C. Finn, and S. Levine. FAST: Efficient action tokenization for vision-language-action models. arXiv preprint arXiv:2501.09747 , 2025. [23] F. Li, W. Song, H. Zhao, J. Wang, P. Ding, D. Wang, L. Zeng, and H. Li. Spatial forcing: Implicit spatial representation alignment for vision-language-action model. arXiv preprint arXiv:2510.12276 , 2025. [24] T. Kim, J. Lee, M. Koo, D. Kim, K. Lee, C. Kim, Y. Seo, and J. Shin. Contrastive representation regularization for vision-language-action models. arXiv preprint arXiv:2510.01711 , 2025. [25] N. Tishby, F. C. Pereira, and W. Bialek. The information bottleneck method. In Proceedings of the 37th Annual Allerton Conference on Communication, Control, and Computing , 1999. [26] S. Bai, W. Zhou, P. Ding, W. Zhao, D. Wang, and B. Chen. Rethinking latent redundancy in behavior cloning: An information bottleneck approach for robot manipulation. arXiv preprint arXiv:2502.02853 , 2025. [27] S. Lian, B. Yu, X. Lin, L. T. Yang, Z. Shen, C. Wu, Y. Miao, C. Huang, and K. Chen. Langforce: Bayesian decomposition of vision language action models via latent action queries. arXiv preprint arXiv:2601.15197 , 2026. [28] Q. Garrido, R. Balestriero, L. Najman, and Y. LeCun. Rankme: Assessing the downstream performance of pretrained self-supervised representations by their rank. In International Con-ference on Machine Learning , pages 10929–10974, 2023. [29] A. Bardes, J. Ponce, and Y. LeCun. Vicreg: Variance-invariance-covariance regularization for self-supervised learning. In International Conference on Learning Representations , 2022. [30] J. Zbontar, L. Jing, I. Misra, Y. LeCun, and S. Deny. Barlow twins: Self-supervised learning via redundancy reduction. In International Conference on Machine Learning , 2021. 11 [31] S. Kornblith, M. Norouzi, H. Lee, and G. Hinton. Similarity of neural network representations revisited. In International Conference on Machine Learning , 2019. [32] O. Mees, L. Hermann, E. Rosete-Beas, and W. Burgard. Calvin: A benchmark for language-conditioned policy learning for long-horizon robot manipulation tasks. IEEE Robotics and Automation Letters , 7(3):7327–7334, 2022. [33] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone. Libero: Benchmarking knowl-edge transfer for lifelong robot learning. In Advances in Neural Information Processing Sys-tems , 2023. [34] R. Cadene, S. Alibert, F. Capuano, M. Aractingi, A. Zouitine, P. Kooijmans, J. Choghari, M. Russi, C. Pascal, S. Palma, D. Aubakirova, M. Shukor, J. Moss, A. Soare, Q. Lhoest, Q. Gallou´ edec, and T. Wolf. Lerobot: An open-source library for end-to-end robot learning. In The Fourteenth International Conference on Learning Representations , 2026. URL https: //arxiv.org/abs/2602.22818 .[35] C. Yu, Y. Wang, Z. Guo, H. Lin, S. Xu, H. Zang, Q. Zhang, Y. Wu, C. Zhu, J. Hu, et al. Rlinf: Flexible and efficient large-scale reinforcement learning via macro-to-micro flow transforma-tion. arXiv preprint arXiv:2509.15965 , 2025. [36] H. Zang, M. Wei, S. Xu, Y. Wu, Z. Guo, Y. Wang, H. Lin, P. Wang, L. Shi, Y. Xie, Z. Xu, et al. Rlinf-vla: A unified and efficient framework for reinforcement learning of vision-language-action models. arXiv preprint arXiv:2510.06710 , 2025. [37] T. M. Cover and J. A. Thomas. Elements of Information Theory . Wiley-Interscience, 2 edition, 2006. [38] K. V. Mardia and P. E. Jupp. Directional Statistics . Wiley Series in Probability and Statistics. John Wiley & Sons, 1999. doi:10.1002/9780470316979. [39] G. Heinrich, M. Ranzinger, H. Yin, Y. Lu, J. Kautz, A. Tao, B. Catanzaro, and P. Molchanov. RADIOv2.5: Improved baselines for agglomerative vision foundation models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 22487– 22497, 2025. [40] J. Bjorck, F. Casta˜ neda, N. Cherniadev, X. Da, R. Ding, L. Fan, Y. Fang, D. Fox, F. Hu, S. Huang, et al. GR00T N1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 , 2025. 12 A Technical details 
+
+A.1 From ideal orthogonal residuals to probe-filtered residuals 
+
+For a sample (v, ℓ, a ), F IBER TUNE operates on an intermediate visual-token representation 
+
+Rθ (v, ℓ ) = [ r1, . . . , r Tv ] ∈ RTv ×d, (7) and the local prediction map hθ is trained with 
+
+Ltask (θ) = E[ctask (hθ (Rθ ), A )] . (8) For a fixed local action target a, the action fiber is the level set 
+
+Fa,θ = {R : hθ (R) = a}. (9) Let Z = τ (V ) be the visual-token representation of the frozen teacher and let Zc = CT Z be its token-centered form. The ideal preservation objective in the main paper uses the standard information-theoretic decomposition [37] 
+
+I(Uθ ; Zc | A, L ) = H(Uθ | A, L ) − H(Uθ | Zc, A, L ), (10) which separates residual spread from teacher predictability. We formalize the action-fiber residual with a first-order approximation of the supervised action map. Let ¯Rθ = T −1
+
+> v
+
+P 
+
+> t
+
+Rθ,t be the pooled visual-token representation and let Jθ denote the Jacobian of the local action target with respect to the pooled feature ¯Rθ . Under the first-order geometry used in the main text, the ideal residual projector is 
+
+Qθ = I − J⊤ 
+
+> θ
+
+(Jθ J⊤ 
+
+> θ
+
+)†Jθ , Uθ = Rθ Qθ . (11) The projector Qθ keeps the component of Rθ in the first-order tangent space of the local action fiber. During training, F IBER TUNE uses a probe-defined feature filter in place of this Jacobian projector. The probe is fit from detached pooled visual-token features to the supervised action target, 
+
+W ∗ = arg min  
+
+> W
+
+E∥A − W ¯Rθ ∥2, (12) uses its row space to form the ridge-stabilized feature filter 
+
+Pprobe = W ∗⊤ (W ∗W ∗⊤ + ηI )−1W ∗, (13) and applies the complementary feature filter to the same visual-token set: 
+
+Rpf = Rθ (I − Pprobe ). (14) The alignment loss and effective-rank prior both act on Rpf during training. 
+
+A.2 Directional alignment objective 
+
+The directional alignment term acts on the probe-filtered residual Rpf . The adapter g maps each residual token to teacher feature space; the centering matrix CT = ITv −T −1 
+
+> v
+
+11 ⊤ removes the token mean before row-wise normalization. The cosine term therefore compares token-relative residual structure. The resulting directions and alignment loss are 
+
+Yθ = norm( CT g(Rpf )) ˜Z = norm( Zc) = norm( CT Z)
+
+Lalign = −Et
+
+h
+
+cos( Yθ,t , ˜Zt)
+
+i
+
+.
+
+(15) A vMF-style directional likelihood over normalized residual directions gives the cosine form used in this objective [38]. For a fixed concentration κ > 0,
+
+log p(Yθ,t | ˜Zt, κ ) = κ Y ⊤ 
+
+> θ,t
+
+˜Zt + const( κ), (16) so maximizing the directional likelihood is equivalent to minimizing − cos( Yθ,t , ˜Zt). The alignment term is therefore a directional likelihood objective on the action-filtered residual. 13 A.3 Effective-rank prior 
+
+For the probe-filtered residual Rpf , the effective-rank prior uses the empirical covariance over batch-token residual samples in the VLA feature space before applying g. For a mini-batch 
+
+B and Tv selected token positions, the empirical spectrum contains K nonzero eigenvalues with K ≤ min( |B| Tv − 1, d ). With trace-normalized eigenvalues pi, the normalized score 
+
+−(P 
+
+> i
+
+pi log pi)/ log K is scale-free and penalizes concentration into a small number of residual directions. Concretely, for covariance eigenvalues {λi},
+
+pi = λi
+
+P 
+
+> j
+
+λj
+
+Hshape (Rpf ) = − 1log K
+
+X
+
+> i
+
+pi log pi
+
+Lrank = −Hshape (Rpf ).
+
+(17) The rank term therefore favors residual covariance spectra that remain spread across multiple direc-tions. 
+
+A.4 Probe row-space consistency 
+
+The action probe estimates the local action-changing row space under a centered local linear model. 
+
+Proposition. Suppose the centered pooled representation and action target satisfy 
+
+˜R = ¯Rθ − E[ ¯Rθ ], ˜A = A − E[A], (18) and ˜A = J0 ˜R + ε, E[ε | ˜R] = 0 , (19) with E[ ˜R ˜R⊤] full rank. Then the unregularized population least-squares probe 
+
+W ∗ 
+
+> 0
+
+= arg min  
+
+> W
+
+E∥ ˜A − W ˜R∥2 (20) recovers the local action-predictive row space. 
+
+Proof. The population solution is 
+
+W ∗ 
+
+> 0
+
+= E[ ˜A ˜R⊤] E[ ˜R ˜R⊤]−1
+
+= J0E[ ˜R ˜R⊤] E[ ˜R ˜R⊤]−1 = J0. (21) Thus the probe row space equals the row space of the local action map under the stated local model. With finite samples, ridge stabilization gives the filter Pprobe used by F IBER TUNE .
+
+Empirical limit. Let cWn be the ridge probe fitted from n detached pooled visual-token samples under the same local linear model. If the empirical cross-covariance and feature covariance converge to their population values, the feature covariance remains nonsingular, and the ridge coefficient 
+
+ηn → 0, then cWn → W ∗ 
+
+> 0
+
+. Consequently, the empirical probe row space and the corresponding filter 
+
+Pprobe (cWn) converge to the population first-order action-predictive row-space filter. 
+
+B Protocol details 
+
+B.1 Implementation stacks and seed conventions 
+
+Our experiments span two VLA model families whose public training and evaluation toolchains differ, so we record the implementation stack used in each setting. The π0.5 family was released through Physical Intelligence/OpenPI [12, 13], but our π0.5 fine-tuning uses the Hugging Face LeR-obot stack [34]. Within every controlled comparison, the task-loss baseline and F IBER TUNE follow 14 the same LeRobot fine-tuning path and differ only in the residual-preservation losses that F IBER -TUNE adds. Evaluation depends on the benchmark. LIBERO uses the LeRobot evaluation stack, and SO-101 uses the LeRobot real-robot recording pipeline. For CALVIN, policies are first ex-ported to the OpenPI checkpoint contract and scored by the RLinf/OpenPI chain evaluator [35, 36], so the baseline and F IBER TUNE stay under one long-horizon evaluator. The OpenVLA-OFT ex-periments instead use that family’s own OpenVLA-OFT codebase, data pipeline, and LIBERO evaluator [9]. The seeds used in our experiments are the public defaults of the corresponding implementation toolchains. OpenVLA-OFT uses seed 7 as the default LIBERO evaluation seed in its released eval-uation script. 1 OpenPI uses seed 42 as the default training seed in its public training configuration, 2
+
+and LeRobot uses seed 1000 as the default seed in its released training configuration 3 and evaluation configuration. 4
+
+B.2 Controlled protocol summary 
+
+Each controlled comparison holds the starting checkpoint, training data, optimization budget, evalu-ator, and model-selection rule identical between the task-loss baseline and F IBER TUNE , so that any behavioral difference is attributable to the residual-preservation objective. Table B.1 records the ini-tialization, training data, and evaluator for each comparison; checkpoint provenance is in Table B.2 and the optimization budget and schedule in Table B.4. Table B.1: Controlled protocol details: initialization, training data, and evaluator fixed inside each controlled comparison.                                
+
+> Evaluation setting Model Initialization Training data Evaluator CALVIN ABC →Dπ0.5adapted CALVIN ABC 1000 CALVIN chain-evaluation trials CALVIN ABC →Dπ0.5general CALVIN ABC 1000 CALVIN chain-evaluation trials LIBERO π0.5general LIBERO task suites 10 tasks and 50 episodes per suite LIBERO π0.5adapted LIBERO task suites 10 tasks and 50 episodes per suite LIBERO OpenVLA-OFT general LIBERO task suites 10 tasks and 50 episodes per suite LIBERO OpenVLA-OFT adapted LIBERO task suites 10 tasks and 50 episodes per suite SO-101 pick-place π0.5real-world source 90 SO-101 demonstrations; yellow/orange/purple ID colors; green held out for OOD evaluation 128 physical trials per arm CALVIN normalization and the chain-evaluation bridge use the released RLinf/OpenPI CALVIN asset.
+
+B.3 Source-policy provenance 
+
+Table B.2 records the starting-policy provenance for the controlled comparisons in the main paper. Table B.2: Starting-policy provenance for the controlled task configurations.                            
+
+> Task configuration Training start Source-policy provenance CALVIN / π0.5/ general general checkpoint lerobot/pi05 base .CALVIN / π0.5/ adapted adapted checkpoint RLinf/RLinf-Pi05-CALVIN-ABC-D-SFT .LIBERO / π0.5/ general general checkpoint lerobot/pi05 base .LIBERO / π0.5/ adapted adapted checkpoint lerobot/pi05 libero .LIBERO / OpenVLA-OFT / general general checkpoint openvla/openvla-7b .LIBERO / OpenVLA-OFT / adapted adapted checkpoint moojink/openvla-7b-oft-finetuned-libero-spatial-object-goal-10 .SO-101 / π0.5real-world source policy Trained from lerobot/pi05 base on the 90-demonstration SO-101 source set.
+> 1
+
+https://raw.githubusercontent.com/moojink/openvla-oft/main/experiments/robot/ libero/run_libero_eval.py 
+
+> 2
+
+https://raw.githubusercontent.com/Physical-Intelligence/openpi/main/src/openpi/ training/config.py 
+
+> 3
+
+https://raw.githubusercontent.com/huggingface/lerobot/main/src/lerobot/configs/ train.py 
+
+> 4
+
+https://raw.githubusercontent.com/huggingface/lerobot/main/src/lerobot/configs/ eval.py 
+
+15 B.4 Implementation protocol for residual objectives 
+
+Table B.3 records the implementation choices behind F IBER TUNE ’s residual objectives. Table B.3: Implementation protocol for F IBER TUNE residual losses. Values summarize the con-trolled comparisons reported in the main paper; “Same” marks an OpenVLA-OFT setting identical to the π0.5 column. 
+
+Field π0.5 experiments OpenVLA-OFT experiments Visual-token source Prefix-tower image-token slice from an intermediate policy layer VLA hidden-state image-token span from an intermediate policy layer Layer used in reported runs Prefix tower layer 8 Layer 16 Teacher Frozen RADIO visual teacher, 
+
+c-radio v3-l [39] Same Teacher-alignment protocol Frozen-teacher, fixed-adapter token cosine alignment applied to Rpf 
+
+Same Camera policy Primary camera view Same Token pairing Student image-token count is matched to teacher patch-token count for the selected view; mismatched tokenizations require an explicit adapter Same Probe target Local first-step continuous action vector used for probe fitting Same Probe fitting Online no-bias linear probe on detached pooled visual-token features; updated before projection Same Ridge filter Pprobe = W ⊤(W W ⊤ + ηI )−1W ,
+
+η = 10 −4
+
+Same Adapter g Randomly initialized MLP adapter mapping each token position independently into teacher feature space; adapter hidden width 2048; frozen after initialization in reported experiments Same Auxiliary gradient path Gradients pass through fixed Pprobe and fixed g
+
+to the policy representation; probe and adapter g
+
+are not optimized by Lalign 
+
+Same Covariance samples for eff.-rank prior Batch-token samples from Rpf before applying g Same 
+
+B.5 Hyperparameters 
+
+Table B.4: Compact hyperparameter summary for the controlled comparisons in the main paper. 
+
+Evaluation setting Batch / accum. / GPUs Budget LR schedule Aux coefficients CALVIN / π0.5 / general 8 / 4 / 1 6,000 steps 2.5×10 −5 → 2.5×10 −6
+
+cosine; 1k warmup 0.0125 / 0.00625; 1k aux warmup; decay 3k–6k to 0.5 CALVIN / π0.5 / adapted 8 / 4 / 1 6,000 steps 2.5×10 −5 → 2.5×10 −6
+
+cosine; 1k warmup 0.0125 / 0.00625; 1k aux warmup; decay 3k–6k to 0.5 LIBERO / π0.5 / general 8 / 4 / 2 6,000 steps 5×10 −5 → 5×10 −6 cosine; 1k warmup 0.0125 / 0.00625; 1k aux warmup; decay 3k–6k to 0.5 LIBERO / π0.5 / adapted 8 / 4 / 1 6,000 steps 2.5×10 −5 → 2.5×10 −6
+
+cosine; 1k warmup 0.0125 / 0.00625; 1k aux warmup; decay 3k–6k to 0.5 LIBERO / OpenVLA-OFT / general 8 / 1 / 1 20,000 steps 10 −4; 1k warmup + constant 0.0125 / 0.00625; 1k aux warmup; decay 10k–20k to 0.5 LIBERO / OpenVLA-OFT / adapted 8 / 1 / 1 15,000 steps 10 −4; 1k warmup + constant 0.0125 / 0.00625; 1k aux warmup; decay 10k–20k to 0.5 SO-101 / π0.5 / pick-place policy 8 / 8 / 1 6,000 steps 5×10 −5 → 5×10 −6 cosine; 1k warmup 0.003125 / 0.0015625; 3k aux warmup; decay after 4.5k to 0.5 
+
+Batch denotes per-device batch size, and the optimizer effective batch is batch size × accumulation 
+
+× GPU count. The residual probe and residual covariance estimators are computed on each forward micro-batch rather than over accumulated gradients. Reported runs used NVIDIA GPUs with at least 48GB of device memory; the GPU count for each comparison is listed in the table. 
+
+Auxiliary-coefficient selection. We choose the auxiliary coefficients from short calibration runs that keep the tail value of the weighted auxiliary pressure relative to the task loss, 
+
+ρaux = λalign |L align | + λrank |L rank |Ltask 
+
+, (22) within an empirical range of approximately 3–6% .16 B.6 Diagnostic definitions and probe-fitting protocol 
+
+The representation diagnostics reported in the main paper use a probe refit for analysis, separate from the online probe weights saved during training. The diagnostic target is the 7D per-step action vector. For CALVIN and π0.5 LIBERO, the diagnostic probe is four-fold cross-fit; for OpenVLA-OFT, the exported diagnostics use an in-sample probe. In this protocol, Rpf denotes the residual formed by the refit diagnostic probe. Residual CKA is linear CKA between Rpf and the matched teacher features before the adapter g. Residual effective rank is the participation-ratio statistic deff = ( P 
+
+> i
+
+λi)2/ P 
+
+> i
+
+λ2 
+
+> i
+
+computed from the residual covariance spectrum. The training objective uses the normalized spectral entropy Hshape from Appendix A.3; the reported effective rank is a complementary summary of the same covariance spectrum. 
+
+B.7 BlindVLA-style full-token alignment baseline 
+
+The main-paper “Full-token align.” ablation is our π0.5 / LeRobot implementation of the BlindVLA-style frozen-teacher alignment protocol [14]. It uses the same frozen RADIO teacher, fixed randomly initialized per-token adapter, token centering, and cosine teacher-alignment loss as the F IBER TUNE 
+
+alignment branch, but applies the teacher signal to the unfiltered intermediate token representation instead of to Rpf and does not fit or apply an action probe. This variant is therefore a controlled transfer of the BlindVLA-style full-token alignment objective into the π0.5 training stack, with the same CALVIN starting checkpoint, data, budget, and evaluator as the other component ablations. It separates the effect of importing the full-token visual-alignment protocol from the effect of residu-alizing the aligned representation. The comparison also clarifies why the BlindVLA-style objective can be strong under the BlindVLA evaluation protocol while showing a different pattern in our matched CALVIN continuation. BlindVLA evaluates visual alignment in OOD-oriented settings, including Simpler-based generalization axes and the VL-Think suite, where low-level action com-plexity is bounded and success emphasizes grounding visual categories, concepts, and targets under distribution shift [14]. In that setting, preserving the full visual representation is closely aligned with the benchmark pressure. Our component ablation ports the same full-token pressure into a matched CALVIN fine-tuning setting, where success depends on preserving long-horizon task ex-ecution under the adapted policy. The comparison is therefore complementary: BlindVLA tests whether full-token visual preservation improves OOD grounding, while our controlled transfer ex-poses the trade-off that can arise when the same pressure is applied to a CALVIN continuation policy. A BlindVLA-style full-token implementation regularizes the complete intermediate repre-sentation; this is useful when the benchmark rewards broad visual-semantic retention, but it can also constrain directions that the adapted policy uses for in-distribution long-horizon execution. FIB -
+
+> ER
+
+TUNE keeps the teacher-alignment protocol but first filters action-predictive directions, so the alignment pressure targets residual visual structure rather than the full task-conditioned represen-tation. This residualization lets F IBER TUNE retain the visual-alignment signal while reducing its interference with the action-conditioned representation used by the policy. 
+
+C Additional analyses 
+
+C.1 CALVIN paired-seed material 
+
+Table C.5 reports paired CALVIN seeds for the adapted starting checkpoint as a robustness check, under the same 6k fixed-budget protocol as the main CALVIN adapted comparison. 
+
+C.2 LIBERO per-suite success rates 
+
+Table C.6 reports the per-suite success rates behind the aggregate LIBERO rows where suite-level exports are available. The π0.5 / adapted block spans seeds 7, 42, and 1000, with a three-seed average gain of +0.70 percentage points. For the low-budget OpenVLA-OFT / general-start setting, the +6 .45 pp aggregate gain is concentrated in the spatial and object suites, reflecting larger suite-level variation before convergence. 17 Table C.5: CALVIN paired-seed material for the adapted starting checkpoint. SR1–SR5 report the percentage of rollouts that complete at least 1–5 consecutive subtasks.                                                            
+
+> Seed Method Avg. SR1 SR2 SR3 SR4 SR5 5Baseline 3.682 90.7 81.1 73.1 65.6 57.7 FIBER TUNE 4.044 93.0 85.9 80.2 75.2 70.1
+> 6Baseline 3.980 93.0 85.6 78.9 73.2 67.3 FIBER TUNE 4.105 94.2 87.4 81.8 76.6 70.5
+> 7Baseline 3.837 93.2 84.7 75.9 68.5 61.4 FIBER TUNE 4.116 94.3 87.3 80.9 77.0 72.1
+> Mean Baseline 3.833 92.3 83.8 76.0 69.1 62.1 FIBER TUNE 4.088 93.8 86.9 81.0 76.3 70.9
+
+Table C.6: LIBERO per-suite success rates for available exports. Values are success rates in percent over 500 episodes per suite.                                                                                                      
+
+> Setting Seed Method Spatial Object Goal LIBERO-10 Avg.
+> π0.5/ general 7Baseline 93.2 96.6 92.4 87.2 92.35
+> π0.5/ general 7FIBER TUNE 94.2 98.6 93.0 87.6 93.35
+> π0.5/ adapted 1000 Baseline 96.4 98.0 95.6 93.0 95.75
+> π0.5/ adapted 1000 FIBER TUNE 97.8 98.8 97.8 94.0 97.10
+> π0.5/ adapted 7Baseline 96.4 99.0 95.8 94.2 96.35
+> π0.5/ adapted 7FIBER TUNE 97.0 98.6 98.4 92.8 96.70
+> π0.5/ adapted 42 Baseline 97.6 98.2 95.6 93.6 96.25
+> π0.5/ adapted 42 FIBER TUNE 97.4 99.0 96.2 94.0 96.65
+> π0.5/ adapted Mean Baseline 96.80 98.40 95.67 93.60 96.12
+> π0.5/ adapted Mean FIBER TUNE 97.40 98.80 97.47 93.60 96.82
+> OpenVLA-OFT / general 7Baseline 19.8 66.0 67.0 17.2 42.50 OpenVLA-OFT / general 7FIBER TUNE 35.8 89.4 58.8 11.8 48.95
+
+C.3 Confidence intervals for success metrics 
+
+Table C.7 reports Wilson 95% confidence intervals for the binomial success metrics in the main pa-per. For the CALVIN and LIBERO adapted settings we add a three-seed pooled interval alongside the primary single-seed run, with the per-seed numbers in Tables C.5 and C.6. LIBERO intervals pool the four task suites of each comparison. For SO-101, the all-colors rows pool all 128 physi-cal trials per arm (including the held-out green condition), while the ID-colors row pools only the yellow, orange, and purple trials. 
+
+C.4 CALVIN low-learning-rate calibration point 
+
+Table C.8 reports a low-learning-rate CALVIN calibration point. It shares the adapted start-ing checkpoint, repaired CALVIN ABC training data, and CALVIN chain evaluator of the main CALVIN row, but trains for 4,000 steps at a constant learning rate of 6.25 ×10 −6.
+
+C.5 Published LIBERO reference points and adapted-policy polish diagnostic 
+
+Table C.9 situates the benchmark settings against commonly reported LIBERO results from pub-lished VLA work, with the source and protocol context for each reference point noted in the table. The final block reports a short polish diagnostic from the released LeRobot π0.5 LIBERO adapted checkpoint lerobot/pi05 libero finetuned : its released-checkpoint evaluation, and a matched Baseline / F IBER TUNE pair continued to step 300 from that near-saturated checkpoint. 
+
+C.6 SO-101 trial breakdown 
+
+Table C.10 breaks down the 128 physical trials per arm by block color: yellow, orange, and pur-ple are in-distribution colors from the 90-demonstration training set, and green is held out for color generalization. These rows give the per-color breakdown behind the aggregate results; the 18 Table C.7: Wilson 95% confidence intervals for success metrics. 
+
+Evaluation setting Method Metric Value (%) 95% CI (%) CALVIN / π0.5 / general Baseline SR (5) 0.4 [0.2, 1.0] CALVIN / π0.5 / general FIBER TUNE SR (5) 1.3 [0.8, 2.2] CALVIN / π0.5 / adapted SOURCE SR (5) 62.3 [59.3, 65.3] CALVIN / π0.5 / adapted Baseline SR (5) 61.4 [58.3, 64.4] CALVIN / π0.5 / adapted FIBER TUNE SR (5) 72.1 [69.2, 74.8] CALVIN / π0.5 / adapted, 3-seed pooled Baseline SR (5) 62.1 [60.4, 63.9] CALVIN / π0.5 / adapted, 3-seed pooled FIBER TUNE SR (5) 70.9 [69.2, 72.5] LIBERO / π0.5 / general Baseline SR 92.35 [91.10, 93.44] LIBERO / π0.5 / general FIBER TUNE SR 93.35 [92.17, 94.36] LIBERO / π0.5 / adapted, seed 1000 Baseline SR 95.75 [94.77, 96.55] LIBERO / π0.5 / adapted, seed 1000 FIBER TUNE SR 97.10 [96.27, 97.75] LIBERO / π0.5 / adapted, 3-seed pooled Baseline SR 96.12 [95.60, 96.58] LIBERO / π0.5 / adapted, 3-seed pooled FIBER TUNE SR 96.82 [96.34, 97.23] LIBERO / OpenVLA-OFT / general Baseline SR 42.50 [40.35, 44.68] LIBERO / OpenVLA-OFT / general FIBER TUNE SR 48.95 [46.76, 51.14] LIBERO / OpenVLA-OFT / adapted Baseline SR 95.35 [94.34, 96.19] LIBERO / OpenVLA-OFT / adapted FIBER TUNE SR 96.15 [95.21, 96.91] SO-101 / π0.5 / all colors Baseline contact 93.8 [88.2, 96.8] SO-101 / π0.5 / all colors FIBER TUNE contact 96.9 [92.2, 98.8] SO-101 / π0.5 / all colors Baseline lift 81.2 [73.6, 87.1] SO-101 / π0.5 / all colors FIBER TUNE lift 82.8 [75.3, 88.4] SO-101 / π0.5 / all colors Baseline task success 72.7 [64.4, 79.6] SO-101 / π0.5 / all colors FIBER TUNE task success 78.1 [70.2, 84.4] SO-101 / π0.5 / ID colors Baseline task success 81.2 [72.3, 87.8] SO-101 / π0.5 / ID colors FIBER TUNE task success 83.3 [74.6, 89.5] SO-101 / π0.5 / held-out green Baseline task success 46.9 [30.9, 63.6] SO-101 / π0.5 / held-out green FIBER TUNE task success 62.5 [45.3, 77.1] 
+
+Table C.8: CALVIN low-learning-rate constant-schedule calibration point. 
+
+Starting checkpoint Method Step Avg. seq. len. SR (5) (%) Trials CALVIN adapted Baseline 4,000 3.992 63.9 1000 CALVIN adapted FIBER TUNE 4,000 4.206 71.5 1000 
+
+Table C.9: LIBERO reference points from published VLA results and an adapted-policy polish diagnostic. Values are success rates in percent over the four LIBERO suites when suite-level results are available. 
+
+Reference point Spatial Object Goal LIBERO-10 Avg. Source / note Diffusion Policy (scratch) 78.3 92.5 68.3 50.5 72.4 [21, 8] Octo (fine-tuned) 78.9 85.7 84.6 51.1 75.1 [10, 8] OpenVLA (fine-tuned) 84.7 88.4 79.2 53.7 76.5 [8] 
+
+π0 + FAST (fine-tuned) 96.4 96.8 88.6 60.2 85.5 [22, 12, 9] 
+
+π0 (fine-tuned) 96.8 98.8 95.8 85.2 94.2 [12, 9] OpenVLA-OFT with additional inputs 97.6 98.4 97.9 94.5 97.1 [9] GR00T N1.5 98.2 99.4 97.2 87.8 95.7 [40, 24] GR00T N1.5 + RS-CL 98.4 98.6 98.2 90.4 96.4 [24, 40] 
+
+π0.5 adapted source 
+
+lerobot/pi05 libero finetuned 98.4 99.0 96.0 95.4 97.20 Released checkpoint evaluation 
+
+π0.5 adapted polish Baseline 97.6 99.0 97.6 95.2 97.35 Step 300 
+
+π0.5 adapted polish FIBER TUNE 97.6 99.2 97.8 96.0 97.65 +0.30 pp / +0.31% vs Baseline 
+
+19 in-distribution colors remain high overall, and the held-out green condition shows the largest task-success gain. Table C.10: SO-101 physical trial breakdown by color. Entries report successes out of 32 trials per color, with percentages in parentheses. 
+
+Color Split Method Contact Lift Task success Yellow ID Baseline 30/32 (93.8) 25/32 (78.1) 25/32 (78.1) Yellow ID FIBER TUNE 32/32 (100.0) 28/32 (87.5) 26/32 (81.2) 
+
+Orange ID Baseline 32/32 (100.0) 29/32 (90.6) 26/32 (81.2) Orange ID FIBER TUNE 32/32 (100.0) 29/32 (90.6) 28/32 (87.5) 
+
+Purple ID Baseline 31/32 (96.9) 27/32 (84.4) 27/32 (84.4) 
+
+Purple ID FIBER TUNE 32/32 (100.0) 26/32 (81.2) 26/32 (81.2) Green OOD Baseline 27/32 (84.4) 23/32 (71.9) 15/32 (46.9) Green OOD FIBER TUNE 28/32 (87.5) 23/32 (71.9) 20/32 (62.5) 
+
+20

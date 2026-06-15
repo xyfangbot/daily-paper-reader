@@ -1,0 +1,481 @@
+Title: GUIDE: Goal-Initialized Directional Understanding for End-to-End Visual Navigation
+
+URL Source: https://arxiv.org/pdf/2606.10832v1
+
+Published Time: Wed, 10 Jun 2026 01:13:11 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# GUIDE: Goal-Initialized Directional Understanding for End-to-End Visual Navigation 
+
+Liang Wang 1,2,∗, Jin Jin 3,∗, KanZhong Yao 2, YiBin Wu 3,4,Fangqiang Ding 5, Jin Wang 3, Jun Wu 1, Zhe Sun 2,†, Qiuguo Zhu 1,†
+
+> 1
+
+Institute of Cyber-Systems and Control, Zhejiang University 
+
+> 2
+
+Institute of Artificial Intelligence (TeleAI), China Telecom 
+
+> 3
+
+Oxford Robotics Institute, University of Oxford 
+
+> 4
+
+Center for Robotics, University of Bonn 
+
+> 5
+
+Department of Mechanical Engineering, Massachusetts Institute of Technology 
+
+https://guide-navigation.github.io/  
+
+> ∗
+
+Equal contribution. † Corresponding authors. 
+
+Figure 1: Our GUIDE framework cultivates internal egomotion and directional awareness for end-to-end visual navigation, allowing a quadruped robot to successfully traverse complex maze-like terrains and escape dead-ends with the target location given only at initialization. The left scene displays a global simulated maze environment alongside a zoomed-in view of the local navigation process. On the right, a composite snapshot demonstrates the successful zero-shot deployment in the real world, where the gradient-colored curve indicates the physical robot’s trajectory. 
+
+Abstract: Learning-based visual navigation for legged robots typically relies on continuous goal updates from hierarchical state estimation to provide a persis-tent directional reference. This reliance incurs additional sensory and computa-tional overhead and deviates from fully end-to-end mobile autonomy. Further-more, under partial observability, policies are prone to learn myopic behaviors, easily becoming trapped in dead ends and complex structural layouts. To ad-dress these limitations, we investigate a goal-initialized navigation setting, where the target is provided only once at the beginning of an episode, requiring the robot to operate based on intrinsic spatial memory without subsequent goal up-dates from external modules. In this work, we propose GUIDE, a fully end-to-end reinforcement learning framework designed to cultivate internal directional awareness. Specifically, GUIDE incorporates a spatial anchor predictor that lever-ages multi-frequency proprioceptive history to extract egomotion representations, thereby maintaining a persistent long-horizon spatial context for navigation. Con-currently, it utilizes raw depth streams to perceive local environmental geometry. We evaluate the proposed framework across both simulation and real-world sce-narios on a quadruped robot. Experiments show that GUIDE learns reliable ego-motion and directional awareness, enabling a fully end-to-end deployed policy to safely navigate through dense clutter and structured mazes without subsequent goal guidance or prior maps. 
+
+> arXiv:2606.10832v1 [cs.RO] 9 Jun 2026
+
+Keywords: Egomotion and Directional Awareness, Reinforcement Learning, Vi-sual Navigation 
+
+# 1 Introduction 
+
+Legged robots possess inherent agility that enables them to traverse complex terrains and navigate through confined environments [1, 2, 3]. Those environments often include maze-like spaces, fea-turing narrow corridors, frequent occlusions, unexplored frontiers, and dead ends. In such scenarios, onboard perception inevitably provides only partial observations of the surroundings, significantly limiting the robot’s planning capabilities. Consequently, achieving robust navigation in such scenar-ios remains a critical challenge [4, 5]. Traditional navigation systems typically employ a modular pipeline comprising mapping, localiza-tion, planning, and tracking [6, 7, 8, 9, 10]. Although these frameworks have demonstrated effective and reliable performance in navigation tasks, they often involve non-trivial computational latency and additional onboard processing overhead [11, 12]. Recently, learning-based methods [13, 14, 15] have shown great promise in addressing these limitations. Through data-driven training of specific neural networks, robots can directly map sensory inputs to control actions, avoiding complicated manual engineering and substantially boosting computational efficiency [11, 16]. Among these paradigms, reinforcement learning (RL) is widely adopted to formulate navigation as a sequential decision-making process [17, 18]. However, these advantages come with new bottlenecks. First, constrained by partial observations, learned policies easily become trapped in structural dead ends driven by locally attractive but globally unproductive actions [19, 20, 21]. Furthermore, given the sparse task rewards in such environments, training RL policies for long-horizon navigation is often highly sample-inefficient [22, 23]. Moreover, existing RL navigation methods [4, 24, 25] typically feed the real-time relative goal to the policy at each step. This necessitates an additional localization module to frequently update the goal and robot positions, incurring additional compu-tational costs and latency. Consequently, this deviates from a truly end-to-end strategy. To address these limitations, we study goal-initialized end-to-end visual navigation for legged robots. In this setting, the navigation target is provided only at the beginning of an episode, re-quiring the robot to operate without subsequent self-and-goal updates from additional modules. To this end, we propose GUIDE, a fully end-to-end reinforcement learning framework designed to cul-tivate internal egomotion and directional awareness by leveraging multi-frequency proprioceptive history and raw depth streams. Specifically, GUIDE incorporates an auxiliary spatial anchor predic-tor during training to track key egocentric navigational variables. This mechanism forces the policy to maintain a continuous spatial context for robust long-horizon reasoning. We validate the effec-tiveness of GUIDE through extensive simulation and real-world experiments, demonstrating that the learned policy can successfully navigate through both cluttered environments and challenging structured mazes. The main contributions of this work are summarized as follows: • We propose and study a goal-initialized visual navigation task. In such a task, the pol-icy receives goal information only at initialization and receives no streaming relative-goal updates during navigation. • We propose GUIDE, an end-to-end RL framework that fuses raw depth-based visual per-ception with multi-frequency proprioceptive history. By incorporating a spatial anchor pre-dictor, GUIDE successfully learns egomotion awareness and maintains a persistent spatial memory. • We validate GUIDE in simulation and achieve zero-shot transfer to real-world environ-ments, demonstrating robust goal reaching and dead-end escape capabilities using only onboard sensing. 
+
+# 2 Related Work 
+
+2.1 Learning-Based Local Navigation 
+
+Recent works in imitation learning leverage expert demonstrations or large-scale offline datasets to map observations directly to control commands [26, 11, 27, 28], which allow robots to in-2herit expert-level decision-making but are typically confined to the specific data distributions. Im-perative learning paradigms [29, 30] address local navigation by optimizing differentiable objec-tives to generate collision-free and semantically-informed paths from onboard perception. Com-plementary to these, reinforcement learning (RL) is widely adopted to discover agile obstacle avoidance and terrain traversal strategies through large-scale interaction with simulated environ-ments [31, 32, 33, 25, 34, 35, 36, 37]. Despite their proficiency in local maneuvers, achieving robust navigation in local minimum areas remains a challenge due to the partial observation [38, 39, 40, 41]. 
+
+2.2 Long-horizon Mapless Navigation 
+
+Recent research has increasingly focused on enabling legged robots to overcome the limitations of short-horizon navigation and escape local minima without prior-map information directly fed into the policy. Lee et al. [24] develop a hierarchical RL system for wheeled-legged robots that can locally detour dead ends by feeding historically visited positions into the policy. Yang et al. [4] introduce a spatially-enhanced recurrent network, demonstrating superior spatial memorization in maze-like environments with the usage of continuous external self-and-goal state updates. REASAN [25] utilizes a modular LiDAR-based framework, comprising locomotion, safety-shield, and exte-roceptive estimation to facilitate effective detouring and dead-end escape in dynamic environments. In [42], Wijmans et al. found that a blind agent can construct an internal map and successfully navigate within simple indoor rooms [43, 44] with only collision and relative location information. Although these methods demonstrate that RL possesses the capability to handle long-horizon navi-gation tasks, practical deployment in the real world still necessitates the acquisition of a continuous goal reference from an external module that executes localization on a map, which inevitably entails additional sensory processing and increases the onboard computational load. Moreover, the usage of goal updates estimated with map-based localization weakens the claim of map-free end-to-end navigation in their settings. To this end, we prompt a fundamental question: can a purely end-to-end policy sustain long-horizon awareness without any external persistent goal guidance, akin to the “cognitive maps” observed in biological navigation [45, 46]? More specifically, we study a goal-initialized setting where the target is provided only once at the beginning of an episode. Our objective is to train a policy that can cultivate internal egomotion and directional awareness from raw depth observations and proprioceptive history, thereby maintaining a persistent spatial context and eliminating the need for any external streaming goal updates during navigation. 
+
+# 3 Method 
+
+3.1 Goal-Initialized Navigation Formulation 
+
+We formulate the goal-conditioned visual navigation task as a Partially Observable Markov Decision Process (POMDP) [47]. At each time step t, the robot cannot access the global state and must make navigation decisions based on its onboard proprioception and depth vision. In our goal-initialized setting, the robot is placed at a collision-free start position at the beginning of each episode ( t = 0 )and receives an initial relative target g0 = [ x0 
+
+> g
+
+, y 0 
+
+> g
+
+, ψ 0 
+
+> g
+
+]T ∈ R3 expressed in its egocentric frame. Crucially, no streaming target updates are provided during the rollout ( t > 0). To address the absence of continuous external guidance, we introduce a spatial anchor prediction mechanism (detailed in Section 3.2) that is trained in parallel with the navigation policy to estimate task-relevant spatial context ˆct from proprioceptive history. Consequently, the policy generates actions conditioned on the current observation ot, observation history Ot, and the predicted spatial context ˆct, i.e. , at ∼
+
+πθ (· | ot, Ot, ˆct). The optimization objective is to learn a policy πθ that maximizes the expected discounted return over the initial target distribution p(g0) and the environment transition dynamics: 
+
+J(πθ ) = Eτ
+
+ P Tt=0 γtr(st, a t, g 0), where τ denotes the sampled trajectories. 
+
+3.2 GUIDE Framework 
+
+We adopt an asymmetric actor-critic architecture optimized via Proximal Policy Optimization (PPO) [48]. GUIDE follows a hierarchical control structure: the high-level navigation policy oper-ates at 10 Hz to reason over multimodal observations and produce twist commands, while a low-level locomotion controller runs at 50 Hz to execute these commands on the robot. An overview of the framework is illustrated in Fig. 2. 3Figure 2: Overview of the GUIDE framework. Multi-frequency proprioceptive history is pro-cessed into proprioceptive tokens, which are supervised to predict spatial anchor vectors to cultivate egomotion and directional awareness. Concurrently, depth buffers are encoded and fused with these tokens via cross-attention to yield spatial latents. Finally, the Actor aggregates these representations with the latest proprioceptive state to produce the twist commands. All modules are jointly opti-mized end-to-end from scratch. The navigation policy takes three types of inputs: raw proprioceptive sensor measurements, raw depth images, and the initial target g0 in the egocentric frame. The proprioceptive observations are obtained from motor encoders and the IMU, with detailed components listed in Appendix A. The depth input is structured as an eight-frame history buffer Dt = {Dt−7, . . . , D t}, where each indi-vidual depth frame Dt ∈ R30 ×43 provides a downsampled egocentric perception of the immediate surroundings. 
+
+Multi-Frequency Proprioceptive Processing The proprioceptive inputs are encoded through two complementary temporal streams: a low-frequency history stream Pl 
+
+> t
+
+= {pl 
+
+> t−N+1
+
+, . . . , p l
+
+> t
+
+} sampled at the policy rate ( 10 Hz , N = 10 ), and a high-frequency recent stream Ph 
+
+> t
+
+= {ph 
+
+> t−M+1
+
+, . . . , p h 
+
+> t
+
+}
+
+(M = 20 ) sampled at 200 Hz . The former tracks the historical motion context across a broad temporal horizon, while the latter fully expands the remaining interval from the last policy step to the current step into dense sub-steps to capture fine-grained transient dynamics (notably ph 
+
+> t
+
+≡ pl
+
+> t
+
+at current step t). To process these streams, Ph 
+
+> t
+
+is first mapped by a frame encoder and integrated via self-attention to extract its final token as a recent-motion embedding zh 
+
+> t
+
+. This embedding is then concatenated with the encoded tokens of Pl
+
+> t
+
+, forming a unified sequence. Finally, a joint self-attention layer and a GRU network process this sequence to yield the proprioceptive token zp 
+
+> t
+
+.
+
+Spatial Anchor Prediction Inspired by intrinsic directional awareness and “cognitive maps” in bi-ological navigation [42, 49, 50], we observe that, even without access to a prior map, proprioceptive signals naturally contain rich temporal cues regarding the robot’s direction and displacement. To guide the policy in extracting and utilizing this navigational information, we introduce an auxiliary supervision signal via a spatial anchor predictor directly to the token zp 
+
+> t
+
+. This module employs three lightweight MLP heads to concurrently predict the robot’s body velocity ˆvt, the relative target posi-tion ˆgt, and the relative spawn position ˆst. During training, these predictions are supervised using privileged simulation states, where the estimation loss is defined as: 
+
+Lest = ∥ˆvt − vt∥22 + Hδ (ˆ gt − gt) + Hδ (ˆ st − st), (1) where vt, gt, and st denote the corresponding ground-truth simulation states, and Hδ (·) represents the smooth L1 (Huber) loss with threshold δ.
+
+Visual Processing For visual perception, each individual frame within Dt is independently pro-cessed by a shared convolutional encoder to extract visual features. These frame-wise features are then integrated through a temporal self-attention layer to fuse the temporal information across the buffer, producing the visual tokens zd 
+
+> t
+
+. To condition the visual features on the robot’s motion state, a cross-attention module is employed using the proprioceptive token zp 
+
+> t
+
+as the query and the visual tokens zd 
+
+> t
+
+as keys and values. The resulting cross-modal features are then passed through a GRU layer to yield the final spatial latent zs 
+
+> t
+
+.Ultimately, the navigation policy network takes the concatenated vector [zs 
+
+> t
+
+, ˆvt, ˆgt, ˆst, p l
+
+> t
+
+] as input and outputs the egocentric twist commands at = [ vx, v y , ω z ]T , where pl 
+
+> t
+
+denotes the latest frame of 4proprioceptive observations. The commands are subsequently executed on the robot by the low-level locomotion controller, which is trained following the framework established by Long et al. [51]. 
+
+Figure 3: (a1, b1): Cluttered and maze terrains, with curves in gradient color indicating the robot’s trajectories. (a2, b2): Corresponding image inputs for the privileged critic, displaying the two-channel downsampled maps ( Mocc and Mexp ) within the same image. 
+
+3.3 Reward Design and Multi-Critic Value Estimation Reward Function Design Our navigation reward design combines sparse task signals with dense progress guidance. The complete list of reward terms, including safety and locomotion regular-ization, is provided in Appendix B. The task tracking rewards ( rpos , rhead ) follow the formulation 
+
+rtrack , while the dense progress rewards ( reuc prog , rcell prog ) follow the formulation rprog :
+
+rtrack = Icomplete 
+
+1 + ( e/σ )2 , rprog = max(0 , d best − dt)
+
+dt=0 
+
+, (2) where Icomplete activates only when the tracking error e (Euclidean distance for rpos , or yaw error for rhead ) remains below the success threshold σ for a sustained duration Thold . For the progress terms, dt and dbest represent the current and historical minimum distance, normalized by the initial distance dt=0 . Here, the distance d is evaluated as the straight-line distance for reuc prog across all scenarios, while for rcell prog it denotes the maze-graph connectivity distance to provide an additional shaping reward in maze environments. 
+
+Privileged Critic Learning Under the asymmetric architecture, the value networks leverage privi-leged information from simulation to improve value estimation and guide policy optimization. As shown in Fig. 3, we provide the critic with a downsampled top-down occupancy map Mocc and an explored-region map Mexp , thereby providing the critic with explicit global information about the environmental geometry and the robot’s traversal trajectory. These maps are stacked as a two-channel spatial tensor and processed by a dedicated convolutional network. The complete critic inputs are detailed in Appendix C. 
+
+Multi-Critic Paradigm: To better estimate the mixture of dense and sparse rewards with distinct temporal characteristics, we introduce a Multi-Critic (MuC) architecture [52, 53, 54]. The total reward is partitioned into a sparse task group rs 
+
+> t
+
+and a dense shaping group rd 
+
+> t
+
+. The MuC module outputs independent value estimates V kϕ (st) for k ∈ { s, d}, optimized against their bootstrapped returns ˆRkt by minimizing Lvalue = P 
+
+> k∈{ s,d}
+
+E[( ˆRkt − V kϕ (st)) 2]. We then compute the unified normalized advantage ˆAt from the individual generalized advantage estimates (GAE) [55] ˆAkt :
+
+ˆAt =   X
+
+> k∈{ s,d}
+
+wk ˆAkt − μMuC 
+
+ σMuC , (3) where wk denotes the reward-group weight, while μMuC and σMuC are the batch mean and standard deviation of the combined advantages. 
+
+3.4 Terrain and Curriculum Design 
+
+To equip the policy with both reactive obstacle avoidance and long-horizon reasoning skills, we pro-cedurally generate two distinct environment families. As illustrated in Fig. 3, Cluttered terrains 
+
+are constructed by randomly placing specific obstacle categories, including narrow alleys, L-shaped corners, and pillars. The resulting dense and irregular geometry creates environments with frequent occlusions and local concave traps. Maze terrains are grid-based perfect mazes generated via ran-domized depth-first search (DFS) [56]. By definition, these loop-free structures inherently provide a 5Table 1: Quantitative comparison across four simulation benchmark settings.                                                                                                                            
+
+> Cluttered Environments Maze Environments
+> Easy Hard Easy Hard
+> Policy Variant SR ↑AT ↓CR ↓SR ↑AT ↓CR ↓SR ↑AT ↓CR ↓SR ↑AT ↓CR ↓
+> [%] [s] [%] [%] [s] [%] [%] [s] [%] [%] [s] [%]
+> GUIDE (Full) 99.9 6.85 3.20 99.9 7.44 4.40 99.9 15.7 3.40 99.6 22.1 4.80 (i) w/o High-Freq. Prop 0.16 57.9 12.8 0.08 58.6 13.3 0.06 59.2 2.80 0.01 59.8 3.10 (ii) w/o Target Prediction 97.8 8.22 6.40 96.7 8.86 8.20 98.2 18.2 6.20 70.9 34.9 8.40 (iii) w/o Spawn Prediction 98.8 7.50 4.40 98.2 7.66 4.80 98.9 16.5 4.90 90.1 26.7 6.60 (iv) w/o Velocity Prediction 99.0 8.84 7.40 98.5 9.50 12.2 96.3 19.9 7.80 53.5 39.4 11.30 (v) w/o Multi-Critic 95.2 10.6 13.3 88.5 11.77 15.4 82.0 26.9 6.50 49.1 41.0 5.40 (vi) GUIDE-GT-Inference 100.0 6.47 2.60 99.9 6.54 3.10 99.9 15.2 2.40 99.9 20.7 3.60 (vii) GUIDE-GT-Train 100.0 6.43 3.55 100.0 6.69 5.62 99.9 14.8 4.24 99.8 20.6 6.02
+
+single valid route for any start–goal pair alongside numerous dead ends. During training, we follow a progressive curriculum over terrain difficulty and command distance; detailed implementation and training details are provided in Appendix D. 
+
+# 4 Experimental Results 
+
+4.1 Simulation Benchmarks and Ablations 
+
+To systematically analyze the individual contributions of each component within GUIDE , we per-form an extensive ablation study encompassing the following policy variants and baseline config-urations. (i) w/o High-Frequency Prop removes the 200 Hz high-frequency proprioceptive ob-servation branch, restricting the policy to utilize only the 50 Hz observation history processed via self-attention; (ii) w/o Target Prediction , (iii) w/o Spawn Prediction , and (iv) w/o Velocity Pre-diction deactivate their respective prediction heads; (v) w/o Multi-Critic replaces the multi-critic architecture with a standard single-critic network to predict the total return. We additionally intro-duce two ground-truth oracle variants to investigate the performance potential and boundaries of our framework: (vi) GUIDE-GT-Inference , which directly replaces the predicted target and spawn positions with ground-truth values from the simulation during inference. (vii) GUIDE-GT-Train ,which completely removes the navigation-state estimator and is trained from scratch with continuous ground-truth target and spawn positions at every control step. We evaluate GUIDE across cluttered and maze terrains at two difficulty levels, resulting in four benchmark settings. Target coordinates are provided only at t = 0 . Performance is quantified by three key metrics: (i) Success Rate (SR) , computed as the percentage of trials reaching within a 
+
+0.2m radius of the goal; (ii) Arrival Time (AT) , defined as the mean episode duration across all trials, subject to a 60 s timeout; and (iii) Collision Rate (CR) , defined as the percentage of episodes with at least one physical collision. For each benchmark, we evaluate 1, 000 episodes across 50 
+
+distinct layouts generated via randomized seeds to ensure statistical robustness, as shown in Table 1. Beyond task performance, we further evaluate the spatial anchor prediction accuracy to understand how the supervised predictor contributes to the ablation results. Specifically, this analysis focuses on the components that shape the spatial anchor representation, including high-frequency proprio-ceptive input and individual prediction heads. Under the same benchmark settings, we measure the mean tracking error (MTE) of the relative target position, the relative spawn position, and the body velocity, averaged across all policy steps within the evaluation episodes. The corresponding results are shown in Table 2. Based on these quantitative results, we derive the following key insights. 
+
+High-Frequency Proprioception is Crucial for Egomotion and Directional Awareness. w/o High-Frequency Prop variant suffers a severe performance collapse across all tasks, almost com-pletely failing to reach the target within the time limit. Instead of actively navigating, the robot quickly becomes trapped in local dead ends, which explains its low collision rate in the maze en-vironment. As revealed in Table 2, the policy entirely loses its internal tracking of the target and spawn positions, alongside degraded velocity estimation in cluttered environments, which suggests that maintaining a reliable sense of egomotion and direction under partial observability strongly re-lies on the fine-grained motion information provided by high-frequency proprioceptive observations. 6Table 2: Spatial anchor prediction error across four benchmark settings in simulation.                                                                                        
+
+> Cluttered Environments Maze Environments
+> Easy Hard Easy Hard
+> Policy Variant Tgt. Spn. Vel. Tgt. Spn. Vel. Tgt. Spn. Vel. Tgt. Spn. Vel. [m] [m] [m/s] [m] [m] [m/s] [m] [m] [m/s] [m] [m] [m/s]
+> GUIDE (Full) 0.21 0.17 0.12 0.23 0.18 0.12 0.22 0.18 0.11 0.31 0.27 0.11 (i) w/o High-Freq. Prop 3.43 2.92 0.18 3.37 2.84 0.18 3.10 2.82 0.10 3.16 2.76 0.11 (ii) w/o Target Prediction –0.13 0.11 –0.17 0.13 –0.32 0.11 –0.54 0.10 (iii) w/o Spawn Prediction 0.34 –0.12 0.33 –0.12 0.38 –0.11 0.46 –0.11 (iv) w/o Velocity Prediction 0.29 0.18 –0.29 0.19 –0.37 0.33 –0.67 0.65 –
+
+Spatial Anchor Predictions Jointly Shape Spatial Context. GUIDE consistently outperforms all variants lacking individual prediction heads. Notably, w/o Target Prediction suffers a larger decline in task performance than w/o Spawn Prediction , as shown in Table 1. We attribute this gap to the more direct goal-oriented guidance provided by the target position, while the spawn prediction requires the policy to implicitly infer the spatial relation between the start and the target. Among the three prediction-head ablations, w/o Velocity Prediction experiences the most severe degradation in both success rate and collision avoidance. These results indicate that robust navigation requires both instantaneous motion cues from velocity prediction and long-horizon positional anchors from target and spawn prediction, which together help the policy construct a coherent spatial context. 
+
+GUIDE Effectively Exploits Learned Spatial Context to Approach Oracle Performance. 
+
+Without prediction errors in navigation process, both oracle variants ( GUIDE-GT-Inference and 
+
+GUIDE-GT-Train ) achieve slightly better performance than GUIDE in terms of success rate and arrival time. Although this improvement reveals the remaining limitation of the learned internal nav-igation states, the small gap also indicates that GUIDE effectively learns and exploits such spatial context from partial observations to accomplish long-horizon navigation. This supports the central hypothesis of GUIDE: an end-to-end RL policy can maintain internal egomotion and directional awareness and successfully navigate complex environments when the target is provided only at ini-tialization. Furthermore, the marginally higher collision rate of the GUIDE-GT-Train variant aligns with our earlier finding that velocity prediction is essential for encoding instantaneous motion cues to reactively avoid collisions. Additionally, the significant performance drop in w/o Multi-Critic 
+
+demonstrates that decoupling the value estimation for dense and sparse rewards is critical for policy learning. Detailed analysis regarding the critic is provided in Appendix C. 
+
+4.2 Real-World Experiments 
+
+Figure 4: Quantitative results of real-world en-vironments. The robot will halt when the inter-nally estimated distance to the goal is lower than 
+
+0.2m. GUIDE achieves the best results across all metrics. Besides, an average FD around 0.2 and 
+
+0.3m represents a 0-to-0.1 meter average goal es-timation error, which further proves the policy’s accuracy and sim-to-real zero-shot generalization ability. 
+
+In-Lab Evaluations: We conduct indoor ex-periments in an 8 m × 8 m test area, evaluat-ing GUIDE in cluttered obstacle environments and maze environments, as shown in Fig. 5. During physical deployment, the robot is pro-grammed to autonomously halt when its inter-nally estimated distance to the target falls be-low 0.2 m . To quantify the accuracy of the learned internal directional awareness, we in-troduce an additional metric: Final Distance (FD) , defined as the actual physical distance be-tween the robot’s base and the true goal upon stopping. For hardware safety, we restrict our physical deployment to GUIDE and the two ab-lation variants with the highest success rates in simulation. Each method is evaluated over 10 independent physical trials, with the quantita-tive results detailed in Fig. 4. Across both sce-narios, GUIDE achieves the best overall performance and reaches the target with the highest preci-sion, demonstrating the robustness of our framework. 7Figure 5: Real-world deployments. GUIDE successfully navigates through (a) in-lab cluttered environments and (b) mazes, as well as unstructured scenarios like (c) long office corridors and outdoor grasslands with (d) dense vegetation and (e) dynamic obstacles. Top-left insets display global maps for (a) and (b) and real-time depth frames for (c-e). 
+
+In-the-wild Deployments: We further deploy GUIDE in unstructured environments unseen dur-ing training. As illustrated in Fig. 5, these scenarios range from long office corridors to outdoor grasslands, where the robot must dynamically avoid obstacles and detour around dense vegetation. Despite drastic changes in environment appearance, physical terrain attributes, lighting, and obstacle shapes, GUIDE maintains stable navigation behavior using solely raw onboard sensing, achieving successful zero-shot sim-to-real transfer and overcoming real-world domain shifts. 
+
+# 5 Conclusion 
+
+In this work, we presented GUIDE, a fully end-to-end reinforcement learning framework for goal-initialized visual navigation. By utilizing multi-frequency raw proprioception and raw depth infor-mation, GUIDE enables legged robots to cultivate internal egomotion and directional awareness. Extensive evaluations in both simulated and real-world environments demonstrate that our approach empowers the robot to robustly and safely traverse dense clutter and escape maze dead-ends without the reliance on continuous external goal references, validating the effectiveness of the learned spatial awareness alongside zero-shot sim-to-real transfer ability. 
+
+# 6 Limitations and Future Work 
+
+Figure 6: A representative failure case under lim-ited depth FoV. The red trajectory represents the robot initially navigating out of the dead end. The blue trajectory indicates it re-entering the same trap after missing a traversable opening, before eventually recovering and reaching the goal. Although GUIDE successfully maintains a per-sistent spatial awareness and navigates maze-like terrains, its performance is constrained by the limited field-of-view (FoV) of the on-board depth sensor. The narrow FoV occa-sionally leads to minor collisions during sharp turns within confined corridors, and sometimes causes the robot to overlook traversable open-ings when escaping a dead end. In such cases, the robot may turn back to inspect pre-viously traversed areas for previously missed free space. Fig. 6 shows a representative fail-ure case where the robot re-enters the same trap in an attempt to find a traversable path, result-ing in inefficient navigation despite its eventual escape. To address these challenges, future work will explore active perception strategies or additional sensor modalities to expand the robot’s local spatial observation and mitigate sensor FoV constraints. 8Acknowledgments 
+
+We sincerely thank DEEP Robotics for providing the hardware platforms and testing facilities. This work was supported in part by the “Leading Goose” R&D Program of Zhejiang under Grant 2023C01177, the National Key R&D Program of China under Grant 2022YFB4701502, and the 2035 Key Technological Innovation Program of Ningbo City under Grant 2024Z300. 
+
+# References 
+
+[1] D. Hoeller, N. Rudin, D. Sako, and M. Hutter. Anymal parkour: Learning agile navigation for quadrupedal robots. Science Robotics , 9(88):eadi7566, 2024. [2] X. Cheng, K. Shi, A. Agarwal, and D. Pathak. Extreme parkour with legged robots. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 11443–11450. IEEE, 2024. [3] Y. Wu, J. Kuang, S. Khorshidi, X. Niu, L. Klingbeil, M. Bennewitz, and H. Kuhlmann. Doglegs: Robust proprioceptive state estimation for legged robots using multiple leg-mounted imus. In 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) ,pages 8856–8863, 2025. [4] F. Yang, P. Frivik, D. Hoeller, C. Wang, C. Cadena, and M. Hutter. Spatially-enhanced recur-rent memory for long-range mapless navigation via end-to-end reinforcement learning. The International Journal of Robotics Research , page 02783649251401926, 2025. [5] J. Jeong, M. Yoon, S. Choi, H. Shin, T. Yang, and S.-e. Yoon. Hipan: Hierarchical posture-adaptive navigation for quadruped robots in unstructured 3d environments. arXiv preprint arXiv:2604.26504 , 2026. [6] P. Vernaza, M. Likhachev, S. Bhattacharya, S. Chitta, A. Kushleyev, and D. D. Lee. Search-based planning for a legged robot over rough terrain. In 2009 IEEE International Conference on Robotics and Automation , pages 2380–2387. IEEE, 2009. [7] B. Yang, L. Wellhausen, T. Miki, M. Liu, and M. Hutter. Real-time optimal navigation plan-ning using learned motion costs. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pages 9283–9289. IEEE, 2021. [8] M. Gaertner, M. Bjelonic, F. Farshidian, and M. Hutter. Collision-free mpc for legged robots in static and dynamic scenes. In 2021 IEEE International Conference on Robotics and Au-tomation (ICRA) , pages 8266–8272. IEEE, 2021. [9] C. Cao, H. Zhu, F. Yang, Y. Xia, H. Choset, J. Oh, and J. Zhang. Autonomous exploration development environment and the planning algorithms. In 2022 International Conference on Robotics and Automation (ICRA) , pages 8921–8928. IEEE, 2022. [10] P. Jiang, H. Liu, J. Jin, W. Wang, and X. Li. Learning to evolve: Multi-modal interactive fields for robust humanoid navigation in dynamic environments. In Robotics: Science and Systems ,2026. [11] M. Pfeiffer, M. Schaeuble, J. I. Nieto, R. Y. Siegwart, and C. Cadena. From perception to de-cision: A data-driven approach to end-to-end motion planning for autonomous ground robots. 
+
+2017 IEEE International Conference on Robotics and Automation (ICRA) , pages 1527–1533, 2016. [12] A. Loquercio, E. Kaufmann, R. Ranftl, M. M¨ uller, V. Koltun, and D. Scaramuzza. Learning high-speed flight in the wild. Science Robotics , 6(59):eabg5810, 2021. [13] L. Tai, G. Paolo, and M. Liu. Virtual-to-real deep reinforcement learning: Continuous con-trol of mobile robots for mapless navigation. In 2017 IEEE/RSJ international conference on intelligent robots and systems (IROS) , pages 31–36. IEEE, 2017. 9[14] E. Wijmans, A. Kadian, A. S. Morcos, S. Lee, I. Essa, D. Parikh, M. Savva, and D. Batra. Dd-ppo: Learning near-perfect pointgoal navigators from 2.5 billion frames. In International Conference on Learning Representations , 2019. [15] W. Zhu and M. Hayashibe. A hierarchical deep reinforcement learning framework with high efficiency and generalization for fast and safe navigation. IEEE Transactions on industrial Electronics , 70(5):4962–4971, 2022. [16] Y. Zhu, R. Mottaghi, E. Kolve, J. J. Lim, A. Gupta, L. Fei-Fei, and A. Farhadi. Target-driven visual navigation in indoor scenes using deep reinforcement learning. In 2017 IEEE interna-tional conference on robotics and automation (ICRA) , pages 3357–3364. IEEE, 2017. [17] H. Shi, L. Shi, M. Xu, and K.-S. Hwang. End-to-end navigation strategy with deep rein-forcement learning for mobile robots. IEEE Transactions on Industrial Informatics , 16(4): 2393–2402, 2019. [18] W. Huang, Y. Zhou, X. He, and C. Lv. Goal-guided transformer-enabled reinforcement learn-ing for efficient autonomous navigation. IEEE Transactions on Intelligent Transportation Sys-tems , 25(2):1832–1845, 2023. [19] J. W¨ ohlke, F. Schmitt, and H. van Hoof. Hierarchies of planning and reinforcement learning for robot navigation. In 2021 IEEE international conference on robotics and automation (ICRA) ,pages 10682–10688. IEEE, 2021. [20] Y. Gao, J. Wu, X. Yang, and Z. Ji. Efficient hierarchical reinforcement learning for mapless navigation with predictive neighbouring space scoring. IEEE Transactions on Automation Science and Engineering , 21(4):5457–5472, 2023. [21] J. Gao, X. Pang, Q. Liu, and Y. Li. Hierarchical reinforcement learning for safe mapless navigation with congestion estimation. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 8849–8855. IEEE, 2025. [22] M. Pfeiffer, S. Shukla, M. Turchetta, C. Cadena, A. Krause, R. Siegwart, and J. Nieto. Re-inforced imitation: Sample efficient deep reinforcement learning for mapless navigation by leveraging prior demonstrations. IEEE Robotics and Automation Letters , 3(4):4423–4430, 2018. [23] J. Ye, D. Batra, A. Das, and E. Wijmans. Auxiliary tasks and exploration enable objectgoal navigation. In Proceedings of the IEEE/CVF international conference on computer vision ,pages 16117–16126, 2021. [24] J. Lee, M. Bjelonic, A. Reske, L. Wellhausen, T. Miki, and M. Hutter. Learning robust au-tonomous navigation and locomotion for wheeled-legged robots. Science Robotics , 9(89): eadi9641, 2024. [25] Q. Yuan, Z. Cao, M. Cao, and K. Li. Reasan: Learning reactive safe navigation for legged robots. arXiv preprint arXiv:2512.09537 , 2025. [26] A. Sadat, S. Casas, M. Ren, X. Wu, P. Dhawan, and R. Urtasun. Perceive, predict, and plan: Safe motion planning through interpretable semantic representations. In European Conference on Computer Vision , pages 414–430. Springer, 2020. [27] D. Shah, A. Sridhar, A. Bhorkar, N. Hirose, and S. Levine. Gnm: A general navigation model to drive any robot. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 7226–7233. IEEE, 2023. [28] D. Shah, A. K. Sridhar, N. Dashora, K. Stachowicz, K. Black, N. Hirose, and S. Levine. Vint: A foundation model for visual navigation. In Conference on Robot Learning , 2023. 10 [29] F. Yang, C. Wang, C. Cadena, and M. Hutter. iplanner: Imperative path planning. In Robotics: Science and Systems , 2023. [30] P. Roth, J. Nubert, F. Yang, M. Mittal, and M. Hutter. Viplanner: Visual semantic impera-tive learning for local navigation. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 5243–5249. IEEE, 2024. [31] D. Hoeller, L. Wellhausen, F. Farshidian, and M. Hutter. Learning a state representation and navigation in cluttered and dynamic environments. IEEE Robotics and Automation Letters , 6 (3):5081–5088, 2021. [32] C. Zhang, J. Jin, J. Frey, N. Rudin, M. Mattamala, C. Cadena, and M. Hutter. Resilient legged local navigation: Learning to traverse with compromised perception end-to-end. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 34–41. IEEE, 2024. [33] T. He, C. Zhang, W. Xiao, G. He, C. Liu, and G. Shi. Agile but safe: Learning collision-free high-speed legged locomotion. In Robotics: Science and Systems , 2024. [34] P. Roth, J. Frey, C. Cadena, and M. Hutter. Learned perceptive forward dynamics model for safe and platform-aware robotic navigation. In Robotics: Science and Systems , 2025. [35] S. Chen, M. Yang, H. Mao, J. Zhang, H. Liu, S. He, D. Zhang, Z. Qiu, and C. Zhang. Sea-nav: Efficient policy learning for safe and agile quadruped navigation in cluttered environments, 2026. [36] J. Truong, D. Yarats, T. Li, F. Meier, S. Chernova, D. Batra, and A. Rai. Learning naviga-tion skills for legged robots with learned robot embeddings. In 2021 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 484–491. IEEE, 2021. [37] T. Miki, J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter. Learning robust percep-tive locomotion for quadrupedal robots in the wild. Science robotics , 7(62):eabk2822, 2022. [38] P. Long, W. Liu, and J. Pan. Deep-learned collision avoidance policy for distributed multiagent navigation. IEEE Robotics and Automation Letters , 2(2):656–663, 2017. [39] P. Long, T. Fan, X. Liao, W. Liu, H. Zhang, and J. Pan. Towards optimally decentralized multi-robot collision avoidance via deep reinforcement learning. In 2018 IEEE international conference on robotics and automation (ICRA) , pages 6252–6259. IEEE, 2018. [40] M. Andrychowicz, F. Wolski, A. Ray, J. Schneider, R. Fong, P. Welinder, B. McGrew, J. To-bin, O. Pieter Abbeel, and W. Zaremba. Hindsight experience replay. Advances in neural information processing systems , 30, 2017. [41] W. Ding, S. Li, H. Qian, and Y. Chen. Hierarchical reinforcement learning framework towards multi-agent navigation. In 2018 IEEE international conference on robotics and biomimetics (ROBIO) , pages 237–242. IEEE, 2018. [42] E. Wijmans, M. Savva, I. Essa, S. Lee, A. S. Morcos, and D. Batra. Emergence of maps in the memories of blind navigation agents. AI Matters , 9(2):8–14, 2023. [43] F. Xia, A. R. Zamir, Z. He, A. Sax, J. Malik, and S. Savarese. Gibson env: Real-world per-ception for embodied agents. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 9068–9079, 2018. [44] A. X. Chang, A. Dai, T. A. Funkhouser, M. Halber, M. Nießner, M. Savva, S. Song, A. Zeng, and Y. Zhang. Matterport3d: Learning from rgb-d data in indoor environments. 2017 Interna-tional Conference on 3D Vision (3DV) , pages 667–676, 2017. [45] E. C. Tolman. Cognitive maps in rats and men. Psychological review , 55(4):189, 1948. 11 [46] J. O’keefe and L. Nadel. Pr´ ecis of o’keefe & nadel’s the hippocampus as a cognitive map. 
+
+Behavioral and Brain Sciences , 2(4):487–494, 1979. [47] M. Liu, M. Zhu, and W. Zhang. Goal-conditioned reinforcement learning: Problems and solutions. arXiv preprint arXiv:2201.08299 , 2022. [48] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [49] R. Avni, Y. Tzvaigrach, and D. Eilam. Exploration and navigation in the blind mole rat (spalax ehrenbergi): global calibration as a primer of spatial representation. Journal of Experimental Biology , 211(17):2817–2826, 2008. [50] R. A. Epstein, E. Z. Patai, J. B. Julian, and H. J. Spiers. The cognitive map in humans: spatial navigation and beyond. Nature neuroscience , 20(11):1504–1513, 2017. [51] J. Long, Z. Wang, Q. Li, L. Cao, J. Gao, and J. Pang. Hybrid internal model: Learning agile legged locomotion with simulated robot response. In International Conference on Learning Representations , volume 2024, pages 14084–14100, 2024. [52] S. Mysore, G. Cheng, Y. Zhao, K. Saenko, and M. Wu. Multi-critic actor learning: Teaching rl policies to act with style. In International Conference on Learning Representations , 2022. [53] L. Wang, K. Yao, Y. Liu, W. Qin, J. Wu, Z. Sun, and Q. Zhu. Puma: Perception-driven unified foothold prior for mobility augmented quadruped parkour. arXiv preprint arXiv:2601.15995 ,2026. [54] F. Zargarbashi, J. Cheng, D. Kang, R. Sumner, and S. Coros. Robotkeyframing: Learning locomotion with high-level objectives via mixture of dense and sparse rewards. In Conference on Robot Learning , pages 916–932. PMLR, 2025. [55] J. Schulman, P. Moritz, S. Levine, M. I. Jordan, and P. Abbeel. High-dimensional continuous control using generalized advantage estimation. CoRR , abs/1506.02438, 2015. [56] R. Tarjan. Depth-first search and linear graph algorithms. SIAM Journal on Computing , 1(2): 146–160, 1972. 12 Appendix 
+
+# TABLE OF CONTENTS 
+
+A Observation Details B Reward Functions C Critic Details D Training Details E Additional Real-World Deployments 
+
+# A Observation Details 
+
+Proprioceptive Observations. The raw proprioceptive observation frame at time step t, denoted as 
+
+pt ∈ R46 (which constructs the temporal streams Pl 
+
+> t
+
+and Ph 
+
+> t
+
+described in Section 3.2), is defined as: 
+
+pt =
+
+h
+
+tep , a t−1, ω t, g t, θ t, ˙θt, θ cmd 
+
+> t−1
+
+iT
+
+, (4) where tep ∈ R acts as an episodic timer, initializing at zero at the beginning of each episode and progressively incrementing at each step to track the elapsed time. at−1 ∈ R3 represents the previ-ously executed high-level twist command. ωt ∈ R3 is the base angular velocity, and gt ∈ R3 is the projected gravity vector in the base frame. θt ∈ R12 and ˙θt ∈ R12 denote the current joint positions and joint velocities obtained from the motor encoders, respectively. Finally, θcmd  
+
+> t−1
+
+∈ R12 denotes the previous low-level joint position targets. 
+
+Figure 7: Depth observation processing pipeline. (a) Raw depth image rendered by NVIDIA Warp. (b) Depth image after additive Gaussian noise. (c) Depth Dropout. (d) Quantization. (e) 
+
+Final policy input after clipping, normalization, cropping, and average-pooling downsampling. 
+
+Visual Observations. During simulation, the raw depth images are rendered via a lightweight ray-tracing pipeline built on NVIDIA Warp. Before being appended to the history buffer Dt, each depth frame undergoes the following noise injection and preprocessing operations to simulate real-world depth cameras: 1. Gaussian Noise: Independent Gaussian noise ϵ ∼ N (0 , σ 2) with σ = 0 .03 m is injected into the valid pixels. 2. Depth Dropout: Randomly sized rectangular regions are masked out and set to the maxi-mum sensing range ( 5.0 m ) to simulate regional depth sensing failures. 3. Depth Quantization: The continuous depth measurements are quantized with a step size of 0.01 m to simulate discrete sensor resolution. 4. Clipping, Normalization, Cropping and Downsampling: The depth values are clipped to the valid sensing range of [0 .1, 5.0] m , normalized to [−0.5, 0.5] , center-cropped to remove peripheral regions and downsampled via average pooling to a final resolution of Dt ∈
+
+R30 ×43 .During physical deployment, the raw depth frames are first processed using the official spatial and temporal SDK filters. Subsequently, they undergo the identical structural preprocessing (clipping, cropping, normalization, and downsampling) as in simulation to align the observation space, without any synthetic noise injection. 13 Output Command Processing. The actor outputs raw egocentric twist commands araw  
+
+> t
+
+=[vx, v y , ω z ]T . To enable smoother execution by the low-level locomotion controller, we process the raw command before execution through an exponential moving average (EMA) filter: 
+
+˜at = αa t−1 + (1 − α)araw  
+
+> t
+
+, (5) where α is the EMA smoothing factor. The command update is then bounded by the per-step command-change limit ∆amax ∈ R3:
+
+¯at = at−1 + clip  ˜at − at−1, −∆amax , ∆amax . (6) Finally, the command is clipped by the magnitude limit amax ∈ R3:
+
+at = clip  ¯at, −amax , a max . (7) The resulting filtered command at is sent to the low-level locomotion controller and is also used in the observation and reward computation. 
+
+# B Reward Functions 
+
+As described in Sec. 3, the reward function is divided into sparse task rewards and dense shaping re-wards for multi-critic value estimation. The complete reward terms and coefficients are summarized in Table 3. Specifically, Icomplete indicates successful target reaching, where both the target distance and heading error must remain below their respective thresholds for a sustained duration. Ibad de-notes failure termination triggered when the robot falls during navigation. For dense rewards, Isoft 
+
+indicates dt < σ soft and that the target is locally reachable without intervening obstacles, implying that the robot is about to arrive. Istatic indicates near-zero base motion when dt > σ soft , penalizing the robot for remaining still while far from the target. Icoll indicates the robot body collides with the environment. Table 3: Complete reward terms and coefficients. 
+
+Group Reward Term Formulation Coeff. / Params. Sparse 
+
+Position reaching Icomplete / 1 + ( dt/σ pos )2 3.0, σ pos = 0 .5
+
+Heading reaching Icomplete / 1 + ( ψt/σ head )2 1.5, σ head = 0 .5
+
+Bad termination Ibad −1.0
+
+Dense 
+
+Euclidean progress max  0, d best euc − deuc 
+
+> t
+
+/d euc  
+
+> t=0
+
+60 .0
+
+Maze-cell progress max  0, d best cell − dcell 
+
+> t
+
+/d cell  
+
+> t=0
+
+60 .0
+
+Near-goal velocity damping exp   − P 
+
+> i
+
+|at,i |/a max 
+
+> i
+
+Isoft 5.0, σ soft = 2 .0
+
+No-motion penalty Istatic −5.0
+
+Collision penalty Icoll −50 .0
+
+Command overspeed penalty P 
+
+> i
+
+max  |araw  
+
+> t,i
+
+| − λa max  
+
+> i
+
+, 02 −2.5, λ = 1 .3
+
+Command rate ∥at − at−1∥22 −0.05 
+
+Joint acceleration ∥¨θt∥22 −2.5 × 10 −7
+
+Joint torque ∥τt∥22 −2.0 × 10 −4
+
+Linear velocity (z) v2 
+
+> t,z
+
+−0.1
+
+Roll-pitch angular velocity ∥ωt,xy ∥22 −0.005 
+
+Orientation ∥gt,xy ∥22 −0.1
+
+# C Critic Details 
+
+Privileged Observation Input. Following the asymmetric actor-critic design, the critic receives privileged simulation information during training. The complete critic input is defined as: 
+
+ocritic  
+
+> t
+
+= pt, v t, Ireach , g t, s t, a max , ∆amax , f contact  
+
+> t
+
+, Mocc , Mexp 
+
+ , (8) where pt denotes the proprioceptive observation defined in Appendix A, and vt ∈ R3 denotes the robot linear velocity in the base frame. Ireach ∈ R indicates whether the target is locally reachable, which handles cases where the robot is geometrically close to the target but separated by obstacles 14 such as walls. gt ∈ R3 and st ∈ R3 denote the real-time relative target and spawn positions in the egocentric frame, respectively. amax ∈ R3 and ∆amax ∈ R3 are the command magnitude limit and the per-step command-change limit introduced in the output command processing. f contact  
+
+> t
+
+∈ R4
+
+represents binary foot-contact indicators. Finally, Mocc and Mexp are the downsampled occupancy map and explored-region map, respectively. The original terrain map covers a 12 m × 12 m area with a resolution of 0.1 m , and is downsampled to 60 × 60 before being provided to the critic. 
+
+Figure 8: Training curves for the critic abla-tion. Compared to the w/o Multi-Critic vari-ant, GUIDE demonstrates accelerated conver-gence and achieves a higher total episode reward, highlighting the effectiveness of the Multi-Critic (MuC) architecture. 
+
+Critic Ablation Analysis. To further investi-gate the efficacy of the MuC architecture, we compare the training curves of GUIDE with the 
+
+w/o Multi-Critic variant introduced in Sec. 4.1. As illustrated in Fig. 8, GUIDE exhibits accel-erated convergence and attains a substantially higher final episodic reward. Conversely, the 
+
+w/o Multi-Critic variant suffers from slower optimization and saturates at a suboptimal per-formance level. This discrepancy suggests that estimating the aggregated sparse task rewards and dense rewards with a unified single value function negatively impacts the optimization process. By decoupling these reward groups into independent value networks, MuC pro-vides more stable advantage estimation, en-abling the policy to effectively leverage both the dense locomotion guidance and the sparse navigational signals during optimization. 
+
+# D Training Details 
+
+Figure 9: Terrain curriculum progression. The terrain difficulty progressively increases from left to right for both cluttered and maze environments. These layouts also serve as examples of the eval-uation benchmarks introduced in Section 4.1. 
+
+Training Curriculum. Learning to navigate such complex environments from scratch is highly sample-inefficient. Therefore, we em-ploy a dual-curriculum strategy to guide the op-timization process. As shown in Fig. 9, the ter-rain curriculum progressively scales the envi-ronmental difficulty by increasing the obstacle density in cluttered terrains and expanding the grid dimensions of maze terrains. Concurrently, the command curriculum incrementally extends the navigation horizon by sampling initial tar-gets at progressively greater distances from the robot. This synergistic approach effectively sta-bilizes the training process and accelerates pol-icy convergence. 
+
+Simulation Setup. We train the 12-DoF DeepRobotics Lite3 robot using Isaac Gym across 2,048 parallel environments on a single NVIDIA H100 GPU. The entire reinforcement learning process is completed end-to-end in a single unified phase without any pretraining, with the policy typically converging within 20,000 iterations. The specific PPO hyperparameters and training configurations are summarized in Table 4. 
+
+Hardware Details. We deploy our framework on a DeepRobotics Lite3 quadruped robot. The policy runs onboard on an NVIDIA Jetson Orin NX, using proprioceptive measurements from the 15 robot and depth images from an Intel RealSense D435i camera. The visual stream is processed with the official RealSense filtering pipeline, updating depth frames at 10 Hz. Table 4: Training hyperparameters.              
+
+> Parameter Value
+> Rollout steps per env 36
+> Number of mini-batches 4
+> Number of learning epochs 5
+> Discount factor γ0.99
+> GAE parameter λ0.95
+> Clip parameter 0.2
+> Entropy coefficient 0.01
+> Value loss coefficient 1.0
+> Desired KL divergence 0.01
+> Max gradient norm 1.0
+
+Real-World Evaluation Setup. For quantitative evaluation and trajectory visualization in the in-lab environments presented in Section 4.2, the robot is additionally equipped with a Livox MID360 LiDAR. We utilize Faster-LIO to construct point cloud maps of the test terrains and employ HDL localization to track the robot’s global pose, which is used to cal-culate evaluation metrics such as the Final Distance (FD) between the robot’s stopping position and the actual target location. Note that our GUIDE frame-work operates entirely independent of this LiDAR-based pipeline; these external modules are com-pletely unrelated to the navigation policy and are used solely to acquire ground-truth states for evaluation. 
+
+# E Additional Real-World Deployments 
+
+Figure 10: Additional real-world maze deployments. The figure illustrates three distinct spawn-to-goal navigation trials within a 12 m ×12 m physical maze. For each trial (rows a–c), the left panels (a1, b1, c1 ) display the wide view of the environment, while the right panels ( a2, b2, c2 ) provide the corresponding side view. The gradient-colored curves represent the robot’s actual executed trajectories. Starting from different spawn locations, the policy consistently guides the robot to escape dead ends and reach the designated goals using solely onboard observations. 16 Besides the 8 m × 8 m in-lab terrains evaluated in the main text (Section 4.2), we constructed larger 12 m × 12 m physical mazes to further demonstrate the model’s navigation capabilities, which are shown in Fig. 10. We strongly encourage reviewers to refer to our project website (https://guide-navigation.github.io/ ) for the complete deployment videos. The real-world experiments demonstrate that our GUIDE framework enables the robot to leverage its learned egomotion and directional awareness from onboard observations to continuously escape multiple dead ends and successfully reach the target location. 17

@@ -1,0 +1,526 @@
+Title: See Selectively, Act Adaptively: Dual-Level Structural Decomposition for Bimanual Robot Manipulation
+
+URL Source: https://arxiv.org/pdf/2606.13279v1
+
+Published Time: Fri, 12 Jun 2026 01:21:30 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# See Selectively, Act Adaptively: Dual-Level Structural Decomposition for Bimanual Robot Manipulation 
+
+Yoon-Ji Choi, Young-Chae Son, Soo-Chul Lim* 
+
+Dongguk University 
+
+choiyj@dgu.ac.kr, sonyc@dgu.ac.kr, limsc@dongguk.edu 
+
+Abstract: In bimanual robotic manipulation, task-relevant visual information varies with the task stage and context, while the interaction of the two arms shifts between independent and coordinated modes, making policy learning challenging. However, existing monolithic Vision-Language-Action (VLA) policies process di-verse visual inputs and interaction patterns through a single shared representation and action generation pathway, often failing to separately account for visual rel-evance and bimanual interaction structure. To address this issue, we propose a bimanual manipulation VLA framework based on Dual-Level Structural Decom-position. The View-Selective Visual Router dynamically adjusts wrist-view con-tributions to emphasize relevant visual cues, while the Interaction-Aware Action Mixture-of-Experts (MoE) decomposes action generation into coordinated and arm-wise pathways to adapt to varying bimanual interaction modes. We evaluate the proposed method on six simulated bimanual manipulation tasks in RoboTwin 2.0 and three long-horizon real-world tasks. Our model improves the overall av-erage success rate over a monolithic baseline by 27.7% in simulation and 43.3% in real-world evaluation, while consistently outperforming single-module variants across both settings. These results demonstrate that jointly considering selective visual processing and explicit decomposition of bimanual interaction structures provides an effective inductive bias for robust bimanual manipulation. 
+
+Keywords: Bimanual Manipulation, Vision-Language-Action, Robot Learning 
+
+## 1 Introduction 
+
+Bimanual robotic manipulation—the ability to use two robotic arms to perform independent and co-ordinated motions depending on the task stage and context—is essential for general-purpose robots in human-centered environments [1, 2]. Many real-world manipulation tasks are difficult or ineffi-cient for a single arm and can be performed more stably and flexibly with two arms. For example, se-quentially organizing multiple objects, transferring an object between the two arms, and manipulat-ing an object with one arm while the other stabilizes it all require the use of both arms [3, 4, 5, 6, 7]. Recent advances in imitation learning and VLA models have focused on learning visuomotor poli-cies from human demonstrations, with extensions to bimanual settings [8, 9, 10, 11, 12, 13, 14, 15, 16]. However, bimanual manipulation is not merely a matter of doubling the degrees of freedom. When a task involves both arms, the required visual information changes across task stages, and spa-tial and temporal dependencies arise between the arms [17, 18, 19]. We characterize this challenge in terms of two forms of heterogeneity: perceptual heterogeneity and interaction heterogeneity. Perceptual heterogeneity refers to the dynamic variation in the relevance of multi-camera inputs across task stages and manipulation contexts [20, 21, 22]. For example, when one arm executes a grasp, the corresponding wrist view provides critical task cues, whereas the opposite wrist view may introduce task-irrelevant visual information. Unlike human selective attention, existing monolithic policies often aggregate visual features without explicitly accounting for the time-varying relevance 
+
+> arXiv:2606.13279v1 [cs.RO] 11 Jun 2026
+
+Figure 1: Dual-level structural decomposition framework. (a) Task-relevant views change as inter-action structure shifts between independent and coordinated modes. (b) The framework decomposes visual selection and action generation to mitigate perceptual and interaction heterogeneity. of each view. This can introduce task-irrelevant cues and weaken critical visual information, thereby degrading policy robustness and generalization [23, 24]. Interaction heterogeneity arises because bimanual tasks involve distinct action structures. Some stages involve independent motion of the two arms, whereas others require coordinated motion toward a shared goal [1]. Nevertheless, existing monolithic policies typically learn independent and coordinated actions within a single shared action generation pathway. This can entangle mode-specific learning signals within a shared representation, thereby biasing the policy toward a particular interaction mode or reducing task reliability [25, 26, 27, 28, 29]. In bimanual manipulation, these two forms of heterogeneity are intertwined [30, 22, 31]. For exam-ple, when one arm stabilizes an object while the other manipulates it, the actions of the two arms become more interdependent, and wrist-view cues from a specific arm can become critical. To ad-dress this issue, we propose a Dual-Level Structural Decomposition Framework that models “what to see” and “how to act” as separate components. We introduce the View-Selective Visual Router (VSR) at the perceptual level, and the Interaction-Aware Action MoE (IAMoE) at the action level. Together, they mitigate the influence of task-irrelevant visual cues and reduce interference among distinct interaction patterns. By jointly accounting for changing visual cues and evolving interac-tion structures, these two modules enable more robust policy learning in complex bimanual tasks. We evaluate the proposed framework on simulated and real-world bimanual manipulation tasks, and demonstrate that dual-level structural decomposition improves task performance. 
+
+## 2 Related Work 
+
+Bimanual Policy Learning and Generalist Policies. Bimanual policies have advanced through joint policy learning and methods leveraging unimanual priors for better generalization [3, 32, 25, 33]. Generalist VLA models have been extended to bimanual manipulation, but primarily focus on generalization without explicitly accounting for its structural complexity [8, 10, 11, 13, 14, 15]. 
+
+Selective Perception for Multi-View Manipulation. Multi-view manipulation methods support action generation in downstream policies by selecting or reweighting task-relevant views [20, 21, 24, 23, 34]. However, in bimanual manipulation, changes in view relevance are not merely an input selection problem, but are also closely tied to whether the two arms move independently or in a coordinated manner. Prior work can identify task-relevant visual cues, but does not directly address their coupling with downstream bimanual interaction structures. 2Figure 2: Overall architecture. (a) The View-Selective Visual Router is inserted before the VLM of the pretrained VLA and modulates wrist-view contributions based on task context. (b) The Interaction-Aware Action MoE extends the action expert of the pretrained VLA and selects either the coordinated expert or the arm-wise experts to generate the final action chunk. 
+
+Structured Interaction Modeling for Bimanual Manipulation. Prior studies have modeled inter-arm dependencies through arm-wise policy decomposition or predefined roles such as acting and stabilizing [26, 27, 28, 35, 31]. However, such static decompositions are less suited to tasks in which independent and coordinated motion dynamically alternate across stages. Taken together, prior work has made progress in bimanual policy learning, multi-view utilization, and structured interaction modeling, but remains limited in jointly accounting for evolving view relevance and interaction structure. We propose a Dual-Level Structural Decomposition Framework that accounts for these heterogeneities at both the perceptual and action levels. 
+
+## 3 Method 
+
+This section describes the detailed architecture of the proposed Dual-Level Structural Decomposi-tion Framework. The proposed method modulates visual contributions according to the task context at the input stage and decomposes action generation according to the bimanual interaction mode. 
+
+Problem formulation. Given the view set V = {E, L, R} (external, left, right), the observation at time t is given by Ot = ( {Ivt }v∈V , ℓ, s t). Ivt , ℓ, and st denote the image from view v, the language instruction, and the robot state, respectively. From Ot, the proposed model predicts an H-step action chunk At ≡ [at, a t+1 , . . . , a t+H−1], including joint control commands and gripper states for both arms. Given a demonstration dataset D = {(Ot, A t)}Nt=1 , our goal is to learn a policy that accounts for view relevance and the bimanual interaction structure, both of which vary with the task context. 
+
+Overall architecture. Fig. 2 shows the proposed model, which uses the pretrained VLA model 
+
+π0.5 [11] as the base policy and augments it with two structural modules. Specifically, we add a View-Selective Visual Router (VSR) at the pretrained VLM input stage to modulate wrist-view contributions, and extend the base model’s action expert into an Interaction-Aware Action MoE (IAMoE), which selects experts according to the interaction mode. 
+
+3.1 View-Selective Visual Router (VSR) 
+
+VSR models wrist-view relevance, which varies with the task stage and the role of each arm. As shown in Fig. 2(a), the external view provides the global context of the workspace [20]; we therefore modulate only the contributions of the wrist views. This directly incorporates view relevance at the VLM input stage, rather than relying solely on the backbone’s internal attention. 3To this end, VSR predicts relevance weights wt = [ wL 
+
+> t
+
+, w R 
+
+> t
+
+] ∈ [0 , 1] 2 from the routing context 
+
+zvis  
+
+> t
+
+, constructed using the external visual tokens F E 
+
+> t
+
+and language-state tokens Ct. These weights reweight the wrist visual tokens as follows: 
+
+F ′ L 
+
+> t
+
+= wL 
+
+> t
+
+F L 
+
+> t
+
+, F ′ R 
+
+> t
+
+= wR 
+
+> t
+
+F R 
+
+> t
+
+. (1) The reweighted wrist tokens F ′ L 
+
+> t
+
+and F ′ R 
+
+> t
+
+, together with F E 
+
+> t
+
+and Ct, are then fed into the pretrained VLM to form the shared conditioning representation Gt.
+
+3.2 Interaction-Aware Action MoE (IAMoE) 
+
+IAMoE generates actions based on conditional flow matching [36, 37, 10], predicting the target velocity field uτ for a noisy action chunk Aτ,ω t . At this velocity prediction stage, IAMoE separately models coordinated actions and arm-wise actions. 
+
+Expert architecture. IAMoE consists of three LoRA-based experts conditioned on Gt [38]. The co-ordinated expert handles the full action space, while the left and right arm-wise experts are restricted to their respective arm action subspaces. To this end, we define action masks M L, M R ∈ { 0, 1}H×d
+
+and use the masked noisy actions M L ⊙ Aτ,ω t and M R ⊙ Aτ,ω t as inputs. Each expert predicts its corresponding velocity field: 
+
+ˆucoord  
+
+> τ
+
+= Pcoord (hcoord  
+
+> t
+
+), ˆuLτ = M L ⊙ PL(hLt ), ˆuRτ = M R ⊙ PR(hRt ), ˆuind  
+
+> τ
+
+= ˆ uLτ + ˆ uRτ . (2) The three experts achieve mode-specific specialization through expert-specific adapters and struc-tural masking on top of a shared action backbone. 
+
+Action router. The Action Router predicts a hard one-hot interaction mode mt = [ mcoord  
+
+> t
+
+, m ind  
+
+> t
+
+] ∈{[1 , 0] , [0 , 1] } from the routing context zact  
+
+> t
+
+, which is constructed using the external visual tokens 
+
+F E 
+
+> t
+
+and language-state tokens Ct. The final velocity prediction is then determined as follows: 
+
+ˆuτ = mcoord  
+
+> t
+
+ˆucoord  
+
+> τ
+
++ mind  
+
+> t
+
+ˆuind  
+
+> τ
+
+. (3) During training, we use straight-through Gumbel-Softmax to preserve hard routing behavior in the forward pass, while passing gradients to the router through a soft relaxation in the backward pass [39]. At inference time, mt is determined by arg max , and the selected interaction mode is fixed throughout the generation process to maintain a consistent action structure. Further implementation details are provided in Appendix A. 
+
+3.3 Training Objective 
+
+The training objective consists of the main action loss Lmain for router-conditioned action predic-tion, the router supervision losses Lvis and Lact , and the auxiliary expert loss Laux .
+
+Main action objective. We train the final velocity prediction ˆuτ using the same standard conditional flow matching objective as the backbone policy, and denote this loss by Lmain .
+
+Router supervision. The two routers are supervised using labels generated by a KNN-based semi-automatic procedure, and the label generation is described in Appendix B. yvis  
+
+> t
+
+∈ { 0, 1}2 indicates whether the left and right wrist views are active, and yact  
+
+> t
+
+∈ { [1 , 0] , [0 , 1] } denotes the coordinated or independent interaction mode. We define Lvis as the binary cross-entropy loss for VSR and Lact 
+
+as the cross-entropy loss for the Action Router. 
+
+Auxiliary branch objective and total loss. We add a branch-wise auxiliary loss to ensure that all experts receive sufficient learning signals: 
+
+Laux = E ∥ˆucoord  
+
+> τ
+
+− uτ ∥22 + ∥ˆuLτ − M L ⊙ uτ ∥22 + ∥ˆuRτ − M R ⊙ uτ ∥22
+
+ . (4) The final objective is defined as follows: 
+
+Ltotal = Lmain + λvis Lvis + λact Lact + λaux Laux . (5) 
+
+λvis , λ act , λ aux denote the weights of the corresponding loss terms, and λaux is gradually decreased during training. 4Success rates by completed stage Task Method 1 2 3 4 5 6R1 (Pack and Place) Baseline 70% 60% 60% 60% 50% 40% w/o IAMoE 90% 90% 90% 90% 40% 40% w/o VSR 100% 90% 70% 70% 70% 60%                                                       
+
+> Ours 100% 100% 100% 100% 100% 90%
+> R2 (Handover and Pour) Baseline 100% 80% 80% 80% 60% 60% w/o IAMoE 100% 100% 100% 100% 80% 80% w/o VSR 100% 100% 100% 100% 90% 90%
+> Ours 100% 100% 100% 100% 100% 100%
+> R3 (Rotate and Place) Baseline 100% 70% 70% 70% 40% 30% w/o IAMoE 100% 90% 90% 90% 50% 50% w/o VSR 100% 80% 80% 80% 60% 60%
+> Ours 100% 100% 100% 100% 90% 80%
+
+Figure 3: Real-world task structure and cumulative stage-wise success rates. Top : stage configura-tions with relevant wrist-view labels (Left, Right, Both, or None) and interaction modes (Indepen-dent vs. Coordinated). Bottom : cumulative success rates under the easy condition, where column k
+
+reports the success rate of completing stages 1 through k.
+
+## 4 Experiments 
+
+In this section, we evaluate whether the proposed architecture addresses the perceptual and inter-action heterogeneity inherent to bimanual manipulation. To this end, we conduct experiments on bimanual manipulation tasks in simulation and the real world that exhibit different heterogeneity patterns, and compare our model against a monolithic baseline and two single-module variants. We design our experiments to answer the following three research questions: • Q1) Do the VSR and IAMoE modules mitigate their targeted forms of heterogeneity? • Q2) Does combining the two modules provide additional benefits in complex bimanual tasks? • Q3) Does the proposed router-based architecture remain robust under the hard setting? 5Method S1 S2 S3 S4 S5 S6 Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard Baseline 67% 36% 27% 10% 97% 47% 63% 8% 69% 9% 46% 24% w/o IAMoE 71% 45% 50% 47% 95% 70% 65% 29% 75% 21% 51% 32% w/o VSR 78% 50% 49% 33% 99% 75% 70% 38% 86% 33% 65% 40% Ours 85% 68% 63% 55% 97% 83% 78% 47% 93% 46% 71% 49% Overall Avg.: Baseline = 41.9% w/o IAMoE = 54.3% w/o VSR = 59.7% Ours = 69.6% 
+
+Figure 4: Simulation task overview and success rates under easy and hard settings. 
+
+4.1 Experimental Setup Simulation Benchmark and Tasks. For simulation, we adopt six bimanual manipulation tasks from RoboTwin 2.0 [40]. We group these tasks into three categories: those with pronounced perceptual heterogeneity (S1: Stack Bowls Three, S2: Blocks Ranking Size), those with pronounced interaction heterogeneity (S3: Lift Pot, S4: Place Bread Skillet), and those exhibiting both (S5: Handover Block, S6: Put Bottles Dustbin). This design enables evaluation under both isolated and combined heterogeneity settings. All evaluations follow the easy and hard setting protocols of RoboTwin 2.0. 
+
+Real-World Tasks. Our real-world evaluation consists of three long-horizon tasks, each comprising six stages: R1 (Pack and Place), R2 (Handover and Pour), and R3 (Rotate and Place). Each task is designed such that the relevant wrist view and bimanual interaction mode switch repeatedly as the task progresses, inducing both forms of heterogeneity within a single rollout. Fig. 3 illustrates the real-world task environments and stage configurations. The real-world evaluation is also conducted under two conditions: the easy setting uses the same environments as the training data, while the hard setting consists of unseen environments not encountered during training. 
+
+Baselines and Ablations. We compare four models: Baseline is the monolithic π0.5 [11]. w/o IAMoE includes only View-Selective Visual Router, whereas w/o VSR includes only Interaction-Aware Action MoE. Ours is the full proposed model incorporating both modules. Additional com-parison results, including a parameter-matched baseline, are presented in Appendix C. 
+
+Training and Evaluation Protocol. For fair comparison, we train all models separately for each task on the same demonstration set, using LoRA fine-tuning for 30,000 steps with batch size 16 [38]. The training data are collected under the easy setting, with 50 demonstrations per task in simulation and 40 in real-world experiments. Simulation evaluation is conducted with 100 rollouts per task, using the same random seed for all methods. In the real world, the easy setting is evaluated with 10 trials per task for all methods, while the hard setting is evaluated only for Baseline and Ours. The evaluation metrics include the simulation success rate, real-world success rate, and stage-wise success rate. Detailed evaluation protocols are provided in Appendix D. 
+
+4.2 Q1: Contribution of Each Module 
+
+To analyze each module’s contribution, Fig. 4 compares Baseline with the single-module variants. 
+
+Effect of VSR. VSR’s contribution is evaluated by comparing w/o IAMoE with Baseline. On S1 and S2, where perceptual heterogeneity is pronounced, w/o IAMoE outperforms Baseline across both settings. The gain is particularly large on S2, with absolute success-rate improvements of +23% 
+
+under the easy setting and +37% under the hard setting. These results demonstrate that explicitly modulating wrist-view contributions based on task context mitigates perceptual heterogeneity. 
+
+Effect of IAMoE. IAMoE’s contribution is evaluated by comparing w/o VSR with Baseline. On S3 and S4, where interaction heterogeneity is pronounced, w/o VSR achieves absolute success-rate gains 6Figure 5: Robustness evaluation results. (a) Average simulation success rates under Easy/Hard settings. (b) Real-world success rates for three tasks under Easy/Hard settings. of +28% and +30% , respectively, under the hard setting. This suggests that separately modeling coordinated and arm-wise actions enables stable action generation when interaction heterogeneity is pronounced. The result on S1 provides an additional indication that arm-wise experts may help capture left-right asymmetric manipulation patterns, even while manipulating similar objects. 
+
+Failure case analysis. Failure modes in the real-world tasks further reveal the distinct roles of the two modules observed in simulation. On R1, R2, and R3, w/o IAMoE frequently fails during coordinated manipulation stages, where stable inter-arm alignment is required. In R1, the two arms often deviate from the aligned trajectories needed to transport the box, while in R2 this leads to handover failures. In R3, the model often fails to align the rotation axis during cube rotation. In contrast, w/o VSR produces errors in arm-role assignment and target-position inference, reflecting insufficient attention to task-relevant visual cues. These observations indicate that VSR improves wrist-view relevance estimation, while IAMoE enhances bimanual interaction modeling. 
+
+4.3 Q2: Benefit of Dual-Level Decomposition 
+
+On the complex bimanual tasks where both forms of heterogeneity occur jointly, the full architec-ture combining both modules outperforms each single-module variant. As shown in Fig. 4, Ours outperforms not only Baseline but also both single-module variants on S5 and S6. Fig. 5(a) quan-tifies these gains: Ours improves the absolute success rate over the two single-module variants by 13.4% and 6.7%, respectively, under the easy setting, and the margins widen to 17.3% and 13.2% under the hard setting. A representative hard-setting failure on S6 further illustrates the limitation of action-level decomposition alone: w/o VSR sometimes advanced both arms simultaneously instead of following the intended bottle-reaching order. This suggests that action-level decomposition alone can be insufficient when visual ambiguity makes the next active arm unclear during sequential reach-ing. Overall, these results demonstrate that the two modules yield complementary gains in complex settings that simultaneously require both view-level routing and action-level decomposition. The same pattern emerges in the real-world tasks. Fig. 3 shows that Ours achieves higher final success rates than both single-module variants across R1–R3. Stage-wise analysis further reveals that this integration not only improves overall success but also mitigates failures at intermediate stages, especially around stage transitions. For example, on R1, w/o IAMoE maintains high success during individual object transport but degrades sharply at the coordination-dependent box-grasping stage. In contrast, w/o VSR accumulates failures in the early sequential stages, where the relevant wrist view changes over time, rather than in the later coordinated stages. Ours maintains a 100% 
+
+success rate through Stage 5, addressing the failure patterns observed in both single-module variants. These results indicate that complex bimanual manipulation cannot be sufficiently addressed by se-lectively handling only perceptual or interaction heterogeneity. This highlights the need to model their dynamic coupling rather than each heterogeneity in isolation. VSR and IAMoE mitigate differ-ent but complementary sources of failure, and their combination yields the most stable performance in tasks where view relevance and interaction structure change jointly across task stages. 74.4 Q3: Robustness of the Proposed Routing-Based Structure 
+
+Since the two routers are lightweight routing modules trained on easy-setting demonstrations, they may learn shortcut patterns tied to the training distribution rather than task-relevant routing. To examine this, we evaluate the proposed structure under the hard setting, where environmental varia-tions introduce visual ambiguity. Fig. 5(a) shows that Ours achieves the highest average success rate under both settings and improves over Baseline by +35 .7% under the hard setting. This hard-setting gain suggests that the proposed structure does not simply rely on easy-setting correlations; instead, environmental changes increase the burden on a monolithic policy to implicitly resolve task-relevant visual cues and interaction patterns, while explicit routing helps mitigate this ambiguity. A similar pattern is observed in the real-world hard evaluation. In Fig. 5(b), Ours improves the absolute success rate over Baseline by +30% , +40% , and +50% on R1, R2, and R3, respectively. Notably, Ours maintains a 60% success rate on R2 and R3 even under the hard setting, despite unseen environmental variations. These results suggest that selecting relevant wrist views and interaction modes improves real-world bimanual manipulation under environmental changes. Taken together, the simulation and real-world results indicate that the proposed router-based ar-chitecture is not merely fitted to easy-setting correlations. Rather, explicit visual selection and interaction-structure decomposition help reduce ambiguity in identifying task-relevant visual cues and interaction structures, explaining the stronger gains under the hard setting. 
+
+## 5 Conclusion 
+
+In this paper, we addressed two forms of heterogeneity in bimanual manipulation: perceptual het-erogeneity, arising from changes in task-relevant visual cues, and interaction heterogeneity, arising from transitions between independent and coordinated arm motions. To address both jointly, we proposed a Dual-Level Structural Decomposition Framework that combines a View-Selective Vi-sual Router and an Interaction-Aware Action MoE. The Visual Router modulates the contributions of the left and right wrist views according to task context, while the Action MoE separately models coordinated and arm-wise action generation. Simulation and real-world results show that the com-bined modules outperform monolithic and single-module variants on complex bimanual tasks. The model also remains robust under hard-setting variations, suggesting that it does not merely exploit environment-specific patterns but provides an effective inductive bias for explicit visual selection and interaction-structure decomposition. These results indicate that jointly modeling task-relevant visual information and bimanual interaction structure is important for robust bimanual manipula-tion. 
+
+## 6 Limitation 
+
+Despite the promising results, our framework has several limitations. First, we use human-in-the-loop supervision because view relevance is task-dependent and can be ambiguous from proprio-ceptive or geometric cues alone. In particular, the relevant wrist view can vary with camera place-ment, object configuration, and demonstration style, making it difficult to determine using simple rule-based criteria. Future work could reduce this annotation burden by using VLM-based scene understanding to automatically generate or refine view relevance labels [20, 24]. Second, this work simplifies interaction modes into two categories: independent and coordinated. This binary abstraction captures the dominant interaction transitions in our tasks while keeping in-teraction routing tractable. However, it does not explicitly separate loose and tight coordination; we group loose coordination into the coordinated mode because it still involves inter-arm dependency. Future work could incorporate a continuous coordination score or hierarchical interaction routing to represent different degrees of coordination more precisely. 8Finally, although the hard-setting evaluations across simulation and real-world settings demonstrated some robustness, broader generalization to more substantial visual distribution shifts, longer-horizon tasks, and diverse robot embodiments requires further validation. 9References 
+
+[1] F. Krebs and T. Asfour. A bimanual manipulation taxonomy. IEEE Robotics and Automation Letters , 7(4):11031–11038, 2022. doi:10.1109/LRA.2022.3196158. [2] C. Smith, Y. Karayiannidis, L. Nalpantidis, X. Gratal, P. Qi, D. V. Dimarogonas, and D. Kragic. Dual arm manipulation—a survey. Robotics and Autonomous Systems , 60(10):1340–1353, 2012. ISSN 0921-8890. doi:https://doi.org/10.1016/j.robot.2012.07.005. [3] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn. Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware. In Proceedings of Robotics: Science and Systems , 2023. doi: 10.15607/RSS.2023.XIX.016. [4] Z. Fu, T. Z. Zhao, and C. Finn. Mobile ALOHA: Learning bimanual mobile manipulation using low-cost whole-body teleoperation. In Conference on Robot Learning (CoRL) , volume 270, pages 4066–4083. PMLR, 2024. [5] M. Grotz, M. Shridhar, Y.-W. Chao, T. Asfour, and D. Fox. Peract2: Benchmarking and learning for robotic bimanual manipulation tasks. In CoRL Workshop on Whole-body Control and Bimanual Manipulation: Applications in Humanoids and Beyond , 2024. [6] Y. Li, C. Pan, H. Xu, X. Wang, and Y. Wu. Efficient bimanual handover and rearrangement via symmetry-aware actor-critic learning. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 3867–3874, 2023. doi:10.1109/ICRA48891.2023.10160739. [7] A. Tung, J. Wong, A. Mandlekar, R. Mart´ ın-Mart´ ın, Y. Zhu, L. Fei-Fei, and S. Savarese. Learn-ing multi-arm manipulation through collaborative teleoperation. In IEEE International Confer-ence on Robotics and Automation (ICRA) , pages 9212–9219, 2021. doi:10.1109/ICRA48506. 2021.9561491. [8] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Fos-ter, G. Lam, P. Sanketi, et al. Openvla: An open-source vision-language-action model. In 
+
+Conference on Robot Learning (CoRL) , volume 270, pages 2679–2713. PMLR, 2025. [9] M. J. Kim, C. Finn, and P. Liang. Fine-tuning vision-language-action models: Optimizing speed and success. arXiv preprint arXiv:2502.19645 , 2025. [10] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter, et al. π0: A vision-language-action flow model for general robot control. In Robotics: Science and Systems (RSS) , 2025. doi:10.15607/RSS.2025.XXI.010. [11] K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. R. Equi, C. Finn, N. Fusai, M. Y. Galliker, et al. π0.5: a vision-language-action model with open-world general-ization. In Conference on Robot Learning (CoRL) , volume 305, pages 17–40. PMLR, 2025. [12] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Haus-man, A. Herzog, J. Hsu, et al. RT-1: Robotics Transformer for Real-World Control at Scale. In Robotics: Science and Systems (RSS) , 2023. doi:10.15607/RSS.2023.XIX.025. [13] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, X. Chen, K. Choromanski, T. Ding, D. Driess, A. Dubey, C. Finn, et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In Conference on Robot Learning (CoRL) , volume 229, pages 2165–2183. PMLR, 2023. [14] O. M. Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees, S. Dasari, J. Hejna, T. Kreiman, C. Xu, et al. Octo: An Open-Source Generalist Robot Policy. In Robotics: Science and Systems (RSS) , 2024. doi:10.15607/RSS.2024.XX.090. 10 [15] S. Liu, L. Wu, B. Li, H. Tan, H. Chen, Z. Wang, K. Xu, H. Su, and J. Zhu. RDT-1b: a diffu-sion foundation model for bimanual manipulation. In International Conference on Learning Representations (ICLR) , 2025. [16] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [17] F. Krebs and T. Asfour. Formalization of temporal and spatial constraints of bimanual manipu-lation categories. In International Conference on Intelligent Robots and Systems (IROS) , pages 1302–1309, 2024. doi:10.1109/IROS58592.2024.10801861. [18] H. Deng, W. Guo, Q. Wang, Z. Wu, and Z. Wang. Safebimanual: Diffusion-based trajec-tory optimization for safe bimanual manipulation. In Conference on Robot Learning (CoRL) ,volume 305, pages 3218–3238. PMLR, 2025. [19] I.-C. A. Liu, J. Chen, G. S. Sukhatme, and D. Seita. D-coda: Diffusion for coordinated dual-arm data augmentation. In Conference on Robot Learning (CoRL) , volume 305, pages 3569– 3588. PMLR, 2025. [20] Z. Lan, W. Mao, H. Li, L. Wang, T. Wang, H. Fan, and O. Yoshie. Bfa: Best-feature-aware fusion for multi-view fine-grained manipulation. IEEE Robotics and Automation Letters , 10 (9):8930–8937, 2025. doi:10.1109/LRA.2025.3589149. [21] Y. Bai, Z. Wang, Y. Liu, K. Luo, Y. Wen, M. Dai, W. Chen, Z. Chen, L. Liu, G. Li, and L. Lin. Learning to see and act: Task-aware virtual view exploration for robotic manipulation. In 
+
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2026. [22] I. Chuang, A. Lee, D. Gao, M.-M. Naddaf-Sh, and I. Soltani. Active vision might be all you need: Exploring active vision in bimanual robotic manipulation. In IEEE International Conference on Robotics and Automation (ICRA) , pages 7952–7959, 2025. [23] R. Feng, D. Hu, W. Ma, and X. Li. Play to the score: Stage-guided dynamic multi-sensory fusion for robotic manipulation. In Conference on Robot Learning (CoRL) , volume 270, pages 340–363. PMLR, 2025. [24] Y.-C. Son, J.-W. Lee, Y.-J. Choi, D.-K. Ko, and S.-C. Lim. Selective perception for robot: Task-aware attention in multimodal vla. arXiv preprint arXiv:2602.15543 , 2026. [25] X. Zhai, Z. Huang, L. Wu, Q. Zhao, Q. Yu, J. Ren, C. Hao, and H. Soh. Skillvla: Tackling com-binatorial diversity in dual-arm manipulation via skill reuse. arXiv preprint arXiv:2603.03836 ,2026. [26] J.-J. Jiang, X.-M. Wu, Y.-X. He, L.-A. Zeng, Y.-L. Wei, D. Zhang, and W.-S. Zheng. Re-thinking bimanual robotic manipulation: Learning with decoupled interaction framework. In 
+
+IEEE/CVF International Conference on Computer Vision (ICCV) , pages 12427–12437, 2025. [27] A. C.-W. Lee, I. Chuang, L.-Y. Chen, and I. Soltani. Interact: Inter-dependency aware action chunking with hierarchical attention transformers for bimanual manipulation. In Conference on Robot Learning (CoRL) , volume 270, pages 1730–1743. PMLR, 2025. [28] H. Xu, L. Lei, J. Gu, C. Tang, J. Chen, and R. Wang. Move-then-operate: Behavioral phasing for human-like robotic manipulation. arXiv preprint arXiv:2604.23620 , 2026. [29] J. Ma, Z. Zhao, X. Yi, J. Chen, L. Hong, and E. H. Chi. Modeling task relationships in multi-task learning with multi-gate mixture-of-experts. In Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining , page 1930–1939. Associa-tion for Computing Machinery, 2018. ISBN 9781450355520. doi:10.1145/3219819.3220007. 11 [30] H. Xiong, X. Xu, J. Wu, Y. Hou, J. Bohg, and S. Song. Vision in action: Learning active perception from human demonstrations. In Conference on Robot Learning (CoRL) , pages 5450–5463. PMLR, 2025. [31] I.-C. A. Liu, S. He, D. Seita, and G. S. Sukhatme. Voxact-b: Voxel-based acting and stabilizing policy for bimanual manipulation. In Conference on Robot Learning (CoRL) , volume 270, pages 4354–4370. PMLR, 2025. [32] H. Im, E. Jeong, A. Kolobov, J. Fu, and Y. Lee. Twinvla: Data-efficient bimanual manipulation with twin single-arm vision-language-action models. arXiv preprint arXiv:2511.05275 , 2025. [33] G. Lu, T. Yu, H. Deng, S. S. Chen, Y. Tang, and Z. Wang. Anybimanual: Transferring uni-manual policy for general bimanual manipulation. In IEEE/CVF International Conference on Computer Vision (ICCV) , pages 13662–13672, 2025. [34] Z. Yang, Y. Chai, X. Jia, Q. Li, Y. Shao, X. Zhu, H. Su, and J. Yan. Drivemoe: Mixture-of-experts for vision-language-action model in end-to-end autonomous driving. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 10678–10688, 2026. [35] J. Grannen, Y. Wu, B. Vu, and D. Sadigh. Stabilize to act: Learning to coordinate for bimanual manipulation. In Conference on Robot Learning (CoRL) , volume 229, pages 563–576. PMLR, 2023. [36] Y. Lipman, R. Chen, H. Ben-Hamu, M. Nickel, and M. Le. Flow matching for generative modeling. In International Conference on Learning Representations (ICLR) , 2023. [37] A. Tong, K. FATRAS, N. Malkin, G. Huguet, Y. Zhang, J. Rector-Brooks, G. Wolf, and Y. Ben-gio. Improving and generalizing flow-based generative models with minibatch optimal trans-port. Transactions on Machine Learning Research , 2024. ISSN 2835-8856. [38] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen. LoRA: Low-rank adaptation of large language models. In International Conference on Learning Rep-resentations (ICLR) , 2022. [39] E. Jang, S. Gu, and B. Poole. Categorical reparameterization with gumbel-softmax. In Inter-national Conference on Learning Representations (ICLR) , 2017. [40] T. Chen, Z. Chen, B. Chen, Z. Cai, Y. Liu, Z. Li, Q. Liang, X. Lin, Y. Ge, Z. Gu, et al. Robotwin 2.0: A scalable data generator and benchmark with strong domain randomization for robust bimanual robotic manipulation. arXiv preprint arXiv:2506.18088 , 2025. 12 A Architecture Implementation Details 
+
+This section provides implementation details omitted from the main text. Our design largely pre-serves the original π0.5 pipeline, modifying only the visual token processing stage and the action expert. 
+
+Figure 6: Detailed architecture of the proposed dual-level routing framework. (a) View-Selective Visual Router (VSR) for context-aware wrist-view token reweighting. (b) Interaction-Aware Action MoE (IAMoE) for interaction-mode-aware action generation. 
+
+A.1 Token Processing and Routing Inputs 
+
+As shown in Fig. 6(a), the input multi-view images are encoded by a ViT into external visual tokens 
+
+F Et , left-wrist visual tokens F Lt , and right-wrist visual tokens F Rt . The language instruction and robot state are converted by a tokenizer into language-state tokens Ct. Both routers use only F Et
+
+and Ct as inputs, and the wrist visual tokens are excluded from the routing context. Including the wrist visual tokens in the routing context yields performance comparable to the default design under the easy setting, but under the hard setting it leads to less stable routing behavior and lowers task success rates (Appendix C). This suggests that incorporating all three image streams makes the router more likely to rely on shortcut patterns specific to the training environment. We therefore construct the routing context from only the external visual tokens and language-state to-kens, which together provide global scene context and task conditioning. Because F Et and Ct have different characteristics, we apply a different pooling operation to each. We apply attention pooling to the external visual tokens to summarize the global scene context relevant to the current task stage, and mean pooling to the variable-length language-state tokens to obtain a compact task-context summary. The two pooled representations are combined to form zvis 
+
+> t
+
+and zact  
+
+> t
+
+. The Visual Router and the Action Router share the same input construction and network architecture but are implemented as separate modules with independent parameters. 13 The wrist-view relevance weights wt = [ wLt , w Rt ] are predicted by passing zvis  
+
+> t
+
+through an MLP followed by an element-wise sigmoid. The sigmoid is used because the relevance of the two wrist views is not mutually exclusive: depending on the task stage, both wrist views may be relevant simultaneously or both irrelevant, so the contribution of each wrist view is modulated independently. Each predicted scalar weight is broadcast across all visual tokens of the corresponding wrist view to modulate its view-level contribution. The external visual tokens and language-state tokens are left unchanged, and together with the reweighted wrist tokens they are fed into the pretrained VLM to form the shared conditioning representation Gt.As shown in Fig. 6(b-1), the interaction mode mt = [ mcoord  
+
+> t
+
+, m ind  
+
+> t
+
+] is predicted by the Action Router, which takes zact  
+
+> t
+
+as input. The Action Router outputs a probability distribution over the coordinated and independent modes via a softmax, and the final mode is selected according to the routing strategy described in the main text. 
+
+A.2 Expert Construction and View-Level Attention Masks 
+
+IAMoE largely preserves the structure of the original action expert and is implemented as expert branches, each equipped with a separate LoRA adapter for the corresponding interaction mode. The three experts share the same action backbone, while the coordinated, left arm-wise, and right arm-wise experts each use a separate LoRA adapter. This maintains compatibility with the LoRA fine-tuning structure of the original π0.5, allowing coordinated and arm-wise action generation to be learned separately. Before the shared conditioning representation Gt produced by the VLM is fed to the action experts, we apply an expert-specific view-level attention mask. This mask controls which view tokens each expert can directly attend to according to its action scope. The coordinated expert is allowed to access all view tokens, including the external, left-wrist, and right-wrist views, because coordinated manipulation requires reasoning over the spatial relationship between both arms. In contrast, each arm-wise expert is allowed to directly access the external view and the wrist-view tokens corre-sponding to its own arm, while the opposite wrist-view tokens are masked. This design provides the coordinated expert with complete bimanual visual context, while encouraging each arm-wise expert to focus on the visual evidence most relevant to its own action subspace. Together with the action masks in Eq. (2) of the main text, the view-level attention masks help separate both the visual conditioning and action scope of each expert. During action generation, the interaction mode selected by the Action Router is held fixed through-out the current action chunk. The three expert branches are computed in parallel for implementation efficiency, but each branch maintains its own LoRA adapter and view-level mask. The final ve-locity field is determined, according to the selected interaction mode, either by the output of the coordinated branch or by combining the outputs of the two arm-wise branches. 
+
+A.3 Computational Overhead 
+
+Table 1: Parameter and trainable-parameter overhead of each configuration. The increases in total parameters and trainable parameters are computed relative to the baseline. LoRA 2× increases the LoRA ranks of the monolithic baseline and is used as a conservative parameter-matched comparison.                                                                    
+
+> Configuration Parameter composition Total parameters Trainable parameters Backbone VLM LoRA Action LoRA IAMoE VSR Count Increase Count Increase Baseline 3,233M 27.87M 22.12M ––≈3,283M –≈466M –w/o IAMoE 3,233M 27.87M 22.12M –0.54M ≈3,284M +0.02% ≈467M +0.1% w/o VSR 3,233M 27.87M –67.07M –≈3,328M +1.37% ≈511M +9.6% Ours 3,233M 27.87M –67.07M 0.54M ≈3,329M +1.39% ≈512M +9.8% LoRA 2×3,233M 55.74M 44.24M ––≈3,333M +1.52% ≈516M +10.7%
+
+14 B Routing Label Generation Procedure 
+
+This section describes the semi-automatic procedure used to generate the supervision labels for the two routers. The generated labels consist of the wrist-view relevance label yvis  
+
+> t
+
+for VSR and the interaction-mode label yact  
+
+> t
+
+for the Action Router. Because manually annotating every timestep is costly, we perform KNN-based label propagation from manual annotations on a subset of reference episodes. 
+
+B.1 Wrist-View Relevance Label Criteria 
+
+The wrist-view relevance label is assigned at each timestep based on whether the corresponding wrist view provides the local visual cues needed to determine the current or subsequent action. In general, a wrist view is labeled active when its arm directly interacts with an object, is approaching an object, or is moving toward another object or a target location while grasping an object. Conversely, a wrist view is labeled inactive when the action consists of moving to a clearly predefined location and the local visual cues from that wrist view are not needed for subsequent action decisions. When occlusion occurs, the wrist view in which the target object or contact point is more clearly observed is labeled active, rather than the wrist view of the arm actually performing the action. This is because the label reflects whether the visual information needed for the action decision is present, rather than the arm motion itself. In addition, when the two wrist views provide redundant information in the coordinated mode, we label only the wrist view that more clearly captures the target object, contact point, or relative spatial relationship as active. In contrast, when the two wrist views provide complementary information, both wrist views are labeled active. 
+
+B.2 Interaction-Mode Label Criteria 
+
+The interaction-mode label is assigned based on whether the actions of the two arms can be deter-mined independently or whether the action of one arm depends on the state or motion of the other. The independent mode is defined as a segment in which each arm moves toward a different object or target location, or in which the action of one arm does not need to directly account for the current position, motion, or contact state of the opposite arm. The coordinated mode is defined as a segment in which the actions of the two arms must be de-termined jointly within a single shared manipulation process. This includes cases where the two arms move or align a single object together, where one arm stabilizes an object while the other manipulates it, where the relative position and timing between the two arms are important as in a handover, and where stable manipulation requires considering the motions of both arms simultane-ously. The coordinated label is therefore determined by jointly considering whether the two arms are engaged in a single shared manipulation goal and whether inter-arm dependency is required for action generation in that process. 
+
+B.3 Semi-Automatic Label Propagation and Verification Label Generation Strategy. The wrist-view relevance labels and interaction-mode labels are gen-erated offline by combining manual annotation with label propagation based on proprioceptive fea-tures. Manual annotation is performed with reference to visual information, whereas the label prop-agation stage uses proprioceptive features, based on the observation that, within the same task, the manipulation phase and arm state are strongly correlated with view relevance and interaction mode. 
+
+Justification for Proprioceptive Propagation. Although the wrist-view relevance criteria involve visual judgments such as occlusion and redundant view information, in our demonstration data these view-relevance changes tend to correspond consistently to the task phase, the active arm, the object association, and the target object configuration. For the simulation benchmark, the demonstrations follow predefined task trajectories, so the active arm, object association, and manipulation phase are 15 consistently reflected in the robot state. The real-world data are also collected by a single opera-tor, so view relevance shows relatively consistent patterns across similar object configurations and manipulation phases. To reflect this, the manual annotation reference set is constructed to include diverse target-object positions and stage configurations. 
+
+Task-Specific KNN Label Propagation. For each task, we manually annotate approximately 10% 
+
+of all demonstration episodes at the frame level and use them as the reference set for a task-specific KNN classifier. Because the wrist-view relevance labels and interaction-mode labels lie in different label spaces, we train a separate KNN classifier for each of the two label types within each task. At every timestep of each episode, we extract the gripper state, gripper velocity, end-effector position, and end-effector velocity, and combine information from neighboring timesteps within a temporal context window to form a frame-wise feature vector. We then build the KNN classifier from the reference set and automatically generate labels for the remaining episodes. We apply temporal smoothing based on majority voting to the generated label sequences to mitigate local prediction noise and instability near transition boundaries. For yvis  
+
+> t
+
+, label propagation and temporal smoothing are applied independently to the left and right relevance dimensions, whereas yact  
+
+> t
+
+is treated as a categorical label over the coordinated and independent classes. 
+
+Boundary-Aware Two-Pass Refinement. The initial single-pass classification achieved a high frame-level agreement overall, but the residual errors tended to concentrate near label transition boundaries. To reduce this boundary ambiguity, we adopt a two-pass classification strategy. The first pass uses a relatively large number of neighbors and a standard context window to produce a stable global prediction over the entire episode. We then detect the timesteps at which a class change occurs in the first-pass result and define a fixed range around each such timestep as a transition zone. For yvis  
+
+> t
+
+, a transition frame is defined as a timestep at which either the left or the right relevance label changes, whereas for yact  
+
+> t
+
+a transition frame is defined as a timestep at which the predicted interaction mode changes. The second pass applies a separate KNN classifier only to the transition zones for reclassification. This second classifier uses a smaller number of neighbors and a wider context window, and during training it oversamples the transition frames in the reference set to increase sensitivity to boundary patterns. The procedure in Algorithm 1 is applied independently to each task and label type. 
+
+B.4 Label Quality Evaluation 
+
+To assess the quality of the automatically generated labels, we use a separate, manually annotated set of approximately 20% of all episodes as a held-out evaluation set. This evaluation set is not used for training the KNN classifiers or for transition-frame oversampling, but only as the evaluation target for the trained two-pass label propagation procedure. Specifically, we treat the evaluation episodes as unlabeled episodes, generate automatic labels, and compare the generated labels against the manual annotations. The final two-pass labels show high frame-level agreement with the manual annotations, with an average frame accuracy of 0.9977 for the wrist-view relevance labels and 0.9988 for the interaction-mode labels. These results indicate that the automatically generated labels are sufficiently consistent with the manual annotations for use as router supervision. 16 Algorithm 1 2-Pass Semi-Automatic Label Generation 
+
+Require: Task-specific manually annotated reference episodes Dref 
+
+Require: Task-specific unlabeled episodes Dauto 
+
+Require: Pass-1 parameters (K1, w 1, s 1), Pass-2 parameters (K2, w 2, s 2)
+
+Require: Transition margin m, transition oversampling ratio r
+
+Feature Extraction 
+
+1: for each episode e ∈ D ref ∪ D auto do 
+
+2: Extract frame-wise proprioceptive features 
+
+3: Construct context-aware features using the corresponding temporal window 
+
+4: end for Pass 1: Global Classification 
+
+5: Construct training features from Dref using w1
+
+6: Train KNN 1 with K1 neighbors 
+
+7: for each episode e ∈ D auto do 
+
+8: ˆy(1)  
+
+> e
+
+← KNN 1(e)
+
+9: ˆy(1)  
+
+> e
+
+← TemporalSmooth(ˆ y(1)  
+
+> e
+
+, s 1)
+
+10: end for Transition Zone Detection 
+
+11: for each episode e ∈ D auto do 
+
+12: Te ← { t | ˆy(1) 
+
+> e,t
+
+̸ = ˆ y(1) 
+
+> e,t −1
+
+}
+
+13: Ze ← S 
+
+> t∈T e
+
+[t − m, t + m]
+
+14: end for Pass 2: Transition-Focused Reclassification 
+
+15: Identify transition frames in Dref 
+
+16: Construct transition-focused features using w2
+
+17: Oversample transition frames by ratio r to obtain D(2) ref 
+
+18: Train KNN 2 on D(2) ref with K2 neighbors 
+
+19: for each episode e ∈ D auto do 
+
+20: ˆy(2)  
+
+> e, Ze
+
+← KNN 2(eZe )
+
+21: for each timestep t in episode e do 
+
+22: if t ∈ Z e then 
+
+23: ˆye,t ← ˆy(2) 
+
+> e,t
+
+24: else 
+
+25: ˆye,t ← ˆy(1) 
+
+> e,t
+
+26: end if 
+
+27: end for 
+
+28: Apply transition-zone smoothing to ˆye
+
+29: end for 
+
+30: return Manual labels for Dref and propagated labels for Dauto 
+
+17 C Additional Ablation Studies 
+
+This appendix presents additional ablation results that further evaluate the design choices of the pro-posed architecture. The additional comparison models serve three main purposes. First, the LoRA 
+
+2× baseline examines whether the performance gains can be explained by increased parameter ca-pacity. Second, the VSR variants analyze how the routing-context composition and view-relevance supervision affect performance. Third, the IAMoE variants examine the role of interaction-mode supervision in structured action generation. 
+
+C.1 Parameter-matched comparison. 
+
+The LoRA 2× baseline retains the structure of the monolithic baseline and only increases the LoRA rank. It has more parameters than the full proposed model but uses neither VSR nor IAMoE. This comparison therefore tests whether the performance gains of the proposed model are explained by increased parameter capacity or by the structural decomposition. Table 2: Simulation success rates for the parameter-matched comparison. Method S1 S2 S3 S4 S5 S6 Average(%) Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard Easy Hard All Baseline 67% 36% 27% 10% 97% 47% 63% 8% 69% 9% 46% 24% 61.5 22.3 41.9 LoRA 2× 67% 35% 27% 9% 98% 47% 65% 6% 66% 8% 47% 21% 61.7 21.0 41.3 Ours 85% 68% 63% 55% 97% 83% 78% 47% 93% 46% 71% 49% 81.2 58.0 69.6 Table 3: Real-world success rates for the parameter-matched compar-ison under the easy setting.              
+
+> Method R1 R2 R3 Baseline 40% 60% 30% LoRA 2×50% 70% 40% Ours 90% 100% 80%
+
+As shown in Table 2, the LoRA 2× baseline does not im-prove over the baseline in overall simulation performance de-spite using more parameters. The overall average success rate is 41.9% for the baseline and 41.3% for LoRA 2×, whereas Ours achieves 69.6%. In the real-world easy setting, LoRA 
+
+2× shows some improvement over the baseline on R1–R3, but still attains lower success rates than Ours on all tasks. These results indicate that increasing LoRA capacity alone is insufficient to address the perceptual and interaction heterogeneity that arise in bimanual manip-ulation. They support the conclusion that the gains of Ours come primarily from structural decom-position rather than from additional parameters. 
+
+C.2 VSR design analysis. 
+
+The VSR variants are used to analyze how the design of wrist-view routing affects performance. Here, VSR only denotes the single-module model that applies VSR without IAMoE (i.e., w/o IAMoE 
+
+in the main text). VSR w/ wrist routing input adds the wrist visual tokens to the routing context, allowing us to examine whether providing the wrist tokens to the router contributes to stable routing under the hard setting. VSR w/o router supervision retains the VSR architecture but removes the view-relevance supervision loss, testing whether the router can learn useful view weighting without explicit labels. VSR w/ reversed labels applies the view-relevance labels in reverse, serving as a variant that tests whether the gains from VSR arise from correct view-relevance supervision rather than merely from the addition of an extra module. Table 4 shows the performance differences arising from the routing-context composition and the supervision scheme of VSR. Including the wrist visual tokens in the routing context did not con-sistently improve performance, and in particular led to a substantial degradation on S2 Hard. This suggests that directly including the wrist tokens in the routing context can make routing less robust to the visual variations and distractors of the hard setting. Moreover, removing the router supervi-sion tended to bring performance close to that of the baseline, indicating that explicit view-relevance supervision is important for learning stable view routing. 18 Table 4: Success rates of VSR design variants on S1 and S2.                             
+
+> Method S1 Easy S1 Hard S2 Easy S2 Hard Baseline 67% 36% 27% 10% VSR only 71% 45% 50% 47% VSR w/ wrist routing input 71% 39% 45% 18% VSR w/o router supervision 65% 36% 26% 12% VSR w/ reversed labels 65% 41% 18% 13% Ours 85% 68% 63% 55%
+
+The reversed-label variant degraded performance overall, dropping substantially on S2 Easy from 50% of VSR only to 18%. This indicates that in tasks requiring accurate target localization, such as block grasping, suppressing the wrist view of the actual grasping arm can degrade performance. On S1, by contrast, the reversed-label variant achieved slightly higher performance than the baseline in some settings. A qualitative inspection of the rollout videos suggests that the thin geometry of the bowl in S1 makes the grasp relatively tolerant to localization errors. In addition, even with reversed labels, the routing signal may still provide a coarse cue about which arm should move at the current stage. Thus, this result should not be interpreted as evidence that reversed view routing is beneficial; rather, it more likely indicates that some tasks are relatively insensitive to incorrect view selection. 
+
+C.3 IAMoE design analysis. 
+
+The IAMoE variants are used to analyze how the design of interaction-mode routing affects perfor-mance. Here, IAMoE only denotes the single-module model that applies IAMoE without VSR (i.e., 
+
+w/o VSR in the main text). IAMoE w/o router supervision retains the IAMoE structure but removes the interaction-mode supervision for the Action Router, testing whether the router can learn useful interaction-mode routing without explicit labels. IAMoE w/ reversed labels applies the coordinated and independent labels in reverse, serving as a variant that tests whether the gains from IAMoE arise from correct interaction-mode supervision rather than merely from the addition of an expert structure. Table 5: Success rates of IAMoE design variants on S3 and S4.                         
+
+> Method S3 Easy S3 Hard S4 Easy S4 Hard Baseline 97% 47% 63% 8% IAMoE only 99% 75% 70% 38% IAMoE w/o router supervision 95% 46% 64% 6% IAMoE w/ reversed labels 86% 35% 58% 3% Ours 97% 83% 78% 47%
+
+In Table 5, IAMoE w/o router supervision achieves substantially lower hard-setting performance than IAMoE only , reaching only 46% on S3 Hard and 6% on S4 Hard. IAMoE w/ reversed labels 
+
+also degrades performance overall, showing that the structure alone is not sufficient. These results support the view that the IAMoE structure is effective only when paired with meaningful interaction-mode routing, and that correct interaction-mode supervision is important for expert specialization. 19 D Evaluation Protocol 
+
+D.1 Simulation Task Configuration 
+
+Figure 7: Simulation task configurations for S1–S4. 20 Figure 8: Simulation task configurations for S5–S6. 
+
+D.2 Real-World Easy and Hard Conditions 
+
+Figure 9: Real-world objects used in the easy and hard conditions for R1–R3. Similar to the simulation evaluation, the real-world experiments are configured so that task progres-sion varies across episodes depending on the initial object positions. For R1 and R3, the objects are randomly placed within an 800 mm × 400 mm workspace on the table. For R2, they are placed within an 800 mm × 200 mm workspace, with the bottle positioned in front of the cup. This po-sition randomization changes not only the object locations but also, depending on the episode, the task execution order and the arm responsible for each motion. Therefore, the wrist-view relevance 21 and interaction-mode labels are determined not by a globally fixed stage sequence, but by the task progression and arm motions that actually occur under each object placement. The hard setting adds a visual distribution shift on top of this position randomization. Specifically, as shown in Fig. 9, we replace the original task objects with unseen object instances and add four distractor objects to the workspace in each task. 
+
+D.3 Training and Evaluation Configuration 
+
+Table 6: Model, training, and evaluation configuration. 
+
+Hyperparameter Value Base VLA model π0.5
+
+Input image resolution 224 × 224 (external + two wrist views) Action chunk length H 50 Action dimension d 14 (7 per arm) VLM LoRA rank 16 Action LoRA rank 32 per expert LoRA alpha 16 (VLM), 32 (Action) Visual Router MLP 4096 → 128 → 64 → 2
+
+Action Router MLP 4096 → 128 → 64 → 2
+
+Attention pooling Learnable query vector (dim 2048) Gumbel-Softmax temperature 1.0 → 0.1 over 10k steps Optimizer AdamW Learning rate 2.5 × 10 −5 peak, 1k-step warmup, cosine decay to 2.5 × 10 −6
+
+Fine-tuning steps 30,000 per task Batch size 16 
+
+λvis 0.2 
+
+λact 0.2 
+
+λaux 0.5 → 0.1 with cosine decay over 10k steps Simulation demonstrations 50 per task Real-world demonstrations 40 per task Simulation evaluation 100 rollouts per task Real-world evaluation 10 trials per task 
+
+22 E Router Visualization 
+
+Figure 10: Router outputs across S1–S6. 23

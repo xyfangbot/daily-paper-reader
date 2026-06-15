@@ -1,0 +1,674 @@
+Title: Self-Improving VLA Policies: Selected Diffusion Noise for Spurious-Robust Action Smoothing
+
+URL Source: https://arxiv.org/pdf/2606.14084v1
+
+Published Time: Mon, 15 Jun 2026 00:31:34 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Self-Improving VLA Policies: Selected Diffusion Noise for Spurious-Robust Action Smoothing 
+
+Duc Minh Nguyen 1,2, Bao-Ngoc Dao 1,2, Tung M. Luu 3, Binh Gia Nguyen 1,2, Vinh Tong 4,5
+
+Anji Liu 6, Vu N. Duong 1, Dung D. Le 1, Daniel Sonntag 7,8, Trung Le 9, Ngan Le 10 
+
+Jan Peters 9, An Thai Le 1,2, Minh Nhat Vu 1,2, Mathias Niepert 4,5, Khoa D. Doan 1
+
+Duy M. H. Nguyen † 4,5,7, Vien Anh Ngo † 1,21Center for AI Research, VinUniversity 2VinRobotics 3KAIST 4University of Stuttgart 
+
+> 5
+
+IMPRS-IS 6National University of Singapore 7DFKI 8University of Oldenburg ,
+
+> 9
+
+Monash University 10 University of Arkansas 9TU Darmstadt 
+
+## Abstract 
+
+Diffusion-based Vision-Language-Action (VLA) policies enable strong generaliza-tion in robotic manipulation, but remain sensitive to spurious visual correlations and noisy action generation, leading to brittle behavior under perturbations. We introduce S ELECTED DIFFUSION NOISE (SDN), a simple, training-free test-time method that improves both robustness and success rate by leveraging the diffusion noise space as a controllable degree of freedom. SDN dynamically samples noise vectors that are maximally separated from a reference set to mitigate reliance on spurious cues, while selecting candidates that yield more coherent action trajec-tories. This dual objective encourages stable behavior even under object-masked observations and reduces action jitter without modifying model parameters. We evaluate SDN on two simulation benchmarks (Google Robot, Widow-X) and two real-world robotic datasets across multiple VLA policies, including π0, Groot-N1.5, and Groot-N1.6. SDN consistently improves success rates by +8% in simulation and +10% in real-world settings, while producing smoother and more stable actions. Our results highlight that diffusion noise selection can play as an effective and general mechanism for enhancing VLA policies at test time. 
+
+## 1 Introduction 
+
+The emergence of Generalist Robot Policies, such as π0 [ 5] and GR00T [ 4], has demonstrated that scaling diffusion-based Vision-Language-Action (VLA) [ 55 , 20 ] models on massive datasets can yield unprecedented multi-task versatility. However, these foundation policies often remain fragile in out-of-distribution settings, as they tend to overfit to spurious correlations and non-essential behaviors in human demonstrations, failing to distinguish between critical task logic and incidental expert variance [ 9, 24 , 24 ]. Furthermore, in real-world environments, a pre-trained model cannot be easily retrained to handle local distribution shifts, such as novel lighting conditions or specific tool wear, due to the prohibitive computational cost of fine-tuning multi-billion-parameter architectures [ 19 , 14 , 35 ]and the risk of catastrophic forgetting [ 23 , 52 , 8]. These issues highlight a critical need for test-time self-improvement [ 44 , 13 ]: a mechanism that enables VLA models to autonomously refine their action distribution during inference. Toward that goal, current research moves beyond treating the diffusion process inside VLA as a simple black-box generator, instead viewing it as a dynamically steerable sampling space and focusing on three main directions. (i) Noise-steering methods inject guidance signals, e.g., classifier-free [ 16 ] or 
+
+> †: Project leads. Preprint.
+> arXiv:2606.14084v1 [cs.RO] 12 Jun 2026
+
+classifier-based gradients [49, 32], action-coherence vectors [36], into each denoising step; (ii) best-of-N sampling draws multiple rollouts and selects the most plausible [ 50 , 7]; and (iii) non-Gaussian priors [ 25 , 42 ] bias the latent space with environment-specific memories. While these methods achieve promising performance, all three usually rely on external evaluators, such as vision-language models or auxiliary memories, to decide which trajectory to keep, yet they still overlook two practical pain points. First, we observe that current VLA models often suffer from a reliance on raw visual input that leads to “hallucinations” and spurious correlations. For example, in a “place the carrot onto the plate” task, the robot may incorrectly assume that the carrot has already been grasped and continue executing the placement behavior even after a failed grasp attempt, causing the arm to move toward the plate while holding nothing, as illustrated in Figure 3. Second, these policies frequently prioritize semantic likelihood over physical feasibility, meaning they might select a trajectory that technically reaches the goal but involves sudden, high-jerk rotations or “jerky” motions [ 6, 15 ]. These motions could cause mechanical wear and tear and instability. We bridge these gaps with the Selected Diffusion Noise framework, a simple, training-free one that enhances diffusion-based VLA policies by treating the initial diffusion noise as a controllable degree of freedom . Unlike standard “ best-of-N ” sampling, which typically picks trajectories based on raw probability or scores from an external VLM [ 49 ], SDN employs a dual-stage filter that evaluates each candidate’s visual grounding and kinematic instability [21 ]. For each inference step, we generate candidate actions from the original scene, along with a parallel “adversarial” set generated from a version in which the target object is masked. These objects can be detected at the first frame using off-the-shelf DiNO [ 31 , 39 ] grounded from task command and followed by a SAM-2 model [ 38 ] to generate tracking at subsequent frames. We then perform a noise-space optimization, i.e. , identifying and filtering out the hallucinating noise seeds, those that, as observed in our experiments (Tab. 4), continue to generate high-confidence but incorrect actions even when the object is hidden, indicating a dangerous reliance on spurious background cues. This strategy may also help address partially occluded scenes, where policies can rely on “vision shortcuts,” such as background distractors or training-set biases. By checking whether action candidates remain sensitive to the target object’s visibility, our method aims to filter out candidates that are less grounded in the object’s actual presence. To ensure the final action is physically viable, we further refine the selection by minimizing a smooth-ness objective; this is critical as it eliminates high-jerk, oscillatory motions that cause mechanical wear-and-tear and lead to brittle behavior under physical perturbations. While related works on smoothness-aware action chunking [ 1, 36 ] typically rely on heuristic manipulations of model pa-rameters to indirectly induce smoother outputs, the SDN focuses on the real physical smoothness of each potential trajectory among multiple rollout candidates. In short, we transform a vanilla sampling routine into a robust, smooth selection process , offering a plug-and-play enhancement for architectures such as π0 and GR00T without requiring auxiliary networks or parameter updates. We summarize our contributions as follows: • Self-Diagnostic Latent Steering : We introduce a training-free mechanism that identifies and filters "hallucinating" noise seeds by contrasting policy outputs from original and object-masked views, steering the frozen model away from spurious visual correlations. • Dual-Objective Optimization : We propose a novel noise-selection strategy that unifies visual grounding with kinematic stability, simultaneously maximizing separation from unreliable action sets and minimizing a smoothness metric to eliminate high-jerk, oscillatory motions. • Plug-and-Play Enhancement : We provide extensive validation across diverse diffusion-based VLA backbones ( π0, GR00T-N1.5/1.6) and benchmarks such as Google Robot, Widow-X X [ 24 ], as well as two real-world robot tasks with Aloha robot, demonstrating consistent success-rate gains ( 8 − 10% ) and improved physical reliability at test-time without requiring retraining or external evaluators. 
+
+## 2 Related Work 
+
+Learned Latent Steering. Recent advancements in diffusion-based robotic control have shifted focus toward steering latent spaces to adapt pre-trained policies to novel tasks and environmental constraints. One prominent direction involves (i) learned adaptation , where methods utilize Re-inforcement Learning to discover optimal latent shifts for out-of-distribution scenarios [ 48 , 11 ] or 2Figure 1: The SDN refines the VLA action distribution through a hierarchical selection process. Stage 1 (Contrastive Grounding) : We compute a grounding score R(i) 
+
+> ground
+
+= d(i) 
+
+> B
+
+−d(i) 
+
+> G
+
+using non-parametric 
+
+k-NN density estimation, selecting action chunks that maximize distance from “hallucinated” be-haviors (push from B) while maintaining task consensus (pull to G). Stage 2 (Smoothness Filtering) :From the top-M grounded candidates, we perform a final kinematic optimization to select the action chunk S(A(q) 
+
+> i
+
+) that minimizes jerk instability to select the most coherent action. employ unified guidance frameworks to align vision and action spaces through fine-tuning [ 53 , 33 , 17 ]. Beyond direct policy updates, recent work in Vision-Language Models (VLMs) has explored using large-scale models as ii) high-level planners or reward providers to guide low-level diffusion execu-tion [ 54 , 30 , 22 ]. Other strategies explore iii) memory-augmented systems that avoid weight updates altogether by leveraging global priors and local consistency via retrieval [25]. While these approaches offer significant flexibility, they typically remain bounded to external de-pendencies, such as environmental reward signals, additional training phases, retrieval databases, or secondary VLMs used for evaluation [ 48 , 53 , 25 , 22 ]. These requirements often limit the immediate, zero-shot deployment of frozen foundation models in the wild, necessitating self-contained test-time improvements. In contrast , SDN is entirely self-contained and training-free , enabling immediate test-time improvement without secondary evaluators. 
+
+Inference-Time Guidance and Policy Selection. A robust alternative to retraining VLAs involves steering or selecting their outputs during inference without training . Traditional approaches, such as Classifier-Free Guidance (CFG) [ 16 ], derive an unconditional model to improve adherence to language inputs. More recent "best-of-N" methods draw multiple samples and use external verifiers or simple Ensemble Learning [ 7] techniques, like temporal averaging, to stabilize action execution. To address core visual grounding failures, Policy Contrastive Decoding (PCD) [ 50 ] dynamically steers probability distributions by contrasting original and object-masked views; however, this often requires expensive per-step image inpainting . Concurrently, methods like White Noise Guidance (WNG) [ 3 ] and Action Coherence Guidance (ACG) [ 36 ] disrupt internal temporal consistency to steer models away from jerky trajectories. Yet, these methods rely on subjective augmentations, such as the attention matrix [ 36 ], rather than on direct detection of physical smoothness. VLA-Pilot [ 26 ]in the other direction attempts to refine actions through evolutionary optimization, but its reliance on an external reasoning module for reward generation introduces significant computational overhead and complexity. SDN distinctly bridges these gaps by leveraging the noise space as a diagnostic tool to simultaneously filter hallucinating noise seeds via efficiency-observation augmentations such as object masking and to prioritize trajectories based on a real smoothness metric, all without structural modifications or real-time inpainting. 
+
+Robustness and Smoothness in Robotic Diffusion. The transition from generative modeling to physical execution is frequently hindered by visual hallucinations and kinematic instability. To improve robustness, Disentangled Diffusion Policy (DisDP) [ 47 ] separates sensor modalities into shared and private embeddings to maintain task-relevant features while suppressing environmental noise and sensor perturbations. Regarding motion quality, research into Colored Gaussian Noise [ 12 ]for diffusion encourages trajectories that respect temporal coherence and dynamic constraints by modifying the noise structure itself. 3Additionally, the Reactive Diffusion Policy (RDP) [ 51 ] employs a "slow-fast" hierarchy, utilizing a latent diffusion policy for high-level planning and an asymmetric tokenizer for high-frequency tactile feedback control. While effective, these techniques for enhancing smoothness are typically integrated during the training phase [ 47 , 51 ] or require specialized, high-frequency hardware such as tactile or force sensors [ 51 ]. SDN offers an alternative approach by treating smoothness as a selection criterion at test time, effectively filtering for kinematically fluid trajectories that already exist within the model’s learned distribution, without necessitating additional hardware or retraining. 
+
+## 3 Preliminaries 
+
+We model language-conditioned imitation learning as finding a VLA policy πθ that maximizes the log-likelihood of expert action chunks At ∈ RL×D from a dataset D, where L is the chunk length and D the action dimension. At each timestep t, the agent receives an observation ot consisting of multiple RGB images, the robot’s joint state, and a language instruction ℓ. The VLA architecture comprises a VLM encoder Φ( ·) that extracts multi-modal context e = Φ( ot, ℓ ) and a diffusion transformer Vθ (·) that predicts a time-dependent vector field. Using Flow Matching (FM) [ 28 , 27 ], the model learns to transport Gaussian noise A0 ∼ N (0, I) to an expert action A1 via the probability path Aτ = (1 − τ )A0 + τ A1, where τ ∈ [0 , 1] is the flow matching time step. The policy is trained by regressing Vθ (·) to the target velocity A1 − A0:
+
+LFM (θ) = Eτ, A0,A1,e
+
+∥Vθ (Aτ , τ, e) − (A1 − A0)∥2 . (1) We define {τk}Kk=0 as a discretization of the time interval [0 , 1] , with ∆τ = τk+1 − τk [46 ]. At inference, actions are generated by solving the ODE dAτ 
+
+> dτ
+
+= Vθ (Aτ , τ, e) via the Euler update 
+
+Aτk+1 = Aτk + ∆ τ V θ (Aτk , τ k, e). This defines a deterministic mapping fθ : A0 7 → A1, enabling us to treat A0 as a controllable degree of freedom. 
+
+Classifier-Free Guidance (CFG) [ 16 ]. To improve adherence to the instructions, guid-ance can be applied during ODE integration by modifying the velocity vector field. Let 
+
+V cond  
+
+> θ
+
+(Aτ , τ, e) and V uncond  
+
+> θ
+
+(Aτ , τ, euncond ) denote the conditional and unconditional vector fields, where the latter is often obtained by masking the instruction ( i.e. , ℓ = ∅) [ 40 ]. The guided field is defined as 
+
+V guided  
+
+> θ
+
+(Aτ , τ, e) = V cond  
+
+> θ
+
+(Aτ , τ, e) + w
+
+
+
+V cond  
+
+> θ
+
+(Aτ , τ, e) − V uncond  
+
+> θ
+
+(Aτ , τ, euncond )
+
+
+
+, (2) where w ≥ 0 is the guidance scale. This steers the sampling process toward regions of the action space that are more consistent with the instruction. 
+
+## 4 Methodology 
+
+We depict in Figure 1 the overall design of SDN. Below, we first discuss motivation before presenting our hierarchical selection algorithm. 
+
+4.1 Motivation: The Hallucination-Instability Mixture 
+
+Despite their flexibility, VLA policies frequently exhibit two main failure modes. At the semantic level, they may produce object hallucinations. For example, in our experiments we observe “ghost-grasping”, where the policy attends to irrelevant background objects such as a coffee machine and continues to output confident grasping actions even after the target mug has been removed. At the execution level, the policy may prematurely prioritize visual goal matching over physically consistent motion, resulting in unstable or jerky trajectories that degrade robot reliability and may even cause physical damage. To intuitively understand these failures, we model the policy output distribution as a mixture of the expert data distribution p∗(·) and a failure distribution pfail (·):
+
+πθ (A | o, ℓ ) =  1 − ϵ(o, ℓ ) p∗(A | o, ℓ ) + ϵ(o, ℓ ) pfail (A | o, ℓ ). (3) where ϵ(o, ℓ ) ∈ [0 , 1] is a context-dependent mixture weight that can be interpreted as the probability of generating a failure mode under a given observation and instruction. Here, pfail (·) does not correspond to an explicitly defined data distribution, but rather captures the portion of the learned policy’s probability mass assigned to incorrect actions due to approximation 4error and spurious correlations learned during training. Since the policy is trained on expert demon-strations, this failure component is typically concentrated near the data distribution induced by p∗(·),leading to overlap in regions of high probability mass. As a result, failure cases are difficult to distinguish using standard sampling methods, and tend to appear as small but systematic deviations, such as “ghost-grasping”, rather than random noise. This ambiguity in mode selection makes the policy sensitive to sampling variability, as different samples may switch between expert-like and failure modes under the same conditioning. This overlap in probability mass motivates the need for a more robust global selection mechanism. Pertubed Object Kinematic Smoothness Example 
+
+Figure 2: We visualize our zero-masking strategy and compare our trajectory with a baseline method. We render zero-masked regions as transparent for better visualization 
+
+From Local Guidance to Global Selec-tion. A common strategy to mitigate fail-ure modes in generative models is guid-ance, which biases sampling toward more desirable outputs and often improves sam-ple quality [ 16 , 41 ]. Classifier-Free Guid-ance (CFG) achieves this by amplifying the difference between conditional and un-conditional vector fields. However, in robotic settings, the unconditional model is not designed to represent structured fail-ure modes of the policy, and therefore does not explicitly capture errors such as hallu-cinated grasps or unstable motions. A more direct alternative would be to intro-duce a failure-aware vector field V fail  
+
+> θ
+
+and guide sampling away from it [ 41 , 29 , 2 ]. A natural extension of CFG would take the form 
+
+V guided  
+
+> θ
+
+= V cond  
+
+> θ
+
++ w V cond  
+
+> θ
+
+− V fail 
+
+> θ
+
+. (4) In practice, failure-aware guidance is challenging because failure trajectories are rarely labeled, learning an additional failure model introduces substantial overhead [ 18 ], and trajectory quality remains sensitive to guidance scale during sampling [ 43 , 45 ]. In contrast, our global selection perspective samples multiple trajectories from different initial noises via flow matching and selects at the trajectory level, instead of relying on stepwise guidance of a single sample. 
+
+4.2 The Selected Diffusion Noise Framework 
+
+To overcome the limitations of local guidance, we perform inference by generating multiple candidate action chunks from different noise seeds and selecting the most reliable one. This turns inference into a global search problem over trajectories rather than step-by-step steering. We use a training-free two-stage selection strategy that first filters task-relevant candidates and then refines them based on physical stability. 
+
+4.2.1 Stage 1: Grounding Filter 
+
+The first stage aims to identify “grounded” initial noise seeds via a contrastive evaluation. Intuitively, we prefer samples that are more consistent with task-aligned behavior while being far from typical failure patterns. 
+
+Constructing selection sets. At each inference step, we approximate this idea using two sets of action chunk candidates generated from the same policy under different conditions: • Positive set ( G): Candidates generated from the original observation and instruction, G =
+
+{Ai}Ni=1 ∼ πθ (· | o, ℓ ).• Negative set ( B): Candidates generated under a “confused” version of the input, B = {Aj }Nj=1 ∼
+
+πθ (· | oneg , ℓ ). Here, oneg is created by zero-masking pixels in the target object region, which is much cheaper than inpainting-based perturbations used in prior work such as PCD [ 50 ]. Figure 2 shows an example of our masking strategy. 
+
+Contrastive Grounding Score. A grounded action chunk should remain consistent under the original observation while becoming unlikely under corrupted observations where the target object 5is removed. We formulate grounding as a contrastive density-ratio problem between a task-aligned distribution pG and a failure distribution pB. Given a candidate action chunk Ai, we define its score as the log density ratio R(Ai) = log pG (Ai) − log pB(Ai).
+
+Since both densities are unknown, we estimate them from finite samples using k-nearest neighbor (kNN) density estimation [ 34 , 37 ]. Concretely, let ΩG 
+
+> i
+
+and ΩB 
+
+> i
+
+denote the indices of the k nearest neighbors of Ai in G \ { Ai} and B, respectively. We define the corresponding local scale estimates: 
+
+d(i) 
+
+> G
+
+= 1
+
+k
+
+X
+
+> j∈ΩG
+> i
+
+∥Ai − Aj ∥2, d(i) 
+
+> B
+
+= 1
+
+k
+
+X
+
+> j∈ΩB
+> i
+
+∥Ai − Aj ∥2. (5) Under standard kNN density estimation, local density is inversely proportional to the neighborhood volume, which is approximated (up to constants) by these average distances [34, 37]. This yields: 
+
+log pG (Ai) ≈ − log d(i) 
+
+> G
+
++ C, log pB(Ai) ≈ − log d(i) 
+
+> B
+
++ C. (6) Substituting into the density-ratio objective gives R(Ai) ∝ log d(i) 
+
+> B
+
+− log d(i) 
+
+> G
+
+. For efficiency and robustness, we use a monotonic surrogate that preserves the induced ranking: 
+
+R(i) 
+
+> ground
+
+= d(i) 
+
+> B
+
+− d(i) 
+
+> G
+
+. (7) We rank candidates by Rground and retain the top-M for refinement. 
+
+4.2.2 Stage 2: Kinematic Stability Refinement Kinematic Stability. To ensure physical feasibility, we further evaluate the remaining M can-didates for kinematic smoothness. High-jerk or oscillatory motions correspond to abrupt changes in acceleration across consecutive steps, which often lead to unstable or unsafe robot behaviors during long-horizon execution. To better assess temporal consistency, we generate action chunks that are longer than the executed horizon. This extended action chunks exposes delayed oscillations and accumulated instability that may not be observable within short action windows. We quantify smoothness using the JerkRMS metric [ 10 ]. For a candidate action chunk Ai = [ a(i)1 , a (i)2 , . . . , a (i) 
+
+> L
+
+],we compute: 
+
+S(Ai) = 
+
+vuut 1
+
+L − 3
+
+> L−3
+
+X
+
+> t=1
+
+∆a(i)
+
+> t
+> 22
+
+, where ∆a(i) 
+
+> t
+
+= a(i) 
+
+> t+3
+
+− 3a(i) 
+
+> t+2
+
++ 3 a(i) 
+
+> t+1
+
+− a(i) 
+
+> t
+
+. (8) This third-order finite difference captures discrete jerk, and S(Ai) corresponds to its RMS magnitude over time. Minimizing S(Ai) suppresses candidates that are dynamically unstable, even if they achieve the correct task outcome. We therefore select the final action as: 
+
+A∗ = arg min 
+
+> Ai∈G M
+
+S(Ai). (9) The pseudocode is given in Algorithm 1, and a theoretical analysis is provided in Section A.5. 
+
+## 5 Experiments 
+
+5.1 Experimental Setup Benchmarks . We evaluate our approach in both simulated and real-world environments. For simulation, we adopt SIMPLER [ 24 ], a benchmark shown to strongly correlate with real-world performance, enabling a reliable assessment of policy generalization. We conduct experiments on five tasks with the (i) Google Robot and four tasks with the (ii) WidowX arm , evaluating each task over 50 rollouts. For real-world evaluation, we deploy our method on the ALOHA robot and consider two manipulation tasks: (iii) placing a cube into a drawer and (iv) placing a banana into a pot .
+
+Baselines . We first compare SDN against the vanilla VLA models without any additional modules. We further include several training-free, guidance-based baselines that operate by steering the action vector field away from a negative or perturbed field, effectively contrasting it with the desired action: 6Pick up the banana and 
+
+> place it into the pot
+> Ours Base
+> Overemphasized
+> Irrelevant Regions
+> Correctly Emphasized
+> Relevant Regions
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+
+Figure 3: Visualizing Hallucination Mitigation and Attention Grounding. (Left ): Typical hallucination-driven failure case in the Base VLA (top), where the robot continues a task even though it did not grasp up successfully. In contrast, SDN can alleviate those situations. ( Right ): Spatial Attention Mechanism. Top-left: Base VLA attention heatmap showing significant signal dis-tribution on non-relevant table background regions. Top-right: SDN attention heatmap demonstrating refined focus on the target object. Bottom: Attention matrix pattern with a color bar (0.0 to 0.8), illustrating the structural shift toward sparse, task-relevant features. • Classifier-Free Guidance (CFG) [ 16 ]: We replace the language instruction with a null input to obtain an unconditional field, and then guide the conditional field away from it to enforce stronger adherence to the language instruction. • White Noise Guidance (WNG) [ 3]: We induce an incoherent vector field by injecting white noise (σ = 1 ) into the action features prior to the self-attention layers, thereby disrupting temporal coherence across timesteps. • Action Coherent Guidance (ACG) [36] : ACG introduces an alternative for disrupting coherence by converting the attention matrices into identity matrices. • Policy Contrastive Decoding (PCD) [ 50 ]: PCD mitigates visual grounding failures by enforc-ing the model to focus on object-relevant features rather than spurious correlations, through contrasting predictions from original and object-masked observations. 
+
+Implementation Details . To evaluate the effectiveness of SDN, we adopt three diffusion-based VLA base models: π0 and G R00 T N1.6 for simulation benchmarks, and G R00 T N1.5 for real-world deployment. As a training-free approach, SDN is integrated directly into the diffusion action head exclusively at inference time, requiring no further optimization of the underlying models. Extended implementation details are provided in the Appendix. 
+
+5.2 Simulation Experiments 
+
+Table 1 presents the performance of SDN on the SIMPLER benchmark using Gr00t N1.6. On the Google Robot platform, SDN consistently surpasses the base model, achieving significant gains, most notably tripling the success rate on the "Open Drawer" task (from 4.0% to 14.0%). This success generalizes to the WidowX platform, where SDN enhances performance on challenging tasks like Spoon Towel and Stack Cube, resulting in a 54.5% average success rate (a 5.1% absolute improvement over the baseline). Crucially, SDN exhibits a do-no-harm property : while baselines like CFG and PCD occasionally degrade performance on specific tasks, SDN provide non-negative gains across the entire benchmark, proving its reliability as a training-free inference-time wrapper. We provide a visualization in Figure 3 of roll-out actions. Table 2 further validates SDN’s efficacy on π0, yielding a substantial 8.7% average gain. While baselines like ACG and WNG often degrade the vanilla model, SDN consistently improves success rates, particularly on high-precision WidowX tasks such as Spoon Towel (90.0%) and Stack Cube (78.0%). These results confirm that SDN is architecture-agnostic , providing robust, additive improvements to foundation-scale models. By achieving the highest average success rate across all nine tasks, SDN establishes itself as a superior, "do-no-harm" solution for inference-time VLA adaptation. 7Table 1: Evaluation of Gr00t N1.6 on SimplerEnv . We report the average success rate over 50 rollouts per task. The best results are shown in bold , the second-best results are underlined.                                                                
+
+> Method GoogleRobot WidowX Task(All)
+> Close Drawer Move Near Open Drawer Pick Coke Can Apple Drawer Carrot Plate Eggplant Basket Spoon Towel Stack Cube Avg. Gr00t N1.6 40.0 76.0 4.0 90.0 18.0 60.0 94.0 58.7 4.7 49.5 CFG 42.0 80.0 8.0 92.0 10.0 40.0 82.0 46.0 4.0 44.9 WNG 40.0 78.0 6.0 94.0 20.0 68.0 78.0 64.0 8.0 50.7 ACG 40.7 79.3 7.3 95.3 20.0 60.0 93.0 61.0 4.0 51.2 PCD 42.0 80.0 4.0 92.0 12.0 62.0 74.0 60.0 6.0 48.0
+> SDN 44.0 ↑4.090.0 ↑26 .014.0 ↑10 .094 .0↑4.020.0 ↑2.060 .0↑0.094.0 ↑0.068.0 ↑9.36.0↑1.354.5 ↑5.1
+
+Table 2: Evaluation of π0 on SimplerEnv . We report the average success rate over 50 rollouts per task. The best results are shown in bold . the second-best results are underlined.                                                                
+
+> Method GoogleRobot WidowX Task(All)
+> Close Drawer Move Near Open Drawer Pick Coke Can Apple Drawer Carrot Plate Eggplant Basket Spoon Towel Stack Cube Avg.
+> π075.7 67.3 38.0 84.0 17.0 58.0 86.0 80.7 68.7 63.9 CFG 77.0 51.0 45.0 71.0 26.0 49.0 69.0 75.0 39.0 55.8 WNG 77.0 60.0 29.0 84.0 19.0 63.0 83.0 80.0 45.0 60.0 ACG 70.0 57.0 40.0 82.0 17.0 65.0 87.0 82.0 53.0 61.4 PCD 75.0 72.3 56.3 88.0 27.3 59.7 87.0 84.0 77.0 69.6
+> SDN 87.0 ↑11 .378.0 ↑10 .750 .0↑12 .089.0 ↑5.026 .0↑9.063 .0↑5.092.0 ↑6.090.0 ↑9.378.0 ↑9.372.6 ↑8.7
+
+5.3 Real-world Experiments 
+
+Table 3 evaluates SDN on the Aloha robot using Gr00t N1.5 (See A.2 Appendix for setup), demon-strating generalization in real-world settings. SDN achieves an average success rate of 48.33%, a substantial 18.33% absolute improvement over the vanilla model and significantly outperforming baselines like CFG, ACG, and PCD. Beyond success rates, SDN is the only method to simultaneously improve motion quality. While all other guidance baselines significantly increase Jerk and Action Total Variation (ATV), SDN reduces these values below the vanilla baseline (e.g., Jerk decreased from 12.45 to 11.8). This is particularly evident in the case of ACG, where the dramatic spike in Jerk (up to +114%) suggests that manually designed heuristic negative directions are highly sensitive and fail to generalize in practice. Such heuristics often push the policy toward out-of-distribution regions, resulting in high-frequency oscillations. In contrast, by using a data-driven contrastive set, SDN ensures logical task grounding while maintaining kinematic feasibility, thereby ensuring mechanical longevity and smoother trajectories for real-robot deployment. Table 3: Performance comparison on real-world tasks. Left: task success rate (%). Right: motion quality (lower is better). Task Success (%) 
+
+Method Cube2Drawer Banana2Pot Avg 
+
+Gr00t N1.5 30.00 30.00 30.00 CFG 40.00 ↑10.00 33.33 ↑3.33 36.67 ↑6.67 
+
+ACG 36.67 ↑6.67 46.67 ↑16.67 41.67 ↑11.67 
+
+PCD 40.00 ↑10.00 43.33 ↑13.33 41.67 ↑11.67 
+
+SDN - Smoothness 50.00 ↑20.00 43.33 ↑13.33 46.67 ↑16.67 
+
+SDN - Grounding 50.00 ↑20.00 36.67 ↑6.67 43.33 ↑13.33 
+
+SDN - Full 53.33 ↑23.33 43.33 ↑13.33 48.33 ↑18.33 
+
+Motion Quality (Jerk ↓, ATV ( ×10 2)↓)
+
+Method Cube2Drawer Banana2Pot 
+
+Jerk ATV Jerk ATV Gr00t N1.5 12.45 4.87 7.07 4.80 CFG 12.79 ↑2.7% 4.90 ↑0.6% 7.18 ↑1.5% 4.82 ↑0.4% 
+
+ACG 18.1 ↑45.4% 6.00 ↑23.2% 15.17 ↑114% 6.00 ↑25.0% 
+
+PCD 12.47 ↑0.1% 4.88 ↑0.2% 7.08 ↑0.1% 4.80 ↑0.0% 
+
+SDN 11.80 ↓5.2% 4.80 ↓1.4% 6.54 ↓7.5% 4.70 ↓2.1% 
+
+5.4 Ablation Study Effect of Stage 1 vs. Stage 2. Table 3 (left) ablates SDN’s two-stage pipeline. SDN-Grounding (Stage 1) mitigates visual hallucinations through contrastive filtering, improving performance by +13.33% on average, while SDN-Smoothness (Stage 2) yields an even larger gain (+16.67%), emphasizing the importance of kinematic feasibility. When combining both stages, we achieve the best performance (48.33% avg.), revealing strong synergy between semantic grounding and motion stability. The largest improvement appears on Cube2Drawer, with a +23.33% gain over the base VLA. We provide additional synergy analyses in the Appendix. 8Figure 4: (left): trade-off between number of samples N and inference latency, (right): sensitivity of SDN w.r.t different k-NN k. 
+
+Figure 5: Efficiency comparison be-tween PCD and ours measured on real-robot experiments. Table 4: Performance Comparison of π0 and Gr00t with Object-Masked Observations in SimplerEnv Success rate (%).                                                                 
+
+> Method Google Robot Widow X Avg.
+> Close Drawer Move Near Open Drawer Pick Coke Can Apple Drawer Carrot Plate Eggplant Basket Spoon Towel Stack Cube
+> π075.7 67.3 38.0 84.0 17.0 58.0 86.0 80.7 68.7 63.9
+> π0+ Masked Object 55.0 ↓20.7 50.0 ↓17.3 10.0 ↓28.0 15.0 ↓69.0 0.0 ↓17.0 20.0 ↓38.0 5.0 ↓81.0 65.0 ↓15.7 0.0 ↓68.7 24.4 ↓39.5
+> Gr00t 40.0 76.0 4.0 90.0 18.0 60.0 94.0 58.7 4.7 49.51 Gr00t + Masked Object 18.0 ↓22.7 2.0 ↓74.0 0.0 ↓4.0 8.0 ↓82.0 0.0 ↓18.0 2.0 ↓58.0 0.0 ↓94.0 6.0 ↓52.7 2.0 ↓2.7 4.22 ↓45.28
+
+Effect of Masking Observation. We analyze π0 and Gr00t under masked observations (Table 4). We observe that masking the target object (Fig. 2) triggers a catastrophic performance collapse :
+
+π0 success rates plummet by 39.5%, while Gr00t declines by 45.3%, with near-total failures in precision tasks like Pick Coke Can. This confirms that VLA models rely heavily on ungrounded "visual shortcuts." We utilize this sensitivity to define our Stage 1 Grounding Filter, where induced hallucinations serve as a precise negative action set to prune ungrounded candidates during inference. 30 35 40 45 50 55 60 65 70 
+
+> Average Success Rate (%)
+> Google Robot  WidowX
+> 45.6
+> 54.4
+> 49.2
+> 53.5
+> 47.2
+> 54.6
+> 52.4
+> 57.0
+> Base VLA
+> Text Guidance
+> State Guidance
+> Visual Guidance (SDN)
+
+Figure 6: We compare semantic ( text-based ) and 
+
+proprioceptive (state-based) corruption strategies against our proposed visual grounding approach. While all modalities offer improvements, visual guidance remains the most potent anchor for miti-gating VLA hallucinations. 
+
+Effect of different Corruption Strategies. 
+
+Superiority of Visual Grounding. We explore SDN’s versatility by evaluating semantic (text) and proprioceptive (state) corruption alongside our proposed visual masking. As shown in Fig. 6, while all modalities provide improve-ments over the base VLA, visual guidance consistently yields the most significant gains, establishing it as the most potent anchor for mitigating hallucinations. For instance, vi-sual grounding provides the highest success rates across both platforms, outperforming text-based (+3.6% on Google Robot) and state-based (+6.1% on WidowX) anchors. Based on this em-pirical hierarchy, we utilize visual object mask-ing as the primary grounding signal for SDN. SDN’s structural approach also offers distinct advantages over generative methods like PCD (Fig. 5). Unlike PCD, which requires computa-tionally intensive image in-painting to simulate negative scenes, SDN employs direct, modality-specific masking. This eliminates generative artifacts and significant latency, allowing SDN to achieve a higher success rate (48.33%) while operating 1.53 × faster than PCD. Consequently, SDN provides a cleaner and more efficient pathway for grounding VLA actions in real-time sensorimotor streams. 
+
+Effect of sample sizes in Stage 1 and KNN. A grid search reveals that N = 12 provides the optimal trade-off between grounding strength and inference speed, with larger values yielding diminishing returns. Regarding the neighborhood size, SDN remains robust for k ≤ 10 ; beyond this, performance declines as an overly large neighborhood introduces noise into the contrastive signal. These findings confirm that SDN is highly stable within a practical operational range. 96 Discussion & Limitations 
+
+We have shown that the initial noise in diffusion-based VLA as a controllable degree of freedom by exploiting spurious visual shortcuts and producing kinematically unstable, "jerky" motions. This mechanism demonstrates consistent gains in success rate across settings, both in simulation and in real-world setups, and transfer across diverse backbones. Despite these gains, SDN might suffer from corruption specificity , i.e., object-centric visual shortcuts may fail to capture hallucinations induced by dynamic lighting, texture shifts, or broader environmental distractions. In addition, SDN currently relies on a fixed number of noise candidates at inference time, limiting adaptivity to varying task complexity and uncertainty. We believe future work on adaptive candidate allocation and richer multimodal corruption modeling could further improve the robustness, efficiency, and generalization of diffusion-based robotic policies. 10 References 
+
+[1] Donghoon Ahn, Jiwon Kang, Sanghyun Lee, Jaewon Min, Minjae Kim, Wooseok Jang, Hy-oungwon Cho, Sayak Paul, SeonHwa Kim, Eunju Cha, Kyong Hwan Jin, and Seungryong Kim. A noise is worth diffusion guidance. In Proceedings of the 14th International Conference on Learning Representations (ICLR) , 2026. [2] Kambiz Azarian, Debasmit Das, Qiqi Hou, and Fatih Porikli. Segmentation-free guidance for text-to-image diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 7520–7529, 2024. [3] Arpit Bansal, Hong-Min Chu, Avi Schwarzschild, Soumyadip Sengupta, Micah Goldblum, Jonas Geiping, and Tom Goldstein. Universal guidance for diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 843–852, 2023. [4] Johan Bjorck, Fernando Castañeda, Nikita Cherniadev, Xingye Da, Runyu Ding, Linxi Fan, Yu Fang, Dieter Fox, Fengyuan Hu, Spencer Huang, et al. Gr00t n1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 , 2025. [5] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. pi _0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [6] Kevin Black, Manuel Y Galliker, and Sergey Levine. Real-time execution of action chunking flow policies. Conference on Neural Information Processing Systems (NeurIPS) , 2025. [7] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. 
+
+The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [8] Nhat Chung, Taisei Hanyu, Toan Nguyen, Huy Le, Frederick Bumgarner, Duy Minh Ho Nguyen, Khoa Vo, Kashu Yamazaki, Chase Rainwater, Tung Kieu, et al. Rethinking progression of memory state in robotic manipulation: An object-centric perspective. In Proceedings of the AAAI Conference on Artificial Intelligence , 2026. [9] Pim De Haan, Dinesh Jayaraman, and Sergey Levine. Causal confusion in imitation learning. 
+
+Advances in neural information processing systems , 32, 2019. [10] T Flash and N Hogan. The coordination of arm movements: an experimentally confirmed mathematical model. Journal of Neuroscience , 5(7):1688–1703, 1985. [11] Tian Gao, Celine Tan, Catherine Glossop, Timothy Gao, Jiankai Sun, Kyle Stachowicz, Shirley Wu, Oier Mees, Dorsa Sadigh, Sergey Levine, et al. Steervla: Steering vision-language-action models in long-tail driving scenarios. arXiv preprint arXiv:2602.08440 , 2026. [12] Jiayi Guo, Xingqian Xu, Yifan Pu, Zanlin Ni, Chaofei Wang, Manushree Vasu, Shiji Song, Gao Huang, and Humphrey Shi. Smooth diffusion: Crafting smooth latent spaces in diffusion models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,pages 7548–7558, 2024. [13] Nicklas Hansen, Rishabh Jangir, Yu Sun, Guillem Alenyà, Pieter Abbeel, Alexei A Efros, Lerrel Pinto, and Xiaolong Wang. Self-supervised policy adaptation during deployment. arXiv preprint arXiv:2007.04309 , 2020. [14] Taisei Hanyu, Nhat Chung, Huy Le, Toan Nguyen, Yuki Ikebe, Anthony Gunderman, Duy Nguyen Ho Minh, Khoa Vo, Tung Kieu, Kashu Yamazaki, et al. Slotvla: Towards modeling of object-relation representations in robotic manipulation. International Conference on Robotics and Automation , 2026. [15] Ce Hao, Kelvin Lin, Zhiwei Xue, Siyuan Luo, and Harold Soh. Disco: Language-guided manipulation with diffusion policies and constrained inpainting. IEEE Robotics and Automation Letters , 2025. 11 [16] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598 , 2022. [17] Hokyun Im, Andrey Kolobov, Jianlong Fu, and Youngwoon Lee. Latent policy steering through one-step flow policies. arXiv preprint arXiv:2603.05296 , 2026. [18] Suhyeok Jang, Dongyoung Kim, Changyeon Kim, Youngsuk Kim, and Jinwoo Shin. Verifier-free test-time sampling for vision language action models. ICLR , 2026. [19] Moo Jin Kim, Chelsea Finn, and Percy Liang. Fine-tuning vision-language-action models: Optimizing speed and success. arXiv preprint arXiv:2502.19645 , 2025. [20] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov, Ethan Foster, Grace Lam, Pannag Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [21] Jee-Eun Lee, Andrew Bylard, Robert Sun, and Luis Sentis. On the performance of jerk-constrained time-optimal trajectory planning for industrial manipulators. In 2024 IEEE Interna-tional Conference on Robotics and Automation (ICRA) , pages 9772–9778. IEEE, 2024. [22] Tony Lee, Andrew Wagenmaker, Karl Pertsch, Percy Liang, Sergey Levine, and Chelsea Finn. Roboreward: General-purpose vision-language reward models for robotics. arXiv preprint arXiv:2601.00675 , 2026. [23] Timothée Lesort, Vincenzo Lomonaco, Andrei Stoian, Davide Maltoni, David Filliat, and Natalia Díaz-Rodríguez. Continual learning for robotics: Definition, framework, learning strategies, opportunities and challenges. Information fusion , 58:52–68, 2020. [24] Xuanlin Li, Kyle Hsu, Jiayuan Gu, Karl Pertsch, Oier Mees, Homer Rich Walke, Chuyuan Fu, Ishikaa Lunawat, Isabel Sieh, Sean Kirmani, et al. Evaluating real-world robot manipulation policies in simulation. arXiv preprint arXiv:2405.05941 , 2024. [25] Zaijing Li, Bing Hu, Rui Shao, Gongwei Chen, Dongmei Jiang, Pengwei Xie, Jianye Hao, and Liqiang Nie. Global prior meets local consistency: Dual-memory augmented vision-language-action model for efficient robotic manipulation. arXiv preprint arXiv:2602.20200 ,2026. [26] Zhuo Li, Junjia Liu, Zhipeng Dong, Tao Teng, Quentin Rouxel, Darwin Caldwell, and Fei Chen. Towards deploying vla without fine-tuning: Plug-and-play inference-time vla policy steering via embodied evolutionary diffusion. IEEE Robotics and Automation Letters , 11(5):6234–6241, 2026. [27] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow match-ing for generative modeling. In 11th International Conference on Learning Representations, ICLR 2023 , 2023. [28] Yaron Lipman, Marton Havasi, Peter Holderrieth, Neta Shaul, Matt Le, Brian Karrer, Ricky TQ Chen, David Lopez-Paz, Heli Ben-Hamu, and Itai Gat. Flow matching guide and code. arXiv preprint arXiv:2412.06264 , 2024. [29] Nan Liu, Shuang Li, Yilun Du, Antonio Torralba, and Joshua B Tenenbaum. Compositional visual generation with composable diffusion models. In European conference on computer vision , pages 423–439. Springer, 2022. [30] Peiqi Liu, Yaswanth Orru, Jay Vakil, Chris Paxton, Nur Muhammad Mahi Shafiullah, and Lerrel Pinto. Ok-robot: What really matters in integrating open-knowledge models for robotics. arXiv preprint arXiv:2401.12202 , 2024. [31] Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jie Yang, Qing Jiang, Chunyuan Li, Jianwei Yang, Hang Su, et al. Grounding dino: Marrying dino with grounded pre-training for open-set object detection. In European conference on computer vision , pages 38–55. Springer, 2024. 12 [32] Shuo Liu, Ishneet Sukhvinder Singh, Yiqing Xu, Jiafei Duan, and Ranjay Krishna. Vls: Steering pretrained robot policies via vision-language models. arXiv preprint arXiv:2602.03973 , 2026. [33] Zhuoyang Liu, Jiaming Liu, Hao Chen, Jiale Yu, Ziyu Guo, Chengkai Hou, Chenyang Gu, Xiangju Mi, Renrui Zhang, Kun Wu, et al. Last _{0}: Latent spatio-temporal chain-of-thought for robotic vision-language-action model. arXiv preprint arXiv:2601.05248 , 2026. [34] Don O Loftsgaarden and Charles P Quesenberry. A nonparametric estimate of a multivariate density function. The Annals of Mathematical Statistics , 36(3):1049–1051, 1965. [35] Duc M Nguyen, Nghiem T Diep, Binh G Nguyen, Trong-Bao Ho, Doanh Le, Tan Nguyen, Thien-Loc Ha, Tran Nhie, Bao Thach, Nhat Tran, , Tuan Anh Tran, Artur Habuda, Philip Lund Moeller, Tran Nguyen Le, Daniel Sonntag, Mathias Niepert, Khoa Doan, Vu Duong, Hung Ngo, Minh Vu, Duy MH Nguyen, An Thai Le, and Vien Ngo. Foca: Future-oriented conditioning for data-efficient vision-language-action adaptation. In Proceedings of the 43rd International Conference on Machine Learning , Proceedings of Machine Learning Research. PMLR, 2026. [36] Minho Park, Kinam Kim, Junha Hyung, Hyojin Jang, Hoiyeong Jin, Jooyeol Yun, Hojoon Lee, and Jaegul Choo. Acg: Action coherence guidance for flow-based vla models. International Conference on Robotics and Automation (ICRA) , 2026. [37] Fernando Pérez-Cruz. Kullback-leibler divergence estimation of continuous distributions. In 
+
+2008 IEEE International Symposium on Information Theory , pages 1666–1670. IEEE, 2008. [38] Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Ronghang Hu, Chaitanya Ryali, Tengyu Ma, Haitham Khedr, Roman Rädle, Chloe Rolland, Laura Gustafson, et al. Sam 2: Segment anything in images and videos. arXiv preprint arXiv:2408.00714 , 2024. [39] Tianhe Ren, Yihao Chen, Qing Jiang, Zhaoyang Zeng, Yuda Xiong, Wenlong Liu, Zhengyu Ma, Junyi Shen, Yuan Gao, Xiaoke Jiang, et al. Dino-x: A unified vision model for open-world object detection and understanding. arXiv preprint arXiv:2411.14347 , 2024. [40] Moritz Reuss, Maximilian Li, Xiaogang Jia, and Rudolf Lioutikov. Goal-conditioned imitation learning using score-based diffusion policies. arXiv preprint arXiv:2304.02532 , 2023. [41] Guillaume Sanchez, Honglu Fan, Alexander Spangher, Elad Levi, Pawan Sasanka Ammana-manchi, and Stella Biderman. Stay on topic with classifier-free guidance. arXiv preprint arXiv:2306.17806 , 2023. [42] Dario Shariatian, Umut Simsekli, and Alain Durmus. Heavy-tailed diffusion with denoising l\’evy probabilistic models. International Conference on Learning Representations , 2025. [43] Junhyuk So, Chiwoong Lee, Shinyoung Lee, Jungseul Ok, and Eunhyeok Park. Improving generative behavior cloning via self-guidance and adaptive chunking. NeurIPS , 2025. [44] Yu Sun, Xiaolong Wang, Zhuang Liu, John Miller, Alexei Efros, and Moritz Hardt. Test-time training with self-supervision for generalization under distribution shifts. In International conference on machine learning , pages 9229–9248. PMLR, 2020. [45] Zhanyi Sun and Shuran Song. Latent policy barrier: Learning robust visuomotor policies by staying in-distribution. NeurIPS , 2025. [46] Vinh Tong, Dung Trung Hoang, Anji Liu, Guy Van den Broeck, and Mathias Niepert. Learning to discretize denoising diffusion odes. In The Thirteenth International Conference on Learning Representations , 2025. [47] Pankhuri Vanjani, Paul Mattes, Xiaogang Jia, Vedant Dave, and Rudolf Lioutikov. Disdp: Robust imitation learning via disentangled diffusion policies. In Reinforcement Learning Conference , 2025. [48] Andrew Wagenmaker, Mitsuhiko Nakamoto, Yunchu Zhang, Seohong Park, Waleed Yagoub, Anusha Nagabandi, Abhishek Gupta, and Sergey Levine. Steering your diffusion policy with latent space reinforcement learning. arXiv preprint arXiv:2506.15799 , 2025. 13 [49] Zixing Wang, Devesh K Jha, Ahmed H Qureshi, and Diego Romeres. Ppguide: Steering diffusion policies with performance predictive guidance. International Conference on Robotics and Automation , 2026. [50] Shihan Wu, Xu Luo, Ji Zhang, Junlin Xie, Jingkuan Song, Heng Tao Shen, and Lianli Gao. Policy contrastive decoding for robotic foundation models. The Fourteenth International Conference on Learning Representations (ICLR) , 2026. [51] Han Xue, Jieji Ren, Wendi Chen, Gu Zhang, Yuan Fang, Guoying Gu, Huazhe Xu, and Cewu Lu. Reactive diffusion policy: Slow-fast visual-tactile policy learning for contact-rich manipulation. 
+
+arXiv preprint arXiv:2503.02881 , 2025. [52] Rui Yang, Tao Yang, Zhi Yan, Tomas Krajnik, and Yassine Ruichek. Preventing catastrophic forgetting in continuous online learning for autonomous driving. In 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 5505–5512. IEEE, 2024. [53] Yang Zhang, Chenwei Wang, Ouyang Lu, Yuan Zhao, Yunfei Ge, Zhenglong Sun, Xiu Li, Chi Zhang, Chenjia Bai, and Xuelong Li. Align-then-steer: Adapting the vision-language action models through unified latent guidance. arXiv preprint arXiv:2509.02055 , 2025. [54] Kaizhi Zheng, Xiaotong Chen, Odest Chadwicke Jenkins, and Xin Wang. Vlmbench: A com-positional benchmark for vision-and-language manipulation. Advances in Neural Information Processing Systems , 35:665–678, 2022. [55] Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart, Stefan Welker, Ayzaan Wahid, et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In Conference on Robot Learning , pages 2165–2183. PMLR, 2023. 14 A Technical appendices and supplementary material 
+
+A.1 Implementation details 
+
+We evaluate SDN on top of GR00T N1.6 [ 4] and Pi0 [ 5 ] policies for SimplerEnv, and GR00T N1.5 [ 4] for real-world experiments, without any additional training. For simulation, we use the official pretrained checkpoints provided by the original implementations. For real-world experiments, we fine-tune GR00T N1.5 [ 4 ]to adapt to our robotic platform. All SimplerEnv evaluations are conducted using a single environment instance. 1 2 3 
+
+In SDN, we sample N = 12 action chunk candidates from different Gaussian noise seeds. Each candidate is generated independently using the same conditional policy while varying only the initial diffusion noise. We then perform the Stage-1 grounding filter using kNN-based contrastive scoring with k ∈ { 6, 10 }. Based on the grounding scores, we retain the top-M ∈ { 3, 5} candidates that are simultaneously closest to the grounded trajectory distribution and farthest from the perturbed trajectory distribution. For Stage-2 refinement, we evaluate the remaining M candidates using the kinematic smoothness metric JerkRMS [ 10 ] over extended predicted action chunks. The extended chunk number is chosen to be greater than the executed action chunk in the environment, while remaining within the maximum prediction horizon supported by the base policy. For both SimplerEnv and real-world experiments, the extended chunk number is searched over {4, 5, 10 }.
+
+Object Masking Strategy. We use Grounding-DINO [ 39 ] to detect task-relevant objects and SAM2 [38 ] to track object regions across timesteps. We then construct perturbed observations using a simple masking strategy that overlays zero-valued bounding boxes over all task-relevant objects, effectively removing the target object information. 4 5 
+
+Algorithm 1 Selected Diffusion Noise (SDN) Inference 
+
+Require: Policy πθ , observation s, instruction ℓ
+
+Require: Number of samples N , filter size M
+
+Initialize G ← ∅ , B ← ∅ 
+
+for i = 1 to N do 
+
+Sample A0 
+
+> i
+
+∼ N (0 , I )
+
+Generate Ai ∼ πθ (· | s, ℓ )
+
+Generate ˜Ai ∼ πθ (· | sneg , ℓ )
+
+G ← G ∪ { Ai}B ← B ∪ { ˜Ai}
+
+end for 
+
+Compute R(i) 
+
+> ground
+
+for all Ai ∈ G GM ← TopM (G)
+
+for Ai ∈ G M do 
+
+Compute S(Ai)
+
+end for 
+
+A∗ = arg min Ai∈G M S(Ai)
+
+return A∗
+
+A.2 Real-world experiements 
+
+We evaluate our method on two real-world robotic manipulation tasks using a single-arm mobile ALOHA robot. Each task is observed from both a static camera view and a wrist-mounted camera .Task definitions, initialization procedures, and dataset statistics are described below. 
+
+Cube2Drawer. The robot first opens the top drawer, then picks up a red cube from the table, places it into the drawer, and finally closes the drawer. Each episode contains an average of 253 steps, and we collect a total of 150 episodes for this task. 
+
+> 1https://huggingface.co/nvidia/GR00T-N1.6-fractal
+> 2https://huggingface.co/nvidia/GR00T-N1.6-bridge
+> 3https://github.com/allenzren/open-pi-zero
+> 4https://huggingface.co/IDEA-Research/grounding-dino-base
+> 5https://huggingface.co/facebook/sam2-hiera-large-hf
+
+15 Figure 7: Real-world tasks a) GoogleRobot - Open Drawer: Open top drawer    
+
+> b) WidowX –Stack Cube :Stack the green block on the yellow block
+
+Figure 8: Simulation tasks in SIMPLER 
+
+Banana2Pot. The robot picks up a banana from the table, places it into a pot, then picks up the lid and closes the pot. Each episode contains an average of 280 steps, and we collect a total of 150 episodes for this task. 
+
+Training and Evaluation. We fine-tune Gr00tN1.5 on the combined dataset for a total of 60k training steps with a batch size of 32 (approximately 20 epochs) and a chunk size of 50. Training takes approximately 7 hours on a single H100 GPU. During evaluation, we deploy the model on a RTX 4070 GPU and execute 10 actions per inference step. We evaluate 30 trials per task for each methods, with results summarized in Table 3. 
+
+A.3 Simulation Experiments 
+
+We evaluate our method on the SIMPLER benchmark [ 24 ]. For each method, we conduct 50 evaluation trials per task, and report the results in Table 1 and Table 2. Qualitative examples are shown in Figure 8. The evaluation consists of five tasks on the Google Robot platform and four tasks on the WidowX platform. For the Google Robot platform, we evaluate the following tasks: 
+
+Close/Open Drawer : The robot interacts with a three-drawer cabinet. Given a language instruction, the robot must identify the target drawer and execute the corresponding opening or closing action. 
+
+Move Near : Three objects are placed on a tabletop: a source object, a target object, and a distractor object. The robot is required to move the source object close to the target object. 
+
+Pick Coke Can : An empty Coke can is placed in varying poses on the table. The robot must grasp the can and lift it successfully. 
+
+Apple Drawer : An apple is placed on top of a three-drawer cabinet. The robot must open the top drawer, grasp the apple, and place it inside the drawer. For the WidowX platform, we evaluate the following four tasks: 16 Carrot Plate : A carrot and a plate are placed on a table. The robot must pick up the carrot and place it onto the plate. 
+
+Eggplant Basket : An eggplant and a basket are placed on a table. The robot is required to grasp the eggplant and place it into the basket. 
+
+Spoon Towel : A spoon and a towel are placed on a table. The robot must grasp the spoon and place it onto the towel. 
+
+Stack Cube : Given two cubes, one yellow and one green, the robot must place the green cube on top of the yellow cube. Compared to the baseline methods, SDN consistently improves upon the base model. We further provide a qualitative example in Figure 9, where SDN enables successful task execution, whereas the base model without SDN fails early during the grasping stage and is unable to complete the task. We further compare the effects of the grounding filter and kinematic stability refinement in SDN, as well as their sequential combination, with detailed results presented in Figure 10. The results validate the effectiveness of the proposed two-stage pipeline, which generally yields greater improvements than applying either stage independently. While the second stage primarily enhances kinematic stability, the first stage plays a crucial role in ensuring that robot actions remain faithful to task descriptions and in suppressing spurious action patterns. The sequential integration of both stages ultimately contributes to the strong overall performance of SDN. 
+
+Figure 9: Comparison of the base model and Base + SDN (training-free guidance) on SimplerEnv Google Robot 
+
+Figure 10: Performance comparison at different stages on simulation evaluation. 17 Figure 11: Comparison of per-step inference speed and task success rate across different methods. 
+
+A.4 Efficiency comparison between SDN and other methods. 
+
+Figure 11 shows the per-step inference latency and task success rate across different methods. While baselines and CFG achieve faster inference speeds, they exhibit noticeably lower task performance. In contrast, SDN (Ours) attains the highest success rate of 48 .33% with a moderate inference cost of 
+
+245 .05 ms per step. 
+
+A.5 Theoretical Analysis of SDN 
+
+In this section, we provide some theoretical insights into our framework under the behaviors of N
+
+samples. Asymptotic Consistency of SDN Contrastive Grounding Score 
+
+Theorem A.1. Let pG and pB be absolutely continuous densities on a compact support 
+
+Ω ⊂ RD , bounded away from zero and infinity. Let GN = {Ai}Ni=1 ∼ pG and BN = {Aj }Nj=1 ∼ pB be i.i.d. samples. For any query A ∈ Ω, define the k-nearest neighbor distances: 
+
+d(N ) 
+
+> G
+
+(A) := 1
+
+k
+
+X 
+
+> j∈ΩG
+> k(A)
+
+∥A − Aj ∥2, d(N ) 
+
+> B
+
+(A) := 1
+
+k
+
+X 
+
+> j∈ΩB
+> k(A)
+
+∥A − Aj ∥2.
+
+Define the SDN grounding score: 
+
+R(N )ground (A) := d(N ) 
+
+> B
+
+(A) − d(N ) 
+
+> G
+
+(A).
+
+Assume k → ∞ , N → ∞ , and k/N → 0. Then for any fixed A ∈ Ω,
+
+R(N )ground (A) = CD
+
+ kN
+
+1/D 
+
+pB(A)−1/D − pG (A)−1/D 
+
+(1 + oP (1)) , (10) 
+
+where CD = V −1/D D depends only on dimension. In particular, the ranking induced by R(N )ground (A) is asymptotically consistent with the population score 
+
+R(A) := pB(A)−1/D − pG (A)−1/D .
+
+Proof. From classical k-NN density estimation, 
+
+ˆpSN (A) = kN V D ρk(A)DP
+
+−→ pS (A),
+
+where ρk(A) is the k-NN radius. 18 This implies 
+
+ρk(A) = 
+
+ kN V D pS (A)
+
+1/D 
+
+(1 + oP (1)) .
+
+Since the average k-NN distance is asymptotically equivalent to the radius, 
+
+d(N ) 
+
+> S
+
+(A) = ρk(A)(1 + oP (1)) ,
+
+we obtain 
+
+d(N ) 
+
+> S
+
+(A) = CD
+
+ kN
+
+1/D 
+
+pS (A)−1/D (1 + oP (1)) .
+
+Subtracting the expressions for B and G yields the result. Hallucination Suppression via Best-of-N SDN Selection 
+
+Theorem A.2. Let the policy be given by: 
+
+πθ = (1 − ϵ)p∗ + ϵp fail .
+
+Let R(A) denote the population grounding score: 
+
+R(A) = pB(A)−1/D − pG (A)−1/D .
+
+Assume: 
+
+• (Consistency) R(N )ground (A) converges in probability to R(A).
+
+• (Stochastic dominance) For all t ∈ R,
+
+PA∼p∗ (R(A) ≥ t) ≥ PA∼pfail (R(A) ≥ t).
+
+Draw A1, . . . , ANi.i.d. 
+
+∼ πθ , and select 
+
+A∗ = arg max  
+
+> 1≤i≤N
+
+R(N )ground (Ai).
+
+Then, 
+
+P(A∗ ∼ pfail ) ≤ exp( −cN ), (11) 
+
+for some constant c > 0.
+
+Proof. Let Nfail ∼ Binomial( N, ϵ ) and N∗ = N − Nfail .Define 
+
+Mfail := max 
+
+> i≤Nfail
+
+R(Ai), M∗ := max 
+
+> j≤N∗
+
+R(Aj ).
+
+For any t,
+
+P(M∗ < t ) = Pp∗ (R(A) < t )N∗ , P(Mfail ≥ t) ≤ 1 − (1 − δ)Nfail ,
+
+where δ = Ppfail (R(A) ≥ t).By stochastic dominance, there exists t such that 
+
+Pp∗ (R ≥ t) > δ. 
+
+Thus, 
+
+P(Mfail ≥ M∗) ≤ Nfail δ + (1 − δ)N∗ .
+
+Taking expectation over Nfail yields exponential decay: 
+
+P(A∗ ∼ pfail ) ≤ exp( −cN ).
+
+Finally, consistency of R(N )ground implies the same result holds when using the empirical score. 19

@@ -82,6 +82,7 @@ window.DPRWorkflowRunner = (function () {
   const MANUAL_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
   const MANUAL_UPLOAD_MAX_MB = Math.round(MANUAL_UPLOAD_MAX_BYTES / 1024 / 1024);
   const MANUAL_UPLOAD_CONTENT_API_SAFE_BYTES = 70 * 1024 * 1024;
+  const MANUAL_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
   const MANUAL_UPLOAD_ACTIVE_RUN_KEY = 'dpr_manual_upload_active_run_v1';
   const MANUAL_UPLOAD_ACTIVE_RUN_TTL_MS = 36 * 60 * 60 * 1000;
 
@@ -330,6 +331,15 @@ window.DPRWorkflowRunner = (function () {
       reader.readAsDataURL(file);
     });
 
+  const stringToBase64 = (text) => {
+    const bytes = new TextEncoder().encode(String(text || ''));
+    let binary = '';
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary);
+  };
+
   const normalizeManualUploadOptions = (options) => {
     const defaults = buildManualBatchDefaults();
     const section = String((options && options.section) || 'deep').trim().toLowerCase() === 'quick' ? 'quick' : 'deep';
@@ -348,7 +358,7 @@ window.DPRWorkflowRunner = (function () {
   const explainFetchFailure = (error) => {
     const msg = error && error.message ? String(error.message) : String(error || '');
     if (!/failed to fetch|networkerror/i.test(msg)) return msg;
-    return `${msg}（浏览器没有收到接口响应。若发生在在线上传阶段，通常是网络/代理中断、刷新取消上传，或 PDF/ZIP 过大导致上传请求被中断；此时解析一般还没有开始。）`;
+    return `${msg}（浏览器没有收到接口响应。若发生在在线上传阶段，通常是网络/代理中断、刷新取消上传，或 GitHub 上传接口跨域/请求被中断；此时解析一般还没有开始。）`;
   };
 
   const extractManualBatchToken = (dispatchInputs) => {
@@ -520,6 +530,134 @@ window.DPRWorkflowRunner = (function () {
       uploaded.push(path);
     }
     return uploaded;
+  };
+
+  const encodeGithubPath = (path) => encodeURIComponent(path).replace(/%2F/g, '/');
+
+  const uploadContentToGithubBranch = async (owner, repo, token, branch, path, content, message) => {
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeGithubPath(path)}`;
+    const res = await ghFetch(token, url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        branch,
+        content,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`上传分片失败：HTTP ${res.status} ${res.statusText} - ${txt}`);
+    }
+    return res.json();
+  };
+
+  const deleteGithubBranch = async (owner, repo, token, branchName) => {
+    if (!branchName) return;
+    try {
+      await ghFetch(
+        token,
+        `https://api.github.com/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branchName)}`,
+        { method: 'DELETE' },
+      );
+    } catch {
+      // Best-effort cleanup. The workflow deletes the temp branch after it fetches chunks.
+    }
+  };
+
+  const createTempUploadBranch = async (owner, repo, token, baseBranch, batchToken) => {
+    const branchName = `dpr-manual-upload-${batchToken}`.replace(/[^A-Za-z0-9._-]+/g, '-');
+    const refUrl = `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(baseBranch)}`;
+    const refRes = await ghFetch(token, refUrl);
+    if (!refRes.ok) {
+      const txt = await refRes.text().catch(() => '');
+      throw new Error(`读取默认分支失败：HTTP ${refRes.status} ${refRes.statusText} - ${txt}`);
+    }
+    const refData = await refRes.json();
+    const sha = refData && refData.object && refData.object.sha ? String(refData.object.sha) : '';
+    if (!sha) throw new Error('读取默认分支失败：未获得 commit sha。');
+
+    const create = async () => ghFetch(token, `https://api.github.com/repos/${owner}/${repo}/git/refs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ref: `refs/heads/${branchName}`,
+        sha,
+      }),
+    });
+
+    let createRes = await create();
+    if (!createRes.ok && createRes.status === 422) {
+      await deleteGithubBranch(owner, repo, token, branchName);
+      createRes = await create();
+    }
+    if (!createRes.ok) {
+      const txt = await createRes.text().catch(() => '');
+      throw new Error(`创建临时上传分支失败：HTTP ${createRes.status} ${createRes.statusText} - ${txt}`);
+    }
+    return branchName;
+  };
+
+  const uploadFilesToTempBranchChunks = async (owner, repo, token, baseBranch, batchToken, files) => {
+    const branchName = await createTempUploadBranch(owner, repo, token, baseBranch, batchToken);
+    const manifest = {
+      version: 1,
+      batchToken,
+      chunkBytes: MANUAL_UPLOAD_CHUNK_BYTES,
+      files: [],
+    };
+    let uploadedChunks = 0;
+    const totalChunks = files.reduce(
+      (sum, file) => sum + Math.max(1, Math.ceil(Number(file.size || 0) / MANUAL_UPLOAD_CHUNK_BYTES)),
+      0,
+    );
+
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const name = safeUploadFileName(file, i);
+      const fileId = `${String(i + 1).padStart(3, '0')}-${name.replace(/[^A-Za-z0-9._-]+/g, '-')}`;
+      const chunks = [];
+      const chunkCount = Math.max(1, Math.ceil(Number(file.size || 0) / MANUAL_UPLOAD_CHUNK_BYTES));
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        const start = chunkIndex * MANUAL_UPLOAD_CHUNK_BYTES;
+        const end = Math.min(Number(file.size || 0), start + MANUAL_UPLOAD_CHUNK_BYTES);
+        const relPath = `${fileId}/chunk-${String(chunkIndex + 1).padStart(5, '0')}.part`;
+        const path = `.manual-upload-chunks/${batchToken}/${relPath}`;
+        uploadedChunks += 1;
+        setStatus(`正在上传分片 ${uploadedChunks}/${totalChunks}：${name}`, '#1565c0', { waiting: true });
+        // eslint-disable-next-line no-await-in-loop
+        const content = await readFileAsBase64(file.slice(start, end));
+        // eslint-disable-next-line no-await-in-loop
+        await uploadContentToGithubBranch(
+          owner,
+          repo,
+          token,
+          branchName,
+          path,
+          content,
+          `[chore] upload manual PDF chunk ${batchToken}`,
+        );
+        chunks.push(relPath);
+      }
+      manifest.files.push({
+        name,
+        size: Number(file.size || 0),
+        type: String(file.type || ''),
+        chunks,
+      });
+    }
+
+    setStatus('正在上传分片清单...', '#1565c0', { waiting: true });
+    await uploadContentToGithubBranch(
+      owner,
+      repo,
+      token,
+      branchName,
+      `.manual-upload-chunks/${batchToken}/manifest.json`,
+      stringToBase64(JSON.stringify(manifest, null, 2)),
+      `[chore] upload manual PDF manifest ${batchToken}`,
+    );
+    return { branchName };
   };
 
   const createManualUploadRelease = async (owner, repo, token, branch, batchToken, label) => {
@@ -1625,33 +1763,30 @@ window.DPRWorkflowRunner = (function () {
       return false;
     }
 
-    let pendingReleaseUpload = null;
+    let pendingUploadBranch = '';
     try {
       stopPolling();
       activeRun = null;
       runsEl.innerHTML = '<div style="color:#999;">正在准备上传文件...</div>';
       const branch = String(repoContext.defaultBranch || 'main');
       const wf = getWorkflowByKey('manual-paper-upload');
-      const useReleaseAssets = totalBytes > MANUAL_UPLOAD_CONTENT_API_SAFE_BYTES ||
+      const useChunkUpload = totalBytes > MANUAL_UPLOAD_CONTENT_API_SAFE_BYTES ||
         selectedFiles.some((file) => Number(file.size || 0) > MANUAL_UPLOAD_CONTENT_API_SAFE_BYTES);
-      if (useReleaseAssets) {
-        runsEl.innerHTML = '<div style="color:#999;">正在上传到 GitHub 临时 Release asset，大文件不会写入仓库历史...</div>';
-        const releaseUpload = await uploadFilesToGithubReleaseAssets(
+      if (useChunkUpload) {
+        runsEl.innerHTML = '<div style="color:#999;">正在上传到 GitHub 临时分支，大文件不会写入 main 历史...</div>';
+        const chunkUpload = await uploadFilesToTempBranchChunks(
           owner,
           repo,
           token,
           branch,
           normalized.batchToken,
           selectedFiles,
-          normalized.label,
         );
-        pendingReleaseUpload = releaseUpload;
-        const assetIds = releaseUpload.assets.map((asset) => asset.id).filter(Boolean).join(',');
+        pendingUploadBranch = chunkUpload.branchName;
         await dispatchAndMonitor(wf, {
           upload_ref: normalized.batchToken,
-          upload_source: 'release_assets',
-          release_id: releaseUpload.releaseId,
-          release_asset_ids: assetIds,
+          upload_source: 'temp_branch_chunks',
+          upload_branch: chunkUpload.branchName,
           section: normalized.section,
           label: normalized.label,
           tag: normalized.tag,
@@ -1659,11 +1794,11 @@ window.DPRWorkflowRunner = (function () {
           cleanup_upload: 'true',
         });
         if (!activeRun || activeRun.manualBatchToken !== normalized.batchToken) {
-          await deleteManualUploadRelease(owner, repo, token, releaseUpload.releaseId);
-          pendingReleaseUpload = null;
+          await deleteGithubBranch(owner, repo, token, chunkUpload.branchName);
+          pendingUploadBranch = '';
           return false;
         }
-        pendingReleaseUpload = null;
+        pendingUploadBranch = '';
       } else {
         runsEl.innerHTML = '<div style="color:#999;">正在上传文件到仓库临时目录...</div>';
         await uploadFilesToGithub(owner, repo, token, branch, normalized.batchToken, selectedFiles);
@@ -1679,8 +1814,8 @@ window.DPRWorkflowRunner = (function () {
       }
       return true;
     } catch (e) {
-      if (pendingReleaseUpload && pendingReleaseUpload.releaseId) {
-        await deleteManualUploadRelease(owner, repo, token, pendingReleaseUpload.releaseId);
+      if (pendingUploadBranch) {
+        await deleteGithubBranch(owner, repo, token, pendingUploadBranch);
       }
       console.error(e);
       const msg = explainFetchFailure(e);

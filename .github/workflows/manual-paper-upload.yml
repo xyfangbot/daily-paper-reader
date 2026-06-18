@@ -19,6 +19,10 @@ on:
         description: "release_assets 模式下的临时 Release asset IDs，逗号分隔"
         required: false
         default: ""
+      upload_branch:
+        description: "temp_branch_chunks 模式下的临时上传分支名"
+        required: false
+        default: ""
       section:
         description: "输出区域：deep/quick"
         required: false
@@ -164,6 +168,7 @@ jobs:
           UPLOAD_REF="${{ github.event.inputs.upload_ref }}"
           UPLOAD_SOURCE="${{ github.event.inputs.upload_source }}"
           RELEASE_ASSET_IDS="${{ github.event.inputs.release_asset_ids }}"
+          UPLOAD_BRANCH="${{ github.event.inputs.upload_branch }}"
           SECTION="${{ github.event.inputs.section }}"
           LABEL="${{ github.event.inputs.label }}"
           TAG="${{ github.event.inputs.tag }}"
@@ -221,6 +226,46 @@ jobs:
               print(f"Downloaded release asset {asset_id}: {safe_name} ({target.stat().st_size} bytes)")
           PY
             UPLOAD_REF="$ASSET_DIR"
+          elif [ "$UPLOAD_SOURCE" = "temp_branch_chunks" ]; then
+            BATCH_TOKEN="$(basename "$UPLOAD_REF")"
+            CHUNK_ROOT=".manual-upload-chunks/$BATCH_TOKEN"
+            ASSET_DIR=".manual-upload-assets/$BATCH_TOKEN"
+            mkdir -p "$ASSET_DIR"
+            if [ -z "$UPLOAD_BRANCH" ]; then
+              echo "::error::temp_branch_chunks 模式缺少 upload_branch。"
+              exit 1
+            fi
+            git fetch --depth=1 origin "$UPLOAD_BRANCH"
+            git checkout FETCH_HEAD -- "$CHUNK_ROOT"
+            git reset -- "$CHUNK_ROOT" || true
+            CHUNK_ROOT="$CHUNK_ROOT" ASSET_DIR="$ASSET_DIR" python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          chunk_root = Path(os.environ["CHUNK_ROOT"])
+          asset_dir = Path(os.environ["ASSET_DIR"])
+          manifest_path = chunk_root / "manifest.json"
+          if not manifest_path.exists():
+              raise FileNotFoundError(manifest_path)
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          files = manifest.get("files") or []
+          if not files:
+              raise SystemExit("manifest 中没有文件。")
+          for index, item in enumerate(files, start=1):
+              raw_name = Path(str(item.get("name") or f"upload-{index}.pdf")).name
+              safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", raw_name).strip(".-") or f"upload-{index}.pdf"
+              target = asset_dir / safe_name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              with target.open("wb") as fh:
+                  for rel in item.get("chunks") or []:
+                      chunk_path = chunk_root / str(rel)
+                      fh.write(chunk_path.read_bytes())
+              print(f"Reassembled chunk upload: {safe_name} ({target.stat().st_size} bytes)")
+          PY
+            rm -rf "$CHUNK_ROOT"
+            UPLOAD_REF="$ASSET_DIR"
           else
             if [ ! -e "$UPLOAD_REF" ]; then
               echo "::error::上传路径不存在：$UPLOAD_REF"
@@ -243,18 +288,23 @@ jobs:
             --require-quality
 
       - name: Cleanup temporary upload
-        if: ${{ github.event.inputs.cleanup_upload != 'false' }}
+        if: ${{ always() && github.event.inputs.cleanup_upload != 'false' }}
         run: |
           set -euo pipefail
           UPLOAD_REF="${{ github.event.inputs.upload_ref }}"
           UPLOAD_SOURCE="${{ github.event.inputs.upload_source }}"
           RELEASE_ID="${{ github.event.inputs.release_id }}"
+          UPLOAD_BRANCH="${{ github.event.inputs.upload_branch }}"
           if [ "$UPLOAD_SOURCE" = "release_assets" ] && [ -n "$RELEASE_ID" ]; then
             curl -fsSL -X DELETE \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
+            exit 0
+          fi
+          if [ "$UPLOAD_SOURCE" = "temp_branch_chunks" ] && [ -n "$UPLOAD_BRANCH" ]; then
+            git push origin --delete "$UPLOAD_BRANCH" || true
             exit 0
           fi
           case "$UPLOAD_REF" in

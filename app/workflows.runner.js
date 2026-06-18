@@ -79,6 +79,9 @@ window.DPRWorkflowRunner = (function () {
     },
   };
 
+  const MANUAL_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
+  const MANUAL_UPLOAD_MAX_MB = Math.round(MANUAL_UPLOAD_MAX_BYTES / 1024 / 1024);
+
   let overlay = null;
   let panel = null;
   let statusEl = null;
@@ -1369,9 +1372,9 @@ window.DPRWorkflowRunner = (function () {
     }
 
     const totalBytes = selectedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
-    const tooLarge = selectedFiles.find((file) => Number(file.size || 0) > 90 * 1024 * 1024);
-    if (tooLarge || totalBytes > 95 * 1024 * 1024) {
-      setStatus('在线上传单次建议控制在 95MB 内；大批量 PDF 请使用本地调试入口。', '#c00');
+    const tooLarge = selectedFiles.find((file) => Number(file.size || 0) > MANUAL_UPLOAD_MAX_BYTES);
+    if (tooLarge || totalBytes > MANUAL_UPLOAD_MAX_BYTES) {
+      setStatus(`在线上传单次限制为 ${MANUAL_UPLOAD_MAX_MB}MB；超过请使用本地调试入口。`, '#c00');
       return false;
     }
 

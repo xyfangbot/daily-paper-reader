@@ -1,0 +1,213 @@
+name: Manual PDF Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_ref:
+        description: "仓库内上传目录或文件路径，例如 uploads/manual-papers/manual-20260618-120000"
+        required: true
+        default: ""
+      section:
+        description: "输出区域：deep/quick"
+        required: false
+        default: "deep"
+      label:
+        description: "侧边栏与日报展示标题"
+        required: false
+        default: ""
+      tag:
+        description: "展示用 query 标签"
+        required: false
+        default: "手动上传"
+      docs_concurrency:
+        description: "Step6 并发数"
+        required: false
+        default: "2"
+      cleanup_upload:
+        description: "解析后删除 uploads/manual-papers 下的临时上传文件"
+        required: false
+        default: "true"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manual-paper-upload
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+      LLM_PRIMARY_BASE_URL: ${{ secrets.LLM_PRIMARY_BASE_URL }}
+      SUMMARY_API_KEY: ${{ secrets.SUMMARY_API_KEY }}
+      SUMMARY_BASE_URL: ${{ secrets.SUMMARY_BASE_URL }}
+      SUMMARY_MODEL: ${{ secrets.SUMMARY_MODEL }}
+      PYTHONUNBUFFERED: "1"
+      MKL_THREADING_LAYER: GNU
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Cache Python deps
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/uv
+            ~/.cache/torch
+            ~/.cache/dpr-tools/papercropper
+          key: ${{ runner.os }}-dpr-manual-pdf-deps-v1-${{ hashFiles('requirements.txt', 'requirements-paper-media.txt') }}
+
+      - name: Install deps
+        run: |
+          python - <<'PY'
+          import re
+          lines = open("requirements.txt", "r", encoding="utf-8").read().splitlines()
+          lines = [l for l in lines if l.strip() and not re.match(r"^sqlite3\\b", l)]
+          open("/tmp/req.txt", "w", encoding="utf-8").write("\n".join(lines))
+          PY
+          python -m pip install --upgrade pip
+          python -m pip install uv
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.5.1+cpu"
+          uv pip install --system -r /tmp/req.txt
+
+      - name: Prepare PaperCropper (optional)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          TOOL_DIR="$HOME/.cache/dpr-tools/papercropper"
+          SRC_DIR="$TOOL_DIR/PaperCropper"
+          MODEL_DIR="$TOOL_DIR/models"
+          MODEL_PATH="$MODEL_DIR/doclayout_yolo_docstructbench_imgsz1280_2501.pt"
+
+          mkdir -p "$TOOL_DIR" "$MODEL_DIR"
+          if [ ! -f "$SRC_DIR/extract.py" ]; then
+            rm -rf "$SRC_DIR"
+            git clone --depth 1 https://github.com/fake-learn/PaperCropper "$SRC_DIR"
+          fi
+
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torchvision==0.20.1+cpu"
+          python -m pip install -r requirements-paper-media.txt
+          python -m pip install --no-deps "doclayout-yolo==0.0.4"
+          if [ ! -f "$MODEL_PATH" ]; then
+            MODEL_DIR="$MODEL_DIR" python - <<'PY'
+          import os
+          from huggingface_hub import hf_hub_download
+
+          filename = "doclayout_yolo_docstructbench_imgsz1280_2501.pt"
+          path = hf_hub_download(
+              repo_id="juliozhao/DocLayout-YOLO-DocStructBench-imgsz1280-2501",
+              filename=filename,
+              local_dir=os.environ["MODEL_DIR"],
+              local_dir_use_symlinks=False,
+          )
+          print(path)
+          PY
+          fi
+
+          PAPERCROPPER_MODEL="$MODEL_PATH" python - <<'PY'
+          import os
+          import cv2
+          import fitz
+          import torch
+          import torchvision
+          from doclayout_yolo import YOLOv10
+
+          model_path = os.environ["PAPERCROPPER_MODEL"]
+          if not os.path.exists(model_path):
+              raise FileNotFoundError(model_path)
+          print(
+              "PaperCropper smoke OK:",
+              {
+                  "torch": torch.__version__,
+                  "torchvision": torchvision.__version__,
+                  "cv2": cv2.__version__,
+                  "fitz": getattr(fitz, "__doc__", "")[:20],
+                  "YOLOv10": YOLOv10.__name__,
+              },
+          )
+          PY
+
+          echo "PAPERCROPPER_SCRIPT=$SRC_DIR/extract.py" >> "$GITHUB_ENV"
+          echo "PAPERCROPPER_MODEL=$MODEL_PATH" >> "$GITHUB_ENV"
+
+      - name: Generate docs from uploaded PDFs
+        run: |
+          set -euo pipefail
+          UPLOAD_REF="${{ github.event.inputs.upload_ref }}"
+          SECTION="${{ github.event.inputs.section }}"
+          LABEL="${{ github.event.inputs.label }}"
+          TAG="${{ github.event.inputs.tag }}"
+          DOCS_CONCURRENCY="${{ github.event.inputs.docs_concurrency }}"
+
+          if [ -z "$UPLOAD_REF" ]; then
+            echo "::error::upload_ref 不能为空。"
+            exit 1
+          fi
+          if [ ! -e "$UPLOAD_REF" ]; then
+            echo "::error::上传路径不存在：$UPLOAD_REF"
+            exit 1
+          fi
+
+          BATCH_TOKEN="$(basename "$UPLOAD_REF")"
+          if [ -z "$LABEL" ]; then
+            LABEL="$BATCH_TOKEN"
+          fi
+
+          python src/manual_pdf_pipeline.py \
+            --input "$UPLOAD_REF" \
+            --batch-token "$BATCH_TOKEN" \
+            --label "$LABEL" \
+            --section "$SECTION" \
+            --tag "$TAG" \
+            --docs-concurrency "$DOCS_CONCURRENCY" \
+            --require-quality
+
+      - name: Cleanup temporary upload
+        if: ${{ github.event.inputs.cleanup_upload != 'false' }}
+        run: |
+          set -euo pipefail
+          UPLOAD_REF="${{ github.event.inputs.upload_ref }}"
+          case "$UPLOAD_REF" in
+            uploads/manual-papers/*)
+              git rm -r --ignore-unmatch "$UPLOAD_REF"
+              ;;
+            *)
+              echo "Skip cleanup for non-managed path: $UPLOAD_REF"
+              ;;
+          esac
+
+      - name: Commit results
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="${GITHUB_REF_NAME:-main}"
+
+          git add docs archive
+          git add -u uploads/manual-papers || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[chore] manual PDF upload"
+          git status --short
+          git reset --hard HEAD
+          git fetch origin "$branch"
+          git rebase -X theirs "origin/$branch"
+          git push origin HEAD:"$branch"

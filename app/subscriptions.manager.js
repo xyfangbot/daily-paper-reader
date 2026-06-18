@@ -15,6 +15,7 @@ window.SubscriptionsManager = (function () {
   let quickRun10dBtn = null;
   let quickRun30dBtn = null;
   let quickRun30dStandardBtn = null;
+  let quickRunManualUploadBtn = null;
   let quickRunOpenWorkflowPanelBtn = null;
   let quickRunConferenceBtn = null;
   let quickRunMsgEl = null;
@@ -1173,7 +1174,10 @@ window.SubscriptionsManager = (function () {
                 <div class="chat-quick-run-title">快速抓取</div>
                 <div id="arxiv-admin-quick-run-hint" class="dpr-task-hint">默认全选词条，快速抓取不区分日常状态。</div>
               </div>
-              <button id="arxiv-admin-open-workflow-panel-btn" class="arxiv-tool-btn dpr-task-workflow-btn" type="button">打开工作流</button>
+              <div class="dpr-task-head-actions">
+                <button id="arxiv-admin-manual-upload-btn" class="arxiv-tool-btn dpr-task-upload-btn" type="button">上传 PDF</button>
+                <button id="arxiv-admin-open-workflow-panel-btn" class="arxiv-tool-btn dpr-task-workflow-btn" type="button">打开工作流</button>
+              </div>
             </div>
             <div class="dpr-task-picker-tools">
               <button id="arxiv-admin-daily-select-all-btn" class="arxiv-tool-btn" type="button">全选</button>
@@ -1463,6 +1467,7 @@ window.SubscriptionsManager = (function () {
     quickRun30dBtn = null;
     quickRun30dStandardBtn = null;
     quickRunStartBtn = document.getElementById('arxiv-admin-quick-run-start-btn');
+    quickRunManualUploadBtn = document.getElementById('arxiv-admin-manual-upload-btn');
     quickRunOpenWorkflowPanelBtn = document.getElementById('arxiv-admin-open-workflow-panel-btn');
     quickRunConferenceBtn = document.getElementById(
       'arxiv-admin-quick-run-conference-run-btn',
@@ -1557,6 +1562,24 @@ window.SubscriptionsManager = (function () {
         }
         if (quickRunMsgEl) {
           quickRunMsgEl.textContent = '工作流触发面板未加载，请刷新页面后重试。';
+          quickRunMsgEl.style.color = '#c00';
+        }
+      });
+    }
+
+    if (quickRunManualUploadBtn && !quickRunManualUploadBtn._bound) {
+      quickRunManualUploadBtn._bound = true;
+      quickRunManualUploadBtn.addEventListener('click', () => {
+        try {
+          if (window.DPRWorkflowRunner && typeof window.DPRWorkflowRunner.openManualUpload === 'function') {
+            window.DPRWorkflowRunner.openManualUpload();
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+        }
+        if (quickRunMsgEl) {
+          quickRunMsgEl.textContent = 'PDF 上传面板未加载，请刷新页面后重试。';
           quickRunMsgEl.style.color = '#c00';
         }
       });

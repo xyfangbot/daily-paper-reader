@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import cgi
 import json
 import os
+import re
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -28,6 +31,7 @@ RUNS_DIR = ROOT_DIR / ".local-runs"
 CONFIG_PATH = ROOT_DIR / "config.yaml"
 SECRET_PATH = ROOT_DIR / "secret.private"
 ENV_PATH = ROOT_DIR / ".env"
+LOCAL_UPLOADS_DIR = ROOT_DIR / ".local-uploads"
 
 
 def utc_now() -> str:
@@ -36,6 +40,14 @@ def utc_now() -> str:
 
 def norm_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def safe_path_token(value: Any, fallback: str = "upload") -> str:
+    text = norm_text(value).lower()
+    text = re.sub(r"\s+", "-", text)
+    text = re.sub(r"[^a-z0-9._-]+", "-", text)
+    text = text.strip("-._")
+    return text or fallback
 
 
 def build_secret_env(secret: dict[str, Any] | None) -> dict[str, str]:
@@ -258,6 +270,29 @@ def as_bool(value: Any, default: bool = False) -> bool:
 
 def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str]) -> list[str]:
     python = sys.executable
+    if workflow_file == "manual-paper-upload.yml" or workflow_key == "manual-paper-upload":
+        upload_ref = str(inputs.get("upload_ref") or "").strip()
+        if not upload_ref:
+            raise ValueError("manual-paper-upload 缺少 upload_ref")
+        cmd = [
+            python,
+            "src/manual_pdf_pipeline.py",
+            "--input",
+            upload_ref,
+            "--batch-token",
+            str(inputs.get("batch_token") or Path(upload_ref).name),
+            "--label",
+            str(inputs.get("label") or Path(upload_ref).name),
+            "--section",
+            str(inputs.get("section") or "deep"),
+            "--tag",
+            str(inputs.get("tag") or "手动上传"),
+            "--docs-concurrency",
+            str(inputs.get("docs_concurrency") or "2"),
+            "--require-quality",
+        ]
+        return cmd
+
     if workflow_file == "daily-paper-reader.yml" or workflow_key == "daily-now":
         cmd = [python, "src/main.py"]
         if as_bool(inputs.get("run_enrich"), False):
@@ -404,6 +439,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._save_local_config()
         if parsed.path == "/api/local/secret":
             return self._save_local_secret()
+        if parsed.path == "/api/local/manual-papers/upload":
+            return self._upload_manual_papers()
         if parsed.path != "/api/local/workflows/dispatch":
             return self._json({"ok": False, "error": "not found"}, status=404)
         try:
@@ -418,6 +455,91 @@ class Handler(SimpleHTTPRequestHandler):
             cmd = build_command(workflow_key, workflow_file, inputs)
             run = RUN_STORE.create(workflow_key, workflow_file, inputs, cmd, config=config, secret=secret)
             return self._json({"ok": True, "run": run})
+        except Exception as exc:
+            return self._json({"ok": False, "error": str(exc)}, status=400)
+
+    def _upload_manual_papers(self) -> None:
+        content_type = self.headers.get("Content-Type") or ""
+        if "multipart/form-data" not in content_type:
+            return self._json({"ok": False, "error": "Content-Type must be multipart/form-data"}, status=400)
+        try:
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": content_type,
+                },
+            )
+
+            def field_text(name: str, default: str = "") -> str:
+                item = form[name] if name in form else None
+                if item is None or isinstance(item, list):
+                    return default
+                return norm_text(item.value) or default
+
+            batch_token = field_text("batchToken")
+            if not batch_token:
+                batch_token = "manual-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            batch_token = safe_path_token(batch_token, "manual")
+            upload_dir = LOCAL_UPLOADS_DIR / "manual-papers" / batch_token
+            upload_dir.mkdir(parents=True, exist_ok=True)
+
+            file_fields = form["files"] if "files" in form else []
+            if not isinstance(file_fields, list):
+                file_fields = [file_fields]
+            saved: list[str] = []
+            for item in file_fields:
+                filename = safe_path_token(getattr(item, "filename", "") or "upload", "upload")
+                suffix = Path(getattr(item, "filename", "") or "").suffix.lower()
+                if suffix not in {".pdf", ".zip"}:
+                    continue
+                if not filename.endswith(suffix):
+                    filename = f"{filename}{suffix}"
+                target = upload_dir / filename
+                counter = 2
+                while target.exists():
+                    target = upload_dir / f"{target.stem}-{counter}{suffix}"
+                    counter += 1
+                with target.open("wb") as f:
+                    shutil.copyfileobj(item.file, f)
+                saved.append(str(target))
+            if not saved:
+                return self._json({"ok": False, "error": "未收到 PDF 或 ZIP 文件。"}, status=400)
+
+            config_raw = field_text("config")
+            secret_raw = field_text("secret")
+            config = json.loads(config_raw) if config_raw else None
+            secret = json.loads(secret_raw) if secret_raw else None
+            if config is not None and not isinstance(config, dict):
+                config = None
+            if secret is not None and not isinstance(secret, dict):
+                secret = None
+
+            inputs = {
+                "upload_ref": str(upload_dir),
+                "batch_token": batch_token,
+                "section": field_text("section", "deep"),
+                "label": field_text("label", batch_token),
+                "tag": field_text("tag", "手动上传"),
+                "docs_concurrency": field_text("docsConcurrency", "2"),
+            }
+            cmd = build_command("manual-paper-upload", "manual-paper-upload.yml", inputs)
+            run = RUN_STORE.create(
+                "manual-paper-upload",
+                "manual-paper-upload.yml",
+                inputs,
+                cmd,
+                config=config,
+                secret=secret,
+            )
+            return self._json({
+                "ok": True,
+                "batchToken": batch_token,
+                "uploadDir": str(upload_dir),
+                "files": saved,
+                "run": run,
+            })
         except Exception as exc:
             return self._json({"ok": False, "error": str(exc)}, status=400)
 

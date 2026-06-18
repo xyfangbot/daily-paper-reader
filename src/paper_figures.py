@@ -147,6 +147,18 @@ def _download_pdf_bytes(pdf_url: str, timeout: int = 90) -> bytes:
     return resp.content
 
 
+def _load_pdf_bytes(pdf_url: str, docs_dir: str = "") -> bytes:
+    raw = str(pdf_url or "").strip()
+    candidates = [raw]
+    if docs_dir and raw and not re.match(r"^https?://", raw, re.IGNORECASE):
+        candidates.append(os.path.join(docs_dir, raw.lstrip("/")))
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            with open(candidate, "rb") as f:
+                return f.read()
+    return _download_pdf_bytes(raw)
+
+
 def _truthy_env(name: str) -> bool:
     return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -481,7 +493,7 @@ def ensure_paper_media(
         if (cached_figures or os.path.exists(figure_meta_path)) and os.path.exists(table_meta_path):
             return cached_figures, cached_tables
 
-    pdf_bytes = _download_pdf_bytes(pdf_url)
+    pdf_bytes = _load_pdf_bytes(pdf_url, docs_dir)
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp_pdf:
         tmp_pdf.write(pdf_bytes)
         tmp_pdf.flush()

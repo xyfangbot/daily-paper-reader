@@ -37,6 +37,12 @@ window.DPRWorkflowRunner = (function () {
         run_llm_refine: 'true',
       },
     },
+    {
+      key: 'manual-paper-upload',
+      id: 'manual-paper-upload.yml',
+      name: '上传 PDF 解析',
+      desc: '上传 PDF/ZIP，生成与每日论文相同格式的阅读页面。',
+    },
   ];
 
   const QUICK_FETCH_PRESETS = {
@@ -81,6 +87,7 @@ window.DPRWorkflowRunner = (function () {
   let refreshTimer = null;
   let activeRun = null;
   let selectedRun = null;
+  let currentPanelMode = 'workflows';
   const lastRunStateById = {};
   let repoContextCache = null;
 
@@ -253,6 +260,114 @@ window.DPRWorkflowRunner = (function () {
     }
   };
 
+  const localUploadFetch = async (path, formData) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180000);
+    try {
+      const res = await fetch(getLocalApiUrl(path), {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error((data && data.error) || `本地上传失败：HTTP ${res.status}`);
+      }
+      return data;
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        throw new Error('本地上传超时，请减少单次文件数量或确认 8567 端口服务正在运行。');
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  const pad2 = (value) => String(value).padStart(2, '0');
+
+  const buildManualBatchDefaults = () => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = pad2(d.getMonth() + 1);
+    const dd = pad2(d.getDate());
+    const hh = pad2(d.getHours());
+    const mi = pad2(d.getMinutes());
+    const ss = pad2(d.getSeconds());
+    return {
+      token: `manual-${yyyy}${mm}${dd}-${hh}${mi}${ss}`,
+      label: `手动上传 · ${yyyy}-${mm}-${dd} ${hh}:${mi}`,
+    };
+  };
+
+  const safeUploadFileName = (file, index) => {
+    const raw = String((file && file.name) || `upload-${index + 1}`).trim();
+    const lower = raw.toLowerCase();
+    const suffix = lower.endsWith('.zip') ? '.zip' : '.pdf';
+    const stem = raw.replace(/\.[^.]+$/, '');
+    const safeStem = stem
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || `upload-${index + 1}`;
+    return `${String(index + 1).padStart(3, '0')}-${safeStem}${suffix}`;
+  };
+
+  const readFileAsBase64 = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = String(reader.result || '');
+        resolve(text.includes(',') ? text.split(',', 2)[1] : text);
+      };
+      reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+      reader.readAsDataURL(file);
+    });
+
+  const normalizeManualUploadOptions = (options) => {
+    const defaults = buildManualBatchDefaults();
+    const section = String((options && options.section) || 'deep').trim().toLowerCase() === 'quick' ? 'quick' : 'deep';
+    const label = String((options && options.label) || '').trim() || defaults.label;
+    const tag = String((options && options.tag) || '').trim() || '手动上传';
+    const docsConcurrency = String((options && options.docsConcurrency) || '2').trim() || '2';
+    return {
+      batchToken: defaults.token,
+      label,
+      section,
+      tag,
+      docsConcurrency,
+    };
+  };
+
+  const uploadFilesToGithub = async (owner, repo, token, branch, batchToken, files) => {
+    const uploaded = [];
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const name = safeUploadFileName(file, i);
+      const path = `uploads/manual-papers/${batchToken}/${name}`;
+      setStatus(`正在上传文件 ${i + 1}/${files.length}：${name}`, '#1565c0', { waiting: true });
+      // eslint-disable-next-line no-await-in-loop
+      const content = await readFileAsBase64(file);
+      const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, '/')}`;
+      // eslint-disable-next-line no-await-in-loop
+      const res = await ghFetch(token, url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `[chore] upload manual PDFs ${batchToken}`,
+          branch,
+          content,
+        }),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`上传 ${name} 失败：HTTP ${res.status} ${res.statusText} - ${txt}`);
+      }
+      uploaded.push(path);
+    }
+    return uploaded;
+  };
+
   const isWorkflowLogNearBottom = (logEl) => {
     if (!logEl) return true;
     const distance =
@@ -360,6 +475,49 @@ window.DPRWorkflowRunner = (function () {
     }, 5000);
   };
 
+  const dispatchLocalManualUploadAndMonitor = async (files, options) => {
+    stopPolling();
+    activeRun = null;
+    const wf = getWorkflowByKey('manual-paper-upload') || { name: '上传 PDF 解析' };
+    const normalized = normalizeManualUploadOptions(options);
+    setStatus('正在上传到本地调试后端...', '#1565c0', { waiting: true });
+    runsEl.innerHTML = '<div style="color:#999;">正在上传文件，请稍候...</div>';
+
+    const form = new FormData();
+    files.forEach((file) => form.append('files', file, file.name));
+    form.append('batchToken', normalized.batchToken);
+    form.append('label', normalized.label);
+    form.append('section', normalized.section);
+    form.append('tag', normalized.tag);
+    form.append('docsConcurrency', normalized.docsConcurrency);
+
+    const localConfigOverride = window.SubscriptionsGithubToken &&
+      typeof window.SubscriptionsGithubToken.loadLocalConfigOverride === 'function'
+      ? window.SubscriptionsGithubToken.loadLocalConfigOverride()
+      : null;
+    if (localConfigOverride && localConfigOverride.config) {
+      form.append('config', JSON.stringify(localConfigOverride.config));
+    }
+    const localSecret = window.decoded_secret_private && typeof window.decoded_secret_private === 'object'
+      ? window.decoded_secret_private
+      : null;
+    if (localSecret) {
+      form.append('secret', JSON.stringify(localSecret));
+    }
+
+    const data = await localUploadFetch('/api/local/manual-papers/upload', form);
+    const run = data.run || {};
+    activeRun = { local: true, runId: run.id };
+    selectedRun = activeRun;
+    setStatus(`${wf.name}已创建：run_id=${run.id}`, '#080', { waiting: true });
+    await refreshLocalRun(run.id);
+    refreshTimer = setInterval(() => {
+      const r = selectedRun || activeRun;
+      if (!r || !r.local) return;
+      refreshLocalRun(r.runId);
+    }, 5000);
+  };
+
   const resolveWorkflowRunInputs = async (owner, repo, token, runId) => {
     if (!owner || !repo || !runId || !token) return null;
     const runUrl = `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`;
@@ -408,7 +566,7 @@ window.DPRWorkflowRunner = (function () {
     overlay.innerHTML = `
       <div id="dpr-workflow-panel">
         <div id="dpr-workflow-header">
-          <div style="font-weight:600;">工作流触发</div>
+          <div id="dpr-workflow-title" style="font-weight:600;">工作流触发</div>
           <div style="display:flex; gap:8px; align-items:center;">
             <button id="dpr-workflow-refresh-btn" class="arxiv-tool-btn" style="padding:2px 10px;">刷新</button>
             <button id="dpr-workflow-close-btn" class="arxiv-tool-btn" style="padding:2px 6px;">关闭</button>
@@ -416,11 +574,32 @@ window.DPRWorkflowRunner = (function () {
         </div>
         <div id="dpr-workflow-body">
           <div id="dpr-workflow-status" style="font-size:12px; color:#666; margin-bottom:10px;">准备就绪。</div>
-          <div style="font-weight:600; font-size:13px; margin-bottom:6px;">最近运行（各取 3 条）</div>
+          <div id="dpr-manual-upload-card" class="dpr-wf-card dpr-manual-upload-card">
+            <div class="dpr-manual-upload-head">
+              <div>
+                <div class="dpr-manual-upload-title">上传 PDF 解析</div>
+              </div>
+              <button id="dpr-manual-upload-run" class="arxiv-tool-btn dpr-manual-upload-run">开始解析</button>
+            </div>
+            <div class="dpr-manual-upload-grid">
+              <label class="dpr-manual-file-pick">
+                <input id="dpr-manual-upload-files" type="file" accept=".pdf,.zip,application/pdf,application/zip" multiple />
+                <span>选择 PDF/ZIP</span>
+              </label>
+              <select id="dpr-manual-upload-section" class="dpr-manual-upload-input" aria-label="输出区域">
+                <option value="deep">精读区</option>
+                <option value="quick">速读区</option>
+              </select>
+              <input id="dpr-manual-upload-label" class="dpr-manual-upload-input" type="text" placeholder="批次标题" />
+              <input id="dpr-manual-upload-tag" class="dpr-manual-upload-input" type="text" value="手动上传" aria-label="标签" />
+            </div>
+            <div id="dpr-manual-upload-file-list" class="dpr-manual-upload-file-list">尚未选择文件。</div>
+          </div>
+          <div id="dpr-workflow-recent-title" style="font-weight:600; font-size:13px; margin-bottom:6px;">最近运行（各取 3 条）</div>
           <div id="dpr-workflow-recent" style="font-size:12px; color:#333; border:1px solid #eee; border-radius:8px; background:#fff; padding:10px; margin-bottom:12px;">
             <div style="color:#999;">加载中...</div>
           </div>
-          <div style="font-weight:600; font-size:13px; margin-bottom:6px;">执行过程</div>
+          <div id="dpr-workflow-runs-title" style="font-weight:600; font-size:13px; margin-bottom:6px;">执行过程</div>
           <div id="dpr-workflow-runs" style="font-size:12px; color:#333; border:1px solid #eee; border-radius:8px; background:#fff; padding:10px; min-height:120px;">
             <div style="color:#999;">尚未触发工作流。</div>
           </div>
@@ -456,17 +635,80 @@ window.DPRWorkflowRunner = (function () {
       });
     }
 
+    const fileInput = document.getElementById('dpr-manual-upload-files');
+    const fileList = document.getElementById('dpr-manual-upload-file-list');
+    const runUploadBtn = document.getElementById('dpr-manual-upload-run');
+    const sectionSelect = document.getElementById('dpr-manual-upload-section');
+    const labelInput = document.getElementById('dpr-manual-upload-label');
+    const tagInput = document.getElementById('dpr-manual-upload-tag');
+    const updateManualFileList = () => {
+      if (!fileInput || !fileList) return;
+      const files = Array.from(fileInput.files || []);
+      if (!files.length) {
+        fileList.textContent = '尚未选择文件。';
+        return;
+      }
+      const total = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+      const names = files.slice(0, 3).map((file) => file.name).join('、');
+      const more = files.length > 3 ? ` 等 ${files.length} 个文件` : '';
+      fileList.textContent = `${names}${more} · ${(total / 1024 / 1024).toFixed(1)} MB`;
+    };
+    if (fileInput) {
+      fileInput.addEventListener('change', updateManualFileList);
+    }
+    if (runUploadBtn) {
+      runUploadBtn.addEventListener('click', async () => {
+        const files = fileInput ? Array.from(fileInput.files || []) : [];
+        await runManualUpload(files, {
+          section: sectionSelect ? sectionSelect.value : 'deep',
+          label: labelInput ? labelInput.value : '',
+          tag: tagInput ? tagInput.value : '手动上传',
+          docsConcurrency: '2',
+        });
+      });
+    }
+
   };
 
-  const open = () => {
+  const setPanelMode = (mode) => {
+    currentPanelMode = mode === 'manual-upload' ? 'manual-upload' : 'workflows';
+    if (!overlay) return;
+    const isManualUpload = currentPanelMode === 'manual-upload';
+    overlay.classList.toggle('is-manual-upload', isManualUpload);
+    overlay.classList.toggle('is-workflow-panel', !isManualUpload);
+    const titleEl = document.getElementById('dpr-workflow-title');
+    if (titleEl) {
+      titleEl.textContent = isManualUpload ? '上传 PDF 解析' : '工作流触发';
+    }
+    const runsTitleEl = document.getElementById('dpr-workflow-runs-title');
+    if (runsTitleEl) {
+      runsTitleEl.textContent = isManualUpload ? '解析进度' : '执行过程';
+    }
+  };
+
+  const open = (options = {}) => {
     ensureOverlay();
     if (!overlay) return;
+    const requestedMode =
+      typeof options === 'string'
+        ? options
+        : String((options && options.mode) || 'workflows');
+    setPanelMode(requestedMode);
     overlay.style.display = 'flex';
     requestAnimationFrame(() => overlay.classList.add('show'));
-    // 打开面板时尝试加载最近运行（不依赖触发）
-    loadRecentRuns();
+    if (currentPanelMode === 'manual-upload') {
+      const fileInput = document.getElementById('dpr-manual-upload-files');
+      if (fileInput && typeof fileInput.focus === 'function') {
+        requestAnimationFrame(() => fileInput.focus());
+      }
+    } else {
+      // 打开面板时尝试加载最近运行（不依赖触发）
+      loadRecentRuns();
+    }
     return true;
   };
+
+  const openManualUpload = () => open({ mode: 'manual-upload' });
 
   const close = () => {
     if (!overlay) return;
@@ -1017,6 +1259,84 @@ window.DPRWorkflowRunner = (function () {
     return runWorkflowByKey(preset.key, mergedInputs);
   };
 
+  const validateManualUploadFiles = (files) => {
+    const list = Array.from(files || []).filter(Boolean);
+    if (!list.length) return { files: [], error: '请选择 PDF 或 ZIP 文件。' };
+    const bad = list.find((file) => {
+      const name = String(file.name || '').toLowerCase();
+      return !(name.endsWith('.pdf') || name.endsWith('.zip'));
+    });
+    if (bad) return { files: list, error: `暂不支持该文件类型：${bad.name}` };
+    return { files: list, error: '' };
+  };
+
+  const runManualUpload = async (files, options = {}) => {
+    openManualUpload();
+    const checked = validateManualUploadFiles(files);
+    if (checked.error) {
+      setStatus(checked.error, '#c00');
+      return false;
+    }
+    const selectedFiles = checked.files;
+    const normalized = normalizeManualUploadOptions(options);
+
+    if (isLocalDebugPage()) {
+      try {
+        await dispatchLocalManualUploadAndMonitor(selectedFiles, normalized);
+        return true;
+      } catch (e) {
+        console.error(e);
+        const msg = e.message || String(e);
+        setStatus(`本地上传失败：${msg}`, '#c00');
+        runsEl.innerHTML = `<div style="color:#c00;">${escapeHtml(msg)}<br/>请确认本地后端已启动：<code>scripts/local_debug.sh</code> 或 <code>python src/local_debug_server.py --port 8567</code></div>`;
+        return false;
+      }
+    }
+
+    const totalBytes = selectedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    const tooLarge = selectedFiles.find((file) => Number(file.size || 0) > 90 * 1024 * 1024);
+    if (tooLarge || totalBytes > 95 * 1024 * 1024) {
+      setStatus('在线上传单次建议控制在 95MB 内；大批量 PDF 请使用本地调试入口。', '#c00');
+      return false;
+    }
+
+    const token = loadGithubToken();
+    if (!token) {
+      setStatus('未检测到 GitHub Token：请先完成密钥配置。', '#c00');
+      return false;
+    }
+    const repoContext = await resolveRepoContext(token);
+    const { owner, repo } = repoContext;
+    if (!owner || !repo) {
+      setStatus('无法推断目标仓库：请确认 GitHub Token 有效，或使用 xxx.github.io/仓库名/ 访问。', '#c00');
+      return false;
+    }
+
+    try {
+      stopPolling();
+      activeRun = null;
+      runsEl.innerHTML = '<div style="color:#999;">正在上传文件到仓库临时目录...</div>';
+      const branch = String(repoContext.defaultBranch || 'main');
+      await uploadFilesToGithub(owner, repo, token, branch, normalized.batchToken, selectedFiles);
+      const wf = getWorkflowByKey('manual-paper-upload');
+      await dispatchAndMonitor(wf, {
+        upload_ref: `uploads/manual-papers/${normalized.batchToken}`,
+        section: normalized.section,
+        label: normalized.label,
+        tag: normalized.tag,
+        docs_concurrency: normalized.docsConcurrency,
+        cleanup_upload: 'true',
+      });
+      return true;
+    } catch (e) {
+      console.error(e);
+      const msg = e.message || String(e);
+      setStatus(`上传或触发失败：${msg}`, '#c00');
+      runsEl.innerHTML = `<div style="color:#c00;">${escapeHtml(msg)}</div>`;
+      return false;
+    }
+  };
+
   const normalizeConferenceName = (value) => {
     const text = String(value || '').trim();
     const lower = text.toLowerCase();
@@ -1062,8 +1382,10 @@ window.DPRWorkflowRunner = (function () {
 
   return {
     open,
+    openManualUpload,
     runWorkflowByKey,
     runQuickFetchByDays,
+    runManualUpload,
     runConferenceRetrieval,
     runConferenceMaintain,
   };

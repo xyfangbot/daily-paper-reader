@@ -141,6 +141,15 @@ class PaperFiguresTest(unittest.TestCase):
             self.assertEqual(tables, [])
             self.assertIn("执行完成但未产出 figure/table", output.getvalue())
 
+    def test_load_pdf_bytes_accepts_local_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            pdf_path = Path(d) / "sample.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\nlocal")
+
+            data = self.mod._load_pdf_bytes(str(pdf_path), str(Path(d)))
+
+            self.assertEqual(data, b"%PDF-1.4\nlocal")
+
 
 if __name__ == "__main__":
     unittest.main()

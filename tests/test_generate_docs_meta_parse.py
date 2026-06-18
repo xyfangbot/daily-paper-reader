@@ -184,6 +184,41 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertEqual(len(tables), 1)
         self.assertEqual(calls[0]["source_key"], "biorxiv")
 
+    def test_maybe_generate_paper_media_accepts_manual_local_pdf(self):
+        calls = []
+
+        def fake_ensure_paper_media(**kwargs):
+            calls.append(kwargs)
+            return (
+                [{"url": "assets/figures/manual/manual-001/fig-001.webp"}],
+                [{"url": "assets/tables/manual/manual-001/table-001.webp"}],
+            )
+
+        original = self.mod.ensure_paper_media
+        self.mod.ensure_paper_media = fake_ensure_paper_media
+        try:
+            figures, tables = self.mod.maybe_generate_paper_media(
+                {
+                    "id": "manual-001",
+                    "source": "manual",
+                    "_local_pdf_path": "/tmp/uploaded.pdf",
+                },
+                docs_dir="docs",
+                paper_id="manual/manual-batch/manual-001",
+                pdf_url="assets/manual-pdfs/manual-batch/001.pdf",
+            )
+        finally:
+            self.mod.ensure_paper_media = original
+
+        self.assertEqual(len(figures), 1)
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(calls[0]["source_key"], "manual")
+        self.assertEqual(calls[0]["pdf_url"], "/tmp/uploaded.pdf")
+        self.assertEqual(
+            calls[0]["asset_key"],
+            "manual-manual-batch-manual-001",
+        )
+
     def test_maybe_generate_paper_figures_keeps_legacy_return(self):
         original = self.mod.ensure_paper_media
         self.mod.ensure_paper_media = lambda **kwargs: (
@@ -201,6 +236,52 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
             self.mod.ensure_paper_media = original
 
         self.assertEqual(figures, [{"url": "assets/figures/arxiv/pid/fig-001.webp"}])
+
+    def test_manual_upload_date_uses_manual_docs_folder(self):
+        md_path, txt_path, paper_id = self.mod.prepare_paper_paths(
+            "docs",
+            "manual-20260618-153000",
+            "Uploaded Control Paper",
+            "manual-abc123",
+        )
+        self.assertEqual(md_path, "docs/manual/manual-20260618-153000/manual-abc123-uploaded-control-paper.md")
+        self.assertEqual(txt_path, "docs/manual/manual-20260618-153000/manual-abc123-uploaded-control-paper.txt")
+        self.assertEqual(paper_id, "manual/manual-20260618-153000/manual-abc123-uploaded-control-paper")
+        day_dir, day_readme = self.mod.prepare_day_report_paths("docs", "manual-20260618-153000")
+        self.assertEqual(day_dir, "docs/manual/manual-20260618-153000")
+        self.assertEqual(day_readme, "docs/manual/manual-20260618-153000/README.md")
+        self.assertEqual(self.mod.format_date_str("manual-20260618-153000"), "手动上传 · 2026-06-18 15:30")
+        self.assertEqual(
+            self.mod.build_day_report_href("manual-20260618-153000"),
+            "/manual/manual-20260618-153000/README",
+        )
+        with tempfile.TemporaryDirectory() as d:
+            out_path = self.mod.write_day_meta_index_json(
+                d,
+                "manual-20260618-153000",
+                "手动上传 · 2026-06-18 15:30",
+                [],
+                [],
+            )
+            self.assertEqual(
+                out_path,
+                str(Path(d) / "manual" / "manual-20260618-153000" / "papers.meta.json"),
+            )
+            self.assertTrue(Path(out_path).exists())
+
+    def test_ensure_text_content_prefers_local_pdf_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            pdf_path = Path(d) / "paper.pdf"
+            txt_path = Path(d) / "paper.txt"
+            pdf_path.write_bytes(b"%PDF-1.4\n")
+            original = self.mod.extract_pdf_text
+            self.mod.extract_pdf_text = lambda path: f"local text from {Path(path).name}"
+            try:
+                text = self.mod.ensure_text_content("", str(txt_path), local_pdf_path=str(pdf_path))
+            finally:
+                self.mod.extract_pdf_text = original
+            self.assertEqual(text, "local text from paper.pdf")
+            self.assertEqual(txt_path.read_text(encoding="utf-8"), "local text from paper.pdf")
 
     def test_generate_glance_prompt_requires_richer_fields(self):
         captured = {}

@@ -103,6 +103,43 @@ class ConferenceWorkflowAndUiTest(unittest.TestCase):
         self.assertNotIn("dpr-run-confirm", css)
         self.assertNotIn("runConferenceMaintain(conf, years)", manager)
 
+    def test_manual_pdf_upload_workflow_and_ui(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        workflow_path = root / ".github" / "workflows" / "manual-paper-upload.yml"
+        text = workflow_path.read_text(encoding="utf-8")
+        workflow = yaml.safe_load(text) or {}
+        on_block = workflow.get("on") or workflow.get(True) or {}
+        inputs = (((on_block.get("workflow_dispatch") or {}).get("inputs")) or {})
+        runner = (root / "app" / "workflows.runner.js").read_text(encoding="utf-8")
+        manager = (root / "app" / "subscriptions.manager.js").read_text(encoding="utf-8")
+        server = (root / "src" / "local_debug_server.py").read_text(encoding="utf-8")
+        gitignore = (root / ".gitignore").read_text(encoding="utf-8")
+        css = (root / "app" / "app.css").read_text(encoding="utf-8")
+
+        self.assertIn("upload_ref", inputs)
+        self.assertIn("section", inputs)
+        self.assertIn("python src/manual_pdf_pipeline.py", text)
+        self.assertNotIn("PAPERCROPPER_DISABLE", text)
+        self.assertIn("--require-quality", text)
+        self.assertIn("Prepare PaperCropper", text)
+        self.assertIn("requirements-paper-media.txt", text)
+        self.assertIn("git rm -r --ignore-unmatch", text)
+        self.assertIn("manual-paper-upload.yml", runner)
+        self.assertIn("runManualUpload", runner)
+        self.assertIn("uploads/manual-papers", runner)
+        self.assertIn("/api/local/manual-papers/upload", runner)
+        self.assertIn("dpr-manual-upload-files", runner)
+        self.assertIn("openManualUpload", runner)
+        self.assertIn("arxiv-admin-manual-upload-btn", manager)
+        self.assertIn("window.DPRWorkflowRunner.openManualUpload", manager)
+        self.assertIn("manual_pdf_pipeline.py", server)
+        self.assertIn("/api/local/manual-papers/upload", server)
+        self.assertIn("--require-quality", server)
+        self.assertIn(".local-uploads/", gitignore)
+        self.assertIn(".dpr-manual-upload-grid", css)
+        self.assertIn(".dpr-task-upload-btn", css)
+        self.assertIn("is-workflow-panel #dpr-manual-upload-card", css)
+
     def test_local_debug_uses_browser_config_override(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         server = (root / "src" / "local_debug_server.py").read_text(encoding="utf-8")

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # Step 6：根据推荐结果生成 Docs（精读区 / 速读区），并更新侧边栏。
 
+from __future__ import annotations
+
 import argparse
 import html
 import json
@@ -33,6 +35,7 @@ except Exception:  # pragma: no cover
 CONFIG_FILE = os.path.join(ROOT_DIR, "config.yaml")
 TODAY_STR = str(os.getenv("DPR_RUN_DATE") or "").strip() or datetime.now(timezone.utc).strftime("%Y%m%d")
 RANGE_DATE_RE = re.compile(r"^(\d{8})-(\d{8})$")
+MANUAL_DATE_RE = re.compile(r"^manual-(\d{8})(?:-(\d{6}))?$")
 
 # LLM 配置（使用 llm.py 内的 DeepSeek 客户端）
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY") or os.getenv("SUMMARY_API_KEY")
@@ -568,7 +571,17 @@ def generate_deep_summary(
         "6. 论文的主要结论与发现。\n"
         "7. 优点：方法或实验设计上有哪些亮点。\n"
         "8. 不足与局限：包括实验覆盖、偏差风险、应用限制等。\n\n"
-        "请用分层标题和项目符号（Markdown 格式）组织上述内容，语言尽量简洁但信息要尽量完整。\n"
+        "请严格使用下面的 Markdown 结构，不要省略标题层级：\n"
+        "# 论文详细中文总结\n\n"
+        "## 一、论文的核心问题与整体含义（研究动机和背景）\n"
+        "## 二、论文提出的方法论\n"
+        "## 三、实验设计\n"
+        "## 四、资源与算力\n"
+        "## 五、实验数量与充分性\n"
+        "## 六、论文的主要结论与发现\n"
+        "## 七、优点\n"
+        "## 八、不足与局限\n\n"
+        "每个二级标题下用项目符号组织内容，语言尽量简洁但信息要尽量完整。\n"
         "要求：最后单独输出一行“（完）”作为结束标记。"
     )
 
@@ -823,6 +836,14 @@ def replace_meta_line(md_text: str, label: str, value: str, add_slash: bool = Tr
 
 def format_date_str(date_str: str) -> str:
     s = str(date_str or "").strip()
+    manual = MANUAL_DATE_RE.match(s)
+    if manual:
+        date_token = manual.group(1)
+        time_token = manual.group(2) or ""
+        label = f"手动上传 · {date_token[:4]}-{date_token[4:6]}-{date_token[6:]}"
+        if len(time_token) == 6:
+            label += f" {time_token[:2]}:{time_token[2:4]}"
+        return label
     m = RANGE_DATE_RE.match(s)
     if m:
         a, b = m.group(1), m.group(2)
@@ -832,17 +853,26 @@ def format_date_str(date_str: str) -> str:
     return date_str
 
 
+def is_standard_day_token(date_str: str) -> bool:
+    s = str(date_str or "").strip()
+    return len(s) == 8 and s.isdigit()
+
+
 def prepare_paper_paths(docs_dir: str, date_str: str, title: str, arxiv_id: str) -> Tuple[str, str, str]:
     slug = slugify(title)
     basename = f"{arxiv_id}-{slug}" if arxiv_id else slug
     if RANGE_DATE_RE.match(date_str):
         target_dir = os.path.join(docs_dir, date_str)
         paper_id = f"{date_str}/{basename}"
-    else:
+    elif is_standard_day_token(date_str):
         ym = date_str[:6]
         day = date_str[6:]
         target_dir = os.path.join(docs_dir, ym, day)
         paper_id = f"{ym}/{day}/{basename}"
+    else:
+        safe_token = slugify(date_str) or "manual"
+        target_dir = os.path.join(docs_dir, "manual", safe_token)
+        paper_id = f"manual/{safe_token}/{basename}"
     md_path = os.path.join(target_dir, f"{basename}.md")
     txt_path = os.path.join(target_dir, f"{basename}.txt")
     return md_path, txt_path, paper_id
@@ -851,10 +881,13 @@ def prepare_paper_paths(docs_dir: str, date_str: str, title: str, arxiv_id: str)
 def prepare_day_report_paths(docs_dir: str, date_str: str) -> Tuple[str, str]:
     if RANGE_DATE_RE.match(date_str):
         day_dir = os.path.join(docs_dir, date_str)
-    else:
+    elif is_standard_day_token(date_str):
         ym = date_str[:6]
         day = date_str[6:]
         day_dir = os.path.join(docs_dir, ym, day)
+    else:
+        safe_token = slugify(date_str) or "manual"
+        day_dir = os.path.join(docs_dir, "manual", safe_token)
     day_readme = os.path.join(day_dir, "README.md")
     return day_dir, day_readme
 
@@ -1014,6 +1047,17 @@ def build_docsify_id_href(path_no_ext: str) -> str:
     return f"/{p}"
 
 
+def build_day_report_href(date_str: str) -> str:
+    if RANGE_DATE_RE.match(date_str):
+        return build_docsify_id_href(f"{date_str}/README")
+    if is_standard_day_token(date_str):
+        ym = date_str[:6]
+        day = date_str[6:]
+        return build_docsify_id_href(f"{ym}/{day}/README")
+    safe_token = slugify(date_str) or "manual"
+    return build_docsify_id_href(f"manual/{safe_token}/README")
+
+
 def build_latest_report_section(
     date_str: str,
     date_label: str | None,
@@ -1045,12 +1089,7 @@ def build_latest_report_section(
         lines.append("")
         lines.append("### 今日简报（AI）")
         lines.append(summary)
-    if RANGE_DATE_RE.match(date_str):
-        report_href = build_docsify_id_href(f"{date_str}/README")
-    else:
-        ym = date_str[:6]
-        day = date_str[6:]
-        report_href = build_docsify_id_href(f"{ym}/{day}/README")
+    report_href = build_day_report_href(date_str)
     lines.append(f"- 详情：[{report_href}]({report_href})")
     lines.append("")
     lines.append("### 精读区论文标签")
@@ -1210,12 +1249,27 @@ def extract_sidebar_tags(paper: Dict[str, Any], max_tags: int = 6) -> List[Tuple
     return score_tag + tags
 
 
-def ensure_text_content(pdf_url: str, txt_path: str) -> str:
+def ensure_text_content(pdf_url: str, txt_path: str, local_pdf_path: str | None = None) -> str:
     if os.path.exists(txt_path):
         with open(txt_path, "r", encoding="utf-8") as f:
             return f.read()
-    text_content = fetch_paper_markdown_via_jina(pdf_url)
-    if text_content is None and pdf_url:
+    local_path = str(local_pdf_path or "").strip()
+    if local_path.startswith("file://"):
+        local_path = local_path[len("file://") :]
+
+    text_content = None
+    if local_path and os.path.exists(local_path):
+        text_content = extract_pdf_text(local_path)
+    elif pdf_url and not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", str(pdf_url or "")):
+        candidate = pdf_url
+        if not os.path.isabs(candidate):
+            candidate = os.path.join(resolve_docs_dir(), candidate)
+        if os.path.exists(candidate):
+            text_content = extract_pdf_text(candidate)
+
+    if text_content is None:
+        text_content = fetch_paper_markdown_via_jina(pdf_url)
+    if text_content is None and pdf_url and re.match(r"^https?://", str(pdf_url or ""), re.I):
         resp = requests.get(pdf_url, timeout=60)
         resp.raise_for_status()
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp_pdf:
@@ -1260,15 +1314,20 @@ def maybe_generate_paper_media(
     pdf_url: str,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     source_key = str(paper.get("source") or "").strip().lower()
-    if source_key not in {"arxiv", "biorxiv"}:
+    if source_key not in {"arxiv", "biorxiv", "manual"}:
         return [], []
-    if not str(pdf_url or "").strip():
+    local_pdf_path = str(paper.get("_local_pdf_path") or "").strip()
+    media_pdf = local_pdf_path or str(pdf_url or "").strip()
+    if not media_pdf:
         return [], []
 
-    asset_key = str(paper.get("id") or paper_id.replace("/", "-")).strip()
+    if source_key == "manual":
+        asset_key = paper_id.replace("/", "-")
+    else:
+        asset_key = str(paper.get("id") or paper_id.replace("/", "-")).strip()
     try:
         return ensure_paper_media(
-            pdf_url=pdf_url,
+            pdf_url=media_pdf,
             docs_dir=docs_dir,
             source_key=source_key,
             asset_key=asset_key,
@@ -1451,15 +1510,16 @@ def process_paper(
     md_path, txt_path, paper_id = prepare_paper_paths(docs_dir, date_str, title, arxiv_id)
     abstract_en = (paper.get("abstract") or "").strip()
     pdf_url = str(paper.get("link") or paper.get("pdf_url") or "").strip()
+    local_pdf_path = str(paper.get("_local_pdf_path") or paper.get("local_pdf_path") or "").strip()
     paper_llm_client = create_llm_client()
 
     glance = ""
 
     if os.path.exists(md_path):
         # 即使是 glance-only，也要确保生成/补齐 .txt（用于前端聊天上下文等）
-        if glance_only and pdf_url:
+        if glance_only and (pdf_url or local_pdf_path):
             try:
-                ensure_text_content(pdf_url, txt_path)
+                ensure_text_content(pdf_url, txt_path, local_pdf_path=local_pdf_path)
             except Exception:
                 # 不阻塞文档生成流程：txt 拉取失败时继续（避免因为网络/源站问题导致整批中断）
                 pass
@@ -1627,7 +1687,7 @@ def process_paper(
 
             # 生成详细总结
             pdf_url = str(paper.get("link") or paper.get("pdf_url") or "").strip()
-            ensure_text_content(pdf_url, txt_path)
+            ensure_text_content(pdf_url, txt_path, local_pdf_path=local_pdf_path)
             summary = generate_deep_summary(md_path, txt_path, client=paper_llm_client)
             if summary:
                 upsert_auto_block(md_path, "论文详细总结（自动生成）", summary)
@@ -1639,9 +1699,9 @@ def process_paper(
     # 新文件：如果只需要速览，则不拉取 PDF/Jina 文本，直接用元数据生成页面
     if glance_only:
         # 速览模式也需要生成/补齐全文 txt（优先 jina，失败则 pymupdf 兜底）
-        if pdf_url:
+        if pdf_url or local_pdf_path:
             try:
-                ensure_text_content(pdf_url, txt_path)
+                ensure_text_content(pdf_url, txt_path, local_pdf_path=local_pdf_path)
             except Exception:
                 pass
         figures, tables = maybe_generate_paper_media(
@@ -1666,7 +1726,7 @@ def process_paper(
 
     # 新文件：生成完整内容
     pdf_url = str(paper.get("link") or paper.get("pdf_url") or "").strip()
-    ensure_text_content(pdf_url, txt_path)
+    ensure_text_content(pdf_url, txt_path, local_pdf_path=local_pdf_path)
     figures, tables = maybe_generate_paper_media(
         paper,
         docs_dir=docs_dir,
@@ -1729,7 +1789,9 @@ def update_sidebar(
                 continue
             clean_tags.append({"kind": safe_kind, "label": safe_label})
 
-        arxiv_id = str(paper_id or "").strip().split("/")[-1]
+        tail_token = str(paper_id or "").strip().split("/")[-1]
+        arxiv_like = re.match(r"^\d{4}\.\d{4,5}(?:v\d+)?(?:-|$)", tail_token)
+        arxiv_id = tail_token.split("-", 1)[0] if arxiv_like else ""
         paper_link = f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else route_href
         payload = {
             "title": (title or "").strip() or paper_id,
@@ -1921,6 +1983,19 @@ def list_day_report_links(docs_dir: str) -> List[Tuple[str, str]]:
     out: List[Tuple[str, str]] = []
     if not os.path.isdir(docs_dir):
         return out
+    # 0) 手动上传批次：docs/manual/manual-YYYYMMDD-HHMMSS
+    manual_root = os.path.join(docs_dir, "manual")
+    if os.path.isdir(manual_root):
+        manual_dirs = sorted(
+            [d for d in os.listdir(manual_root) if os.path.isdir(os.path.join(manual_root, d))],
+            reverse=True,
+        )
+        for token in manual_dirs:
+            readme = os.path.join(manual_root, token, "README.md")
+            if not os.path.exists(readme):
+                continue
+            out.append((format_date_str(token), build_docsify_id_href(f"manual/{token}/README")))
+
     # 1) 区间目录：YYYYMMDD-YYYYMMDD
     range_dirs = sorted(
         [d for d in os.listdir(docs_dir) if RANGE_DATE_RE.fullmatch(d)],
@@ -2376,12 +2451,7 @@ def write_day_meta_index_json(
     """
     在对应的 docs 日期目录下生成索引 JSON 文件，供前端一键下载。
     """
-    if RANGE_DATE_RE.match(date_str):
-        target_dir = os.path.join(docs_dir, date_str)
-    else:
-        ym = date_str[:6]
-        day = date_str[6:]
-        target_dir = os.path.join(docs_dir, ym, day)
+    target_dir, _ = prepare_day_report_paths(docs_dir, date_str)
     os.makedirs(target_dir, exist_ok=True)
     out_path = os.path.join(target_dir, "papers.meta.json")
 

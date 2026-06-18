@@ -1380,6 +1380,19 @@ window.DPRWorkflowRunner = (function () {
   const runConferenceMaintain = async (conference, years) =>
     runConferenceRetrieval(conference, years);
 
+  if (!document._dprManualUploadOpenEventBound) {
+    document._dprManualUploadOpenEventBound = true;
+    document.addEventListener('dpr-open-manual-upload', () => {
+      window.__dprManualUploadOpenRequested = false;
+      openManualUpload();
+    });
+  }
+
+  if (window.__dprManualUploadOpenRequested) {
+    window.__dprManualUploadOpenRequested = false;
+    setTimeout(openManualUpload, 0);
+  }
+
   return {
     open,
     openManualUpload,

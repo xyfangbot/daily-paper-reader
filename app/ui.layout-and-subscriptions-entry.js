@@ -171,6 +171,37 @@
     document.body.appendChild(btn);
   }
 
+  function requestManualUploadPanel() {
+    window.__dprManualUploadOpenRequested = true;
+
+    if (window.DPRWorkflowRunner && typeof window.DPRWorkflowRunner.openManualUpload === 'function') {
+      window.__dprManualUploadOpenRequested = false;
+      window.DPRWorkflowRunner.openManualUpload();
+      return;
+    }
+
+    document.dispatchEvent(new CustomEvent('dpr-open-manual-upload'));
+  }
+
+  function createManualUploadButton() {
+    if (document.getElementById('custom-manual-upload-btn')) return;
+
+    var uploadBtn = document.createElement('button');
+    uploadBtn.id = 'custom-manual-upload-btn';
+    uploadBtn.className = 'custom-toggle-btn custom-manual-upload-btn';
+    uploadBtn.textContent = 'PDF';
+    uploadBtn.title = '上传 PDF/ZIP 解析';
+    uploadBtn.setAttribute('aria-label', '上传 PDF/ZIP 解析');
+
+    uploadBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      requestManualUploadPanel();
+    });
+
+    document.body.appendChild(uploadBtn);
+  }
+
   // 左下角保留一个独立触发函数，暂不自动挂载按钮（防止重复入口）
   function createQuickRunButton() {
     if (document.getElementById('custom-quick-run-btn')) return;
@@ -212,9 +243,14 @@
     document.body.appendChild(quickBtn);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', createCustomButton);
-  } else {
+  function createGlobalButtons() {
     createCustomButton();
+    createManualUploadButton();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', createGlobalButtons);
+  } else {
+    createGlobalButtons();
   }
 })();

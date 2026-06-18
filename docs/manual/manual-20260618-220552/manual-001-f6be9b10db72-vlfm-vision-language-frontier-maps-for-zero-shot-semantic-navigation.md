@@ -2,7 +2,7 @@
 title: "VLFM: Vision-Language Frontier Maps for Zero-Shot Semantic Navigation"
 title_zh: VLFM：用于零样本语义导航的视觉-语言前沿地图
 authors: "Naoki Yokoyama, Sehoon Ha, Dhruv Batra, Jiuguang Wang, Bernadette Bucher"
-date: 20260618
+date: 2026-06-18
 pdf: assets/manual-pdfs/manual-20260618-220552/001-001-vlfm-f6be9b10db72.pdf
 tags: ["query:手动上传", "paper:PDF", "query:zero-shot navigation", "query:semantic navigation", "query:Object Goal Navigation", "query:vision-language models", "query:frontier-based exploration"]
 score: 10.0

@@ -1161,6 +1161,9 @@ window.$docsify = {
           return (
             /^(\d{6}\/\d{2}|\d{8}(?:-\d{8}))\/(?!README$).+/i.test(route) &&
             /^(\d{6}\/\d{2}|\d{8}(?:-\d{8}))\/[^/]+$/i.test(route)
+          ) || (
+            /^manual\/[^/]+\/(?!README$).+/i.test(route) &&
+            /^manual\/[^/]+\/[^/]+$/i.test(route)
           );
         };
 
@@ -2805,13 +2808,17 @@ window.$docsify = {
         const f = String(file || '');
         return (
           /^(?:\d{6}\/\d{2}|\d{8}-\d{8})\/(?!README\.md$).+\.md$/i.test(f) ||
+          /^manual\/[^/]+\/(?!README\.md$).+\.md$/i.test(f) ||
           /^conference\/[^/]+\/(?!README\.md$).+\.md$/i.test(f)
         );
       };
 
       const isReportRouteFile = (file) => {
         const f = String(file || '');
-        return /^(?:\d{6}\/\d{2}|\d{8}-\d{8})\/README\.md$/i.test(f);
+        return (
+          /^(?:\d{6}\/\d{2}|\d{8}-\d{8})\/README\.md$/i.test(f) ||
+          /^manual\/[^/]+\/README\.md$/i.test(f)
+        );
       };
 
       const fitTextToBox = (el, minPx, maxPx) => {
@@ -3215,9 +3222,11 @@ window.$docsify = {
         // 匹配论文页：
         // - 传统路径：#/YYYYMM/DD/slug
         // - 区间路径：#/YYYYMMDD-YYYYMMDD/slug
+        // - 手动上传路径：#/manual/<batch-token>/slug
         // - 会议路径：#/conference/<conference-year>/slug
         return (
           /^#\/(?:\d{6}\/\d{2}|\d{8}-\d{8})\/(?!README$).+/i.test(h) ||
+          /^#\/manual\/[^/]+\/(?!README$).+/i.test(h) ||
           /^#\/conference\/[^/]+\/(?!README$).+/i.test(h)
         );
       };
@@ -3227,7 +3236,11 @@ window.$docsify = {
         // 匹配日报页：
         // - 传统路径：#/YYYYMM/DD/README
         // - 区间路径：#/YYYYMMDD-YYYYMMDD/README
-        return /^#\/(?:\d{6}\/\d{2}|\d{8}-\d{8})\/README$/i.test(h);
+        // - 手动上传路径：#/manual/<batch-token>/README
+        return (
+          /^#\/(?:\d{6}\/\d{2}|\d{8}-\d{8})\/README$/i.test(h) ||
+          /^#\/manual\/[^/]+\/README$/i.test(h)
+        );
       };
 
       const isPaperHrefFallback = (href) => {

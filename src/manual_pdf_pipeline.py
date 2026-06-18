@@ -274,7 +274,7 @@ def build_paper_items(
     asset_dir = docs_dir / "assets" / "manual-pdfs" / batch_token
     asset_dir.mkdir(parents=True, exist_ok=True)
     client = create_llm_client()
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     papers: list[dict[str, Any]] = []
     for index, pdf_path in enumerate(pdf_paths, start=1):
         digest = short_hash(pdf_path)

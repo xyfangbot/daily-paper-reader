@@ -339,6 +339,66 @@ window.DPRWorkflowRunner = (function () {
     };
   };
 
+  const extractManualBatchToken = (dispatchInputs) => {
+    const ref = String((dispatchInputs && dispatchInputs.upload_ref) || '').replace(/\/+$/g, '');
+    const parts = ref.split('/').filter(Boolean);
+    const token = parts.length ? parts[parts.length - 1] : '';
+    return /^manual-[a-z0-9._-]+$/i.test(token) ? token : '';
+  };
+
+  const manualResultHash = (batchToken) => `#/manual/${encodeURIComponent(batchToken)}/README`;
+
+  const manualResultMarkdownUrl = (batchToken) =>
+    `docs/manual/${encodeURIComponent(batchToken)}/README.md?dpr_manual_result=${Date.now()}`;
+
+  const renderManualResultNotice = (batchToken, state) => {
+    if (!runsEl || !batchToken) return;
+    const existing = document.getElementById('dpr-manual-result-notice');
+    if (existing) existing.remove();
+    const hash = manualResultHash(batchToken);
+    const isReady = state === 'ready';
+    const title = isReady ? '解析结果已发布' : '解析已完成，正在等待网页发布';
+    const hint = isReady
+      ? '点击下面按钮查看本次上传生成的日报与论文页。'
+      : 'GitHub Pages 有几十秒部署延迟，发布完成后这个按钮就能打开结果。';
+    runsEl.insertAdjacentHTML(
+      'afterbegin',
+      `
+        <div id="dpr-manual-result-notice" style="margin-bottom:10px; padding:10px 12px; border:1px solid rgba(46,125,50,0.18); border-radius:8px; background:#f0fdf4;">
+          <div style="font-weight:700; color:#166534;">${escapeHtml(title)}</div>
+          <div style="margin-top:4px; color:#3f5f46;">${escapeHtml(hint)}</div>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <a class="arxiv-tool-btn" style="padding:6px 10px; text-decoration:none;" href="${hash}">打开解析结果</a>
+            <code style="font-size:12px; color:#456;">${escapeHtml(hash)}</code>
+          </div>
+        </div>
+      `,
+    );
+  };
+
+  const waitForManualDocsPublication = async (batchToken) => {
+    if (!batchToken) return false;
+    renderManualResultNotice(batchToken, 'pending');
+    for (let i = 0; i < 30; i += 1) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const res = await fetch(manualResultMarkdownUrl(batchToken), { cache: 'no-store' });
+        if (res.ok) {
+          renderManualResultNotice(batchToken, 'ready');
+          setStatus('解析完成，结果页已发布。', '#080');
+          return true;
+        }
+      } catch {
+        // ignore transient network errors while Pages is deploying
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+    renderManualResultNotice(batchToken, 'pending');
+    setStatus('解析完成，但 GitHub Pages 可能仍在部署；稍后刷新后打开结果页。', '#c90');
+    return false;
+  };
+
   const uploadFilesToGithub = async (owner, repo, token, branch, batchToken, files) => {
     const uploaded = [];
     for (let i = 0; i < files.length; i += 1) {
@@ -432,6 +492,9 @@ window.DPRWorkflowRunner = (function () {
           `本地运行已结束：${run.conclusion || 'completed'}`,
           run.conclusion === 'success' ? '#080' : '#c00',
         );
+        if (run.conclusion === 'success' && activeRun && activeRun.manualBatchToken) {
+          renderManualResultNotice(activeRun.manualBatchToken, 'ready');
+        }
       } else {
         setStatus('本地运行中：每 5 秒自动刷新...', '#1565c0', { waiting: true });
       }
@@ -464,7 +527,7 @@ window.DPRWorkflowRunner = (function () {
       }),
     });
     const run = data.run || {};
-    activeRun = { local: true, runId: run.id };
+    activeRun = { local: true, runId: run.id, manualBatchToken: extractManualBatchToken(dispatchInputs) };
     selectedRun = activeRun;
     setStatus(`本地运行已创建：run_id=${run.id}`, '#080', { waiting: true });
     await refreshLocalRun(run.id);
@@ -507,7 +570,7 @@ window.DPRWorkflowRunner = (function () {
 
     const data = await localUploadFetch('/api/local/manual-papers/upload', form);
     const run = data.run || {};
-    activeRun = { local: true, runId: run.id };
+    activeRun = { local: true, runId: run.id, manualBatchToken: normalized.batchToken };
     selectedRun = activeRun;
     setStatus(`${wf.name}已创建：run_id=${run.id}`, '#080', { waiting: true });
     await refreshLocalRun(run.id);
@@ -1089,7 +1152,15 @@ window.DPRWorkflowRunner = (function () {
         return;
       }
 
-      activeRun = { owner, repo, runId: run.id, token };
+      activeRun = {
+        owner,
+        repo,
+        runId: run.id,
+        token,
+        manualBatchToken: workflowFile === 'manual-paper-upload.yml'
+          ? extractManualBatchToken(dispatchInputs)
+          : '',
+      };
       selectedRun = activeRun;
       setStatus(`运行已创建：run_id=${run.id}，开始拉取进度...`, '#080', { waiting: true });
       await refreshRun(owner, repo, run.id);
@@ -1219,6 +1290,10 @@ window.DPRWorkflowRunner = (function () {
           `运行已结束：${run.conclusion || 'completed'}`,
           run.conclusion === 'success' ? '#080' : '#c00',
         );
+        if (run.conclusion === 'success' && activeRun && activeRun.manualBatchToken) {
+          setStatus('运行成功，正在等待 GitHub Pages 发布解析结果...', '#080', { waiting: true });
+          waitForManualDocsPublication(activeRun.manualBatchToken);
+        }
         // run 状态结束后，刷新“最近运行”列表，确保 completed/success 等状态能及时反映
         if (prevStateKey !== stateKey) {
           loadRecentRuns();

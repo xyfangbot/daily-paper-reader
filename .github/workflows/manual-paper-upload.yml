@@ -4,8 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       upload_ref:
-        description: "仓库内上传目录或文件路径，例如 uploads/manual-papers/manual-20260618-120000"
+        description: "仓库内上传目录/文件路径，或 release_assets 模式下的批次 token"
         required: true
+        default: ""
+      upload_source:
+        description: "上传来源：repo/release_assets"
+        required: false
+        default: "repo"
+      release_id:
+        description: "release_assets 模式下的临时 GitHub Release ID"
+        required: false
+        default: ""
+      release_asset_ids:
+        description: "release_assets 模式下的临时 Release asset IDs，逗号分隔"
+        required: false
         default: ""
       section:
         description: "输出区域：deep/quick"
@@ -47,6 +59,7 @@ jobs:
       SUMMARY_API_KEY: ${{ secrets.SUMMARY_API_KEY }}
       SUMMARY_BASE_URL: ${{ secrets.SUMMARY_BASE_URL }}
       SUMMARY_MODEL: ${{ secrets.SUMMARY_MODEL }}
+      GITHUB_TOKEN: ${{ github.token }}
       PYTHONUNBUFFERED: "1"
       MKL_THREADING_LAYER: GNU
 
@@ -149,6 +162,8 @@ jobs:
         run: |
           set -euo pipefail
           UPLOAD_REF="${{ github.event.inputs.upload_ref }}"
+          UPLOAD_SOURCE="${{ github.event.inputs.upload_source }}"
+          RELEASE_ASSET_IDS="${{ github.event.inputs.release_asset_ids }}"
           SECTION="${{ github.event.inputs.section }}"
           LABEL="${{ github.event.inputs.label }}"
           TAG="${{ github.event.inputs.tag }}"
@@ -158,12 +173,62 @@ jobs:
             echo "::error::upload_ref 不能为空。"
             exit 1
           fi
-          if [ ! -e "$UPLOAD_REF" ]; then
-            echo "::error::上传路径不存在：$UPLOAD_REF"
-            exit 1
+
+          if [ "$UPLOAD_SOURCE" = "release_assets" ]; then
+            BATCH_TOKEN="$(basename "$UPLOAD_REF")"
+            ASSET_DIR=".manual-upload-assets/$BATCH_TOKEN"
+            mkdir -p "$ASSET_DIR"
+            if [ -z "$RELEASE_ASSET_IDS" ]; then
+              echo "::error::release_assets 模式缺少 release_asset_ids。"
+              exit 1
+            fi
+            ASSET_DIR="$ASSET_DIR" RELEASE_ASSET_IDS="$RELEASE_ASSET_IDS" python - <<'PY'
+          import json
+          import os
+          import re
+          import shutil
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GITHUB_TOKEN"]
+          out_dir = Path(os.environ["ASSET_DIR"])
+          asset_ids = [x.strip() for x in os.environ["RELEASE_ASSET_IDS"].split(",") if x.strip()]
+          if not asset_ids:
+              raise SystemExit("release_asset_ids 为空")
+
+          def api_request(url, accept):
+              return urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": accept,
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "daily-paper-reader-manual-upload",
+                  },
+              )
+
+          for index, asset_id in enumerate(asset_ids, start=1):
+              meta_url = f"https://api.github.com/repos/{repo}/releases/assets/{asset_id}"
+              with urllib.request.urlopen(api_request(meta_url, "application/vnd.github+json")) as resp:
+                  meta = json.load(resp)
+              raw_name = Path(str(meta.get("name") or f"upload-{index}.pdf")).name
+              safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", raw_name).strip(".-") or f"upload-{index}.pdf"
+              target = out_dir / safe_name
+              with urllib.request.urlopen(api_request(meta_url, "application/octet-stream")) as resp:
+                  with target.open("wb") as fh:
+                      shutil.copyfileobj(resp, fh)
+              print(f"Downloaded release asset {asset_id}: {safe_name} ({target.stat().st_size} bytes)")
+          PY
+            UPLOAD_REF="$ASSET_DIR"
+          else
+            if [ ! -e "$UPLOAD_REF" ]; then
+              echo "::error::上传路径不存在：$UPLOAD_REF"
+              exit 1
+            fi
+            BATCH_TOKEN="$(basename "$UPLOAD_REF")"
           fi
 
-          BATCH_TOKEN="$(basename "$UPLOAD_REF")"
           if [ -z "$LABEL" ]; then
             LABEL="$BATCH_TOKEN"
           fi
@@ -182,6 +247,16 @@ jobs:
         run: |
           set -euo pipefail
           UPLOAD_REF="${{ github.event.inputs.upload_ref }}"
+          UPLOAD_SOURCE="${{ github.event.inputs.upload_source }}"
+          RELEASE_ID="${{ github.event.inputs.release_id }}"
+          if [ "$UPLOAD_SOURCE" = "release_assets" ] && [ -n "$RELEASE_ID" ]; then
+            curl -fsSL -X DELETE \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
+            exit 0
+          fi
           case "$UPLOAD_REF" in
             uploads/manual-papers/*)
               git rm -r --ignore-unmatch "$UPLOAD_REF"

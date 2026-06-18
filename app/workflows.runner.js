@@ -81,6 +81,7 @@ window.DPRWorkflowRunner = (function () {
 
   const MANUAL_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
   const MANUAL_UPLOAD_MAX_MB = Math.round(MANUAL_UPLOAD_MAX_BYTES / 1024 / 1024);
+  const MANUAL_UPLOAD_CONTENT_API_SAFE_BYTES = 70 * 1024 * 1024;
   const MANUAL_UPLOAD_ACTIVE_RUN_KEY = 'dpr_manual_upload_active_run_v1';
   const MANUAL_UPLOAD_ACTIVE_RUN_TTL_MS = 36 * 60 * 60 * 1000;
 
@@ -519,6 +520,77 @@ window.DPRWorkflowRunner = (function () {
       uploaded.push(path);
     }
     return uploaded;
+  };
+
+  const createManualUploadRelease = async (owner, repo, token, branch, batchToken, label) => {
+    const tagName = `dpr-manual-upload-${batchToken}`;
+    const res = await ghFetch(token, `https://api.github.com/repos/${owner}/${repo}/releases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tag_name: tagName,
+        target_commitish: branch,
+        name: label || `Manual upload ${batchToken}`,
+        body: 'Temporary upload release for daily-paper-reader manual PDF parsing.',
+        draft: true,
+        prerelease: true,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`创建临时 Release 失败：HTTP ${res.status} ${res.statusText} - ${txt}`);
+    }
+    return res.json();
+  };
+
+  const deleteManualUploadRelease = async (owner, repo, token, releaseId) => {
+    if (!releaseId) return;
+    try {
+      await ghFetch(token, `https://api.github.com/repos/${owner}/${repo}/releases/${encodeURIComponent(releaseId)}`, {
+        method: 'DELETE',
+      });
+    } catch {
+      // Best-effort cleanup only. The workflow also deletes the release after success.
+    }
+  };
+
+  const uploadFilesToGithubReleaseAssets = async (owner, repo, token, branch, batchToken, files, label) => {
+    const release = await createManualUploadRelease(owner, repo, token, branch, batchToken, label);
+    const releaseId = release && release.id ? String(release.id) : '';
+    const uploadUrlBase = String((release && release.upload_url) || '').replace(/\{.*$/g, '');
+    if (!releaseId || !uploadUrlBase) {
+      throw new Error('创建临时 Release 后未获得有效 upload_url。');
+    }
+
+    const assets = [];
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const name = safeUploadFileName(file, i);
+      const uploadUrl = `${uploadUrlBase}?name=${encodeURIComponent(name)}`;
+      setStatus(`正在上传大文件 ${i + 1}/${files.length}：${name}`, '#1565c0', { waiting: true });
+      // eslint-disable-next-line no-await-in-loop
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': file.type || 'application/octet-stream',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: file,
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`上传 ${name} 到临时 Release 失败：HTTP ${res.status} ${res.statusText} - ${txt}`);
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const asset = await res.json();
+      assets.push({
+        id: String((asset && asset.id) || ''),
+        name: String((asset && asset.name) || name),
+      });
+    }
+    return { releaseId, assets };
   };
 
   const isWorkflowLogNearBottom = (logEl) => {
@@ -1553,23 +1625,63 @@ window.DPRWorkflowRunner = (function () {
       return false;
     }
 
+    let pendingReleaseUpload = null;
     try {
       stopPolling();
       activeRun = null;
-      runsEl.innerHTML = '<div style="color:#999;">正在上传文件到仓库临时目录...</div>';
+      runsEl.innerHTML = '<div style="color:#999;">正在准备上传文件...</div>';
       const branch = String(repoContext.defaultBranch || 'main');
-      await uploadFilesToGithub(owner, repo, token, branch, normalized.batchToken, selectedFiles);
       const wf = getWorkflowByKey('manual-paper-upload');
-      await dispatchAndMonitor(wf, {
-        upload_ref: `uploads/manual-papers/${normalized.batchToken}`,
-        section: normalized.section,
-        label: normalized.label,
-        tag: normalized.tag,
-        docs_concurrency: normalized.docsConcurrency,
-        cleanup_upload: 'true',
-      });
+      const useReleaseAssets = totalBytes > MANUAL_UPLOAD_CONTENT_API_SAFE_BYTES ||
+        selectedFiles.some((file) => Number(file.size || 0) > MANUAL_UPLOAD_CONTENT_API_SAFE_BYTES);
+      if (useReleaseAssets) {
+        runsEl.innerHTML = '<div style="color:#999;">正在上传到 GitHub 临时 Release asset，大文件不会写入仓库历史...</div>';
+        const releaseUpload = await uploadFilesToGithubReleaseAssets(
+          owner,
+          repo,
+          token,
+          branch,
+          normalized.batchToken,
+          selectedFiles,
+          normalized.label,
+        );
+        pendingReleaseUpload = releaseUpload;
+        const assetIds = releaseUpload.assets.map((asset) => asset.id).filter(Boolean).join(',');
+        await dispatchAndMonitor(wf, {
+          upload_ref: normalized.batchToken,
+          upload_source: 'release_assets',
+          release_id: releaseUpload.releaseId,
+          release_asset_ids: assetIds,
+          section: normalized.section,
+          label: normalized.label,
+          tag: normalized.tag,
+          docs_concurrency: normalized.docsConcurrency,
+          cleanup_upload: 'true',
+        });
+        if (!activeRun || activeRun.manualBatchToken !== normalized.batchToken) {
+          await deleteManualUploadRelease(owner, repo, token, releaseUpload.releaseId);
+          pendingReleaseUpload = null;
+          return false;
+        }
+        pendingReleaseUpload = null;
+      } else {
+        runsEl.innerHTML = '<div style="color:#999;">正在上传文件到仓库临时目录...</div>';
+        await uploadFilesToGithub(owner, repo, token, branch, normalized.batchToken, selectedFiles);
+        await dispatchAndMonitor(wf, {
+          upload_ref: `uploads/manual-papers/${normalized.batchToken}`,
+          upload_source: 'repo',
+          section: normalized.section,
+          label: normalized.label,
+          tag: normalized.tag,
+          docs_concurrency: normalized.docsConcurrency,
+          cleanup_upload: 'true',
+        });
+      }
       return true;
     } catch (e) {
+      if (pendingReleaseUpload && pendingReleaseUpload.releaseId) {
+        await deleteManualUploadRelease(owner, repo, token, pendingReleaseUpload.releaseId);
+      }
       console.error(e);
       const msg = explainFetchFailure(e);
       setStatus(`上传或触发失败：${msg}`, '#c00');

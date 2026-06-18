@@ -81,6 +81,8 @@ window.DPRWorkflowRunner = (function () {
 
   const MANUAL_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
   const MANUAL_UPLOAD_MAX_MB = Math.round(MANUAL_UPLOAD_MAX_BYTES / 1024 / 1024);
+  const MANUAL_UPLOAD_ACTIVE_RUN_KEY = 'dpr_manual_upload_active_run_v1';
+  const MANUAL_UPLOAD_ACTIVE_RUN_TTL_MS = 36 * 60 * 60 * 1000;
 
   let overlay = null;
   let panel = null;
@@ -342,11 +344,99 @@ window.DPRWorkflowRunner = (function () {
     };
   };
 
+  const explainFetchFailure = (error) => {
+    const msg = error && error.message ? String(error.message) : String(error || '');
+    if (!/failed to fetch|networkerror/i.test(msg)) return msg;
+    return `${msg}（浏览器没有收到接口响应。若发生在在线上传阶段，通常是网络/代理中断、刷新取消上传，或 PDF/ZIP 过大导致上传请求被中断；此时解析一般还没有开始。）`;
+  };
+
   const extractManualBatchToken = (dispatchInputs) => {
     const ref = String((dispatchInputs && dispatchInputs.upload_ref) || '').replace(/\/+$/g, '');
     const parts = ref.split('/').filter(Boolean);
     const token = parts.length ? parts[parts.length - 1] : '';
     return /^manual-[a-z0-9._-]+$/i.test(token) ? token : '';
+  };
+
+  const getBrowserStorage = () => {
+    try {
+      return window.localStorage || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const normalizePersistedManualRun = (run) => {
+    if (!run || typeof run !== 'object') return null;
+    const runId = String(run.runId || '').trim();
+    const manualBatchToken = String(run.manualBatchToken || '').trim();
+    if (!runId || !/^manual-[a-z0-9._-]+$/i.test(manualBatchToken)) return null;
+    const local = !!run.local;
+    const owner = String(run.owner || '').trim();
+    const repo = String(run.repo || '').trim();
+    if (!local && (!owner || !repo)) return null;
+    const savedAt = Number(run.savedAt || 0) || Date.now();
+    if (Date.now() - savedAt > MANUAL_UPLOAD_ACTIVE_RUN_TTL_MS) return null;
+    return { local, owner, repo, runId, manualBatchToken, savedAt };
+  };
+
+  const persistManualActiveRun = (run) => {
+    const storage = getBrowserStorage();
+    if (!storage) return;
+    const normalized = normalizePersistedManualRun({
+      ...(run || {}),
+      savedAt: Date.now(),
+    });
+    if (!normalized) return;
+    try {
+      storage.setItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY, JSON.stringify(normalized));
+    } catch {
+      // ignore storage errors in private browsing or locked-down environments
+    }
+  };
+
+  const loadPersistedManualActiveRun = () => {
+    const storage = getBrowserStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY);
+      if (!raw) return null;
+      const normalized = normalizePersistedManualRun(JSON.parse(raw));
+      if (!normalized) {
+        storage.removeItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY);
+        return null;
+      }
+      return normalized;
+    } catch {
+      try {
+        storage.removeItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY);
+      } catch {
+        // ignore
+      }
+      return null;
+    }
+  };
+
+  const clearPersistedManualActiveRun = (runId) => {
+    const storage = getBrowserStorage();
+    if (!storage) return;
+    try {
+      if (!runId) {
+        storage.removeItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY);
+        return;
+      }
+      const raw = storage.getItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (String((saved && saved.runId) || '') === String(runId || '')) {
+        storage.removeItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY);
+      }
+    } catch {
+      try {
+        storage.removeItem(MANUAL_UPLOAD_ACTIVE_RUN_KEY);
+      } catch {
+        // ignore
+      }
+    }
   };
 
   const manualResultHash = (batchToken) => `#/manual/${encodeURIComponent(batchToken)}/README`;
@@ -498,12 +588,16 @@ window.DPRWorkflowRunner = (function () {
         if (run.conclusion === 'success' && activeRun && activeRun.manualBatchToken) {
           renderManualResultNotice(activeRun.manualBatchToken, 'ready');
         }
+        clearPersistedManualActiveRun(runId);
+        return false;
       } else {
         setStatus('本地运行中：每 5 秒自动刷新...', '#1565c0', { waiting: true });
+        return true;
       }
     } catch (e) {
       console.error(e);
-      setStatus(`刷新本地运行失败：${e.message || e}`, '#c00');
+      setStatus(`刷新本地运行失败：${explainFetchFailure(e)}`, '#c00');
+      return false;
     }
   };
 
@@ -532,13 +626,18 @@ window.DPRWorkflowRunner = (function () {
     const run = data.run || {};
     activeRun = { local: true, runId: run.id, manualBatchToken: extractManualBatchToken(dispatchInputs) };
     selectedRun = activeRun;
+    if (activeRun.manualBatchToken) {
+      persistManualActiveRun(activeRun);
+    }
     setStatus(`本地运行已创建：run_id=${run.id}`, '#080', { waiting: true });
-    await refreshLocalRun(run.id);
-    refreshTimer = setInterval(() => {
-      const r = selectedRun || activeRun;
-      if (!r || !r.local) return;
-      refreshLocalRun(r.runId);
-    }, 5000);
+    const shouldPoll = await refreshLocalRun(run.id);
+    if (shouldPoll) {
+      refreshTimer = setInterval(() => {
+        const r = selectedRun || activeRun;
+        if (!r || !r.local) return;
+        refreshLocalRun(r.runId);
+      }, 5000);
+    }
   };
 
   const dispatchLocalManualUploadAndMonitor = async (files, options) => {
@@ -575,13 +674,16 @@ window.DPRWorkflowRunner = (function () {
     const run = data.run || {};
     activeRun = { local: true, runId: run.id, manualBatchToken: normalized.batchToken };
     selectedRun = activeRun;
+    persistManualActiveRun(activeRun);
     setStatus(`${wf.name}已创建：run_id=${run.id}`, '#080', { waiting: true });
-    await refreshLocalRun(run.id);
-    refreshTimer = setInterval(() => {
-      const r = selectedRun || activeRun;
-      if (!r || !r.local) return;
-      refreshLocalRun(r.runId);
-    }, 5000);
+    const shouldPoll = await refreshLocalRun(run.id);
+    if (shouldPoll) {
+      refreshTimer = setInterval(() => {
+        const r = selectedRun || activeRun;
+        if (!r || !r.local) return;
+        refreshLocalRun(r.runId);
+      }, 5000);
+    }
   };
 
   const resolveWorkflowRunInputs = async (owner, repo, token, runId) => {
@@ -774,7 +876,13 @@ window.DPRWorkflowRunner = (function () {
     return true;
   };
 
-  const openManualUpload = () => open({ mode: 'manual-upload' });
+  const openManualUpload = (options = {}) => {
+    const opened = open({ mode: 'manual-upload' });
+    if (opened && !(options && options.skipResume)) {
+      resumePersistedManualUploadRun();
+    }
+    return opened;
+  };
 
   const close = () => {
     if (!overlay) return;
@@ -1026,7 +1134,7 @@ window.DPRWorkflowRunner = (function () {
         return await dispatchLocalAndMonitor(wf, workflowFile, dispatchInputs);
       } catch (e) {
         console.error(e);
-        const msg = e.message || String(e);
+        const msg = explainFetchFailure(e);
         setStatus(`本地触发失败：${msg}`, '#c00');
         runsEl.innerHTML = `<div style="color:#c00;">${escapeHtml(msg)}<br/>请确认本地后端已启动：<code>scripts/local_debug.sh</code> 或 <code>python src/local_debug_server.py --port 8567</code></div>`;
         return;
@@ -1165,20 +1273,24 @@ window.DPRWorkflowRunner = (function () {
           : '',
       };
       selectedRun = activeRun;
+      if (activeRun.manualBatchToken) {
+        persistManualActiveRun(activeRun);
+      }
       setStatus(`运行已创建：run_id=${run.id}，开始拉取进度...`, '#080', { waiting: true });
-      await refreshRun(owner, repo, run.id);
-
-      refreshTimer = setInterval(() => {
-        const r = selectedRun || activeRun;
-        if (!r) return;
-        refreshRun(r.owner, r.repo, r.runId);
-      }, 5000);
+      const shouldPoll = await refreshRun(owner, repo, run.id);
+      if (shouldPoll) {
+        refreshTimer = setInterval(() => {
+          const r = selectedRun || activeRun;
+          if (!r) return;
+          refreshRun(r.owner, r.repo, r.runId);
+        }, 5000);
+      }
 
       // 触发后刷新最近运行列表
       loadRecentRuns();
     } catch (e) {
       console.error(e);
-      const msg = e.message || String(e);
+      const msg = explainFetchFailure(e);
       setStatus(`触发失败：${msg}`, '#c00');
       if (e.workflowEnableUrl) {
         runsEl.innerHTML =
@@ -1263,7 +1375,7 @@ window.DPRWorkflowRunner = (function () {
 
   const refreshRun = async (owner, repo, runId) => {
     const token = activeRun && activeRun.token ? activeRun.token : loadGithubToken();
-    if (!token) return;
+    if (!token) return false;
 
     try {
       const runUrl = `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`;
@@ -1295,19 +1407,70 @@ window.DPRWorkflowRunner = (function () {
         );
         if (run.conclusion === 'success' && activeRun && activeRun.manualBatchToken) {
           setStatus('运行成功，正在等待 GitHub Pages 发布解析结果...', '#080', { waiting: true });
-          waitForManualDocsPublication(activeRun.manualBatchToken);
+          waitForManualDocsPublication(activeRun.manualBatchToken)
+            .finally(() => clearPersistedManualActiveRun(runId));
+        } else {
+          clearPersistedManualActiveRun(runId);
         }
         // run 状态结束后，刷新“最近运行”列表，确保 completed/success 等状态能及时反映
         if (prevStateKey !== stateKey) {
           loadRecentRuns();
         }
+        return false;
       } else {
         setStatus('运行中：每 5 秒自动刷新...', '#1565c0', { waiting: true });
+        return true;
       }
     } catch (e) {
       console.error(e);
-      setStatus(`刷新失败：${e.message || e}`, '#c00');
+      setStatus(`刷新失败：${explainFetchFailure(e)}`, '#c00');
+      return false;
     }
+  };
+
+  const resumePersistedManualUploadRun = async () => {
+    const saved = loadPersistedManualActiveRun();
+    if (!saved) return false;
+    if (
+      activeRun &&
+      activeRun.manualBatchToken &&
+      String(activeRun.runId || '') === String(saved.runId || '')
+    ) {
+      return false;
+    }
+
+    stopPolling();
+    const token = saved.local ? '' : loadGithubToken();
+    if (!saved.local && !token) {
+      setStatus('检测到未完成的上传解析任务，但当前缺少 GitHub Token，无法恢复进度。', '#c00');
+      return false;
+    }
+
+    activeRun = saved.local
+      ? { ...saved }
+      : { ...saved, token };
+    selectedRun = activeRun;
+    setStatus(
+      `已恢复上传解析任务：run_id=${saved.runId}`,
+      '#1565c0',
+      { waiting: true },
+    );
+
+    const shouldPoll = saved.local
+      ? await refreshLocalRun(saved.runId)
+      : await refreshRun(saved.owner, saved.repo, saved.runId);
+    if (shouldPoll) {
+      refreshTimer = setInterval(() => {
+        const r = selectedRun || activeRun;
+        if (!r) return;
+        if (r.local) {
+          refreshLocalRun(r.runId);
+        } else {
+          refreshRun(r.owner, r.repo, r.runId);
+        }
+      }, 5000);
+    }
+    return true;
   };
 
   const runWorkflowByKey = async (workflowKey, extraInputs) => {
@@ -1349,7 +1512,7 @@ window.DPRWorkflowRunner = (function () {
   };
 
   const runManualUpload = async (files, options = {}) => {
-    openManualUpload();
+    openManualUpload({ skipResume: true });
     const checked = validateManualUploadFiles(files);
     if (checked.error) {
       setStatus(checked.error, '#c00');
@@ -1364,7 +1527,7 @@ window.DPRWorkflowRunner = (function () {
         return true;
       } catch (e) {
         console.error(e);
-        const msg = e.message || String(e);
+        const msg = explainFetchFailure(e);
         setStatus(`本地上传失败：${msg}`, '#c00');
         runsEl.innerHTML = `<div style="color:#c00;">${escapeHtml(msg)}<br/>请确认本地后端已启动：<code>scripts/local_debug.sh</code> 或 <code>python src/local_debug_server.py --port 8567</code></div>`;
         return false;
@@ -1408,7 +1571,7 @@ window.DPRWorkflowRunner = (function () {
       return true;
     } catch (e) {
       console.error(e);
-      const msg = e.message || String(e);
+      const msg = explainFetchFailure(e);
       setStatus(`上传或触发失败：${msg}`, '#c00');
       runsEl.innerHTML = `<div style="color:#c00;">${escapeHtml(msg)}</div>`;
       return false;

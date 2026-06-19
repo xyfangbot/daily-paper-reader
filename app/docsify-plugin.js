@@ -141,6 +141,35 @@ window.$docsify = {
         return text.trim();
       };
 
+      const normalizeArxivId = (value) => {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        const match = text.match(/(?:arxiv\s*:\s*|arxiv\.org\/(?:abs|pdf)\/)?(\d{4}\.\d{4,5}(?:v\d+)?)/i);
+        return match ? match[1] : '';
+      };
+
+      const resolveDocsFileUrl = (value) => {
+        let path = String(value || '').trim();
+        if (!path) return '';
+        if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path;
+        path = path.replace(/^\/+/, '');
+        if (!path.startsWith('docs/')) path = `docs/${path}`;
+        const pageBase = `${window.location.origin}${String(window.location.pathname || '/').replace(/\/(?:index\.html)?$/, '/')}`;
+        return new URL(path, pageBase).href;
+      };
+
+      const resolvePaperPdfUrl = (meta) => {
+        const safeMeta = meta || {};
+        const arxivId =
+          normalizeArxivId(safeMeta.arxiv_id) ||
+          normalizeArxivId(safeMeta.arxiv_url) ||
+          normalizeArxivId(safeMeta.pdf);
+        if (arxivId) return `https://arxiv.org/pdf/${arxivId}`;
+        const pdf = String(safeMeta.pdf || safeMeta.PDF || '').trim();
+        if (!pdf) return '';
+        return resolveDocsFileUrl(pdf);
+      };
+
       const parseDateFromText = (value) => {
         const text = normalizeTextForMeta(value);
         if (!text) return '';
@@ -717,7 +746,7 @@ window.$docsify = {
               ...fallbackArray(frontmatterPaperMeta.tldr, 'TLDR'),
               ...fallbackArray(frontmatterPaperMeta.authors, 'Authors'),
               ...fallbackArray(frontmatterPaperMeta.date, 'Date'),
-              ...fallbackArray(frontmatterPaperMeta.pdf, 'PDF'),
+              ...fallbackArray(resolvePaperPdfUrl(frontmatterPaperMeta), 'PDF'),
               ...fallbackArray(frontmatterPaperMeta.tags, 'Tags'),
               ...fallbackArray(frontmatterPaperMeta.score, 'Score'),
             ]);
@@ -1301,7 +1330,9 @@ window.$docsify = {
             selection_source: String(meta.selection_source || '').trim(),
             authors,
             date: normalizeDateField(meta.date || ''),
-            pdf: String(meta.pdf || meta.PDF || '').trim(),
+            pdf: resolvePaperPdfUrl(meta),
+            arxiv_id: String(meta.arxiv_id || '').trim(),
+            arxiv_url: String(meta.arxiv_url || '').trim(),
             score,
             evidence,
             tldr,
@@ -2291,7 +2322,10 @@ window.$docsify = {
         if (safeMeta.authors) parts.push(`- **Authors**: ${String(safeMeta.authors).trim()}`);
         if (safeMeta.source) parts.push(`- **Source**: ${String(safeMeta.source).trim()}`);
         if (safeMeta.date) parts.push(`- **Date**: ${String(safeMeta.date).trim()}`);
-        if (safeMeta.pdf) parts.push(`- **PDF**: ${String(safeMeta.pdf).trim()}`);
+        {
+          const resolvedPdf = resolvePaperPdfUrl(safeMeta);
+          if (resolvedPdf) parts.push(`- **PDF**: ${resolvedPdf}`);
+        }
         if (tags.length) parts.push(`- **Tags**: ${tags.join(', ')}`);
         if (safeMeta.evidence) parts.push(`- **Evidence**: ${String(safeMeta.evidence).trim()}`);
         if (safeMeta.tldr) parts.push(`- **TLDR**: ${String(safeMeta.tldr).trim()}`);
@@ -4396,9 +4430,10 @@ window.$docsify = {
           lines.push(`<p><strong>Source</strong>: ${renderSourceChips(meta.source)}</p>`);
         }
         lines.push(`<p><strong>Date</strong>: ${escapeHtml(meta.date || 'Unknown')}</p>`);
-        if (meta.pdf) {
+        const resolvedPdfUrl = resolvePaperPdfUrl(meta);
+        if (resolvedPdfUrl) {
           lines.push(
-            `<p class="paper-meta-link-row"><span class="paper-meta-link-label"><strong>PDF</strong>:</span> <a class="paper-meta-link" href="${escapeHtml(meta.pdf)}" target="_blank">${escapeHtml(meta.pdf)}</a></p>`
+            `<p class="paper-meta-link-row"><span class="paper-meta-link-label"><strong>PDF</strong>:</span> <a class="paper-meta-link" href="${escapeHtml(resolvedPdfUrl)}" target="_blank" rel="noopener">${escapeHtml(resolvedPdfUrl)}</a></p>`
           );
         }
         if (meta.tags && meta.tags.length) {

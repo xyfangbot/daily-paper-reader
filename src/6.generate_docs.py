@@ -1379,6 +1379,9 @@ def build_markdown_content(
     if published:
         published = published[:10]
     pdf_url = str(paper.get("link") or paper.get("pdf_url") or "").strip()
+    arxiv_id = str(paper.get("arxiv_id") or "").strip()
+    arxiv_url = str(paper.get("arxiv_url") or "").strip()
+    manual_pdf_url = str(paper.get("manual_pdf_url") or "").strip()
     score = paper.get("llm_score")
     evidence = str(paper.get("canonical_evidence") or "").strip()
     tldr = (
@@ -1430,6 +1433,12 @@ def build_markdown_content(
     lines.append(f"date: {yaml_escape_value(published or 'Unknown')}")
     if pdf_url:
         lines.append(f"pdf: {yaml_escape_value(pdf_url)}")
+    if arxiv_id:
+        lines.append(f"arxiv_id: {yaml_escape_value(arxiv_id)}")
+    if arxiv_url:
+        lines.append(f"arxiv_url: {yaml_escape_value(arxiv_url)}")
+    if manual_pdf_url:
+        lines.append(f"manual_pdf_url: {yaml_escape_value(manual_pdf_url)}")
     if tags_list:
         # 保留完整的 kind:label 格式，前端渲染时再处理
         lines.append(f"tags: [{', '.join(yaml_escape_value(t) for t in tags_list)}]")

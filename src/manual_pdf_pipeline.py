@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -12,6 +13,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +31,11 @@ except ModuleNotFoundError:  # pragma: no cover
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
+ARXIV_ID_RE = re.compile(
+    r"(?i)(?:arxiv\s*:\s*|arxiv\.org/(?:abs|pdf)/)?"
+    r"(\d{4}\.\d{4,5}(?:v\d+)?)"
+)
+ARXIV_LOOKUP_CACHE: dict[str, str] = {}
 
 
 def log(message: str) -> None:
@@ -72,6 +81,99 @@ def normalize_pdf_text(text: str) -> str:
 
 def single_line(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def normalize_title_for_match(value: str) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def normalize_arxiv_id(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = ARXIV_ID_RE.search(text)
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def find_arxiv_id_in_text(*values: str) -> str:
+    for value in values:
+        arxiv_id = normalize_arxiv_id(value)
+        if arxiv_id:
+            return arxiv_id
+    return ""
+
+
+def lookup_arxiv_id_by_title(title: str, max_results: int = 5) -> str:
+    normalized_title = normalize_title_for_match(title)
+    if len(normalized_title) < 12:
+        return ""
+    if normalized_title in ARXIV_LOOKUP_CACHE:
+        return ARXIV_LOOKUP_CACHE[normalized_title]
+
+    query = urllib.parse.urlencode(
+        {
+            "search_query": f'ti:"{title}"',
+            "start": "0",
+            "max_results": str(max_results),
+        }
+    )
+    url = f"https://export.arxiv.org/api/query?{query}"
+    try:
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "daily-paper-reader-manual-upload/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=12) as response:
+            xml_text = response.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        log(f"[WARN] arXiv title lookup failed: {title[:80]}: {exc}")
+        ARXIV_LOOKUP_CACHE[normalized_title] = ""
+        return ""
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        ARXIV_LOOKUP_CACHE[normalized_title] = ""
+        return ""
+
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    best_id = ""
+    best_score = 0.0
+    for entry in root.findall("atom:entry", ns):
+        title_el = entry.find("atom:title", ns)
+        id_el = entry.find("atom:id", ns)
+        entry_title = single_line(title_el.text or "") if title_el is not None else ""
+        entry_id = normalize_arxiv_id(id_el.text or "") if id_el is not None else ""
+        if not entry_title or not entry_id:
+            continue
+        score = difflib.SequenceMatcher(
+            None,
+            normalized_title,
+            normalize_title_for_match(entry_title),
+        ).ratio()
+        if score > best_score:
+            best_score = score
+            best_id = entry_id
+
+    arxiv_id = best_id if best_score >= 0.88 else ""
+    if arxiv_id:
+        log(f"[OK] arXiv matched: {arxiv_id} ({best_score:.2f}) <- {title[:80]}")
+    else:
+        log(f"[WARN] arXiv title lookup no confident match: {title[:80]}")
+    ARXIV_LOOKUP_CACHE[normalized_title] = arxiv_id
+    return arxiv_id
+
+
+def resolve_arxiv_id_for_pdf(pdf_path: Path, text: str, title: str) -> str:
+    text_head = str(text or "")[:20000]
+    arxiv_id = find_arxiv_id_in_text(pdf_path.name, pdf_path.stem, text_head)
+    if arxiv_id:
+        return arxiv_id
+    return lookup_arxiv_id_by_title(title)
 
 
 def extract_abstract_from_text(text: str) -> str:
@@ -285,8 +387,14 @@ def build_paper_items(
         text = extract_pdf_text(pdf_path)
         inferred = infer_metadata_with_llm(client, pdf_path.name, text)
         meta = normalize_metadata(pdf_path, text, inferred)
+        arxiv_id = resolve_arxiv_id_for_pdf(pdf_path, text, meta["title"])
+        arxiv_pdf_url = f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else ""
+        arxiv_abs_url = f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else ""
+        public_pdf_url = arxiv_pdf_url or relative_pdf
         paper_id = f"manual-{index:03d}-{digest}"
         tags = [f"query:{tag or '手动上传'}", "paper:PDF"]
+        if arxiv_id:
+            tags.append(f"paper:arXiv:{arxiv_id}")
         tags.extend(f"query:{kw}" for kw in meta["keywords"][:5] if kw)
         item = {
             "id": paper_id,
@@ -295,8 +403,11 @@ def build_paper_items(
             "authors": meta["authors"],
             "abstract": meta["abstract"],
             "published": today,
-            "link": relative_pdf,
-            "pdf_url": relative_pdf,
+            "link": public_pdf_url,
+            "pdf_url": public_pdf_url,
+            "manual_pdf_url": relative_pdf,
+            "arxiv_id": arxiv_id,
+            "arxiv_url": arxiv_abs_url,
             "source": "manual",
             "selection_source": "manual_upload",
             "llm_score": 10.0,

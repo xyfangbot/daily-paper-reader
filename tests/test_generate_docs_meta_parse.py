@@ -155,6 +155,25 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertEqual(len(tables), 1)
         self.assertEqual(tables[0]["url"], "assets/tables/arxiv/1234.5678/table-001.webp")
 
+    def test_build_markdown_content_writes_manual_arxiv_links(self):
+        paper = {
+            "title": "Manual arXiv Test",
+            "authors": ["Ada Lovelace"],
+            "published": "2026-06-19",
+            "link": "https://arxiv.org/pdf/2401.01234v2",
+            "manual_pdf_url": "assets/manual-pdfs/manual-test/001.pdf",
+            "arxiv_id": "2401.01234v2",
+            "arxiv_url": "https://arxiv.org/abs/2401.01234v2",
+            "abstract": "abstract body",
+            "source": "manual",
+        }
+        md = self.mod.build_markdown_content(paper, "deep", "", "", [])
+        meta = self.mod._parse_front_matter(md)
+        self.assertEqual(meta["pdf"], "https://arxiv.org/pdf/2401.01234v2")
+        self.assertEqual(meta["arxiv_id"], "2401.01234v2")
+        self.assertEqual(meta["arxiv_url"], "https://arxiv.org/abs/2401.01234v2")
+        self.assertEqual(meta["manual_pdf_url"], "assets/manual-pdfs/manual-test/001.pdf")
+
     def test_maybe_generate_paper_media_accepts_biorxiv(self):
         calls = []
 

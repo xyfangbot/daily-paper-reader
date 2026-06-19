@@ -58,10 +58,12 @@ How do humans navigate in novel environments?
             old_create_client = self.mod.create_llm_client
             old_extract_text = self.mod.extract_pdf_text
             old_infer = self.mod.infer_metadata_with_llm
+            old_lookup = self.mod.lookup_arxiv_id_by_title
             try:
                 self.mod.create_llm_client = lambda: None
                 self.mod.extract_pdf_text = lambda path: f"{path.stem}\nAlice Example\nAbstract— uploaded paper.\nI. INTRODUCTION"
                 self.mod.infer_metadata_with_llm = lambda client, filename, sample_text: None
+                self.mod.lookup_arxiv_id_by_title = lambda title: ""
                 items = self.mod.build_paper_items(
                     pdf_paths,
                     batch_token="manual-zip-test",
@@ -73,6 +75,7 @@ How do humans navigate in novel environments?
                 self.mod.create_llm_client = old_create_client
                 self.mod.extract_pdf_text = old_extract_text
                 self.mod.infer_metadata_with_llm = old_infer
+                self.mod.lookup_arxiv_id_by_title = old_lookup
 
             self.assertEqual(len(items), 2)
             self.assertTrue(items[0]["paper_id"].startswith("manual-001-"))
@@ -81,6 +84,50 @@ How do humans navigate in novel environments?
             self.assertNotEqual(items[0]["pdf_url"], items[1]["pdf_url"])
             self.assertTrue(items[0]["pdf_url"].startswith("assets/manual-pdfs/manual-zip-test/"))
             self.assertTrue(items[1]["pdf_url"].startswith("assets/manual-pdfs/manual-zip-test/"))
+
+    def test_manual_pdf_prefers_arxiv_pdf_when_id_is_detected(self):
+        self.assertEqual(
+            self.mod.normalize_arxiv_id("https://arxiv.org/pdf/2401.01234v2"),
+            "2401.01234v2",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pdf_path = root / "2401.01234v2-example-paper.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\nexample")
+
+            old_create_client = self.mod.create_llm_client
+            old_extract_text = self.mod.extract_pdf_text
+            old_infer = self.mod.infer_metadata_with_llm
+            old_lookup = self.mod.lookup_arxiv_id_by_title
+            try:
+                self.mod.create_llm_client = lambda: None
+                self.mod.extract_pdf_text = lambda path: "Example Paper\nAlice Example\nAbstract— uploaded paper."
+                self.mod.infer_metadata_with_llm = lambda client, filename, sample_text: {
+                    "title": "Example Paper",
+                    "authors": ["Alice Example"],
+                    "abstract": "uploaded paper",
+                    "keywords": ["arxiv"],
+                }
+                self.mod.lookup_arxiv_id_by_title = lambda title: ""
+                items = self.mod.build_paper_items(
+                    [pdf_path],
+                    batch_token="manual-arxiv-test",
+                    docs_dir=root / "docs",
+                    section="deep",
+                    tag="手动上传",
+                )
+            finally:
+                self.mod.create_llm_client = old_create_client
+                self.mod.extract_pdf_text = old_extract_text
+                self.mod.infer_metadata_with_llm = old_infer
+                self.mod.lookup_arxiv_id_by_title = old_lookup
+
+            self.assertEqual(items[0]["arxiv_id"], "2401.01234v2")
+            self.assertEqual(items[0]["pdf_url"], "https://arxiv.org/pdf/2401.01234v2")
+            self.assertEqual(items[0]["link"], "https://arxiv.org/pdf/2401.01234v2")
+            self.assertTrue(items[0]["manual_pdf_url"].startswith("assets/manual-pdfs/manual-arxiv-test/"))
+            self.assertTrue(items[0]["_local_pdf_path"].endswith(".pdf"))
 
 
 if __name__ == "__main__":

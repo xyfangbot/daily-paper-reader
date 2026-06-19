@@ -1,0 +1,994 @@
+arXiv:2506.17221v2  [cs.CV]  25 Jun 2025
+VLN-R1: Vision-Language Navigation via
+Reinforcement Fine-Tuning
+Zhangyang Qi1, 2
+Zhixiong Zhang2
+Yizhou Yu1
+Jiaqi Wang2∗
+Hengshuang Zhao1∗
+1The University of Hong Kong
+2Shanghai AI Lab
+https://vlnr1.github.io
+* corresponding author
+Abstract
+Vision-Language Navigation (VLN) is a core challenge in embodied AI, requiring
+agents to navigate real-world environments using natural language instructions.
+Current language model-based navigation systems operate on discrete topologi-
+cal graphs, limiting path planning to predefined node connections. We propose
+VLN-R1, an end-to-end framework that leverages Large Vision-Language Models
+(LVLM) to directly translate egocentric video streams into continuous navigation
+actions, adopting GRPO-based training inspired by DeepSeek-R1. To enable ef-
+fective training, we first construct the VLN-Ego dataset using a 3D simulator,
+i.e., Habitat, and propose Long-Short Memory Sampling to balance historical
+and current observations. While large language models can supervise complete
+textual instructions, they lack fine-grained action-level control. Our framework
+employs a two-stage training approach: a) Supervised fine-tuning (SFT) to align
+the model’s action sequence text predictions with expert demonstrations, followed
+by b) Reinforcement fine-tuning (RFT) enhanced with a Time-Decayed Reward
+(TDR) mechanism that strategically weights multi-step future actions. Experimen-
+tal results show VLN-R1 achieves strong performance on VLN-CE benchmark.
+VLN-R1 proves LVLMs can drive embodied navigation and enhance task-specific
+reasoning through data-efficient, reward-driven post-training.
+1
+Introduction
+Embodied AI is revolutionizing robotics by equipping agents with egocentric perception and physical
+action capabilities [1, 68, 32, 37]. Vision-and-language navigation (VLN) [2] is a fundamental
+challenge in Embodied AI, where agents must interpret natural language instructions to navigate in
+unfamiliar 3D environments. This task demands not only linguistic comprehension but also real-time
+decision-making in the scene.
+Despite significant progress in VLN, current research still faces challenges. Existing approaches
+typically employ graph-based representations with fixed connectivity, constraining agents’ ability
+to generalize to unseen or continuous environments [64, 17, 34, 65, 5]. While several studies have
+generalized VLN to continuous spaces (VLN-CE), replacing discrete waypoints with fine-grained
+motor controls to achieve free movement in simulators [16, 21, 22]，they often require additional
+information, like depth maps and navigation maps, and depend on specialized models like CLIP for
+vision-language alignment [11], limiting generalizability in human-agent interactions.
+Large language models (LLM) have demonstrated impressive generalization in fields like chatbots
+and autonomous driving, influencing embodied intelligence. Recently, LLMs/LVLMs have been used
+for vision-and-language navigation (VLN) tasks, as shown in Figure 1 (left). Previous methods used
+language models as planners, converting visual inputs into text for path planning [8, 42, 66, 33, 34, 48].
+However, they still limited by these predefined navigation graphs, preventing the creation of truly
+embodied agents that integrate vision, language, and actions in real-world settings. While Navid
+Preprint. Under review.
+
+
+Large (Vision) 
+Language Models
+ Output:
+ 
+1: (1.2, 3.5)
+2: (2.3, 4.0)
+3: (3.0, 2.8)
+......
+n: (8.5, 4.1)
+    Point 
+Position:
+ 
+Q: ‘ Walk forward... stop at 
+the white and blue sofas.‘
+(Discrete Location Path)
+1
+3
+4
+...
+3rd-person View & 
+Discrete Positions
+1) 3rd View & Discrete Pos.
+...
+Whole Scene
+One of the Room
+Ego-view & 
+Continuous Env
+3) Ego-View & Continuous Environment & Move-Free
+ Output:
+Large Vision 
+Language Models
+Ego-Centric Video
+[A.
+]
+B.
+...D.
+a) Supervised Fine-Tuning
+ 
+'A. Move forward..., B. Turn left..., 
+C. Turn right, B. Turn..., D. Stop.'
+Output
+Text: Text Supervision with Ground Truth Text
+b) Reinforcement Fine-Tuning
+ Output: [A, B, C, B, C, D]
+ GT Act:[A, B, C, B, B, D]
+Effect Reward
+Completions
+Policy 
+Optimization
+Reinforcement
+Fine-Tuning
+4) VL-Action for Navigation
+2) Planing for Navigation
+17
+Previous: LLM/LVLM Planning
+Ours: LVLM as Ego-Agent & Vision-Language Action in Navigation
+Figure 1: Overview of VLN-R1. Previous LLM/LVLM models were based on discrete positions
+and used a third-person perspective for path planning. In contrast, VLN-R1 directly explores in a
+continuous environment using first-person perspective videos. We train the LVLM using Supervised
+Fine-Tuning (SFT) and Reinforcement Fine-Tuning (RFT).
+and Uni-Navi constitute important advances [60, 59], their persistent reliance on modular visual
+processing pipelines fundamentally limits their scalability and generalization.
+To address the limitations of LVLMs in VLN, we propose VLN-R1—a novel framework that processes
+egocentric video streams directly through advanced LVLMs (e.g., Qwen2-VL [55]) for vision-and-
+language navigation in continuous environments, as illustrated in part 3 of Figure 1. We first introduce
+VLN-Ego, a novel dataset for training LVLMs on continuous navigation tasks. Generated by the
+Habitat simulator, it comprises egocentric video streams paired with corresponding future action
+predictions. For video input processing, we implement a Long-Short Memory Sampling strategy
+that dynamically balances historical frame importance with real-time input sensitivity.
+As illustrated in part 3 of Figure 1, VLN-R1 generates four fundamental action commands: FORWARD,
+TURN-LEFT, TURN-RIGHT, STOP. The training process consists of two stages: a) Supervised Fine-
+Tuning (SFT): The model’s text output is fully supervised during this stage to align with the ground
+truth text. b) Reinforcement Fine-Tuning (RFT): In this stage, we apply a reinforcement learning
+approach inspired by Deepseek-R1 [14], using Group Relative Policy Optimization (GRPO) [49]
+to fine-tune the model. We propose a Time-Decayed Reward (TDR) mechanism that evaluates and
+validates multi-step action predictions, significantly enhancing long-horizon navigation performance.
+VLN-R1 achieves state-of-the-art navigation performance and enables Embodied Question Answering
+(EQA results are in the supplementary material) [35]. We evaluate its navigation capabilities on
+continuous versions of Room-to-Room (R2R) [2] and Room-Across-Room (RxR) [24] benchmarks
+demonstrating the model’s effectiveness. Our paper makes these major contributions:
+• We introduce the VLN-Ego dataset, a collection of egocentric video streams paired with
+future action predictions, specifically designed to train LVLMs for vision-and-language
+navigation in continuous environments.
+• We propose the VLN-R1, an end-to-end embodied AI framework that uses large vision-
+language models(LVLM) to process egocentric video streams, enabling real-time vision-
+and-language navigation with actions.
+• We pioneer the integration of GRPO and Reinforced Fine-Tuning (RFT) for training
+LVLMs on navigation tasks. Additionally, we design a Time-Decayed Reward (TDR)
+mechanism to specifically optimize LVLM performance in navigation scenarios.
+2
+
+
+2
+Related work
+Vision-and-Language Navigation (VLN). It is a multimodal task where an agent follows natural
+language instructions (e.g., "Turn left, then stop by the sofa") to navigate through real or simulated
+visual environments. Early VLN methods [2, 24, 9, 36] operated in discrete environments, where
+agents aligned language with visual observations and teleported between predefined nodes. However,
+these methods struggled to generalize to open-world scenarios. The VLN-CE [23] benchmark later
+introduced continuous environments, supporting low-level action prediction (e.g., turning angles, step
+lengths) and enabling free movement in simulators. Approaches include predicting low-level control
+commands [45, 19, 6, 12, 7] or selecting subgoals generated by waypoint predictors [16, 21, 22].
+Subsequent advancements leveraged vision-language pre-trained models [10, 28, 50, 27, 53] or
+task-specific pre-training frameworks [15, 36, 13, 56, 41] to enhance performance. More recently,
+language models (LLM) have been integrated into VLN systems [60, 59].
+Language models as VLN agents. Recent advancements in Large Language Models (LLMs)
+have shifted vision-and-language navigation (VLN) from task-specific optimization to open-domain
+instruction generalization. Current methods [64, 33, 17, 34, 65, 48] leverage LLMs to improve
+multi-task navigation and cross-scene adaptability. They combines off-the-shelf LLMs with vision
+foundation models [11, 31] to convert environmental observations into textual descriptions, allowing
+language models to guide agents. However, this method suffers from error accumulation and is mostly
+limited to discrete environments [8, 42, 66, 33, 34, 48]. Another trend integrates large vision language
+models (LVLM) for continuous navigation [60, 59], though it requires complex extra architectures.
+Our method uses egocentric-video-trained MLLMs within a framework similar to Deepseek-R1 [14],
+employing Reinforcement Fine-Tuning for training.
+Reinforcement Fine-Tuning (RFT). Post-training of Large Vision-Language Models (LVLMs) has
+traditionally used Supervised Fine-Tuning (SFT) with annotated multi-modal data for task-specific
+performance improvement [55, 26, 29]. While Reinforcement Fine-Tuning (RFT) has enhanced
+reasoning in language models (e.g., math problem [49, 14] and code generation [18, 20, 62, 61]) its
+application to LVLMs has been limited, mainly focusing on hallucination mitigation [51, 63, 67, 57,
+58] or human preference alignment [52, 67]. Inspired by GRPO [49, 39] and Deepseek-R1-Zero [14],
+which show that RL alone can improve reasoning, we pioneer the integration of verifiable reward
+mechanisms and GRPO-based policy optimization into the vision-and-language navigation task. It is
+the first application of RFT for continuous navigation decision-making in VLN.
+3
+Methodology
+In this section, we introduce our methodology. Section 3.1 covers RL-based post-training pre-
+liminaries and GRPO [49]. Section 3.2 describes our data collection pipeline from the Habitat
+simulator. Section 3.3 elaborates on the first training stage using Supervised Fine-Tuning (SFT),
+while Section 3.4 describes the second-stage Reinforcement Fine-Tuning (RFT) process.
+3.1
+Preliminary
+Reinforcement learning with verifiable rewards (RLVR). It is a novel post-training approach for
+large language models[25, 14, 54], primarily targeting tasks with objective ground-truth answers such
+as mathematics [49] and code generation [18, 61, 62]. In contrast, previous Reinforcement Learning
+from Human Feedback (RLHF) [30, 3] relies on human guidance to learn "what is correct." RLVR
+not only features a more concise reward function but also achieves better alignment with the intrinsic
+evaluation criteria of the tasks. Specifically, given an input question q, the policy model πθ generates
+responses o. The optimization objective of RLVR can be formulated as:
+max
+πθ Eo∼πθ(q) [RRLVR(q, o)] =
+
+R(q, o) −βKL
+h
+πθ(o|q) ∥πref(o|q)
+i
+(1)
+Here, πref denotes the reference model before optimization. Additionally, β is the hyperparameter
+controlling the proportion of the KL-divergence penalty. The term R(q, o) corresponds to the
+3
+
+
+verifiable reward function. The specific objective function is formulated as:
+R(q, o) =
+1,
+if o = ground truth,
+0,
+otherwise.
+(2)
+In this setup, R(q, o) represents a hard reward function where the reward is set to 1 if the output o
+matches the ground truth, and 0 otherwise. In contrast, our method introduces soft reward functions
+to achieve finer optimization objectives.
+R1-Zero and GRPO. The DeepSeek R1-Zero [14] algorithm uses Group Relative Policy Optimiza-
+tion (GRPO) for reinforcement learning. Unlike PPO [47] (which needs a critic model) or DPO [43]
+(which relies on offline preference data), GRPO [49] operates online without an explicit reward
+model, using only group-wise reward normalization, making it ideal for large language models. For a
+question q, GRPO generates G responses {o1, . . . , oG} from policy model πθ and computes rewards
+{r1, . . . , rG}. It then normalizes rewards to determine relative advantages:
+Ai = ri −µ{r1, . . . , rG}
+σ{r1, . . . , rG}
+,
+(3)
+where Ai represents the relative quality of the i-th answer. GRPO encourages the model to favor
+responses with higher reward values within the group. The optimization objective of GRPO is:
+JGRPO(θ) = E
+
+G
+X
+i=1
+min
+ πθ(oi | q)
+πθref(oi | q)Ai,
+clip
+ πθ(oi | q)
+πθref(oi | q), 1 −ϵ, 1 + ϵ
+
+Ai
+
+−βDKL(πθ ∥πref)
+
+(4)
+The ratio
+πθ(oi|q)
+πθref(oi|q) quantifies preference shifts (">1" indicates higher preference for oi). Advantage
+Ai scales updates, with clipping and min operations ensuring conservative modifications: moderately
+boosting high-reward responses (Ai > 0) while carefully penalizing poor ones (Ai < 0). KL
+divergence prevents excessive deviation from πref.
+DKL = πref(oi | q)
+
+log πref(oi | q)
+πθ(oi | q) −1
+
+(5)
+The KL term brings πθ close to πref, avoiding reward-hacking and unnatural responses.
+3.2
+Dataset Engine: VLN-Ego
+For indoor navigation tasks, previous non-LVLM approaches [38, 16, 21] either operated in discrete
+environments or relied on additional modalities such as global maps and depth information. In
+contrast to prior work, our framework enables LVLM-based navigation using solely egocentric visual
+input, eliminating dependency on additional sensor modalities. This allows the LVLM agent to
+operate in a continuous environment, where it can execute flexible actions such as moving forward
+by specific distances or turning at specific angles. Therefore, we designed VLN-Ego, a first-person
+video-stream-based LVLM training engine for navigation.
+We utilize Meta’s Habitat [46, 40, 23] simulation platform, which is built upon the Matterport3D [4]
+scene dataset. Total of 90 scenes are divided into training (61 scenes), val-seen (11 scenes), and
+val-unseen (18 scenes) sets, serving as the training, validation, and test sets, respectively. To maintain
+consistency with previous benchmarks, we also adopt the R2R [23] (Room-to-Room) and RxR [24]
+(Room-across-Room) trajectories within the Matterport3D scenes. R2R primarily involves navigating
+from one room to another, comprising 7,189 paths, with instructions such as "Walk past the kitchen
+table, turn left into the hallway, and stop at the bedroom door." RxR, on the other hand, features paths
+three times longer than R2R, we have selected its English-language instructions, totaling 42,023
+trajectories.
+VLN-Ego acquires annotations action-by-action, with the annotation structure detailed in Fig-
+ure 2. It mainly consists of three parts. The first part is the instruction part, which includes the
+<System Message> and <Instruction> . The latter refers to the natural language instruction
+4
+
+
+<Syetem Message>
+B. Turn left 30°
+C. Turn right 30°
+D. Stop
+A. Move forward 25 cm
+- Six action predictions  |  - Use full option text  |  - Separated by commas   
+<Action Choices>
+<Instruction>
+Imagine you are a robot designed for navigation tasks.
+Your instruction is 'Go into the room, turn left at the foot of the bed, and left again at the far side of 
+the bed. Go to the doorway to the closet on the right and stop.'
+<History Memory>
+   <image><\image>,    <image><\image>,    <image><\image>,  ......,    <image><\image>
+<Current Observation>
+ The current observation is:        <image><\image>
+Your task is to select the next six actions based on this information.   Options:
+Answer 
+requirements: 
+- Example:   'A. Move..., B. Turn..., C. Turn..., B. Turn..., C. Turn..., D. Stop.'
+ You are provided with Historical observations:    
+3) Action Part 
+2) Vision Part 
+1) Instruction Part 
+Figure 2: Data Engine: VLN-Ego. We created a dataset named VLN-Ego for LVLM-based
+navigation using Habitat’s virtual simulation engine. Its textual annotations primarily consist of three
+parts: Instruction Part, Vision Part, and Action Part.
+provided as input. The second part is the vision part, which contains the first-person visual informa-
+tion, including all the historical frames <History Memory> and the <Current Observation> .
+The final part is the action part, which includes the <Action Choices> . These are the four op-
+tions: {FORWARD, TURN-LEFT, TURN-RIGHT, STOP}. The ground truth will include the next 6 actions.
+Finally, we obtained 630K training samples from R2R and 1.2M training samples from RxR, all
+exclusively derived from the 61 training scenes.
+3.3
+Supervised Fine-Tuning (SFT) Stage
+VLN task definition.
+The VLN-R1 task is formally defined as follows: At each time step t,
+given a natural language instruction I and an egocentric video stream V0:t−1 = {v0, v1, . . . , vt},
+which consists of historical observations, the agent predicts a sequence of n future actions
+{At, At+1, . . . , At+n−1} in order to successfully navigate within new environments. Each ac-
+tion At corresponds to a low-level atomic motion. The action space consists of four primitive
+actions: {FORWARD, TURN-LEFT, TURN-RIGHT, STOP} . A navigation episode is considered suc-
+cessful if the agent stops within a threshold distance of the target.
+History frames selection.
+Conventional strategies for selecting historical frames have limitations.
+Uniform sampling weights all past frames equally, ignoring the relevance of recent observations [21],
+while exponential decay over-prioritizes proximity, losing long-term context critical in Naviga-
+tion [60]. To overcome these limitations, we propose a Long-Short Memory Sampling strategy,
+designed to balance short-term relevance with long-term contextual awareness. It is formally defined
+as:
+Ht = {vt−1·δ1, vt−2·δ1, . . . , vt−M}
+|
+{z
+}
+Short-term memory (sampling rate δ1)
+∪{vt−M−δ2, vt−M−2δ2, . . . , v0}
+|
+{z
+}
+Long-term memory (sampling rate δ2)
+(6)
+Short-term memory samples every δ1 frames within M steps, while long-term memory samples the
+remaining history at δ2 interval (δ2 > δ1). This preserves both recent details and long-range context.
+5
+
+
+Large Vision-Language Models  
+ 
+'A. Move..., B. Turn..., C. Turn..., 
+B. Turn..., C. Turn..., D. Stop.'
+Output:
+ 
+'A. Move..., B. Turn..., C. Turn..., 
+B. Turn..., B. Turn..., D. Stop.'
+Ground 
+Truth:
+Text Supervision
+Policy Model (LVLM)
+ Output 1:
+Reference Model
+(Only For Stability control, e.g. KL)
+[A, B, C, B, C, D]
+ Output 2: [A, B, C, C, B, D]
+ Output 3: [B, B, C, B, B, D]
+  
+Reward
+Step
+Reward 1
+Reward 2
+Reward 3
+Reward Supervision
+ Time-Decayed 
+Reward (TDR)
+ 
+Text Input:
+Vision Input:  
+‘Go into the room, turn left at the foot of the 
+bed,... to the closet on the right and stop.’
+Your task is to select the next six actions.
+...
+Question:
+(Instruction Text)
+Current 
+Observation
+History Video 
+Sequence
+...
+Long Term Memory
+Short Term Memory
+a) Supervised Fine-Tuning (SFT) Stage
+b) Reinforcement Fine-Tuning (RFT) Stage
+...
+Figure 3: Model Architecture of VLN-R1. VLN-R1 employs a Long-Short Memory approach for
+processing visual inputs. The training consists of two stages. During the supervised fine-tuning (SFT)
+stage, we only supervise the output text. In the reinforcement fine-tuning (RFT) stage, we implement
+supervision using a designed Time-Decayed Reward (TDR) mechanism.
+Prediction and loss.
+The supervised fine-tuning (SFT) phase aligns the agent’s multi-step action
+prediction texts with ground-truth texts. Given a historical observation sequence Ht, instruction I,
+and current observation vt, the model generates an n-step future action sequence written as:
+ˆ
+At: t+n = Concatn−1
+k=0 (αt+k, ϕ(αt+k))
+(7)
+where αt+k denotes the action option identifier at timestep t + k (e.g., αt = B means selecting
+the second predefined action), and ϕ a deterministic mapping from options to action descriptions
+(e.g., ϕ(B) yields ’Turn left 30 degrees’). The model autoregressively predicts action tokens, with
+the probability of the i-th token wi as P(wi|w1:i−1, Ht, vt, I). We minimize the cross-entropy loss
+between the predicted text ˆ
+At:t+n−1 and the ground-truth A∗
+t:t+n−1.
+LSFT = −
+n−1
+X
+k=0
+Lk
+X
+j=1
+log P(w∗
+j |w∗
+1:j−1, Ht, vt, I)
+(8)
+where Lk denotes the token length of the k-th action text (e.g., "C. Turn right 30 degrees" has Lk = 6
+tokens). This loss function supervises both action option identifiers (A/B/C/D) and their motion
+descriptions. The model learns to compositionally reason by jointly generating option identifiers
+(discrete symbols) and linguistically coherent, context-aware action descriptions.
+3.4
+Reinforcement Fine-Tuning (RFT) stage
+After Supervised Fine-Tuning (SFT), we further optimize the model with Reinforcement Fine-
+Tuning (RFT) in the second phase. While using the same instruction data format, we design
+an innovative reward function. Previous reinforcement fine-tuning uses simplistic reward mecha-
+nisms [49, 61, 49], such as binary option matching, error thresholds, or text similarity metrics like
+ROUGE-L. However, these methods are insufficient for vision-and-language navigation (VLN) tasks,
+as they lack effective supervision for temporal predictions.
+We propose a Time-Decayed Reward (TDR) function to address temporal dependencies. Our method
+extracts the action component αt+k from predicted text tuples (αt+k, ϕ(αt+k)) to form sequential
+predictions: At:t+n = (αt, αt+1, . . . , αt+n−1) for n future steps. Our temporal weighting scheme
+applies exponential decay γ to action significance, ensuring proximal actions receive substantially
+higher consideration than distant ones. The reward is shown as below:
+6
+
+
+Rnav =
+n−1
+X
+k=0
+γk · I (αt+k = α∗
+t+k)
+(9)
+where I be the indicator function that outputs 1 when the predicted action matches the ground truth
+α∗
+t+k, and 0 otherwise. This design ensures position-aware consistency by applying the exponentially
+decaying γk term, which prioritizes earlier correct actions. Our approach overcomes the limitation of
+supervised fine-tuning (SFT), which can only optimize the overall text output but fails to provide
+precise guidance for action sequence generation.
+4
+Experiments
+We presents our experimental setup and results here. In Section 4.1 , we explain the implementation
+details. Section 4.2 shows our main results, while Section 4.3 conducts the ablation study.
+4.1
+Implementation Details
+We utilize VLN-Ego as our training dataset, with the SFT phase employing 1.8M samples from both
+R2R [2] and RxR [24] datasets. In the RFT phase, we randomly select 10K samples from each,
+totaling 20K samples for training. The agent navigates to the goal using only ego-view video, and
+a navigation episode is successful if the agent stops within a threshold distance. We evaluate on
+18 held-out scenes (Val-Unseen) using VLN-CE [23] metrics. SR↑(Success Rate), OS↑(Oracle
+SR), and SPL↑(Success weighted by Path Length) measure navigation accuracy, while NE↓
+(Navigation Error) and TL↓(Trajectory Length) assess efficiency. All distance measurements are
+reported in meters (m). We train both Qwen2-VL-2B and Qwen2-VL-7B models [55], with the 7B
+model deployed on 8 NVIDIA A800 GPUs using DeepSpeed ZeRO-3 optimization [44]. During
+training, images are resized to a maximum resolution of 65,536 pixels, processed in batches of 16
+images per instance (generating 4.1K tokens). For Supervised Fine-Tuning (SFT), we employ a
+learning rate of 5e-6 with cosine scheduling (10% warmup), a per-GPU batch size of 2, and achieve
+a global batch size of 64 through 4 gradient accumulation steps, completing 1 epoch in 36 hours.
+For Reinforcement Fine-Tuning (RFT), we reduce the learning rate to 1e-6 with weight decay (0.01)
+and β=0.04, configure GRPO [49] with 8 samples per prompt, use a per-GPU batch size of 1 (no
+gradient accumulation), and complete training in about 12 hours per epoch.
+4.2
+Main Results
+Our main experiments include results from training on both R2R and RxR in VLN-CE. We evaluate
+on the Val-Unseen split, which contains completely unseen environments during training. Beyond
+demonstrating our method’s effectiveness, we further investigate the role of RFT in this framework.
+Our results on VLN-CE R2R are shown in Table 1. First, our method relies solely on RGB video
+inputs while achieving state-of-the-art performance. The 2B model outperforms the 7B SFT results
+via RFT, consistent with Deepseek-R1’s findings [14] that Reinforcement Fine-Tuning (RFT) enables
+smaller models to match the performance of larger-size counterparts.
+The results on VLN-CE RxR are shown in Table 2. The last four rows demonstrate training with the
+full dataset, where the results align with the conclusions from R2R. The middle four rows represent a
+configuration where supervised fine-tuning (SFT) used only 630K R2R samples, while reinforcement
+fine-tuning (RFT) utilized 10K RxR samples. Surprisingly, the LVLM fine-tuned with merely 10K
+samples via RFT outperforms its counterpart trained on the complete dataset. Remarkably, RFT
+enables effective cross-domain adaptation: after base training in one domain, just a small fraction
+of new domain data suffices for superior performance transfer. We present qualitative experimental
+results in Figure 4, with more qualitative examples and Embodied QA results in the appendix.
+4.3
+Ablation study
+We conduct a series of ablation experiments to analyze model performance during the Supervised
+Fine-Tuning (SFT) and Reinforcement Fine-Tuning (RFT) phases. All experiments used Qwen2-VL-
+7B [55], trained solely on the R2R.
+7
+
+
+Method
+Observation
+VLN-CE R2R Val-Unseen
+Map
+Odom.
+Depth
+RGB
+SR↑
+OS↑
+SPL↑
+NE↓
+TL
+Task-Specific method
+AG-CMTP [6]
+✓
+✓
+✓
+23.1
+39.2
+19.1
+7.90
+–
+R2R-CMTP [6]
+✓
+✓
+✓
+26.4
+38.0
+22.7
+7.90
+–
+Ego-view LVLM based method
+VLN (SFT, Qwen2-VL-2B)
+✓
+21.2
+33.0
+15.9
+8.27
+11.9
+VLN (SFT, Qwen2-VL-7B)
+✓
+24.9
+37.1
+17.5
+7.92
+15.0
+VLN-R1 (Qwen2-VL-2B)
+✓
+25.6
+37.5
+20.5
+10.2
+16.8
+VLN-R1 (Qwen2-VL-7B)
+✓
+30.2
+41.2
+21.8
+7.0
+10.0
+Table 1: Comparison on VLN-CE R2R Val-Unseen [2, 23]. ’VLN (SFT)’ refers to results after
+the first-stage supervised fine-tuning. The 2B model performs similarly to the 7B model after
+reinforcement fine-tuning (RFT).
+Method
+Observation
+VLN-CE RxR Val-Unseen
+Odom.
+Depth
+S.RGB
+SR↑
+OS↑
+SPL↑
+NE↓
+TL
+Task-Specific method
+LAW* [45]
+✓
+✓
+✓
+8.0
+21.0
+8.0
+10.9
+4.0
+CM2* [12]
+✓
+✓
+✓
+14.4
+25.3
+9.2
+9.0
+12.3
+WS-MGMap* [7]
+✓
+✓
+✓
+15.0
+29.8
+12.1
+9.8
+10.8
+Seq2Seq* [23]
+✓
+✓
+3.51
+5.02
+3.4
+11.8
+1.2
+CMA* [23]
+✓
+✓
+4.41
+10.7
+2.5
+11.7
+5.1
+A2Nav† [8]
+✓
+16.8
+–
+6.3
+–
+–
+Ego-view LVLM based method
+VLN (SFT, Qwen2-VL-2B)*
+✓
+14.1
+22.3
+11.2
+9.8
+13.5
+VLN (SFT, Qwen2-VL-7B)*
+✓
+14.9
+23.0
+11.9
+10.8
+11.9
+VLN-R1 (Qwen2-VL-2B)‡
+✓
+20.7
+30.1
+16.9
+10.2
+12.6
+VLN-R1 (Qwen2-VL-7B)‡
+✓
+22.7
+30.4
+17.6
+9.1
+12.4
+VLN (Qwen2-VL-2B)
+✓
+18.7
+27.4
+16.2
+11.2
+18.4
+VLN (Qwen2-VL-7B)
+✓
+19.5
+27.5
+16.7
+10.6
+15.3
+VLN-R1 (Qwen2-VL-2B)
+✓
+21.4
+30.6
+15.5
+10.2
+15.6
+VLN-R1 (Qwen2-VL-7B)
+✓
+22.3
+33.4
+17.5
+10.4
+15.3
+Table 2: Comparison on VLN-CE RxR Val-Unseen [24, 23]. ∗: only trained on VLN-CE R2R.
+‡indicates that SFT was trained solely on R2R, while RFT incorporates data from RxR. Our results
+show that RFT quickly boosts smaller models’ performance and excels in cross-domain generalization,
+achieving strong RxR results with minimal data after R2R pretraining.
+Supervised fine-tuning (SFT) stage.
+We investigate how different designs of the Action Space
+and History Memory components affect VLN-R1’s performance. For these experiments, we used
+supervised fine-tuning (SFT) exclusively during training. As shown in Table 3a, our analysis reveals
+that continuous prediction of the next 6 actions yields optimal results. We observe significant
+performance degradation when predicting only single actions, as this approach fails to account for
+future step dependencies. Table 3b demonstrates that our proposed Long-Short Memory strategy
+achieves the best frame selection performance by effectively balancing current observations with
+historical context.
+Reinforcement Fine-Tuning (RFT) stage.
+We further investigate the hyperparameters in Rein-
+forcement Fine-Tuning (RFT). First, we examine the impact of the number of generations in Table 3c,
+followed by an exploration of different reward functions and their effects on the results. We find that
+8
+
+
+ 
+Go out of the room you're in. Turn left. Go poast the dining room and into the living room. Wait right by the coffee table.
+ 
+In the entry way go up the stairs and in the hallway at the top take a left and go past the dining room into the entry way 
+with the stairs on the right side and stop right between the bottom of the first stair and the console table on the left.
+Ego-view
+ Video
+Map 
+(for show only)
+Ego-view
+ Video
+Map 
+(for show only)
+Figure 4: Qualitative Results of VLN-R1. As shown, VLN-R1 accepts egocentric video input and
+navigates through a continuous environment to ultimately reach the target location.
+(a) Action Space
+Action Space Variant
+R2R Val
+SR↑
+OS↑
+Single Discrete Action
+15.1
+33.6
+4-Discrete-Action Set
+21.4
+29.6
+6-Discrete-Action Set
+24.9
+31.7
+8-Discrete-Action Set
+22.7
+30.4
+(b) History Memory
+History Memory Method
+R2R Val
+SR↑
+OS↑
+Average Sampling (8)
+20.8
+28.9
+Average Sampling (16)
+22.0
+31.3
+Exponential Decay
+23.8
+34.3
+Long Short Memory
+24.9
+31.7
+(c) Number of Generations
+RFT Generations
+R2R Val
+SR↑
+OS↑
+k = 2 (warm start)
+24.7
+32.5
+k = 4
+26.5
+35.4
+k = 6
+28.4
+37.2
+k = 8 (convergence)
+30.2
+41.2
+(d) Reward Function
+Reward Type
+R2R Val
+SR↑
+OS↑
+Hard Reward
+23.8
+32.3
+Uniform (all actions equal)
+25.0
+33.0
+Linear Distance-weighting
+28.3
+33.6
+Exponential Decay
+30.2
+41.2
+Table 3: Ablation Studies on Training Stages
+the performance improvement from 6 to 8 generations is marginal, so we choose 8. Table 3d shows
+the reward functions, demonstrating the effectiveness of our Time-Decayed Reward function.
+5
+Conclusion and Limitation
+We present VLN-R1, an end-to-end framework that leverages large vision-language models (LVLMs)
+for continuous vision-and-language navigation (VLN) tasks. Our framework processes egocentric
+visual input through LVLMs, removing the need for navigation graphs or additional sensors. VLN-R1
+integrates Reinforcement Fine-Tuning (RFT) with Group Relative Policy Optimization (GRPO) and
+Time-Decayed Reward (TDR), improving long-horizon decision-making. Our approach achieves
+SOTA on VLN-CE, with the 2B model matching 7B performance after RFT, showing efficient
+cross-domain adaptation with minimal data. Our method has limitations, including evaluation in only
+simulated indoor environments, limiting real-world generalization. The discrete action space also
+restricts fine-grained control. Nonetheless, our work advances the navigation field by integrating
+Qwen2-VL, establishing VLN as a downstream task for LVLMs.
+9
+
+
+References
+[1] Peter Anderson, Angel Chang, Devendra Singh Chaplot, Alexey Dosovitskiy, Saurabh Gupta,
+Vladlen Koltun, Jana Kosecka, Jitendra Malik, Roozbeh Mottaghi, Manolis Savva, et al. On
+evaluation of embodied navigation agents. arXiv:1807.06757, 2018. 1
+[2] Peter Anderson, Qi Wu, Damien Teney, Jake Bruce, Mark Johnson, Niko Sünderhauf, Ian Reid,
+Stephen Gould, and Anton Van Den Hengel. Vision-and-language navigation: Interpreting
+visually-grounded navigation instructions in real environments. In CVPR, 2018. 1, 2, 3, 7, 8
+[3] Zheng Cai, Maosong Cao, Haojiong Chen, Kai Chen, Keyu Chen, Xin Chen, Xun Chen, Zehui
+Chen, Zhi Chen, Pei Chu, et al. Internlm2 technical report. arXiv:2403.17297, 2024. 3
+[4] Angel Chang, Angela Dai, Thomas Funkhouser, Maciej Halber, Matthias Niessner, Manolis
+Savva, Shuran Song, Andy Zeng, and Yinda Zhang. Matterport3D: Learning from RGB-D data
+in indoor environments. In 3DV, 2017. 4
+[5] Jiaqi Chen, Bingqian Lin, Ran Xu, Zhenhua Chai, Xiaodan Liang, and Kwan-Yee K Wong.
+Mapgpt: Map-guided prompting for unified vision-and-language navigation. In ACL, 2024. 1
+[6] Kevin Chen, Junshen K Chen, Jo Chuang, Marynel Vázquez, and Silvio Savarese. Topological
+planning with transformers for vision-and-language navigation. In CVPR, 2021. 3, 8
+[7] Peihao Chen, Dongyu Ji, Kunyang Lin, Runhao Zeng, Thomas H Li, Mingkui Tan, and Chuang
+Gan. Weakly-supervised multi-granularity map learning for vision-and-language navigation. In
+NeurIPS, 2022. 3, 8
+[8] Peihao Chen, Xinyu Sun, Hongyan Zhi, Runhao Zeng, Thomas H Li, Gaowen Liu, Mingkui Tan,
+and Chuang Gan. Action-aware zero-shot robot navigation by exploiting vision-and-language
+ability of foundation models. In NeurIPS, 2023. 1, 3, 8
+[9] Shizhe Chen, Pierre-Louis Guhur, Cordelia Schmid, and Ivan Laptev. History aware multimodal
+transformer for vision-and-language navigation. In NeurIPS, 2021. 3
+[10] Yen-Chun Chen, Linjie Li, Licheng Yu, Ahmed El Kholy, Faisal Ahmed, Zhe Gan, Yu Cheng,
+and Jingjing Liu. Uniter: Universal image-text representation learning. In ECCV, 2020. 3
+[11] Vishnu Sashank Dorbala, Gunnar Sigurdsson, Robinson Piramuthu, Jesse Thomason, and
+Gaurav S Sukhatme.
+Clip-nav: Using clip for zero-shot vision-and-language navigation.
+arXiv:2211.16649, 2022. 1, 3
+[12] Georgios Georgakis, Karl Schmeckpeper, Karan Wanchoo, Soham Dan, Eleni Miltsakaki, Dan
+Roth, and Kostas Daniilidis. Cross-modal map learning for vision and language navigation. In
+CVPR, 2022. 3, 8
+[13] Pierre-Louis Guhur, Makarand Tapaswi, Shizhe Chen, Ivan Laptev, and Cordelia Schmid.
+Airbert: In-domain pretraining for vision-and-language navigation. In ICCV, 2021. 3
+[14] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu,
+Shirong Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in
+llms via reinforcement learning. arXiv:2501.12948, 2025. 2, 3, 4, 7
+[15] Weituo Hao, Chunyuan Li, Xiujun Li, Lawrence Carin, and Jianfeng Gao. Towards learning a
+generic agent for vision-and-language navigation via pre-training. In CVPR, 2020. 3
+[16] Yicong Hong, Zun Wang, Qi Wu, and Stephen Gould. Bridging the gap between learning in
+discrete and continuous environments for vision-and-language navigation. In CVPR, 2022. 1, 3,
+4
+[17] Chenguang Huang, Oier Mees, Andy Zeng, and Wolfram Burgard. Visual language maps for
+robot navigation. In ICRA, 2023. 1, 3
+[18] Binyuan Hui, Jian Yang, Zeyu Cui, Jiaxi Yang, Dayiheng Liu, Lei Zhang, Tianyu Liu, Jiajun
+Zhang, Bowen Yu, Keming Lu, et al. Qwen2. 5-coder technical report. arXiv:2409.12186, 2024.
+3
+[19] Muhammad Zubair Irshad, Niluthpol Chowdhury Mithun, Zachary Seymour, Han-Pang Chiu,
+Supun Samarasekera, and Rakesh Kumar. Sasra: Semantically-aware spatio-temporal reasoning
+agent for vision-and-language navigation in continuous environments. arXiv:2108.11945, 2021.
+3
+10
+
+
+[20] Fangkai Jiao, Geyang Guo, Xingxing Zhang, Nancy F Chen, Shafiq Joty, and Furu Wei.
+Preference optimization for reasoning with pseudo feedback. arXiv:2411.16345, 2024. 3
+[21] Jacob Krantz, Aaron Gokaslan, Dhruv Batra, Stefan Lee, and Oleksandr Maksymets. Waypoint
+models for instruction-guided navigation in continuous environments. In ICCV, 2021. 1, 3, 4, 5
+[22] Jacob Krantz and Stefan Lee. Sim-2-sim transfer for vision-and-language navigation in continu-
+ous environments. In ECCV, 2022. 1, 3
+[23] Jacob Krantz, Erik Wijmans, Arjun Majundar, Dhruv Batra, and Stefan Lee. Beyond the
+nav-graph: Vision and language navigation in continuous environments. In ECCV, 2020. 3, 4,
+7, 8
+[24] Alexander Ku, Peter Anderson, Roma Patel, Eugene Ie, and Jason Baldridge. Room-across-
+room: Multilingual vision-and-language navigation with dense spatiotemporal grounding. In
+EMNLP, 2020. 2, 3, 4, 7, 8
+[25] Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze
+Brahman, Lester James V Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, et al. Tulu 3: Pushing
+frontiers in open language model post-training. arXiv:2411.15124, 2024. 3
+[26] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang,
+Peiyuan Zhang, Yanwei Li, Ziwei Liu, et al. Llava-onevision: Easy visual task transfer.
+arXiv:2408.03326, 2024. 3
+[27] Liunian Harold Li, Mark Yatskar, Da Yin, Cho-Jui Hsieh, and Kai-Wei Chang. Visualbert: A
+simple and performant baseline for vision and language. arXiv:1908.03557, 2019. 3
+[28] Xiujun Li, Xi Yin, Chunyuan Li, Pengchuan Zhang, Xiaowei Hu, Lei Zhang, Lijuan Wang,
+Houdong Hu, Li Dong, Furu Wei, et al. Oscar: Object-semantics aligned pre-training for
+vision-language tasks. In ECCV, 2020. 3
+[29] Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang
+Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, et al.
+Deepseek-v3 technical report.
+arXiv:2412.19437, 2024. 3
+[30] Chris Yuhao Liu, Liang Zeng, Jiacai Liu, Rui Yan, Jujie He, Chaojie Wang, Shuicheng Yan,
+Yang Liu, and Yahui Zhou. Skywork-Reward: Bag of tricks for reward modeling in llms.
+arXiv:2410.18451, 2024. 3
+[31] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. In
+NeurIPS, 2023. 3
+[32] Yang Liu, Weixing Chen, Yongjie Bai, Xiaodan Liang, Guanbin Li, Wen Gao, and Liang
+Lin. Aligning cyber space with physical world: A comprehensive survey on embodied ai.
+arXiv:2407.06886, 2024. 1
+[33] Yuxing Long, Wenzhe Cai, Hongcheng Wang, Guanqi Zhan, and Hao Dong. Instructnav:
+Zero-shot system for generic instruction navigation in unexplored environment. In CoRL, 2024.
+1, 3
+[34] Yuxing Long, Xiaoqi Li, Wenzhe Cai, and Hao Dong. Discuss before moving: Visual language
+navigation via multi-expert discussions. arXiv:2309.11382, 2023. 1, 3
+[35] Arjun Majumdar, Anurag Ajay, Xiaohan Zhang, and al. Openeqa: Embodied question answering
+in the era of foundation models. In CVPR, 2024. 2
+[36] Arjun Majumdar, Ayush Shrivastava, Stefan Lee, Peter Anderson, Devi Parikh, and Dhruv Batra.
+Improving vision-and-language navigation with image-text pairs from the web. In ECCV, 2020.
+3
+[37] Christoforos Mavrogiannis, Francesca Baldini, Allan Wang, Dapeng Zhao, Pete Trautman,
+Aaron Steinfeld, and Jean Oh. Core challenges of social robot navigation: A survey. ACM
+Transactions on Human-Robot Interaction, 2023. 1
+[38] Dujun Nie, Xianda Guo, Yiqun Duan, Ruijun Zhang, and Long Chen. Wmnav: Integrating
+vision-language models into world models for object goal navigation. arXiv:2503.02247, 2025.
+4
+[39] OpenAI. Hello gpt-4o, 2024. 3
+11
+
+
+[40] Xavier Puig, Eric Undersander, Andrew Szot, Mikael Dallaire Cote, Tsung-Yen Yang, Ruslan
+Partsey, Ruta Desai, Alexander William Clegg, Michal Hlavac, So Yeon Min, et al. Habitat 3.0:
+A co-habitat for humans, avatars and robots. arXiv:2310.13724, 2023. 4
+[41] Yanyuan Qiao, Yuankai Qi, Yicong Hong, Zheng Yu, Peng Wang, and Qi Wu. Hop: History-
+and-order aware pre-training for vision-and-language navigation. In CVPR, 2022. 3
+[42] Yanyuan Qiao, Yuankai Qi, Zheng Yu, Jing Liu, and Qi Wu. March in chat: Interactive
+prompting for remote embodied referring expression. In ICCV, 2023. 1, 3
+[43] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and
+Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model.
+In NeurIPS, 2023. 4
+[44] Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase, and Yuxiong He. Zero: Memory optimiza-
+tions toward training trillion parameter models. arXiv:1910.02054, 2019. 7
+[45] Sonia Raychaudhuri, Saim Wani, Shivansh Patel, Unnat Jain, and Angel X Chang. Language-
+aligned waypoint (law) supervision for vision-and-language navigation in continuous environ-
+ments. arXiv:2109.15207, 2021. 3, 8
+[46] Manolis Savva, Abhishek Kadian, Oleksandr Maksymets, Yili Zhao, Erik Wijmans, Bhavana
+Jain, Julian Straub, Jia Liu, Vladlen Koltun, Jitendra Malik, Devi Parikh, and Dhruv Batra.
+Habitat: A Platform for Embodied AI Research. In ICCV, 2019. 4
+[47] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal
+policy optimization algorithms. arXiv:1707.06347, 2017. 4
+[48] Dhruv Shah, Bła˙zej Osi´nski, Sergey Levine, et al. Lm-nav: Robotic navigation with large
+pre-trained models of language, vision, and action. In CoRL, 2023. 1, 3
+[49] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang,
+Mingchuan Zhang, YK Li, Y Wu, et al. Deepseekmath: Pushing the limits of mathematical
+reasoning in open language models. arXiv:2402.03300, 2024. 2, 3, 4, 6, 7
+[50] Weijie Su, Xizhou Zhu, Yue Cao, Bin Li, Lewei Lu, Furu Wei, and Jifeng Dai. Vl-bert:
+Pre-training of generic visual-linguistic representations. arXiv:1908.08530, 2019. 3
+[51] Zhiqing Sun, Sheng Shen, Shengcao Cao, Haotian Liu, Chunyuan Li, Yikang Shen, Chuang
+Gan, Liang-Yan Gui, Yu-Xiong Wang, Yiming Yang, et al. Aligning large multimodal models
+with factually augmented rlhf. arXiv:2309.14525, 2023. 3
+[52] Zhiqing Sun, Sheng Shen, Shengcao Cao, Haotian Liu, Chunyuan Li, Yikang Shen, Chuang
+Gan, Liang-Yan Gui, Yu-Xiong Wang, Yiming Yang, et al. Aligning large multimodal models
+with factually augmented rlhf. arXiv:2309.14525, 2023. 3
+[53] Hao Tan and Mohit Bansal. Lxmert: Learning cross-modality encoder representations from
+transformers. In EMNLP, 2019. 3
+[54] Kimi Team, Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, Cheng Chen, Cheng Li,
+Chenjun Xiao, Chenzhuang Du, Chonghua Liao, et al. Kimi k1. 5: Scaling reinforcement
+learning with llms. arXiv:2501.12599, 2025. 3
+[55] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing
+Liu, Jialin Wang, Wenbin Ge, et al. Qwen2-vl: Enhancing vision-language model’s perception
+of the world at any resolution. arXiv:2409.12191, 2024. 2, 3, 7
+[56] Siying Wu, Xueyang Fu, Feng Wu, and Zheng-Jun Zha. Cross-modal semantic alignment
+pre-training for vision-and-language navigation. In ACMMM, 2022. 3
+[57] Tianyu Yu, Yuan Yao, Haoye Zhang, Taiwen He, Yifeng Han, Ganqu Cui, Jinyi Hu, Zhiyuan
+Liu, Hai-Tao Zheng, Maosong Sun, et al. RlHF-V: Towards trustworthy mllms via behavior
+alignment from fine-grained correctional human feedback. In CVPR, 2024. 3
+[58] Tianyu Yu, Haoye Zhang, Yuan Yao, Yunkai Dang, Da Chen, Xiaoman Lu, Ganqu Cui, Taiwen
+He, Zhiyuan Liu, Tat-Seng Chua, et al. RLAIF-V: Aligning mllms through open-source ai
+feedback for super gpt-4v trustworthiness. arXiv:2405.17220, 2024. 3
+[59] Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li, Haoran Liu, Songlin Wei, Zhongyuan
+Wang, Zhizheng Zhang, and He Wang. Uni-navid: A video-based vision-language-action model
+for unifying embodied navigation tasks. In RSS, 2025. 2, 3
+12
+
+
+[60] Jiazhao Zhang, Kunyu Wang, Rongtao Xu, Gengze Zhou, Yicong Hong, Xiaomeng Fang,
+Qi Wu, Zhizheng Zhang, and He Wang. Navid: Video-based vlm plans the next step for
+vision-and-language navigation. In RSS, 2024. 2, 3, 5
+[61] Kechi Zhang, Ge Li, Yihong Dong, Jingjing Xu, Jun Zhang, Jing Su, Yongfei Liu, and Zhi Jin.
+Codedpo: Aligning code models with self generated and verified source code. arXiv:2410.05605,
+2024. 3, 6
+[62] Yuxiang Zhang, Shangxi Wu, Yuqi Yang, Jiangming Shu, Jinlin Xiao, Chao Kong, and Jitao
+Sang. o1-coder: an o1 replication for coding. arXiv:2412.00154, 2024. 3
+[63] Zhiyuan Zhao, Bin Wang, Linke Ouyang, Xiaoyi Dong, Jiaqi Wang, and Conghui He. Beyond
+hallucinations: Enhancing lvlms through hallucination-aware direct preference optimization.
+arXiv:2311.16839, 2023. 3
+[64] Duo Zheng, Shijia Huang, Lin Zhao, Yiwu Zhong, and Liwei Wang. Towards learning a
+generalist model for embodied navigation. In CVPR, 2024. 1, 3
+[65] Gengze Zhou, Yicong Hong, Zun Wang, Xin Eric Wang, and Qi Wu. Navgpt-2: Unleashing
+navigational reasoning capability for large vision-language models. In ECCV, 2025. 1, 3
+[66] Gengze Zhou, Yicong Hong, and Qi Wu. Navgpt: Explicit reasoning in vision-and-language
+navigation with large language models. arXiv:2305.16986, 2023. 1, 3
+[67] Yiyang Zhou, Chenhang Cui, Rafael Rafailov, Chelsea Finn, and Huaxiu Yao. Aligning
+modalities in vision large language models via preference fine-tuning. arXiv:2402.11411, 2024.
+3
+[68] Fengda Zhu, Yi Zhu, Vincent Lee, Xiaodan Liang, and Xiaojun Chang. Deep learning for
+embodied vision navigation: A survey. arXiv:2108.04097, 2021. 1
+13

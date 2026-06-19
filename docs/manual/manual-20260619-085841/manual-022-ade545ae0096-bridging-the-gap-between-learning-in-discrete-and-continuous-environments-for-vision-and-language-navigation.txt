@@ -1,0 +1,2514 @@
+Bridging the Gap Between Learning in Discrete and Continuous
+Environments for Vision-and-Language Navigation
+Yicong Hong1˚
+Zun Wang1˚
+Qi Wu2
+Stephen Gould1
+1The Australian National University, 2University of Adelaide
+{yicong.hong, zun.wang, stephen.gould}@anu.edu.au
+qi.wu01@adelaide.edu.au
+Project URL: https://github.com/YicongHong/Discrete-Continuous-VLN
+(a) Discrete Environment
+(b) Continuous Environment
+(c) Candidate Waypoints
+(d) Waypoints Prediction
+ RGBD Observations
+Waypoints Predictor
+?
+Forward 0.25m
+Figure 1. Vision-and-language navigation in discrete versus in continuous environments. (a) Agents in discrete environments rely on the
+connectivity graph to navigate with panoramic high-level actions, (b) but they need to perform low-level controls to move in continuous
+spaces. (c,d) We propose a candidate waypoints predictor to predict accessible positions in continuous environments, to bridge the discrete-
+to-continuous gap.
+Abstract
+Most existing works in vision-and-language naviga-
+tion (VLN) focus on either discrete or continuous environ-
+ments, training agents that cannot generalize across the
+two. Although learning to navigate in continuous spaces
+is closer to the real-world, training such an agent is sig-
+niﬁcantly more difﬁcult than training an agent in discrete
+spaces. However, recent advances in discrete VLN are chal-
+lenging to translate to continuous VLN due to the domain
+gap. The fundamental difference between the two setups
+is that discrete navigation assumes prior knowledge of the
+connectivity graph of the environment, so that the agent can
+effectively transfer the problem of navigation with low-level
+controls to jumping from node to node with high-level ac-
+tions by grounding to an image of a navigable direction.
+To bridge the discrete-to-continuous gap, we propose a
+predictor to generate a set of candidate waypoints during
+navigation, so that agents designed with high-level actions
+can be transferred to and trained in continuous environ-
+ments. We reﬁne the connectivity graph of Matterport3D
+to ﬁt the continuous Habitat-Matterport3D, and train the
+waypoints predictor with the reﬁned graphs to produce ac-
+cessible waypoints at each time step. Moreover, we demon-
+strate that the predicted waypoints can be augmented dur-
+ing training to diversify the views and paths, and therefore
+enhance agent’s generalization ability.
+Through extensive experiments we show that agents nav-
+igating in continuous environments with predicted way-
+points perform signiﬁcantly better than agents using low-
+level actions, which reduces the absolute discrete-to-
+continuous gap by 11.76% Success Weighted by Path
+Length (SPL) for the Cross-Modal Matching Agent and
+18.24% SPL for the VLN
+œ
+BERT. Our agents, trained with
+a simple imitation learning objective, outperform previous
+methods by a large margin, achieving new state-of-the-art
+results on the testing environments of the R2R-CE and the
+RxR-CE datasets.
+* Authors contributed equally
+1
+arXiv:2203.02764v1  [cs.CV]  5 Mar 2022
+
+
+1. Introduction
+Vision-and-language navigation (VLN) [3] is a challeng-
+ing cross-domain research problem which requires an agent
+to interpret human instructions and navigate in previously
+unseen environments by executing a sequence of actions.
+Two distinct scenarios have been proposed for VLN re-
+search, being navigation in discrete environments (R2R,
+RxR [3, 34]) and in continuous environments (R2R-CE,
+RxR-CE [33]). Due to the large domain gap, navigation
+in the two scenarios have been studied independently in
+previous works, and a large number of prominent advances
+achieved by agents in discrete spaces, such as by leveraging
+pre-trained visiolinguistic transformers [21,25] or by using
+scene memory [16,55] cannot be directly applied to agents
+traversing continuous spaces.
+The fundamental difference between navigation in dis-
+crete and in continuous environments is the reliance on the
+connectivity graph which contains numbers of sparse nodes
+(waypoints) distributed across accessible spaces of the en-
+vironment. With the prior knowledge of the connectivity
+graph, the agent can move with a panoramic high-level ac-
+tion space [18], i.e., teleport to an adjacent waypoint on the
+graph by selecting a single direction from the discrete set of
+navigable directions. Compared to navigation in continu-
+ous environments, which usually relies on a limited ﬁeld
+of view to infer low-level controls (e.g., turn left 15 de-
+grees or move forward 0.25 meters) [33], navigation with
+panoramic actions and the connectivity graph simpliﬁes the
+complicated decision making problem by formulating it as
+an explicit text-to-image grounding task. First, the agents
+are not required to infer the important concepts of accessi-
+bility (openspace vs. obstacles) from sensory inputs. Sec-
+ond, distinct visual representations can be deﬁned for each
+navigable direction, so the agents only need to match con-
+textual clues from instruction to visual options to move,
+which greatly reduces the agent’s state space and facilitates
+the learning. As a result, many previous works in VLN with
+high-level actions address the navigation problem mostly
+from the visual-textual matching perspective. A large num-
+ber of innovations such as back-translation [52], back-
+tracking [30, 38], scene memory [16, 55] and transformer-
+based pre-training [21, 25, 39] bring remarkable improve-
+ment but they cannot be directly transferred to agents in
+continuous environments. There remains about a 20% gap
+in success rate for agents with the same architecture navi-
+gating in discrete and in continuous spaces [33].
+Despite the great efﬁciency of learning in a discrete en-
+vironment, navigation in continuous spaces is much closer
+to the real-world. In this paper, we address the problem of
+bridging the learning between the two domains, aiming to
+effectively adapt agents designed for discrete VLN to con-
+tinuous environments. First of all, we identify and quan-
+titatively evaluate the value of high-level controls in VLN,
+showing the importance of knowing accessible waypoints.
+Second, inspired by Sim2Real-VLN [2], we introduce a
+powerful candidate waypoints predictor to estimate naviga-
+ble locations in continuous spaces, the module constructs a
+local navigability graph centered at the agent at each time
+step using the visual observations. In Sim2Real-VLN [2],
+the sub-goal module is trained on the pre-deﬁned connec-
+tivity graphs of the Matterport3D environment (MP3D) [6],
+where there exist edges going through obstacles and nodes
+in inaccessible spaces.
+In contrast, we transfer the dis-
+crete MP3D graph onto the continuous Habitat-MP3D [49]
+spaces, and represent the transferred waypoints as targets
+for learning a mixture of Gaussian probability map, result-
+ing in a robust waypoints predictor in unvisited environ-
+ments that supports navigation. Furthermore, we propose a
+simple augmentation method to move the position of way-
+points during training of the agent, so that the agent can
+learn to reach the same target using diverse observations and
+step lengths, thereby improving the generalization ability.
+With the proposed candidate waypoints predictor, we
+evaluate the performance of agents designed for discrete
+VLN in continuous environments. The selected agents, in-
+cluding the cross-modal matching agent (CMA) [56] and
+the VLN
+œ
+BERT [25] are widely applied methods that are
+distinct in network architecture.
+Our experiments show
+that agents in continuous environments trained with the
+predicted waypoints signiﬁcantly improves over navigation
+without using waypoints, reducing the discrete-continuous
+gap, and achieving new state-of-the-art performance of 39%
+and 19.61% SPL on the benchmarking R2R-CE and RxR-
+CE test sets [3,33,34], respectively. This results suggest that
+our proposed candidate waypoints predictor can enable an
+effective discrete-to-continuous transfer as well as showing
+a huge potential of beneﬁting other navigation problems.
+2. Related Work
+Vision-and-Language Navigation
+Visiolinguistic cross-
+modal grounding is a crucial skill for addressing vision-and-
+language navigation problems. Tasks for indoor navigation
+with low-level instructions such as R2R [3] and RxR [34],
+outdoor navigation such as Touchdown [11], navigation
+with dialog such as CVDN [53] and HANNA [41], and nav-
+igation for remote object grounding such as REVERIE [44]
+and SOON [61] all require the agent’s ability to associate
+time-dependent visual observations to instructions for de-
+cision making. To facilitate the learning, Fried et al. [18]
+exploit the connectivity graphs deﬁned for Matterport3D
+environments [6] and propose to navigate with panoramic
+actions, which allows teleportation of agent among adjacent
+nodes (waypoints) on the graph by choosing an image point-
+ing towards the node. Following this idea, later works that
+are focusing on cross-modality learning [24, 37, 56], data
+augmentation [19,42,52], waypoint-tracking [16,30,38,55],
+2
+
+
+and pre-training for Transformer-based models [21, 25, 35,
+39] are implemented based on the connectivity graph and
+the high-level action space. Despite the great advances in
+learning the correspondence among vision, language and
+action, these agents are not applicable to the more practical
+scenario – navigation in continuous environments, which
+requires the agent’s ability of inferring spatial accessibility.
+Continuous VLN
+Continuous environments such as AI2-
+THOR [31], House3D [58], CHALET [60], Gibson [59],
+Habitat [49] and iGibson [50] have been setup for embodied
+AI research in synthetic and photo-realistic scenes. To study
+vision-and-language navigation in continuous environments
+(VLN-CE), Krantz et al. [33] transfer the discrete paths in
+R2R [3] (and RxR [34]) dataset to continuous trajectories
+based on the Habitat simulator [49], and Irshad et al. pro-
+pose a hierarchical model for inferring agent’s linear and
+angular velocities in the Robo-VLN environment [28]. In
+addition, methods such as applying semantic map represen-
+tations [29] and using language-aligned waypoints super-
+vision [45] are explored in VLN-CE. Experiments demon-
+strate a huge performance gap between agents that navigate
+in discrete and continuous environments.
+Hierarchical Visual Navigation
+Hierarchical visual nav-
+igation, involving the problem of mapping, planning and
+control, have been extensively studied in previous liter-
+atures [2, 7, 8, 10, 12–14, 20, 32, 40, 48].
+Active Neural
+SLAM [7] plans towards a long-term goal with a map
+and agent pose estimated from visual and sensory inputs.
+Chen et al. [12] construct topological maps for planning by
+sparsifying continuous paths collected in the environments,
+and Chen et al. [10] predicts a single audio-conditioned sub-
+goal at each step while our model estimates key positions
+around the agent. Recent work that is the most relevant
+to ours are the Waypoint Models [32] and the Sim2Real-
+VLN [2].
+Waypoint Models predicts a coarse view (di-
+rection) and a sub-goal in that view to explore, where all
+predictions are conditioned on vision, language and agent’s
+state. Whereas our method decouples the waypoints pre-
+diction and agent’s decision making process, and leverages
+the learned navigability to provide accessible directions for
+the agent to act, without extra efforts in modifying network
+architectures or training methods for adapting the new way-
+point predictor. Sim2Real-VLN also predicts adjacent sub-
+goals but the model is trained on the connectivity graphs
+deﬁned in MP3D [6], where there exist a large number of
+invalid edges going across obstacles. In contrast, we con-
+struct graph nodes over the Habitat-MP3D spaces, and we
+further study the idea of training agents directly in the con-
+tinuous environments with high-level actions.
+3. Background
+In this section, we will ﬁrst introduce the background
+of VLN in both discrete [3] and continuous environ-
+ments [33]. We apply the reinforced cross-modal match-
+ing agent (CMA) proposed by Wang et al. [56] to explain
+the general formulation of a VLN network. Then, we will
+evaluate the value of high-level actions by some contrastive
+experiments as a proof of concept for this paper.
+3.1. Navigation Setups
+The task of vision-and-language navigation is formu-
+lated as follows: Given a natural language instruction U
+as a sequence of l words xw1, w2, . . . , wly, an agent initial-
+ized at a certain position p1 is asked to travel to a target
+position pT in an environment E by executing a sequence
+of actions a. The overall navigation can be considered as
+a Partially Observable Markov Decision Process (PMODP)
+xp1, a1, p2, a2, . . . , at´1, pty, where each action at takes
+the agent to a new position pt`1 and the agent receives a
+new visual observation V t.2
+Navigate with High-Level Actions
+Navigation with
+high-level actions [3,18] is based on the connectivity graph
+G speciﬁed for each E. Each connectivity graph contains a
+set of j nodes (waypoints) distributed across the entire en-
+vironment tg1, g2, . . . , gjuﬁG. Essentially, G discretizes
+E, constraining the agent’s position pt P G at all time.
+The connectivity graph also provides the navigable direc-
+tions, which greatly facilitates the learning. Following the
+panoramic action space proposed by Fried et al. [18], agent
+at each pt receives a panorama which is composed of n
+single-view inputs (RGB images) each pointing towards
+an adjacent waypoint, respectively. The set of visual fea-
+tures corresponding to those directions are represented as
+tvp
+1, vp
+2, . . . , vp
+ku. Each feature vp
+i is enhanced with a di-
+rectional encoding dp
+i to indicate the relative orientation of
+the waypoint with respect to the agent’s heading, denoted
+as f p
+i “ rvp
+i ; dp
+i s, which has been shown inﬂuential in later
+works [24,26]. At each navigation step, the agent’s state ht
+which keep tracks of all the past observations and decisions,
+will be updated by a recurrent network (LSTM [23]) using
+the attended instructions clang
+t
+and past decision at´1 as
+ht “ LSTM
+´”
+clang
+t
+; at´1
+ı
+, ht´1
+¯
+(1)
+Based on the formulation above, decision making in dis-
+crete environments is implemented as a feature matching
+problem. In a compact form, the action probability for se-
+lecting an adjacent waypoint can be expressed as
+pi “ Softmax
+ˆ”
+ht; clang
+t
+; crgb
+t
+ıJ
+Wpf p
+i
+˙
+(2)
+2POMDPs also provide the agent with an intermediate reward at each
+time step, which we consider to be zero in this work.
+3
+
+
+where crgb
+t
+represents the attended images and Wp indi-
+cates learnable projections.
+As a result, the agent navi-
+gates with two effective mechanisms: (1) view selection,
+the agent chooses a direction with a visual observation that
+has the highest correspondence to the agent’s state. (2) way-
+point teleportation, the agent teleports directly to a neighbor
+waypoint that is positioned in the selected view.
+Navigate with Low-Level Actions
+VLN in continuous
+environments (VLN-CE) [33] is established over the Habi-
+tat simulator [49], where the agent’s position pt can be
+any point in the open space. Due to the absence of the
+connectivity graph, agents need to learn to identify ac-
+cessible positions in space and avoid obstacles. As pro-
+posed in VLN-CE, the agent needs to infer low-level ac-
+tions (turn left 15 degrees, turn right 15 degrees, move
+forward 0.25 meters or stop) from the egocentric observa-
+tion. To encode a single front-view image with directional
+clues, spatial embeddings have been concatenated to each
+j “ 1, ..., 16 patch of the ResNet [22] output features be-
+fore attentive pooling [33], i.e. f front
+j
+“ rvfront
+j
+; djs and
+cimg
+t
+“ AttnPoolj“1,...,16pf front
+j
+q. The agent’s state is up-
+dated also using Eq.1 but the action probability is computed
+as
+p “ Softmax
+´”
+ht; clang
+t
+; crgb
+t
+; cd
+t
+ı
+Wc
+¯
+(3)
+where cd
+t represents the attended depth features and Wc
+projects the concatenated encodings to R4, corresponding
+to the four pre-deﬁned actions.
+With the above formulation, the learning of language-
+visual and language-directional correspondences becomes
+much more implicit.
+The navigation episodes with low-
+level actions is about 10 times longer than high-level ac-
+tions, which leads to a very expensive training process.
+Evaluation Metrics
+There are ﬁve standard metrics in
+VLN for evaluating the agent’s performance, including Tra-
+jectory Length (TL), Navigation Error (NE), Success Rate
+(SR), normalized inverse of the Path Length (SPL) [1],
+normalized Dynamic Time Warping (nDTW) and Success
+weighted by normalized Dynamic Time Warping (SDTW)
+[27]. See Appendix for more details.
+3.2. What is the Value of High-Level Actions?
+We argue that view selection and waypoint teleportation
+are the two critical advantages resulting from high-level ac-
+tions on graphs; As shown in Figure 2, view selection trans-
+fers the problem of inferring low-level controls to selecting
+a navigable direction, which greatly expands the agent’s de-
+cision space at each time step. Moreover, by teleporting
+to a distant waypoint, the agent is able to learn and navi-
+gate very efﬁciently. The connectivity graphs provide not
+only information about the spatial navigability, but also an
+(a) View Selection
+(b) Teleportation
+Figure 2. Navigation by (a) view selection and (b) waypoint tele-
+portation in continuous environments.
+#
+Action
+R2R-CE Val-Seen
+R2R-CE Val-Unseen
+Select
+Teleport
+NEÓ
+nDTWÒ
+SRÒ
+SPLÒ
+NEÓ
+nDTWÒ
+SRÒ
+SPLÒ
+Time
+1
+✓
+✓
+6.28
+58.37
+41.48
+36.58
+6.51
+55.41
+39.32
+33.89
+0.55
+2
+✓
+5.70
+61.06
+46.31
+43.20
+6.38
+56.27
+37.72
+35.02
+1.79
+3
+✓
+8.10
+43.19
+23.36
+19.85
+7.62
+47.69
+28.32
+24.64
+0.78
+4
+7.20
+50.67
+29.53
+27.29
+7.54
+49.19
+27.29
+24.97
+2.61
+Table 1. Comparison of navigation in continuous environments by
+view selection (Select) and waypoint teleportation (Teleport) with
+the support of connectivity graphs.
+#
+Select
+Dist
+R2R-CE Val-Seen
+R2R-CE Val-Unseen
+NEÓ
+nDTWÒ
+SRÒ
+SPLÒ
+NEÓ
+nDTWÒ
+SRÒ
+SPLÒ
+Time
+1
+0.25
+7.20
+50.67
+29.53
+27.29
+7.54
+49.19
+27.29
+24.97
+2.61
+2
+1.00
+7.21
+52.52
+29.66
+27.19
+7.51
+50.14
+25.47
+23.51
+1.28
+3
+2.00
+7.60
+47.90
+24.16
+22.25
+8.06
+45.74
+22.96
+20.59
+1.18
+4
+3.00
+7.66
+48.28
+23.62
+21.73
+7.87
+46.29
+21.37
+19.39
+0.90
+5
+✓
+0.25
+6.10
+58.24
+39.33
+38.26
+6.52
+55.26
+32.02
+31.15
+1.58
+6
+✓
+1.00
+6.88
+53.09
+36.11
+33.91
+6.85
+52.44
+34.81
+32.51
+0.46
+7
+✓
+2.00
+6.56
+52.83
+38.52
+35.62
+6.96
+50.25
+33.05
+30.35
+0.27
+8
+✓
+3.00
+6.75
+51.85
+32.21
+29.28
+7.00
+49.35
+31.00
+28.12
+0.20
+Table 2. Navigation results using different forward distances with-
+out the connectivity graph. Dist means the ﬁxed forwarding dis-
+tance (meters) in selected direction. Time is the averaged inference
+time (seconds) per episode.
+exact distance to travel which transfers the agent to a lo-
+cation that is suitable for future decision making (see Fig-
+ure 3). Fried et al. [18] demonstrate a huge improvement by
+leveraging high-level actions in MP3D, in this section, we
+validate the value of these two mechanisms with the RCM
+agent [56] in Habitat-MP3D as a proof of concept.
+We ﬁrst consider four different scenarios as shown in Ta-
+ble 1: (1) The agent is trained and evaluated on the ground-
+truth connectivity graph with both view selection and way-
+point teleportation. (2) Experiment that only allows view
+selection; At each step, the agent’s local connectivity is
+computed on the ﬂy using the ground-truth graph, it can
+choose a navigable direction but it can only move forward
+0.25 meters. (3) As in the original VLN setup, navigable
+directions are not explicitly provided to the agent, but the
+agent is allowed to teleport forward if its heading is aligning
+with an edge on the connectivity graph [3]. We consider this
+setup as an experiment that allows waypoint teleportation
+but not view selection. (4) The original VLN-CE setup; The
+agent only perform low-level actions during navigation. For
+fairness, we apply panoramic visual input (12 cameras at 30
+degrees separation) and panoramic attention to all experi-
+4
+
+
+?
+?
+3.0m
+2.7m
+2.8m
+>1.0m
+(a) Keypoints
+(b) Navigability
+Figure 3. Keypoints versus navigability. Keypoints are closely
+related to the structure of the environment, which requires an agent
+to make a critical decision for navigation, while navigability only
+reﬂects explorable directions (and distances).
+ments (See Appendix for more details). Comparing M#13
+to M#3 and M#2 to M#4, we can see that view selection
+greatly improves the agent’s performance. By knowing the
+navigable directions (M#2), agent can achieve SR close to
+navigation on graphs (M#1). Previous work suggests the
+difﬁculty in learning repetitive low-level actions that only
+return small change in view [15], our results further show
+that forwarding by teleportation greatly reduces execution
+time and slightly increases SR (M#1, M#3), while naviga-
+bility is the bottleneck of learning to navigate.
+Then, we investigate the inﬂuence of view selection and
+step size on agent’s performance without considering the
+connectivity graph (see Table 2).
+In this case, an agent
+navigates by choosing a view and forwarding a ﬁxed dis-
+tance. Results show that view selection signiﬁcantly boosts
+the agent’s performance at all choices of step length (M#5-
+M#8). By adopting a larger step length, the agent also nav-
+igates much more efﬁciently due to less decisions to make.
+Note that, although an appropriate forward distance (e.g.
+M#6: 1 meter) leads to high performance, such value is un-
+known beforehand and it is unlikely to be suitable for all
+spatial structures. Based on the experiments, we expect to
+allow VLN agents in continuous spaces to take advantages
+of the two mechanisms, where the key is to provide the
+agent with candidate waypoints at any position in space.
+4. Candidate Waypoints Predictor
+Following the above observations, in order to bridge the
+discrete-to-continuous gap, we propose a candidate way-
+points predictor that generates virtual waypoints for agents
+in continuous environments. At each navigational step, the
+waypoints predictor infers a local sub-graph which consists
+of a set of edges pointing from the agent towards accessible
+positions in space. As a result, VLN in continuous spaces
+can be performed effectively using high-level actions.
+4.1. Network Architecture and Processing
+As shown in Figure 4(a), the waypoints predictor has
+three key modules; visual encoders, a multi-layer Trans-
+3Model #1 in the table.
+former, and a non-linear classiﬁer. We apply two ResNet-
+50 [22], one pre-trained on ImageNet [47] and another
+one pre-trained for point-goal navigation [57], for encoding
+RGB and depth images, respectively. The Transformer net-
+work, consisting of two layers each with 12 self-attention
+heads, is applied for modeling the spatial relationships be-
+tween views. The classiﬁer is a multi-layer perceptron that
+projects the Transformer outputs to probabilities of adjacent
+waypoints in space. The parameters of the visual encoders
+are ﬁxed after initialization, whereas the Transformer and
+the classiﬁer will be updated during training.
+Given an arbitrary point in the openspace of an environ-
+ment, we ﬁrst gather its RGB and depth panoramas, each
+panorama is represented by 12 single-view images at 30 de-
+grees separation. These images will be encoded by the vi-
+sual encoders to become a sequence of RGB and depth fea-
+tures, denoted as xvrgb
+1
+, vrgb
+2
+, . . . , vrgb
+12 | vrgb
+i
+P Vrgby and
+xvd
+1, vd
+2, . . . , vd
+12 | vd
+i P Vdy, respectively.
+Each pair of
+vrgb
+i
+and vd
+i feature is merged by a non-linear layer W m,
+yielding vrgbd
+i
+. All 12 visual representations vrgbd
+i
+are sent
+to the Transformer in parallel for modeling relationship and
+inferring adjacent waypoints. Since each single-view image
+is square and has 90 degrees ﬁeld of view that covers three
+30 degrees sectors, we constrain the self-attention of each
+vrgbd
+i
+to be performed with a single neighbor at each side,
+i.e. with vrgbd
+i´1 and vrgbd
+i`1 . Feature tokens outputs by the
+transformer ˜vrgbd
+i
+, where each contains information over a
+sector centered at the center of image i, will be fed to a clas-
+siﬁer to predict a heatmap of 120 angles-by-12 distances.
+Each angle is of 3 degrees, and the distances range from
+0.25 meters to 3.00 meters with 0.25 meters separation. By
+performing non-maximum-suppression (NMS) over the re-
+sulting heatmap, we obtain K neighboring waypoints.
+4.2. Connectivity Graphs in Habitat-MP3D
+To obtain the ground-truth connectivity graph G˚ for
+training the waypoint predictor, we adapt the connectivity
+graph pre-deﬁned for MP3D (GMP 3D) to ﬁt the continuous
+environments in Habitat-MP3D. Notice that the two graphs
+only reﬂect partial accessibility in space, nodes deﬁned on
+the graphs are more inclined to sparse keypoints in the en-
+vironment which requires a navigation agent to make a cru-
+cial decision, and edges indicate directions worth exploring
+rather than simply navigable (Figure 3). For example, it is
+important for an agent to predict a waypoint in front of a
+doorway so that the agent can decide whether to enter the
+room once it reaches the waypoint. In GMP 3D, there exists
+edges that go across obstacles, which are inappropriate for
+predicting accessible waypoint. In contrast, all nodes and
+edges on G˚ are deﬁned in openspace. Additional nodes
+are added to ensure that the graph is connected.
+Over-
+all, the entire set of connectivity graphs contains 13,358
+(10,559) nodes spread across 90 Habitat-MP3D (MP3D)
+5
+
+
+ImageNet
+Res-50
+Transformers
+Classify
+DDPPO
+Res-50
+...
+12
+2
+1
+...
+...
+...
+...
+12 Single-View Inputs
+Waypoints Heatmap
+3
+4
+11
+Sector Tokens
+NMS
+Predicted Waypoints
+GT Waypoints
+Panoramic Depth
+Panoramic RGB
+Agent Base Heading
+0
+119
+1
+2
+...
+...
+2.00m
+3.00m
+GT Waypoints
+Predicted Waypoints
+(b) Top-Down View
+Merge
+1.00m
+(a) Candidate Waypoints Prediction
+Figure 4. The candidate waypoints predictor. The module takes RGBD panoramic inputs, uses a multi-layer Transformer to model spatial
+relationships, and predicts the positions of waypoints in agent’s neighborhood.
+MP3D
+Ours
+0
+100
+200
+300
+400
+500
+600
+196.5
+187.5
+Number of Edges
+MP3D
+Ours
+0
+50
+100
+150
+200
+250
+300
+350
+102.0
+120.0
+Number of Nodes
+0
+1
+2
+3
+4
+5
+6
+7
+Length
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+Density
+Edge Length in Meters
+MP3D
+Ours
+Number per scene
+Number per scene
+Figure 5. Statistics of connectivity graphs in MP3D and Habitat-
+MP3D (Ours) environments.
+#
+Model
+MP3D Train
+MP3D Val-Unseen
+|∆|
+%Open Ò
+dC Ó
+dH Ó
+|∆|
+%Open Ò
+dC Ó
+dH Ó
+h
+Baseline
+1.29
+81.73
+1.13
+2.17
+1.37
+80.18
+1.08
+2.06
+i
+U-Net
+1.15
+63.60
+1.05
+2.10
+1.21
+52.54
+1.01
+2.00
+j
+Ours
+1.30
+82.56
+1.12
+2.13
+1.40
+79.86
+1.07
+2.00
+Table 3. Comparison of the waypoint predictors. M#h indicates
+the ﬁrst row (Model #h) in the table.
+environments, where each node is connected by in averaged
+3.31 (4.07) edges with length in average 1.87 (2.26) meters.
+More statistics are shown in Figure 5.
+4.3. Conﬁrmation of Predictor Performance
+Dataset
+For each node on G˚, we construct its local sub-
+graph by positioning adjacent waypoints over a discretized
+space. As shown in Figure 4(b), we ﬁrst partition the 3 me-
+ters radius range around each node into 120 3-degree sectors
+and 12 0.25-meter rings. Then, we assign waypoints into
+their corresponding partitions, and convert the discretized
+circle into a 120-by-12 heatmap which contains the posi-
+tions of the waypoints. The heatmap is applied as prediction
+ground-truth, and each waypoint on the heatmap is repre-
+sented as a Gaussian distribution with variance of 1.75m
+and 15˝ to allow some tolerance for the prediction. We fol-
+low the data splits in R2R to divide the connectivity graphs,
+using only 61 graphs (9,556 nodes) to train the predictor.
+Training and Results
+We train the candidate waypoints
+predictor by minimizing the mean squared error between
+the predicted heatmaps and the ground-truth heatmaps. As
+shown in Table 3, we compare the results with (M#h) a
+baseline model which does not employ a Transformer so
+that each single-view image is projected to a sector of
+waypoint scores independently, and (M#i) a convolutional
+U-Net [46] which is similar to the sub-goal module in
+Sim2Real [2]. We set the maximum number of prediction
+from each heatmap to be 5. All models are trained on a
+NVIDIA 3090 GPU with a learning rate of 10´6 and batch
+size 64 using the AdamW optimizer [36].
+We evaluate the performance of the waypoint predictors
+using four metrics: |∆| measures the difference in number
+of target waypoints and predicted waypoints. %Open mea-
+sures the ratio of predicted waypoints that is in open space
+(not hindered by any obstacle). dC and dH are the Chamfer
+distance and the Hausdorff distance, respectively, which are
+commonly used metrics for measuring the distance between
+point clouds. As shown in Table 3, U-Net results in the
+waypoints closest to the ground-truths, but a large portion
+of the predictions are block by obstacles, which is inappro-
+priate for navigation. Comparing to the baseline, our model
+with the Transformer achieves similar %Open but lower dis-
+tances, which will be applied in the following sections.
+5. Bridging the Discrete to Continuous Gap
+Thanks to the waypoints predictor, agents designed for
+high-level actions and pre-trained on graphs [25] can be
+transferred to continuous environments without any pre-
+deﬁned graph.
+In this section, we demonstrate that the
+performance gap between the two navigation setups is sig-
+niﬁcantly reduced. Furthermore, we show that using aug-
+mented waypoints for training leads to more robust agents,
+and new state-of-the-art results can be achieved on the
+benchmarking R2R-CE [3,33] and RxR-CE [34] datasets.
+6
+
+
+Methods
+#
+Train Connectivity
+Val Connectivity
+R2R-CE Val-Seen
+R2R-CE Val-Unseen
+Graph
+Predictor
+Graph
+Predictor
+TL
+NEÓ
+nDTWÒ
+SRÒ
+SPLÒ
+TL
+NEÓ
+nDTWÒ
+SRÒ
+SPLÒ
+CMA
+1
+✓
+✓
+10.21
+6.28
+58.37
+41.48
+36.58
+10.47
+6.51
+55.41
+39.32
+33.89
+2
+✓
+Freeze
+8.71
+6.83
+53.16
+33.83
+30.23
+8.28
+6.81
+52.86
+33.50
+29.92
+3
+Freeze
+Freeze
+9.39
+5.81
+59.06
+43.89
+40.20
+8.77
+6.50
+54.34
+37.49
+33.90
+4
+Augmented
+Freeze
+9.57
+5.36
+61.46
+48.05
+43.89
+9.11
+6.19
+55.56
+40.80
+36.73
+5
+Low-Level Actions
+8.87
+7.20
+50.67
+29.53
+27.29
+8.22
+7.54
+49.19
+27.29
+24.97
+VLN
+œ
+BERT
+6
+✓
+✓
+14.21
+4.63
+61.46
+52.21
+42.53
+14.34
+5.22
+57.71
+48.89
+40.36
+7
+✓
+Freeze
+11.42
+5.62
+56.19
+43.22
+37.10
+11.22
+5.91
+53.35
+39.94
+34.42
+8
+Freeze
+Freeze
+11.24
+5.06
+59.46
+49.40
+43.43
+12.12
+5.68
+53.50
+42.96
+38.53
+9
+Augmented
+Freeze
+11.83
+5.07
+59.18
+52.35
+46.08
+11.85
+5.52
+54.20
+45.19
+39.91
+10
+Low-Level Actions
+8.47
+7.40
+48.07
+26.85
+25.19
+7.42
+7.66
+47.71
+23.19
+21.67
+Table 4. Agent performance in R2R-CE. 4% of samples which does not have a valid discrete path are deleted (details in Appendix), and all
+ground-truth paths are set to the shortest paths on graph for a fair comparison between navigation with and without the connectivity graph.
+Graph and Predictor means applying ground-truth graph and using either Freezed or Augmented predicted waypoints, respectively.
+5.1. Setups
+Datasets
+We evaluate the performance of agents on two
+datasets, R2R-CE [3,33] and RxR-CE [34], using the Habi-
+tat simulator [49]. Both datasets are collected based on the
+discrete MP3D environments, including 61 environments
+for training, 11 for unseen validation and 18 reserved envi-
+ronments for testing. SPL [1] and nDTW [27] are the main
+evaluation metrics for R2R-CE and RxR-CE, respectively.
+Experiments
+Our main experiment consists of two parts;
+First, we compare the agent’s performance with and without
+using the connectivity graphs G˚ (Table 4). For fairness, we
+ﬁlter out 4% of samples from the original R2R-CE which
+has a continuous ground-truth path that cannot be converted
+to a valid discrete path on G˚ that honors the navigation
+instruction, and the start and end points of some paths have
+been slightly adjusted so that all point are on G˚. Second,
+we compare our method to previous approaches (Table 5
+and Table 6). In this case, we evaluate our agents on the
+untouched validation and test data of R2R-CE and RxR-CE.
+Navigators
+We experiment with two navigators that have
+been widely applied in previous works while distinct in net-
+work architecture or navigation method. (1) CMA [56] is a
+simple sequence-to-sequence network with visual and lan-
+guage attentions as explained in Eq.1 and Eq.2. (2) The Re-
+current VLN-BERT (VLN
+œ
+BERT) [25] is a Transformer-
+based network pre-trained for discrete VLN on R2R, it
+leverages the pre-deﬁned [CLS] token in BERT as the
+agent’s state and applies it for multi-modal attentions. For
+CMA, the entire network, including the language embed-
+dings, is trained from scratch. Whereas the VLN
+œ
+BERT is
+initialized from the pre-trained Transformers [21]. We re-
+fer the readers to Appendix for details about the network
+architectures and the different conﬁgurations of agents in
+R2R-CE and RxR-CE.
+Training
+All experiments are conducted on a single
+NVIDIA RTX 3090 GPU based on the PyTorch frame-
+work [43] and the Habitat simulator [49]. We apply a sim-
+ple cross-entropy loss between the ground-truth actions and
+agent’s predictions as the learning objective, which is mini-
+mized with an AdamW optimizer [36] during training. All
+the agents are trained using schedule sampling [5] with a
+decay frequency (moving from teacher forcing to student
+forcing) of per 5 epochs. As in previous work [33], for the
+CMA agents, the decay ratio is set to 0.75 and the learning
+rate is 10´4. For the VLN
+œ
+BERT, the decay ratio is set to
+0.50 (0.75 in RxR-CE due to the longer paths) and the learn-
+ing rate is 10´5. For agents which navigate on graphs, we
+consider the candidate node which has the shortest Dijkstra
+path to the target as ground-truth. For agents which navigate
+with predicted waypoints, we use a trained candidate way-
+points predictor (from §4) to generate accessible sub-goals
+to allow the agents perform view selection. The ground-
+truth waypoint is the one which has the shortest geodesic
+distance to the target and to the sub-goal in R2R-CE and
+RxR-CE, respectively (see Appendix). Once a waypoint is
+chosen, instead of teleporting directly to the waypoint, we
+decompose such high-level goal to low-level controls, then,
+ask the agent to execute those controls progressively.
+5.2. Main Results
+Bridge the Gap
+As shown in Table 4, agents navigate on
+the ground-truth graphs (M#1, M#6) perform signiﬁcantly
+better than agents navigate with low-level actions (M#5,
+M#10), scoring 8.92% and 18.69% higher SPL scores for
+the CMA and VLN
+œ
+BERT, respectively. M#2 and M#7
+show that when the connectivity graph is absent, using a
+waypoints predictor can bring up the agents’ performance
+by a large margin. Moreover, if the agents are trained on
+the predicted waypoints (M#3, M#8), so that the naviga-
+tors can learn to adapt the patterns of generated waypoints,
+then agents can achieve similar performance as navigating
+on the ground-truth graphs – For CMA, the agent scores the
+7
+
+
+Methods
+R2R-CE Val-Seen
+R2R-CE Val-Unseen
+R2R-CE Test-Unseen
+TL
+NEÓ
+nDTWÒ
+OSRÒ
+SRÒ
+SPLÒ
+TL
+NEÓ
+nDTWÒ
+OSRÒ
+SRÒ
+SPLÒ
+TL
+NEÓ
+OSRÒ
+SRÒ
+SPLÒ
+VLN-CE [33]
+9.26
+7.12
+54
+46
+37
+35
+8.64
+7.37
+51
+40
+32
+30
+8.85
+7.91
+36
+28
+25
+LAW [45]
+–
+–
+58
+–
+40
+37
+–
+–
+54
+–
+35
+31
+–
+–
+–
+–
+–
+SASRA [29]
+8.89
+7.17
+53
+–
+36
+34
+7.89
+8.32
+47
+–
+24
+22
+–
+–
+–
+–
+–
+Waypoint Models [32]
+8.54
+5.48
+–
+53
+46
+43
+7.62
+6.31
+–
+40
+36
+34
+8.02
+6.65
+37
+32
+30
+Ours (CMA)
+11.47
+5.20
+61
+61
+51
+45
+10.90
+6.20
+55
+52
+41
+36
+11.85
+6.30
+49
+38
+33
+Ours (VLN
+œ
+BERT)
+12.50
+5.02
+58
+59
+50
+44
+12.23
+5.74
+54
+53
+44
+39
+13.31
+5.89
+51
+42
+36
+Table 5. Comparison on agent performance in R2R-CE. Samples in all data splits are identical as in VLN-CE [33].
+Predicted Waypoints
+Predicted Heatmap
+View Selection
+Candidate Waypoints Predictor
+Navigator
+Decision
+Sampling
+Augmented Waypoint
+Control
+Figure 6. Waypoint Augmentation.
+same SPL as M#1. For VLN
+œ
+BERT, the gaps of SR and
+SPL are reduced by 77% and 90%, respectively. Trace back
+to early experiments with ﬁxed step length, there are about
+15% of steps executed by M#6 in Table 2 collides with ob-
+stacles, while this number is only 7% once the waypoints
+predictor is introduced, which again reﬂects the importance
+of the predictor. However, in some rare cases our waypoints
+predictor may miss a direction connecting the agent to the
+destination (such as traversing stairs) resulting in a naviga-
+tion failure. Sim2Real-VLN [2] suggests that the quality of
+the predicted waypoint candidates is a critical bottleneck of
+the agent’s performance, whereas our results indicate that
+overall our waypoints predictor is generalizable to new en-
+vironments, which successfully allows the agents to learn
+and act with high-level actions. We refer to the Appendix
+for visualization of the predicted waypoints and navigation
+trajectories, as well as further discussion on limitations.
+Waypoint Augmentation
+We propose to augment the
+waypoints produced by the candidate waypoints predictor
+while training the agent to enhance the agent’s generaliza-
+tion ability. As shown in Figure 6, the method samples a
+new waypoint from a patch of heatmap which corresponds
+to the agent’s selected view. The sampled waypoints will
+take the agent to new positions in space, which requires the
+agent to observe diverse views, travel with different step
+lengths and interacts with different obstacles to complete
+the same navigation task. Results in Table 4 show that the
+agents’ performances are further improved by training with
+augmented waypoints (M#4, M#9); the SPL of CMA in un-
+seen environments even exceeds CMA navigating on graphs
+(M#1). These results indicate the effectiveness of augment-
+ing waypoints when applying high-level actions.
+Methods
+RxR-CE Test-Unseen
+TL
+NEÓ
+SRÒ
+SPLÒ
+nDTWÒ
+SDTWÒ
+VLN-CE [33]
+7.33
+12.1
+13.93
+11.96
+30.86
+11.01
+Ours (CMA)
+20.04
+10.4
+24.08
+19.07
+37.39
+18.65
+Ours (VLN
+œ
+BERT)
+20.09
+10.4
+24.85
+19.61
+37.30
+19.05
+Table 6. Comparison on agent performance in RxR-CE.
+Comparison to SoTA
+We train the agents with predicted
+waypoints on the original R2R-CE and RxR-CE datasets,
+respectively, and compare the results with the previous
+state-of-the-arts4 (Table 5, Table 6). Our method signif-
+icantly outperforms previous methods across all dataset
+splits. On the test server of R2R-CE, our CMA agent im-
+proves over the CMA in Waypoint Models [32] by 6% SR
+and 3% SPL. It is also worth mentioning that comparing to
+the Waypoint Models which applies DDPPO [57] and 64
+GPUs (5 days) for training the agent, our approach enables
+an efﬁcient imitation learning, which drastically reduces the
+training cost to a single GPU (3.5 days) while achieving bet-
+ter results. On the multilingual RxR-CE dataset, both CMA
+and VLN
+œ
+BERT achieve more than 10% higher SR and
+6% higher nDTW than the previous best model.
+6. Conclusion
+In this paper, we introduce a candidate waypoints pre-
+dictor to produce accessible waypoints in space, which en-
+ables agents designed for discrete environments to learn
+and navigate in continuous environments with high-level
+actions.
+Experiments show that our method is general-
+izable for different agents and to unseen environments, it
+greatly bridges the discrete-to-continuous gap and achieves
+new state-of-the-art performances on the R2R-CE and the
+RxR-CE datasets. We believe this work is an important step
+towards taking VLN research in MP3D to the more realistic
+scenarios, including simulation in continuous environments
+and even robots in the real-world. For future work, weakly
+supervised and language-conditioned waypoint prediction
+could be explored. Moreover, the idea of predicting ad-
+jacent waypoints and performing navigable-view selection
+have the great potential to be applied in a wide range of re-
+search such as PointNav [49], ObjectNav [4], Audio-Visual
+Nav [9] and embodied task-completion problems [51].
+4R2R-CE
+Leaderboard:
+https://eval.ai/web/challenges/challenge-
+page/719/leaderboard/1966, RxR-CE Leaderboard:
+https://ai.google.com/research/rxr/habitat
+8
+
+
+References
+[1] Peter Anderson, Angel Chang, Devendra Singh Chaplot,
+Alexey Dosovitskiy, Saurabh Gupta, Vladlen Koltun, Jana
+Kosecka, Jitendra Malik, Roozbeh Mottaghi, Manolis Savva,
+et al. On evaluation of embodied navigation agents. arXiv
+preprint arXiv:1807.06757, 2018. 4, 7, 14
+[2] Peter Anderson, Ayush Shrivastava, Joanne Truong, Arjun
+Majumdar, Devi Parikh, Dhruv Batra, and Stefan Lee. Sim-
+to-real transfer for vision-and-language navigation. In Con-
+ference on Robot Learning, pages 671–681. PMLR, 2021. 2,
+3, 6, 8
+[3] Peter Anderson, Qi Wu, Damien Teney, Jake Bruce, Mark
+Johnson, Niko Sünderhauf, Ian Reid, Stephen Gould, and
+Anton van den Hengel. Vision-and-language navigation: In-
+terpreting visually-grounded navigation instructions in real
+environments.
+In Proceedings of the IEEE Conference
+on Computer Vision and Pattern Recognition, pages 3674–
+3683, 2018. 2, 3, 4, 6, 7, 12, 13, 15, 16
+[4] Dhruv Batra, Aaron Gokaslan, Aniruddha Kembhavi, Olek-
+sandr Maksymets,
+Roozbeh Mottaghi,
+Manolis Savva,
+Alexander Toshev, and Erik Wijmans. Objectnav revisited:
+On evaluation of embodied agents navigating to objects.
+arXiv preprint arXiv:2006.13171, 2020. 8
+[5] Samy Bengio, Oriol Vinyals, Navdeep Jaitly, and Noam
+Shazeer. Scheduled sampling for sequence prediction with
+recurrent neural networks. In Proceedings of the 28th In-
+ternational Conference on Neural Information Processing
+Systems-Volume 1, pages 1171–1179, 2015. 7, 14
+[6] Angel Chang, Angela Dai, Thomas Funkhouser, Maciej Hal-
+ber, Matthias Niebner, Manolis Savva, Shuran Song, Andy
+Zeng, and Yinda Zhang. Matterport3d: Learning from rgb-d
+data in indoor environments. In 2017 International Confer-
+ence on 3D Vision (3DV), pages 667–676. IEEE, 2017. 2, 3,
+16
+[7] Devendra Singh Chaplot, Dhiraj Gandhi, Saurabh Gupta,
+Abhinav Gupta, and Ruslan Salakhutdinov. Learning to ex-
+plore using active neural slam. In International Conference
+on Learning Representations, 2019. 3
+[8] Devendra Singh Chaplot, Ruslan Salakhutdinov, Abhinav
+Gupta, and Saurabh Gupta. Neural topological slam for vi-
+sual navigation. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pages 12875–
+12884, 2020. 3
+[9] Changan Chen, Unnat Jain, Carl Schissler, Sebastia Vi-
+cenc Amengual Gari, Ziad Al-Halah, Vamsi Krishna Ithapu,
+Philip Robinson, and Kristen Grauman.
+Soundspaces:
+Audio-visual navigation in 3d environments. In Computer
+Vision–ECCV 2020: 16th European Conference, Glasgow,
+UK, August 23–28, 2020, Proceedings, Part VI 16, pages 17–
+36. Springer, 2020. 8
+[10] Changan Chen, Sagnik Majumder, Ziad Al-Halah, Ruohan
+Gao, Santhosh Kumar Ramakrishnan, and Kristen Grauman.
+Learning to set waypoints for audio-visual navigation. In In-
+ternational Conference on Learning Representations, 2020.
+3
+[11] Howard Chen, Alane Suhr, Dipendra Misra, Noah Snavely,
+and Yoav Artzi. Touchdown: Natural language navigation
+and spatial reasoning in visual street environments. In Pro-
+ceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, pages 12538–12547, 2019. 2
+[12] Kevin Chen, Junshen K Chen, Jo Chuang, Marynel Vázquez,
+and Silvio Savarese. Topological planning with transform-
+ers for vision-and-language navigation. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 11276–11286, 2021. 3
+[13] Kevin Chen, Juan Pablo de Vicente, Gabriel Sepulveda, Fei
+Xia, Alvaro Soto, Marynel Vázquez, and Silvio Savarese. A
+behavioral approach to visual navigation with graph local-
+ization networks. arXiv preprint arXiv:1903.00445, 2019.
+3
+[14] Tao Chen, Saurabh Gupta, and Abhinav Gupta. Learning
+exploration policies for navigation. In International Confer-
+ence on Learning Representations, 2018. 3
+[15] Abhishek Das, Samyak Datta, Georgia Gkioxari, Stefan Lee,
+Devi Parikh, and Dhruv Batra. Embodied question answer-
+ing. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition, pages 1–10, 2018. 5
+[16] Zhiwei Deng, Karthik Narasimhan, and Olga Russakovsky.
+Evolving graphical planner:
+Contextual global plan-
+ning for vision-and-language navigation.
+arXiv preprint
+arXiv:2007.05655, 2020. 2
+[17] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina
+Toutanova. Bert: Pre-training of deep bidirectional trans-
+formers for language understanding. In Proceedings of the
+2019 Conference of the North American Chapter of the As-
+sociation for Computational Linguistics: Human Language
+Technologies, Volume 1 (Long and Short Papers), pages
+4171–4186, 2019. 13
+[18] Daniel Fried, Ronghang Hu, Volkan Cirik, Anna Rohrbach,
+Jacob Andreas,
+Louis-Philippe Morency,
+Taylor Berg-
+Kirkpatrick, Kate Saenko, Dan Klein, and Trevor Darrell.
+Speaker-follower models for vision-and-language naviga-
+tion. In Advances in Neural Information Processing Systems,
+pages 3314–3325, 2018. 2, 3, 4, 13
+[19] Tsu-Jui Fu, Xin Eric Wang, Matthew F Peterson, Scott T
+Grafton, Miguel P Eckstein, and William Yang Wang.
+Counterfactual vision-and-language navigation via adversar-
+ial path sampler. In European Conference on Computer Vi-
+sion, pages 71–86. Springer, 2020. 2
+[20] Saurabh Gupta, James Davidson, Sergey Levine, Rahul Suk-
+thankar, and Jitendra Malik. Cognitive mapping and plan-
+ning for visual navigation. In Proceedings of the IEEE Con-
+ference on Computer Vision and Pattern Recognition, pages
+2616–2625, 2017. 3
+[21] Weituo Hao, Chunyuan Li, Xiujun Li, Lawrence Carin, and
+Jianfeng Gao. Towards learning a generic agent for vision-
+and-language navigation via pre-training. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 13137–13146, 2020. 2, 3, 7, 13, 14
+[22] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Deep residual learning for image recognition. In Proceed-
+ings of the IEEE conference on computer vision and pattern
+recognition, pages 770–778, 2016. 4, 5, 13
+[23] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term
+memory. Neural computation, 9(8):1735–1780, 1997. 3, 13
+9
+
+
+[24] Yicong Hong, Cristian Rodriguez, Yuankai Qi, Qi Wu, and
+Stephen Gould.
+Language and visual entity relationship
+graph for agent navigation. Advances in Neural Information
+Processing Systems, 33, 2020. 2, 3
+[25] Yicong Hong, Qi Wu, Yuankai Qi, Cristian Rodriguez-
+Opazo, and Stephen Gould. A recurrent vision-and-language
+bert for navigation. In Proceedings of the IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition (CVPR),
+pages 1643–1653, June 2021. 2, 3, 6, 7, 13, 14
+[26] Ronghang Hu, Daniel Fried, Anna Rohrbach, Dan Klein,
+Trevor Darrell, and Kate Saenko. Are you looking? ground-
+ing to multiple modalities in vision-and-language navigation.
+In Proceedings of the 57th Annual Meeting of the Association
+for Computational Linguistics, pages 6551–6557, 2019. 3
+[27] Gabriel Ilharco, Vihan Jain, Alexander Ku, Eugene Ie, and
+Jason Baldridge.
+General evaluation for instruction con-
+ditioned navigation using dynamic time warping.
+arXiv
+preprint arXiv:1907.05446, 2019. 4, 7, 13, 14
+[28] Muhammad Zubair Irshad, Chih-Yao Ma, and Zsolt Kira.
+Hierarchical cross-modal agent for robotics vision-and-
+language navigation.
+arXiv preprint arXiv:2104.10674,
+2021. 3
+[29] Muhammad Zubair Irshad, Niluthpol Chowdhury Mithun,
+Zachary Seymour, Han-Pang Chiu, Supun Samarasek-
+era, and Rakesh Kumar.
+Sasra:
+Semantically-aware
+spatio-temporal reasoning agent for vision-and-language
+navigation in continuous environments.
+arXiv preprint
+arXiv:2108.11945, 2021. 3, 8
+[30] Liyiming Ke, Xiujun Li, Yonatan Bisk, Ari Holtzman, Zhe
+Gan, Jingjing Liu, Jianfeng Gao, Yejin Choi, and Siddhartha
+Srinivasa.
+Tactical rewind: Self-correction via backtrack-
+ing in vision-and-language navigation. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, pages 6741–6749, 2019. 2
+[31] Eric Kolve, Roozbeh Mottaghi, Winson Han, Eli VanderBilt,
+Luca Weihs, Alvaro Herrasti, Daniel Gordon, Yuke Zhu, Ab-
+hinav Gupta, and Ali Farhadi. Ai2-thor: An interactive 3d
+environment for visual ai. arXiv preprint arXiv:1712.05474,
+2017. 3
+[32] Jacob Krantz, Aaron Gokaslan, Dhruv Batra, Stefan Lee, and
+Oleksandr Maksymets.
+Waypoint models for instruction-
+guided navigation in continuous environments. In Proceed-
+ings of the IEEE/CVF International Conference on Com-
+puter Vision, pages 15162–15171, 2021. 3, 8
+[33] Jacob Krantz, Erik Wijmans, Arjun Majumdar, Dhruv Batra,
+and Stefan Lee. Beyond the nav-graph: Vision-and-language
+navigation in continuous environments. In European Confer-
+ence on Computer Vision, 2020. 2, 3, 4, 6, 7, 8, 12, 13, 15
+[34] Alexander Ku, Peter Anderson, Roma Patel, Eugene Ie, and
+Jason Baldridge. Room-across-room: Multilingual vision-
+and-language navigation with dense spatiotemporal ground-
+ing. In Proceedings of the 2020 Conference on Empirical
+Methods in Natural Language Processing (EMNLP), pages
+4392–4412, 2020. 2, 3, 6, 7, 13, 14, 15, 16
+[35] Xiujun Li, Chunyuan Li, Qiaolin Xia, Yonatan Bisk, Asli
+Celikyilmaz, Jianfeng Gao, Noah A Smith, and Yejin Choi.
+Robust navigation with language pretraining and stochastic
+sampling. In Proceedings of the 2019 Conference on Empir-
+ical Methods in Natural Language Processing and the 9th
+International Joint Conference on Natural Language Pro-
+cessing (EMNLP-IJCNLP), pages 1494–1499, 2019. 3
+[36] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+regularization. arXiv preprint arXiv:1711.05101, 2017. 6, 7
+[37] Chih-Yao Ma, Jiasen Lu, Zuxuan Wu, Ghassan AlRegib,
+Zsolt Kira, Richard Socher, and Caiming Xiong.
+Self-
+monitoring navigation agent via auxiliary progress estima-
+tion.
+In Proceedings of the International Conference on
+Learning Representations (ICLR), 2019. 2
+[38] Chih-Yao Ma, Zuxuan Wu, Ghassan AlRegib, Caiming
+Xiong, and Zsolt Kira.
+The regretful agent: Heuristic-
+aided navigation through progress estimation. In Proceed-
+ings of the IEEE Conference on Computer Vision and Pattern
+Recognition, pages 6732–6740, 2019. 2
+[39] Arjun Majumdar, Ayush Shrivastava, Stefan Lee, Peter An-
+derson, Devi Parikh, and Dhruv Batra. Improving vision-
+and-language navigation with image-text pairs from the web.
+In Proceedings of the European Conference on Computer Vi-
+sion, 2020. 2, 3
+[40] Xiangyun Meng, Nathan Ratliff, Yu Xiang, and Dieter Fox.
+Scaling local control to large-scale topological navigation.
+In 2020 IEEE International Conference on Robotics and Au-
+tomation (ICRA), pages 672–678. IEEE, 2020. 3
+[41] Khanh Nguyen and Hal Daumé III. Help, anna! visual nav-
+igation with natural multimodal assistance via retrospective
+curiosity-encouraging imitation learning. In Proceedings of
+the 2019 Conference on Empirical Methods in Natural Lan-
+guage Processing and the 9th International Joint Conference
+on Natural Language Processing (EMNLP-IJCNLP), pages
+684–695, 2019. 2
+[42] Amin Parvaneh, Ehsan Abbasnejad, Damien Teney, Qinfeng
+Shi, and Anton van den Hengel. Counterfactual vision-and-
+language navigation: Unravelling the unseen. Advances in
+Neural Information Processing Systems, 33, 2020. 2
+[43] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer,
+James Bradbury, Gregory Chanan, Trevor Killeen, Zeming
+Lin, Natalia Gimelshein, Luca Antiga, et al. Pytorch: An im-
+perative style, high-performance deep learning library. Ad-
+vances in neural information processing systems, 32:8026–
+8037, 2019. 7
+[44] Yuankai
+Qi,
+Qi
+Wu,
+Peter
+Anderson,
+Xin
+Wang,
+William Yang Wang, Chunhua Shen, and Anton van den
+Hengel.
+Reverie: Remote embodied visual referring ex-
+pression in real indoor environments.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 9982–9991, 2020. 2
+[45] Sonia Raychaudhuri, Saim Wani, Shivansh Patel, Unnat Jain,
+and Angel Chang.
+Language-aligned waypoint (law) su-
+pervision for vision-and-language navigation in continuous
+environments. In Proceedings of the 2021 Conference on
+Empirical Methods in Natural Language Processing, pages
+4018–4028, 2021. 3, 8
+[46] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-
+net: Convolutional networks for biomedical image segmen-
+tation. In International Conference on Medical image com-
+10
+
+
+puting and computer-assisted intervention, pages 234–241.
+Springer, 2015. 6
+[47] Olga Russakovsky, Jia Deng, Hao Su, Jonathan Krause, San-
+jeev Satheesh, Sean Ma, Zhiheng Huang, Andrej Karpathy,
+Aditya Khosla, Michael Bernstein, et al.
+Imagenet large
+scale visual recognition challenge. International journal of
+computer vision, 115(3):211–252, 2015. 5, 13
+[48] Nikolay Savinov, Alexey Dosovitskiy, and Vladlen Koltun.
+Semi-parametric topological memory for navigation. In In-
+ternational Conference on Learning Representations, 2018.
+3
+[49] Manolis Savva, Abhishek Kadian, Oleksandr Maksymets,
+Yili Zhao, Erik Wijmans, Bhavana Jain, Julian Straub, Jia
+Liu, Vladlen Koltun, Jitendra Malik, et al.
+Habitat: A
+platform for embodied ai research. In Proceedings of the
+IEEE/CVF International Conference on Computer Vision,
+pages 9339–9347, 2019. 2, 3, 4, 7, 8, 12, 15, 16
+[50] Bokui Shen, Fei Xia, Chengshu Li, Roberto Martín-
+Martín, Linxi Fan, Guanzhi Wang, Shyamal Buch, Claudia
+D’Arpino, Sanjana Srivastava, Lyne P Tchapmi, et al. igib-
+son, a simulation environment for interactive tasks in large
+realisticscenes. arXiv preprint arXiv:2012.02924, 2020. 3
+[51] Mohit Shridhar, Jesse Thomason, Daniel Gordon, Yonatan
+Bisk, Winson Han, Roozbeh Mottaghi, Luke Zettlemoyer,
+and Dieter Fox.
+Alfred:
+A benchmark for interpreting
+grounded instructions for everyday tasks. In Proceedings of
+the IEEE/CVF conference on computer vision and pattern
+recognition, pages 10740–10749, 2020. 8
+[52] Hao Tan, Licheng Yu, and Mohit Bansal.
+Learning to
+navigate unseen environments: Back translation with envi-
+ronmental dropout. In Proceedings of NAACL-HLT, pages
+2610–2621, 2019. 2, 13
+[53] Jesse Thomason, Michael Murray, Maya Cakmak, and Luke
+Zettlemoyer. Vision-and-dialog navigation. In Conference
+on Robot Learning, pages 394–406, 2020. 2
+[54] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-
+reit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. In Advances in neural
+information processing systems, pages 5998–6008, 2017. 14
+[55] Hanqing Wang, Wenguan Wang, Wei Liang, Caiming Xiong,
+and Jianbing Shen.
+Structured scene memory for vision-
+language navigation. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition, pages
+8455–8464, 2021. 2
+[56] Xin Wang, Qiuyuan Huang, Asli Celikyilmaz, Jianfeng Gao,
+Dinghan Shen, Yuan-Fang Wang, William Yang Wang, and
+Lei Zhang.
+Reinforced cross-modal matching and self-
+supervised imitation learning for vision-language navigation.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 6629–6638, 2019. 2, 3, 4, 7,
+13
+[57] Erik Wijmans, Abhishek Kadian, Ari Morcos, Stefan Lee, Ir-
+fan Essa, Devi Parikh, Manolis Savva, and Dhruv Batra. Dd-
+ppo: Learning near-perfect pointgoal navigators from 2.5 bil-
+lion frames. In International Conference on Learning Rep-
+resentations, 2019. 5, 8, 13, 15
+[58] Yi Wu, Yuxin Wu, Georgia Gkioxari, and Yuandong Tian.
+Building generalizable agents with a realistic and rich 3d en-
+vironment. arXiv preprint arXiv:1801.02209, 2018. 3
+[59] Fei Xia, Amir R Zamir, Zhiyang He, Alexander Sax, Jitendra
+Malik, and Silvio Savarese. Gibson env: Real-world percep-
+tion for embodied agents. In Proceedings of the IEEE Con-
+ference on Computer Vision and Pattern Recognition, pages
+9068–9079, 2018. 3, 13
+[60] Claudia Yan, Dipendra Misra, Andrew Bennnett, Aaron
+Walsman, Yonatan Bisk, and Yoav Artzi.
+Chalet: Cor-
+nell house agent learning environment.
+arXiv preprint
+arXiv:1801.07357, 2018. 3
+[61] Fengda Zhu, Xiwen Liang, Yi Zhu, Qizhi Yu, Xiaojun
+Chang, and Xiaodan Liang. Soon: Scenario oriented object
+navigation with graph-based exploration. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 12689–12699, 2021. 2
+11
+
+
+Appendices
+A. Connectivity Graph
+We detail the construction of connectivity graphs in
+Habitat-Matterport3D environments, as well as the adjust-
+ments on the R2R-CE trajectories.
+A.1. Graph Construction (§4.25)
+Projection
+We start with the pre-deﬁned connectivity
+graphs in MP3D environments, and leverage trajectories in
+datasets to adjust the position of nodes. For each MP3D
+scene, the corresponding graph that contains a set of nodes
+is projected to the same scene in Habitat. Note that, each
+node that is applied by VLN-CE [33], for creating the con-
+tinuous ground-truth paths, is projected to the averaged po-
+sition of points on the ground-truth paths that are closest to
+this node. However, such projection only ﬁxes a small por-
+tion of invalid nodes (i.e. nodes within obstacles) and edges
+(i.e. edges intersects with obstacles). To obtain a fully nav-
+igable graph, we design a heuristic to further adjust the po-
+sition of inaccessible nodes in the environment.
+Criteria
+Four criteria are followed to ensure the quality
+of the resulting graphs: (1) Nodes should not adhere to ob-
+stacles. (2) As few as number of nodes should be added
+for correcting invalid edges. (3) Straightness of the edges
+should be maintained. (4) Nodes connected with an edge
+shorter than 0.25 meters should be merged.
+Sampling
+For each node that requires an adjustment,
+we sample 264 points within a 0.35m-radius circle
+centered at the node as its candidate new positions.
+Those candidates are uniformly sampled on several
+rings evenly at (0.1,18), (0.15,30), (0.2,36),
+(0.25,48),
+(0.3,60)
+and
+(0.35,72),
+where
+(radius,#samples).
+According to the aforemen-
+tioned Criteria, for all candidate positions that are not
+within an obstacle, we score them by a weighted sum of
+three measurements: (1) distance to closest obstacles, (2)
+number of new nodes that needs to be added, and (3) edge
+straightness which is computed as the ratio between the sum
+of lengths of new edges and the original edge length. The
+candidate position which has the highest score will become
+the new position of the node.
+Adding Nodes
+Detours are sometimes necessary for ad-
+dressing the invalid edges that go through obstacles, in this
+case, new nodes are added to the graph. In speciﬁc, we
+apply the shortest_path_follower in the Habitat
+Simulator [49] to generate numbers of paths with various
+step lengths that connect the two nodes. Nodes within these
+5Link to Section 4.2 in Main Paper.
+1
+2
+3
+4
+5
+1
+2
+3
+5
+7
+(a) Sampling
+(d) Fitting
+(c) Adding Nodes
+(b) Merging
+0.35m
+4
+6
+1
+2
+3
+4
+5
+start
+6
+1
+2
+3
+4
+Figure 7. Graph construction methods. (a) The invalid node 2 is
+adjusted to a newly sampled position in a 0.35m circle. (b) Node
+2 and node 5 are merged to a new node 7, the edges are adjusted
+accordingly. (c) An invalid edge between nodes 1 and 2 is replaced
+by a detour and two new nodes (3 and 4) are added to the graph.
+(d) New nodes (6) are added to the graph if there is no adjacent
+node to the starting or ending position of a trajectory
+paths are evaluated using the Criteria so that the best set of
+new nodes can be determined and added to the graph.
+Merging
+Once a fully navigable graph is created, nodes
+within 0.5m are merged to a single node to make the graph
+more concise. However, this may creates new invalid nodes
+and edges. As a result, we repeat the Adjustment, Adding
+Nodes and Merging processes until the entire connectivity
+graph is fully navigable with edges longer than or equals to
+0.5 meters.
+Fitting
+Finally, to match the R2R-CE data [3, 33], we ﬁt
+the graph for the starting and ending positions of all trajec-
+tories in the dataset (except for the test split). We check if all
+the starting and ending points can be matched to nodes on
+graphs within a geodesic distance of 0.8 meters, if not, new
+nodes will be added to connect the graph to those positions
+(using our Adding Nodes method).
+Visualization
+Visualizations of the resulting Habitat-
+MP3D graphs and the comparison to the original MP3D
+graphs can be found in Figure 8 and Figure 9.
+A.2. R2R-CE Trajectories Adjustment (§5.1)
+To establish a fair comparison between discrete and con-
+tinuous navigation in Habitat (§5.1), we re-compute and ﬁl-
+ter the original R2R-CE trajectories based on our Habitat-
+12
+
+
+MP3D graph. Speciﬁcally, for each continuous trajectory in
+R2R-CE [33], we collect the three closest nodes to its start-
+ing and the ending points, respectively. Then, for each one
+of the nine pairs of starting and ending nodes, we collect up
+to 200 shortest discrete paths on graph from all the possible
+paths that connect the two nodes. For the resulting 1,800
+paths, we measure the nDTW [27] between each path and
+the original continuous trajectory, and select the path with
+the highest score as the discrete ground-truth path on the
+Habitat-MP3D graph. Samples which have a discrete trajec-
+tory with nDTW lower than 0.92 will be discarded from the
+dataset. Such expensive and strict ﬁltering process ensures
+that only samples with well-matched discrete and continu-
+ous paths remain in the dataset, which is suitable for us to
+compare navigation with high-level and low-level actions.
+Overall, we obtain 10,755, 1,755 and 745 episodes on the
+train, validation seen, and validation unseen split, respec-
+tively. For reference, the original R2R-CE [33] has 10,819,
+1,839 and 778 episodes in the data splits. Besides, the av-
+eraged number of nodes on a trajectory is 6.00 and 6.63 for
+samples in R2R [3] and in our ﬁltered dataset, respectively.
+A.3. Agent Performance (§5.2)
+As shown in Table 7, we experiment with the same
+agents on MP3D graphs and on our Habitat-MP3D graphs.
+Surprisingly, despite the fact that agents receive lower-
+quality images and navigate on a more complicated graph
+in Habitat, similar performance are achieved in unseen en-
+vironments.
+Model
+Val
+MP3D R2R
+Habitat-MP3D R2R
+TL
+NEÓ
+SRÒ
+SPLÒ
+TL
+NEÓ
+SRÒ
+SPLÒ
+CMA
+S
+15.20
+4.29
+54.95
+49.67
+10.21
+6.28
+41.48
+36.58
+U
+19.68
+5.54
+39.97
+33.36
+10.47
+6.51
+39.32
+33.89
+VLN
+œ
+BERT
+S
+16.62
+4.00
+54.65
+46.58
+14.21
+4.63
+52.21
+42.53
+U
+16.75
+4.59
+51.13
+42.92
+14.34
+5.22
+48.89
+40.36
+Table 7. Performance of agents navigating on MP3D and Habitat-
+MP3D graphs in Seen (S) and Unseen (U) environments.
+B. Navigator Networks
+In this section, we provide the implementation details
+of the Cross-Modal Matching agent (CMA) [56] and the
+Recurrent VLN-BERT Agent (VLN
+œ
+BERT) [25] on the
+R2R-CE [3] and the RxR-CE [34] datasets.
+B.1. Architecture (§5.1)
+Visual Encoders
+Agents in our experiments apply the
+same RGB and depth encoders to process the candidate im-
+ages at waypoint directions. As in VLN-CE [33], we use
+two ResNet-50 [22], one pre-trained on ImageNet [47] for
+classiﬁcation and another one pre-trained on Gibson [59]
+for point-goal navigation [57], to encode the RGB and depth
+inputs, respectively. These encoders are freezed while train-
+ing the navigators, where the outputs are fed into the can-
+didate waypoints predictor to infer adjacent waypoints, and
+into the navigators for view selection.
+Refer to the Main Paper §3, we denote the encoded rep-
+resentations as tvrgb
+1
+, vrgb
+2
+, . . . , vrgb
+k
+| vrgb
+i
+P R2048u and
+tvd
+1, vd
+2, . . . , vd
+k | vd
+i P R128u6, corresponding to the k di-
+rections with waypoints. The RGB and depth representa-
+tions are merged before passing to the policy networks as
+fi “
+”
+vrgb
+i
+Wrgb; vd
+i Wdepth; di
+ı
+Wmerge
+(4)
+where W are learnable linear projections with ReLU acti-
+vation. Following previous works [18,52], we explicitly en-
+code the relative direction of each candidate view as di. di
+is a vector formed by replicating pcosθi
+t, sinθi
+tq by 32 times,
+where θi
+t is the heading angle of the view with respect to
+the agent’s orientation. Note that, unlike previous works,
+di in our experiments does not involve an elevation angle
+because the waypoints predictor only creates a 2D-planar
+graph. We suggest that predicting 3D waypoints could be a
+valuable extension for future work. Finally, the overall vi-
+sual feature f i is of dimension 512 and 768 for the CMA
+and the VLN
+œ
+BERT (to match the default hidden dimen-
+sion of V&L BERT [21,25]) models, respectively.
+Language Encoders and Initial States
+Given a nat-
+ural language instruction U of a sequence of l words
+xw1, w2, . . . , wly, the agents ﬁrst encode the instruction
+into textual representations.
+For CMA, a bidirectional
+LSTM [23] is applied to encode U with randomly initial-
+ized word embeddings as
+X “ xx1, x2, . . . , xly “ Bi-LSTM pw1, w2, . . . , wlq (5)
+For VLN
+œ
+BERT, the language stream of the two-stream
+V&L transformers [21] is applied to process U as
+s0, X “ VLN
+œ
+BERTp[CLS], U, [SEP]q
+(6)
+with word embeddings pre-trained in PREVALENT [21].
+[CLS] and [SEP] are the classiﬁcation token and
+the
+separation
+token
+pre-deﬁned
+in
+BERT
+[17].
+VLN
+œ
+BERT adopts the output of the [CLS] token
+s0 as the agent’s initial state, whereas CMA uses a vector
+of zeros to represent the initial state.
+CMA
+We apply the original CMA [56] as the policy net-
+work in our experiments, which is different from the CMA
+implemented in VLN-CE [33] that has an additional recur-
+rent module. In speciﬁc, at each navigation step, the agent’s
+state is encoded as:
+st “ GRU
+´”
+cvis,0
+t
+; at´1W act
+ı
+, st´1
+¯
+(7)
+6Subscript t for time step is omitted here for simplicity.
+13
+
+
+where at´1 is the agent’s past decision represented by
+the aforementioned directional encoding and Wact is a
+learnable projection with a hyperbolic tangent activation.
+cvis,0
+t
+“ SoftATTNpf t, st´1q is the weighted sum of the
+candidate features f t, where the weights are produced by a
+dot-product based soft-attention [54] using the agent’s past
+state st´1 as query. Then, the current state st is applied to
+compute the updated textual and visual features as clang
+t
+“
+SoftATTNpX, stq and cvis,1
+t
+“ SoftATTNpf t, stq. Finally,
+the probability of each candidate directions is computed as
+pt,i “ Softmax
+´”
+st; cvis,1
+t
+; clang
+t
+ı
+Wa
+`
+f t,iWb
+˘T ¯
+(8)
+In inference, the agent will select the view with the greatest
+probability and navigate to the waypoint in that view.
+VLN
+œ
+BERT
+We apply the PREVALENT variant [21]
+of the VLN
+œ
+BERT [25] with slight modiﬁcations in our
+experiments.
+Speciﬁcally, we remove the cross-modal
+matching in state reﬁnement since the method compli-
+cates the network while leading to a trivial improvement.
+VLN
+œ
+BERT applies a multi-layer transformers to perform
+cross-modal soft-attention across the agent state, encoded
+language and visual features:
+st, pt “ VLN
+œ
+BERTpsd
+t´1, X, f tq
+(9)
+where sd
+t´1 “ rst´1; at´1sW act is the previous state with
+directional encoding, pt is the action probabilities com-
+puted as the mean attention weights of the visual tokens f t
+over all the attention heads in the last transformer layer with
+respect to the state.
+B.2. Training (§5.1)
+All agents in our experiments are trained using imi-
+tation learning (IL) with a cross-entropy loss on the ac-
+tion probabilities pt and the oracle action a˚
+t as LIL “
+´ ř
+t a˚
+t log pptq where the oracle action is to the way-
+point which has the shortest geodesic distance to the target,
+among all predicted waypoints. The oracle stop is positive
+when the geodesic distance between the agent and the tar-
+get is shorter than 1.5 meters. Note that, in some rare cases
+(Figure 11), the candidate waypoints predictor might not
+be able to return a waypoint that brings the agent closer to
+the target7. In order to allow the agent to explore the en-
+vironment while learning from teacher actions, we control
+the agent with schedule sampling [5] to sample an action
+between oracle and prediction at each step.
+7We experiment with taking the oracle action at each step for samples
+in unseen environments in the original VLN-CE data, results show that
+only 2% of agents cannot reach within 3 meters to the target.
+Oracle Actions in RxR-CE
+Each path in RxR-CE [34] is
+composed of multiple shortest sub-paths traversing through
+a sequence of rooms, which is not necessarily the short-
+est path to the target. As a result, we design a different
+method to determine the oracle actions: At each time step,
+we compute a sub-goal as the intersection of a 3-meter ring
+centered at the agent and the ground-truth path. Then, the
+oracle action is to the waypoint which has the shortest sum
+of geodesic distances from the agent to the waypoint and
+from the waypoint to the sub-goal. If there is more than
+one intersection, we use the one that is the farthest on the
+ground-truth path as the sub-goal. If there is no intersection,
+we apply the latest sub-goal as the current sub-goal to push
+the agent to return to the ground-truth path.
+Initialization
+The VLN
+œ
+BERT is initialized from the
+pre-trained PREVALENT model [21]. When training on
+RxR-CE [34], we apply the multilingual BERT features
+to initialize the word embeddings in both the CMA and
+VLN
+œ
+BERT. We train each model three times each for a
+different language and combine the results at the end for
+submitting to the test server.
+Hardware and Time Cost
+On R2R-CE, we train the
+CMA and the VLN
+œ
+BERT for 50 epochs with a batch size
+of 16, both models take about 3.5 days to complete using a
+single NVIDIA RTX 3090 GPU. On RxR-CE, we train the
+models for 25 epochs on a single GPU, with a batch size of
+16 and 8 for the CMA and the VLN
+œ
+BERT, respectively.
+The training takes about 3 days per language due to the mul-
+tilingual and larger dataset, and longer paths.
+B.3. Evaluation Metrics (§3.1)
+Trajectory Length (TL): the average navigation path
+length in meters, Navigation Error (NE): the average dis-
+tance between the target and the agent’s ﬁnal position in
+meters, Success Rate (SR): the ratio of stopping within 3
+meters to the target, Success weighted by the normalized
+inverse of the Path Length (SPL) [1], normalized Dynamic
+Time Warping (nDTW) and Success weighted by normal-
+ized Dynamic Time Warping (SDTW) [27]. While SR fo-
+cuses on the accuracy of agent’s decisions, SPL measures if
+the agent navigates efﬁciently, nDTW and SDTW measure
+if the agent follows the given instructions by computing the
+similarity between the executed path and the ground-truth
+path.
+14
+
+
+C. Visualization (§5.2)
+Figure 10 and Figure 11 visualize the agent’s trajecto-
+ries and the predicted waypoints at each step. As shown by
+the waypoints (indicated with cylinders) in panoramas and
+the occupancy maps, most of the predictions are nicely po-
+sitioned at accessible spaces, pointing towards explorable
+directions around the agent. Thanks to the predicted way-
+points, the agent often only needs to make a few decisions
+for completing a long navigation task. However, in some
+cases, e.g. Figure 11.(Right); the agent is not able to explore
+certain part of the environment when the predictor fails to
+produce a waypoints, which disturbs the training and in-
+hibits the navigation. We suggest that future work to utilize
+the online structural information (e.g. depth) and agent’s
+behavior, or to make the predictor to collaborate with the
+agent for producing more ﬂexible waypoints.
+D. Simulator Conﬁgurations (§5.1)
+According to the ofﬁcial conﬁgurations8, agents in R2R-
+CE [3, 33] and in RxR-CE [34] are set up differently in
+Habitat [49].
+For example, agent in RxR-CE is shorter
+in height so that it can access places in the environments
+where an R2R-CE agent cannot reach.
+For a fair com-
+parison to previous works, agents in our experiments are
+set up with the standard dimensions for R2R-CE and RxR-
+CE, respectively. On the other hand, to facilitate the use of
+the same waypoints predictor and the powerful pre-trained
+depth-encoder [57] in the two datasets, as well as to de-
+crease the rendering cost, we adjust the camera parameters
+in RxR-CE. Some key conﬁgurations are listed here, where
+the commented numbers are the original values.
+R2R-CE
+Conﬁgurations:
+FORWARD_STEP_SIZE: 0.25
+TURN_ANGLE: 3x
+#30
+AGENT:
+HEIGHT: 1.50
+RADIUS: 0.10
+HABITAT_SIM:
+ALLOW_SLIDING: True
+RGB_SENSOR:
+WIDTH: 224
+HEIGHT: 224
+HFOV: 90
+DEPTH_SENSOR:
+WIDTH: 256
+HEIGHT: 256
+HFOV: 90
+8R2R-CE code:
+https://github.com/jacobkrantz/VLN-CE, RxR-CE
+code: https://github.com/jacobkrantz/VLN-CE/tree/rxr-habitat-challenge.
+RxR-CE
+Conﬁgurations:
+FORWARD_STEP_SIZE: 0.25
+TURN_ANGLE: 3x
+#30
+AGENT:
+HEIGHT: 0.88
+RADIUS: 0.18
+HABITAT_SIM:
+ALLOW_SLIDING: False
+RGB_SENSOR:
+WIDTH: 224
+#640
+HEIGHT: 224
+#480
+HFOV: 90
+#79
+DEPTH_SENSOR:
+WIDTH: 256
+#640
+HEIGHT: 256
+#480
+HFOV: 90
+#79
+3x indicates that the step-wise turning angle is a value in
+p0˝, 3˝, . . . , 357˝q, according to the angular precision of the
+waypoints predictor.
+Turning Angles
+We would like to point out that a
+TURN_ANGLE of 30˝ is likely to be unreasonable in the of-
+ﬁcial RxR-CE conﬁgurations because such a large turning
+angle will prevent the agent from heading to certain nav-
+igable directions. Moreover, since the ground-truth con-
+tinuous paths (and the step-wise ground-truth actions) in
+RxR-CE are generated using a 30˝ turning angle, it results
+in a large number of zigzag steps while the agent should
+walks a straight line9. As a result, the original ground-truth
+paths are inappropriate for imitation learning or for evaluat-
+ing SPL and nDTW. On the other hand, our waypoints pre-
+dictor enables an efﬁcient imitation learning without using
+ground-truths computed with a pre-deﬁned ﬁxed angle.
+Sliding
+Unlike R2R-CE, agents in RxR-CE are not al-
+lowed to slide along obstacles on collision, which drasti-
+cally increases the difﬁculty of the task and results in agents
+that can easily fall into deadlocks. To address this issue, we
+ﬁrst constrain the vast majority of predicted waypoints to be
+positioned in open space by stopping augmenting waypoints
+during training, so that an agent has less probability of hit-
+ting obstacles. Moreover, we implement a simple function
+which runs some test steps to check for navigability around
+the agent when it is stuck at the same position, and assists
+the agent to escape from deadlocks.
+Table 8 compares the navigation performance in RxR-
+CE with and without allowing the agents to slide along ob-
+stacles on collision. For each model, we train three mono-
+lingual agents independently, the results are averaged and
+9The inﬂection coefﬁcient of steps is only 1.9 for trajectories in RxR-
+CE, suggesting that the agent changes actions unreasonably frequently.
+This number is about 3.2 in R2R-CE when using a 15˝ turning angle.
+15
+
+
+Model
+No Sliding Unseen RxR
+Sliding Unseen RxR
+NEÓ
+SRÒ
+SPLÒ
+nDTWÒ
+NEÓ
+SRÒ
+SPLÒ
+nDTWÒ
+CMA
+8.76
+26.59
+22.16
+47.05
+8.08
+31.36
+26.93
+47.36
+VLN
+œ
+BERT
+8.98
+27.08
+22.65
+46.71
+7.62
+33.25
+28.45
+47.57
+Table 8. Agents performance with and without sliding.
+presented in the table. By enabling sliding (in which case
+the waypoint augmentation can be applied), both the CMA
+and the VLN
+œ
+BERT achieve signiﬁcantly better results.
+E. Limitations (§4.1 & §5.2)
+In this section, we would like to share some limitations
+of our proposed method, i.e. the candidate waypoints pre-
+dictor. Although our experiments demonstrate the high ac-
+curacy and the strong generalization ability of the module,
+we believe this information will shine some light on po-
+tential room for improvement and greatly beneﬁt future re-
+search following this work.
+Number of Candidates
+We limit the maximum number
+of predicted waypoints to be 5 at any position to reduce the
+computational cost and stabilize the training of the agents.
+However, there exists some spatial structures where a po-
+sition can lead to more navigable directions. We suggest
+future work to consider a dynamic number of waypoints at
+different positions.
+Prediction at Rare Structures
+As shown in Figure 11, at
+some rare structures in the environment such as stairs, the
+candidate waypoints predictor fails to produce a waypoint
+on stairs and therefore inhibits agent’s navigation. The main
+reason behind this issue is the amount of training samples
+for the predictor is insufﬁcient at those structures. Future
+work can identify rare structures to sample more data and
+improve the loss function to balance the learning.
+Online Prediction Adjustment
+Our agent fully trusts
+and applies the predicted waypoints to navigate, which re-
+sults in issues mentioned above. This problem is more se-
+vere in RxR-CE as the agents can easily enter deadlocks
+but the predicted waypoints cannot help the agents to es-
+cape from them. We suggest future work to equip the agent
+with the ability to adjust waypoints according to the local
+structure or the agent’s control outcomes.
+Update Waypoints Predictor
+Although our candidate
+waypoints predictor demonstrates high accuracy in unseen
+MP3D [6] environments, it is unclear if it can be trans-
+ferred to other distinct and out-of-domain scenes. It would
+be valuable to develop a waypoints predictor which can be
+updated to adapt new environments (even without the pre-
+deﬁned connectivity graphs).
+State-Conditioned Waypoints Prediction
+In this work,
+we argue that decoupling the waypoint prediction and
+agent’s decision making can reduce agent’s state space and
+facilitates learning. However, we also recognize that the
+state information such as the navigation progress and land-
+marks in instruction could beneﬁt the waypoints predictor
+for creating more effective waypoints to reach the target.
+Future work could combine the two ideas to build a way-
+points predictor that promotes the navigation.
+F. Societal Impact
+In this research, we apply the R2R-CE [3] and the RxR-
+CE [34] datasets, which are available under license from
+Matterport3D [6]. The datasets contain thousands of pho-
+tos of indoor environments and instructions in different lan-
+guages for traversing the environments; None of the pho-
+tos contain recognizable individuals and none of the in-
+structions contain inappropriate language. Experiments are
+safely and conﬁdentially performed in the Habitat Simula-
+tor [49]. This research is at the early stages of pushing to-
+wards embodied AI that follows human instructions, there
+are minimal ethical, privacy or safety concerns. In the fu-
+ture, if a such robot is implemented in real-world, it could
+beneﬁt the society by assisting people with daily work.
+16
+
+
+Environment A, floor 1-2
+Environment B, floor 1
+Environment C, floor 1
+Environment D, floor 1-2
+Environment E, floor 1-2
+Environment F, floor 1
+Figure 8. Our Habitat-MP3D graphs.
+17
+
+
+MP3D Graphs
+Habitat-MP3D Graphs
+Figure 9. MP3D graphs versus our Habitat-MP3D graphs.
+18
+
+
+Step 1: Forward
+Step 2: Forward
+Step 3: Forward
+Step 4: Forward
+Step 5: Forward
+Step 6: Forward
+Step 7: Forward
+Step 8: Stop
+Instruction: Walk through doorway to exit room, turn right in hallway and
+walk towards display cabinet, turn left at end of hallway, enter room, walk
+past bed, walk through doorway on the left after dresser, stop in front of sink.
+PL: 9.27
+NE: 0.62
+SPL: 88.51
+nDTW: 93.35
+Navigation Successful
+Step 1: Forward
+Step 2: Forward
+Step 3: Forward
+Step 4: Forward
+Step 5: Forward
+Step 7: Stop
+PL: 9.01
+NE: 0.59
+SPL: 0.91
+nDTW: 95.73
+Navigation Successful
+Instruction: In the entry way go up the stairs and in the hallway at the top
+take a left and go past the dining room into the entry way with the stairs on
+the right side and stop right between the bottom of the first stair and the
+console table on the left.
+Step 6: Forward
+Figure 10. Visualization of trajectories and predicted waypoints. Both samples are successful cases in unseen environments.
+19
+
+
+Step 1: Forward
+Step 2: Forward
+Step 3: Forward
+Step 4: Forward
+Step 5: Forward
+Step 6: Forward
+Step 7: Forward
+Step 8: Stop
+Instruction: Go straight through the kitchen then turn right and head down
+the hall then turn right and head all the way down into the bedroom. Wait at
+the entrance.
+PL: 9.50
+NE: 0.23
+SPL: 89.56
+nDTW: 95.13
+Navigation Successful
+PL: 37.15 NE: 8.95 SPL: 0.00 nDTW 18.45 Failed after 20 High-Level Steps
+Instruction: Enter the room and turn around to see the stairs. Go up the
+stairs, then take a right, and stop in the bedroom doorway.
+Step 2: Forward
+Step 3: Forward
+Step 4: Forward
+Step 5: Forward
+Step 6: Forward
+Step 7: Forward
+Step 8: Forward
+Step 1: Forward
+Figure 11. Visualization of trajectories and predicted waypoints. Left: The waypoints predictor produces inaccessible waypoints during
+navigation (step 2), but the agent avoids choosing those waypoints and eventually reaches the target. Right: The waypoints predictor fails
+to provide a waypoint on the staircase, so that the agent wanders around the landing and unable to reach the target.
+20

@@ -1,0 +1,4174 @@
+VLN
+œ
+BERT: A Recurrent Vision-and-Language BERT for Navigation
+Yicong Hong1
+Qi Wu2
+Yuankai Qi2
+Cristian Rodriguez-Opazo1,2
+Stephen Gould1
+1The Australian National University
+2The University of Adelaide
+Australian Centre for Robotic Vision
+{yicong.hong, cristian.rodriguez, stephen.gould}@anu.edu.au
+qi.wu01@adelaide.edu.au, qykshr@gmail.com
+Project URL: https://github.com/YicongHong/Recurrent-VLN-BERT
+Abstract
+Accuracy of many visiolinguistic tasks has beneﬁted
+signiﬁcantly from the application of vision-and-language
+(V&L) BERT. However, its application for the task of vision-
+and-language navigation (VLN) remains limited. One rea-
+son for this is the difﬁculty adapting the BERT architecture
+to the partially observable Markov decision process present
+in VLN, requiring history-dependent attention and decision
+making. In this paper we propose a recurrent BERT model
+that is time-aware for use in VLN. Speciﬁcally, we equip
+the BERT model with a recurrent function that maintains
+cross-modal state information for the agent. Through ex-
+tensive experiments on R2R and REVERIE we demonstrate
+that our model can replace more complex encoder-decoder
+models to achieve state-of-the-art results. Moreover, our
+approach can be generalised to other transformer-based ar-
+chitectures, supports pre-training, and is capable of solving
+navigation and referring expression tasks simultaneously.
+1. Introduction
+Asking a robot to navigate in complex environments fol-
+lowing human instructions has been a long-term goal in AI
+research. Recently, a great variety of vision-and-language
+navigation (VLN) setups [4, 47, 55] have been introduced
+for relevant studies and a large number of works explore
+different methods to leverage visual and language clues to
+assist navigation. For example, in the popular R2R naviga-
+tion task [4], enhancing the learning of visual-textual cor-
+respondence is essential for the agent to correctly interpret
+the instruction and perceive the environment.
+On the other hand, recent work on vision-and-language
+pre-training has achieved signiﬁcant improvement over a
+wide range of visiolinguistic problems. Instead of designing
+complex and monolithic models for different tasks, those
+[        ]
+ State 
+[                                                                   ]
+𝑣𝑛
+𝑡
+𝑣3
+𝑡
+𝑣2
+𝑡
+𝑣1
+𝑡
+Multi-Layer Transformer
+...
+𝑑𝑡
+ Observation      
+𝑉𝑡
+Recurrence
+Decision
+𝑠𝑡
+Figure 1. Recurrent multi-layer Transformer for addressing par-
+tially observable inputs. A state token is deﬁned along with the
+input sequence. At each time step, a new state representation st
+will be generated based on the new observation. Meanwhile, the
+past information will help inferring a new decision dt.
+methods pre-train a multi-layer Transformer [56] on a large
+number of image-text pairs to learn generic cross-modal
+representations [9, 29, 31, 33, 36, 51, 53], known as V&L
+BERT (Bidirectional Encoder Representations from Trans-
+formers [12]). Such advances have inspired us to employ
+V&L BERT for VLN, replacing the complicated modules
+for modelling cross-modal relationships and allowing the
+learning of navigation to adequately beneﬁt from the pre-
+trained visual-textual knowledge. Unlike recent works on
+VLN, which apply a pre-trained V&L BERT only for en-
+coding language [16, 32] or for measuring the instruction-
+path compatibility [40], we propose to use existing V&L
+BERT models themselves for learning to navigate.
+However, an essential difference between VLN and other
+vision-and-language tasks is that VLN can be considered as
+a partially observable Markov decision process, in which
+future observations are dependent on the agent’s current
+state and action. Meanwhile, at each navigational step, the
+visual observation only corresponds to partial instruction,
+requiring the agent to keep track of the navigation progress
+and correctly localise the relevant sub-instruction to gain
+useful information for decision making. Another difﬁculty
+of applying V&L BERT for VLN is the high demand on
+computational power; since the navigational episode could
+1
+arXiv:2011.13922v2  [cs.CV]  28 Mar 2021
+
+
+be very long, performing self-attention on a long visual and
+textual sequence at each time step will cost an excessive
+amount of (GPU) memory during training.
+To address the aforementioned problems, we propose a
+recurrent vision-and-language BERT for navigation, or sim-
+ply VLN
+œ
+BERT. Instead of employing large-scale datasets
+for pre-training which usually require thousands of GPU
+hours, the aim of this work is to allow the learning of
+VLN to adequately beneﬁt from pre-trained V&L BERT.
+Based on the previously proposed V&L BERT models, we
+implement a recurrent function in their original architec-
+ture (Fig. 1) to model and leverage the history-dependent
+state representations, without explicitly deﬁning a memory
+buffer [64] or applying any external recurrent modules such
+as an LSTM [18]. To reduce the memory consumption, we
+control the self-attention to consider the language tokens as
+keys and values but not queries during navigation, which
+is similar to the cross-modality encoder in LXMERT [53].
+Such design greatly reduces the memory usage so that the
+entire model can be trained on a single GPU without perfor-
+mance degeneration. Furthermore, as in the original V&L
+BERT, our proposed model has the potential of multi-task
+learning, it is able to address other vision and language
+problems along with the navigation task.
+We employ two datasets to evaluate the performance
+of our VLN
+œ
+BERT, R2R [4] and REVERIE [47]. The
+chosen datasets are different in terms of the provided vi-
+sual clues, the instructions and the goal. Our agent, ini-
+tialised from a pre-trained V&L BERT and ﬁne-tuned on the
+two datasets, achieves state-of-the-art results. We also ini-
+tialise our model with the PREVALENT [16], a LXMERT-
+like model pre-trained for VLN. On the test split of R2R
+[4], it improves the Success Rate absolutely by 8% and
+achieves 57% Success weighted by Path Length (SPL). For
+the remote referring expression task in REVERIE [47], our
+agent obtains 23.99% navigation SPL and 13.51% Remote
+Grounding SPL. These results indicate the strong generali-
+sation ability of our proposed VLN
+œ
+BERT as well as the
+potential of using it for merging the learning of VLN with
+other vision and language tasks.
+2. Related Work
+Vision-and-Language Navigation
+Learning navigation
+with visual-linguistic clues has drawn signiﬁcant research
+interests. The recent R2R [4] and Touchdown [8] datasets
+introduce human natural language as guidance and ap-
+ply photo-realistic environments for navigation. Following
+these work, dialog-based navigation such as CVDN [55],
+VNLA [44] and HANNA [43], navigation for localising a
+remote object such as REVERIE [47], VLN in continuous
+environment [25], and multilingual navigation with spatial-
+temporal grounding such as RxR [27] have been proposed
+for further research.
+One crucial challenge in VLN is to understand the
+visual-textual correspondence for decision making.
+To
+achieve this, Self-Monitoring [39] and RCM [58] adopt
+cross-modal attention to highlight the relevant observations
+and instruction at each step. Speaker-Follower [13] and En-
+vDrop [54] learn on the augmented training data via a self-
+supervised manner. FAST [22] resorts self-correction navi-
+gation, while APS [14] samples adversarial paths for train-
+ing to enhance the model’s ability to generalise. AuxRN
+[63] applies several auxiliary losses to learn comprehensive
+representations, Qi et al. [46] and Wang et al. [57] also de-
+sign loss functions to encourage the agent to follow the in-
+structions to take the shortest paths. More recently, Hong
+et al. [19] propose a graph network to model the intra- and
+inter-modal relationships among the contextual and visual
+clues. The great improvements achieved by these methods
+encourage researchers to explore simpler and more power-
+ful visiolinguistic learning network for VLN.
+Visual BERT Pre-Training
+Following the success of
+pre-trained BERT on a wide range of natural language pro-
+cessing tasks [12], the model has been extended to process
+visual tokens and to pre-train on large-scale image/video-
+text pairs for learning generic visual-linguistic representa-
+tions. Previous research introduce two-stream BERT mod-
+els which encode texts and images separately, and fuse the
+two modalities in a later stage [36, 53], as well as one-
+stream BERT models which directly perform inter-modal
+grounding [9, 29, 31, 33, 51]. Although video BERT ap-
+proaches have been proposed to learn the correspondence
+between texts and video frames [30, 38, 52, 60], we are the
+ﬁrst to integrate recurrence into BERT to learn partially-
+observable and temporal-dependent inputs.
+In terms of
+VLN pre-training, PRESS ﬁne tunes a pre-trained language
+BERT to encode instructions [32], PREVALENT trains a
+V&L BERT on a large amount of image-text-action triplets
+from scratch to learn navigation-oriented textual representa-
+tions [16], and VLN-BERT [40] ﬁne-tunes a ViLBERT [36]
+on instruction-trajectory pairs to measure their compatibil-
+ity in beam search setting. Unlike all previous work, our
+VLN
+œ
+BERT
+can augment various V&L BERT models
+with recurrent function, it is a navigator network by itself
+that can be directly trained for navigation.
+V&L Multi-Task Learning
+Instead of building a mono-
+lithic model for different V&L tasks, numbers of previous
+work explore multi-task learning with a uniﬁed model for
+utilising the common and the complementary knowledge to
+reduce the domain gap [34, 42, 45, 50, 36]. Very recently,
+12-in-1 [37] trains a single ViLBERT [36] on 12 different
+datasets across four categories of V&L tasks, including vi-
+sual question answering, referring expressions, multi-modal
+veriﬁcation and caption-based image retrieval. In Vision-
+and-Language Navigation, Wang et al. [59] propose a multi-
+task navigation model to address the R2R navigation [4] and
+2
+
+
+...
+Word tokens
+Instruction
+Embeddings
+Multi-Layer Transformer
+,
+,
+𝐾𝐿
+0 𝑄𝐿
+0 𝑉𝐿
+0
+State &
+Contexts
+ Initialisation 
+Embeddings
+Multi-Layer Transformer
+,
+𝐾𝐿
+𝑡−1 𝑉𝐿
+𝑡−1
+New state &
+Contexts
+,
+,
+𝐾𝑆
+0 𝑄𝑆
+0 𝑉𝑆
+0
+,
+,
+𝐾𝑆
+𝑡−1 𝑄𝑆
+𝑡−1 𝑉𝑆
+𝑡−1
+[CLS]
+Walk
+bar
+past
+the
+sofa ...
+...
+stop
+at
+the
+[SEP]
+...
+ Navigation 
+...
+...
+...
+Observation
+Scene
+Agent
+ResNet-152
+Faster-RCNN
+Visual tokens
+,
+,
+𝐾𝑉
+𝑡
+𝑄𝑉
+𝑡
+𝑉𝑉
+𝑡
+,
+,
+𝐾𝑂
+𝑡
+𝑄𝑂
+𝑡
+𝑉𝑂
+𝑡
+Model
+Model
+Action
+probs
+REF
+probs
+𝑠𝑡
+𝑠0
+...
+...
+𝑝𝑎
+𝑡
+𝑝𝑜
+𝑡
+𝑠𝑡−1
+(R2R & 
+REVERIE)
+Objects
+(REVERIE)
+Figure 2. Schematics of the Recurrent Vision-and-Language BERT. At the initialisation stage, the entire instruction is encoded by a multi-
+layer Transformer, where the output feature of the [CLS] token serves as the initial state representation of the agent. During navigation,
+the concatenated sequence of state, encoded language and new visual observation is fed to the same Transformer to obtain the updated state
+and decision probabilities. The updated state and the language encoding from initialisation will be fused and applied as input at the next
+time step. The green star ( ) indicates the cross-modal matching (Eq. 12) and the past decision encoding (Eq. 13) in State Reﬁnement.
+the Navigation from Dialog History (NDH) [55] problems.
+Comparing to previous methods, our VLN
+œ
+BERT uses a
+single network to address the navigation task and the remote
+referring expression task seamlessly in REVERIE [47].
+3. Proposed Model
+In this section, we ﬁrst deﬁne the vision-and-language
+navigation task, then we revisit the BERT model [12] and
+present the architecture of our proposed VLN
+œ
+BERT .
+3.1. VLN Background
+The problem of VLN can be formulated as follows:
+Given a natural language instruction U which contains a
+sequence of words, at each time step t, the agent observes
+the environment and infers an action at that transfers the
+agent from state st to a new state st`1. The state consists
+of the navigational history and the current spatial position
+deﬁned by a triplet xCt, θt, φty, where Ct is a viewpoint
+on the pre-deﬁned connectivity graph of the environment
+[4], and θt and φt are the angles of heading and elevation,
+respectively. The agent needs to execute a sequence of ac-
+tions to navigate on the connectivity graph and eventually
+decides to stop at the target position to complete the task.
+3.2. Revisit BERT
+Bidirectional Encoder Representations from Transform-
+ers (BERT) [12] is a multi-layer Transformer architec-
+ture [56] designed to pre-train deep bidirectional language
+representations. Each layer of the Transformer encodes the
+language features from the previous layer Xl´1 P RIˆhdh
+with multi-head self-attention to capture the dependencies
+among the I words in the sentence, and applies a residual
+feed-forward network to process the output features.
+Formally, the k-th attention head at the l-th layer per-
+forms self-attention over Xl´1 as
+Q “ Xl´1W Q
+l,k, K “ Xl´1W K
+l,k, V “ Xl´1W V
+l,k (1)
+Hl,k “ Softmax
+˜
+QKJ
+?dh
+¸
+V
+(2)
+where W Q, W K and W V P Rhdhˆdh are learnable linear
+projections1 speciﬁcally for queries, keys and values; dh is
+the hidden dimension of the network. The outputs from all
+the attention heads will be concatenated and projected onto
+the same dimension as the input as
+Hl “ rHl,1; ...; Hl,hs W O
+l
+(3)
+1All W in this section denotes learnable linear projections
+3
+
+
+where h is the total number of heads, r; s denotes concate-
+nation and W O P Rhdhˆhdh is a learned linear projection.
+Finally, the output of layer l is formulated by
+H1
+l “ LayerNormpHl ` Xl´1q
+(4)
+X1
+l “ ReLUpH1
+lW F1
+l qW F2
+l
+(5)
+Xl “ LayerNormpH1
+l ` X1
+lq
+(6)
+where ReLU is the Rectiﬁed Linear Unit activation function
+and LayerNorm is layer normalisation [5].
+Based on this architecture, BERT has been extended to
+V&L BERT [9, 29, 31, 33, 36, 51, 53], which takes the con-
+catenation of language tokens and visual tokens as input,
+and pre-trains on image-text corpus to learn generic visi-
+olinguistic representations.
+3.3. Recurrent VLN BERT
+The idea of our VLN
+œ
+BERT can be adapted to a wide
+range of Transformer-based networks. In this section we
+apply the recently proposed one-stream V&L BERT model
+OSCAR [33] for demonstration. We modify the model to
+enable the learning of navigation and the associated refer-
+ring expression (REF) task. As shown in Fig. 2, at each time
+step, the network takes four sets of tokens as input; the pre-
+vious state token st´1, the language tokens X, the visual to-
+kens V t for scene, and the visual tokens Ot for objects (only
+in REVERIE [47]). Then, it performs self-attention over
+these cross-modal tokens to capture the textual-visual cor-
+respondence for inferring the action probabilities pa
+t and the
+object grounding probabilities po
+t (only in REVERIE [47]):
+st, pa
+t , po
+t “ VLN
+œ
+BERTpst´1, X, V t, Otq
+(7)
+Language Processing
+At initialisation (t“0), a sequence
+of words consisting of the classiﬁcation token [CLS], the
+language tokens of the instruction U and the separation to-
+ken [SEP] will be fed into VLN
+œ
+BERT, where [CLS]
+and [SEP] are pre-deﬁned in BERT models. In the pre-
+training of OSCAR [33], the [CLS] token is applied for
+aggregating relevant visiolinguistic clues from the input se-
+quence for contrastive learning. Here, we deﬁned the em-
+bedded [CLS] token as the initial state representation s0,
+to inherit such function — initialise an agent’s state which
+is aware of the entire navigation task.
+s0, X “ VLN
+œ
+BERTp[CLS], U, [SEP]q
+(8)
+During navigation steps (tą0), unlike the state token st or
+the visual tokens V t and Ot which performs self-attention
+with respect to the entire input sequence, the language to-
+kens X only serve as the keys and values in the Trans-
+former. We consider the language tokens produced by the
+model at the initialisation step as a deep representation of
+the instruction which does not need to be further encoded in
+later steps. Not updating the language features also save a
+huge amount of computational resources since the instruc-
+tion and the trajectory can be long in VLN problems.
+Vision Processing
+At each navigation step (tą0), the
+agent makes new visual observation in the environment and
+uses the visual clues to assist navigation. To process the vi-
+sual clues, the network ﬁrst projects the image features of
+views at the navigable directions Iv
+t to the same space as
+the BERT token as V t“Iv
+t W Iv. Then, the visual tokens
+will be concatenated with the state token and the language
+tokens, and fed into the model.
+In terms of the remote REF task [47], we simply consider
+the object features Io
+t as additional visual tokens in the in-
+put sequence. Similarly, the features will be projected onto
+the token space as Ot“Io
+tW Io and fed into the model. The
+object clues can provide valuable information about the im-
+portant landmarks on the path, which could be very helpful
+to the navigation with high-level instructions [47].
+State Representation
+We formulate the agent’s state at
+each time step st as the summary of all textual and visual
+clues that the agent collects, as well as all decisions that the
+agent makes until the current viewpoint. Instead of explic-
+itly deﬁning a memory buffer [64] or implementing an addi-
+tional recurrent network [18] to store the past experiences,
+our model relies on BERT’s original architecture to recog-
+nise time-dependent inputs, and recurrently updates s0 from
+initialisation to represent the state. At each navigation step,
+the state representation is used as the leading input token of
+the entire textual-visual sequence. It then performs inter-
+modal self-attention in VLN
+œ
+BERT with other tokens to
+update its content and becomes the leading token of the in-
+put at the next step, in an autoregressive way.
+State Reﬁnement
+Unlike most of the V&L BERT models
+which apply the output feature of the [CLS] token for clas-
+siﬁcation, our state is not directly used for inferring a de-
+cision (see following Decision Making subsection), which
+means, the vanilla state representation is not explicitly en-
+forced to capture the most important language and visual
+features. To address this issue, our model matches the raw
+textual and visual tokens, and feeds the output to the state
+representation. Formally, let Qs
+l,k and Kx
+l,k be the state
+and textual tokens at head k of the ﬁnal (l“12) layer of
+VLN
+œ
+BERT, the attention scores over the textual tokens
+can be expressed as:
+As,x
+l,k “ Qs
+l,kKx
+l,k
+J
+?dh
+(9)
+Then, we average the scores over all the attention heads
+(K“12) and apply a Softmax function to get the overall
+state-language attention weights as:
+rA
+s,x
+l
+“ Softmaxp sA
+s,x
+l
+q “ Softmax
+˜
+1
+K
+K
+ÿ
+k“1
+As,x
+l,k
+¸
+(10)
+4
+
+
+Similarly, the visual attention scores As,v
+l,k and weights rA
+s,v
+l
+can be obtained. Now, we perform a weighted sum over the
+input textual tokens and visual tokens respectively to obtain
+the weighted raw features as:
+F x
+t “ rA
+s,x
+l
+X
+and
+F v
+t “ rA
+s,v
+l
+V t
+(11)
+We then enforce a cross-modal matching between the raw
+textual and visual features via element-wise product and
+send such information to the agent’s state as:
+sf
+t “ rsr
+t; F x
+t d F v
+t s W r
+(12)
+where sr
+t is the output state features at the ﬁnal layer.
+Notice that in REVERIE [47], only the visual features is
+sent to the state representation, i.e., Eq. 12 becomes sf
+t “
+rsr
+t; F v
+t s W r. This is because the navigational instructions
+in REVERIE are high-level, hence performing step-wise
+matching between the raw textual and visual features is less
+valuable.
+Finally, past decisions are important for the agent to keep
+track of the navigation progress, our network records the
+new decision by feeding the directional features of the se-
+lected action at into the state token as:
+st “
+”
+sf
+t ; at
+ı
+W s
+(13)
+where st is the new representation of the agent’s state at
+time step t.
+Decision Making
+Many previous VLN agents apply an
+inner product between the state representation and the vi-
+sual features at candidate directions to evaluate the state-
+vision correspondence, and choose a direction with the
+highest matching score to navigate [39, 54]. We ﬁnd that
+the BERT network can nicely perform such scoring because
+it is fully built upon the inner product based soft-attention.
+Inspired by the method of predicting alignment between re-
+gions and phrases in VisualBERT [31], we directly apply
+the mean attention weights of the visual tokens over all the
+attention heads in the last layer, with respect to the state, as
+the action probabilities, simply pa
+t “ rA
+s,v
+l
+(as deﬁned in
+Eq. 10). As for the remote referring expression task [47],
+our agent uses the same method to select an object. The se-
+lection probabilities can be expressed as po
+t “ rA
+s,o
+l
+, where
+rA
+s,o
+l
+is the mean attention weights for all candidate objects.
+We refer the Appendix §B.2 for more details.
+3.4. Training
+We train our network with a mixture of reinforcement
+learning (RL) and imitation learning (IL) objectives. We ap-
+ply A2C [41] for RL, in which the agent samples an action
+according to pa
+t and measures the advantage At at each step
+(we refer the Appendix §B.5 for more details about RL.). In
+IL, our agent navigates on the ground-truth trajectory by fol-
+lowing teacher actions and calculates a cross-entropy loss
+for each decision. Formally, we minimise the navigation
+loss function, expressed for each given sample, as
+L “ ´
+ÿ
+t
+as
+tlog ppa
+t q At ´ λ
+ÿ
+t
+a˚
+t log ppa
+t q
+(14)
+where as
+t is the sampled action and a˚
+t is the teacher ac-
+tion.
+Here λ is a coefﬁcient for weighting the IL loss.
+In REVERIE [47], we applied an additional cross-entropy
+term ř
+t o˚
+t logppo
+tq to learn object grounding.
+3.5. Adaptation
+We initialise the parameters of VLN
+œ
+BERT from OS-
+CAR [33] pre-trained without object tags. Although OS-
+CAR is trained on regional features, we ﬁnd that it is
+also compatible with the grid features of the entire scene.
+When adapting to the LXMERT-like [53] model in PREVA-
+LENT [16], we remove the language branch in the cross-
+modality encoder and concatenate the state token with
+the visual tokens for self-attention (see Appendix §B.3 for
+schematics). We also remove the entire downstream net-
+work EnvDrop [54], including the Speaker and the environ-
+mental dropout, and then directly ﬁne-tune the model pre-
+trained by PREVALENT for navigation.
+4. Experiments
+Implementation Details
+All experiments are conducted
+on a single NVIDIA 2080Ti GPU, the learning rate is ﬁxed
+to 10´5 throughout the training and AdamW optimiser [35]
+is applied. For R2R, we train the agent directly on the mix-
+ture of the original training data and the augmented data
+from PREVALENT [16], the batch size2 is set to 16 and the
+network is trained for 300,000 iterations. For REVERIE,
+we use batch size2 8 and train the agent for 200,000 it-
+erations.
+Images in the environments are encoded by a
+ResNet-152 [17] pre-trained on Places365 [62], and objects
+are encoded by a Faster-RCNN [49] pre-trained on the Vi-
+sual Genome [26]. Early stopping is applied when the train-
+ing saturates, the model which achieves the highest SPL in
+validation unseen split is adopted for testing.
+Evaluation Metrics
+We apply the standard metrics em-
+ployed by previous works to evaluate the performance.
+R2R [4] considers Trajectory Length (TL): the average
+path length in meters, Navigation Error (NE): the average
+distance between agent’s ﬁnal position and the target in me-
+ters, Success Rate (SR): the ratio of stopping within 3 me-
+ters to the target, and Success weighted by the normalised
+inverse of the Path Length (SPL) [2].
+2Half for RL and half for IL in each iteration, corresponding to the ﬁrst
+and the second term in Eq. 14, respectively.
+5
+
+
+Methods
+R2R Validation Seen
+R2R Validation Unseen
+R2R Test Unseen
+TL
+NEÓ
+SRÒ
+SPLÒ
+TL
+NEÓ
+SRÒ
+SPLÒ
+TL
+NEÓ
+SRÒ
+SPLÒ
+Random
+9.58
+9.45
+16
+-
+9.77
+9.23
+16
+-
+9.89
+9.79
+13
+12
+Human
+-
+-
+-
+-
+-
+-
+-
+-
+11.85
+1.61
+86
+76
+Seq2Seq-SF [4]
+11.33
+6.01
+39
+-
+8.39
+7.81
+22
+-
+8.13
+7.85
+20
+18
+Speaker-Follower [13]
+-
+3.36
+66
+-
+-
+6.62
+35
+-
+14.82
+6.62
+35
+28
+SMNA [39]
+-
+3.22
+67
+58
+-
+5.52
+45
+32
+18.04
+5.67
+48
+35
+RCM+SIL (train) [58]
+10.65
+3.53
+67
+-
+11.46
+6.09
+43
+-
+11.97
+6.12
+43
+38
+PRESS [32] :
+10.57
+4.39
+58
+55
+10.36
+5.28
+49
+45
+10.77
+5.49
+49
+45
+FAST-Short [22]
+-
+-
+-
+-
+21.17
+4.97
+56
+43
+22.08
+5.14
+54
+41
+EnvDrop [54]
+11.00
+3.99
+62
+59
+10.70
+5.22
+52
+48
+11.66
+5.23
+51
+47
+AuxRN [63]
+-
+3.33
+70
+67
+-
+5.28
+55
+50
+-
+5.15
+55
+51
+PREVALENT [16] :
+10.32
+3.67
+69
+65
+10.19
+4.71
+58
+53
+10.51
+5.30
+54
+51
+RelGraph [19]
+10.13
+3.47
+67
+65
+9.99
+4.73
+57
+53
+10.29
+4.75
+55
+52
+Ours (no init. OSCAR)
+9.78
+3.92
+62
+59
+10.31
+5.10
+50
+46
+11.15
+5.45
+51
+47
+Ours (init. OSCAR)
+10.79
+3.11
+71
+67
+11.86
+4.29
+59
+53
+12.34
+4.59
+57
+53
+Ours (init. PREVALENT)
+11.13
+2.90
+72
+68
+12.01
+3.93
+63
+57
+12.35
+4.09
+63
+57
+Table 1. Comparison of agent performance on R2R in single-run setting. : work that applies pre-trained BERT for language encoding.
+Methods
+REVERIE Validation Seen
+REVERIE Validation Unseen
+REVERIE Test Unseen
+Navigation
+RGSÒ
+RGSPLÒ
+Navigation
+RGSÒ
+RGSPLÒ
+Navigation
+RGSÒ
+RGSPLÒ
+SRÒ
+OSRÒ
+SPLÒ
+TL
+SRÒ
+OSRÒ
+SPLÒ
+TL
+SRÒ
+OSRÒ
+SPLÒ
+TL
+Random
+2.74
+8.92
+1.91
+11.99
+1.97
+1.31
+1.76
+11.93
+1.01
+10.76
+0.96
+0.56
+2.30
+8.88
+1.44
+10.34
+1.18
+0.78
+Human
+–
+–
+–
+–
+–
+–
+–
+–
+–
+–
+–
+–
+81.51
+86.83
+53.66
+21.18
+77.84
+51.44
+Seq2Seq-SF [4]
+29.59
+35.70
+24.01
+12.88
+18.97
+14.96
+4.20
+8.07
+2.84
+11.07
+2.16
+1.63
+3.99
+6.88
+3.09
+10.89
+2.00
+1.58
+RCM [58]
+23.33
+29.44
+21.82
+10.70
+16.23
+15.36
+9.29
+14.23
+6.97
+11.98
+4.89
+3.89
+7.84
+11.68
+6.67
+10.60
+3.67
+3.14
+SMNA [39]
+41.25
+43.29
+39.61
+7.54
+30.07
+28.98
+8.15
+11.28
+6.44
+9.07
+4.54
+3.61
+5.80
+8.39
+4.53
+9.23
+3.10
+2.39
+FAST-Short [22]
+45.12
+49.68
+40.18
+13.22
+31.41
+28.11
+10.08
+20.48
+6.17
+29.70
+6.24
+3.97
+14.18
+23.36
+8.74
+30.69
+7.07
+4.52
+FAST-MATTN [47]
+50.53
+55.17
+45.50
+16.35
+31.97
+29.66
+14.40
+28.20
+7.19
+45.28
+7.84
+4.67
+19.88
+30.63
+11.61
+39.05
+11.28
+6.08
+Ours (no init. OSCAR)
+39.56
+42.09
+36.29
+12.06
+21.15
+19.39
+25.76
+29.28
+22.16
+14.52
+11.62
+9.87
+18.52
+20.18
+15.47
+14.09
+8.80
+7.29
+Ours (init. OSCAR)
+39.85
+41.32
+35.86
+12.85
+24.46
+22.28
+25.53
+27.66
+21.06
+14.35
+14.20
+12.00
+24.62
+26.67
+19.48
+14.88
+12.65
+10.00
+Ours (init. PREVALENT)
+51.79
+53.90
+47.96
+13.44
+38.23
+35.61
+30.67
+35.02
+24.90
+16.78
+18.77
+15.27
+29.61
+32.91
+23.99
+15.86
+16.50
+13.51
+Table 2. Comparison of agent performance of navigation and remote referring expression on REVERIE.
+REVERIE [47] deﬁnes Success Rate (SR) as the ratio
+of stopping at a viewpoint where the target object is visi-
+ble (in panorama), and considers the corresponding SPL. It
+also employ Oracle Success Rate (OSR): the ratio of hav-
+ing a viewpoint along the trajectory where the target object
+is visible, Remote Grounding Success Rate (RGS): the ra-
+tio of grounding to the correct objects when stopped, and
+RGSPL, which weights RGS by the trajectory length.
+4.1. Main Results
+Comparison with SoTA
+Results in Table 1 compare the
+single-run (greedy search, no pre-exploration [58]) perfor-
+mance of different agents on the R2R benchmark. Our pro-
+posed VLN
+œ
+BERT
+initialised from OSCAR [33] (init.
+OSCAR) performs better than previous methods across all
+the dataset splits. Comparing to a randomly initialised net-
+work (no init. OSCAR), the large performance degenera-
+tion suggests that the pre-trained general vision-linguistic
+knowledge signiﬁcantly beneﬁts the learning of navigation.
+The model initialised from PREVALENT [16], pre-trained
+especially for VLN, further improves the agent’s perfor-
+mance, achieving 63% SR (+8%) and 57% SPL (+5%)
+on the test unseen split3.
+Comparing to PRESS [32]
+and PREVALENT [16] which only ﬁne-tune a pre-trained
+BERT for extracting language features, adding recurrence
+into V&L BERT and using the model directly as the navi-
+gator network allows the VLN learning to adequately bene-
+ﬁt from the pre-trained knowledge. Such performance gain
+cannot be achieved by using pre-trained V&L BERT only as
+a feature extractor, as will be shown in §4.2 Ablation Study.
+Moreover, the large gain in SR with a slight increase in TL
+suggests that the agent is able to navigate both accurately
+and efﬁciently. Comparing to previous methods, we can
+see that the performance gap between the validation unseen
+and the test unseen splits is greatly reduced, which means
+our agent has a stronger generalisation ability to novel in-
+structions and environments.
+In REVERIE [47] (Table 2), our VLN
+œ
+BERT (init. OS-
+CAR) generalises much better to unseen data. On the vali-
+dation unseen split, the SR of navigation and object ground-
+ing has been absolutely improved by 11.13% and 6.36%
+respectively.
+On the test unseen split3, our method ob-
+3R2R Leaderboard: https://evalai.cloudcv.org/web/challenges/challenge-
+page/97/overview, REVERIE Leaderboard:
+https://eval.ai/web/challenges/challenge-page/606/overview
+6
+
+
+tains 24.62% SR and 19.48% SPL for navigation, as well
+as 12.65% RGS and 10.00% RGSPL for REF, achieving a
+better performance than the previous best [47] which ap-
+plies SoTA navigator FAST [22] for navigation and pointer
+MATTN [61] for object grounding. Compare our model
+with OSCAR initialisation to without, the navigation re-
+sults on the validation splits are similar, but the naviga-
+tion on the test split and the object grounding across all
+the data splits are largely improved. This result also sug-
+gests that it is possible to apply a BERT-based model for
+VLN and REF multi-task learning. Although the previous
+method has higher OSR, it is likely due to longer searching
+(long TL), the lower SR suggests that the agent does not
+know where to stop correctly. In Table 2, we also present
+the performance of VLN
+œ
+BERT initialised from PREVA-
+LENT [16], which achieves the best result across almost
+all of the metrics in all dataset splits. It is very interesting
+to see that although PREVALENT is pre-trained on low-
+level R2R instructions [4] without other V&L knowledge, it
+signiﬁcantly boosts the navigation with high-level instruc-
+tions as well as the object grounding in REVERIE. We hy-
+pothesis that the pre-trained knowledge provides the model
+with some structural priors, while the learning of REF is
+strongly inﬂuenced by navigation, especially at the early
+training stage where the target object is rarely observable
+by the agent.
+Visualisation of Language Attention
+To demonstrate
+that our VLN
+œ
+BERT (init. OSCAR) is able to trace the
+navigation progress, we visualise the changes of language
+attention weights at the ﬁnal Transformer layer over all in-
+structions during navigation (Fig. 3). As the agent moves
+forward, the attention weights with respect to state shifts
+from the beginning of the instructions to the end. Since
+the sub-instructions and sub-paths for each sample in R2R
+is monotonically aligned [20], our results indicate that the
+state nicely records the partial instruction that has been
+completed. In terms of the attention weights with respect to
+the visual token at the select direction, it follows a similar
+pattern meaning that the most relevant part of the instruction
+is used for guiding the action selection.
+4.2. Ablation Study
+Network Components
+Table 3 shows comprehensive ab-
+lation experiments on the inﬂuence of using V&L BERT
+(init. OSCAR) to replace or to add the key network compo-
+nents in the baseline model (EnvDrop [54]). The baseline
+model consists of a language encoder, a visual encoder, a
+state LSTM and a decision making module, corresponding
+to the columns of Language, Vision, State and Decision in
+Table 3, respectively. E.g., Model #3 replaces the language
+encoder and visual encoder in baseline with a V&L BERT.
+For fair comparison, all models in the table are trained with
+State
+0.0
+1.0
+0.8
+0.6
+0.4
+0.2
+Visual token at selected direction
+Averaged Instructions
+Averaged Instructions
+Steps
+Steps
+Figure 3. Averaged attention weights over all instructions in val-
+idation unseen split during navigation. State: Attention weights
+with respect to the state representation. Selected Action: Attention
+weights with respect to the visual token at the selected direction.
+the same data and training strategy as our VLN
+œ
+BERT.
+As the results suggested, our proposed method is a multi-
+functional framework, the more network components it cov-
+ers, the larger performance gain it achieves. Comparing the
+baseline with Model #1 and #2, we can see that employing a
+pre-trained BERT as language encoder improves the perfor-
+mance only if the BERT is ﬁne-tuned for navigation. This
+ﬁnding is also supported by using the V&L BERT to en-
+code both the textual and visual signals (Model #3 and #4).
+However, simply using pre-trained V&L BERT as text and
+image encoders does not fully utilise its power; model #5
+indicates that relying on the original architecture of BERT
+to learn recurrence is feasible and it is able to achieve bet-
+ter results. Moreover, using the averaged visual attention
+weights of the ﬁnal layer of the Transformer as the action
+probabilities (Model #6) and enhancing the state represen-
+tation with visual-textual matching as deﬁned in Eq. 12 (full
+model) further improves the agent’s performance.
+Self-Attended Language Features
+Due to the long in-
+structions and episodes, high memory cost during training
+is one of the key issues that prevents previous research to
+apply BERT for self-attention at every time step. To demon-
+strate the inﬂuence of self-attending textual features during
+navigation, we compare the agent’s performance and the
+training time GPU memory consumption (constrained to a
+single 11GB memory GPU) of re-attending the language
+at each step. As shown in Table 4, training for Emb-Attn,
+Init-Attn and Re-Attn consume much more memory for each
+sample than performing language self-attention only at ini-
+tialisation (Ours), and their performances are worse than
+Ours. The results of Re-Attn degenerates signiﬁcantly be-
+cause at each time step the output language features aggre-
+gate the most relevant visual-textual clues at a certain view-
+point, which suppresses the valuable information in other
+part of the instruction for the future steps. We refer Ap-
+pendix §C.2 for experiment on language self-attention with
+larger batch size by applying gradient accumulation.
+7
+
+
+Models
+V&L BERT (init. OSCAR)
+R2R Validation Seen
+R2R Validation Unseen
+Language
+Vision
+State
+Decision
+Matching
+Train
+TL
+NEÓ
+SRÒ
+SPLÒ
+TL
+NEÓ
+SRÒ
+SPLÒ
+Baseline [54]
+11.84
+4.44
+57.79
+52.85
+12.50
+5.26
+49.81
+43.45
+1
+✓
+10.81
+4.98
+49.95
+46.19
+11.34
+5.68
+44.15
+39.64
+2
+✓
+✓
+11.73
+4.18
+59.26
+54.12
+12.59
+5.00
+52.11
+45.75
+3
+✓
+✓
+9.26
+6.85
+34.77
+33.33
+8.92
+7.43
+30.74
+29.05
+4
+✓
+✓
+✓
+11.37
+3.50
+67.97
+63.94
+12.98
+4.73
+54.75
+48.31
+5
+✓
+✓
+✓
+✓
+11.10
+3.81
+65.52
+61.24
+12.20
+4.62
+55.21
+49.72
+6
+✓
+✓
+✓
+✓
+✓
+10.70
+3.21
+70.32
+66.45
+11.46
+4.48
+57.22
+52.57
+Full model
+✓
+✓
+✓
+✓
+✓
+✓
+10.79
+3.11
+71.11
+67.23
+11.86
+4.29
+58.71
+53.41
+Table 3. Ablation experiments on the effect of applying V&L BERT for learning navigation. Checkmarks indicate using V&L BERT to
+replace or to add the corresponding network component in the baseline model. Matching indicates the cross-modal matching (Eq. 12), and
+Train with checkmark means the V&L BERT is ﬁne-tuned for navigation.
+Models
+R2R Validation Seen
+R2R Validation Unseen
+Batch
+Memory
+TL
+NEÓ
+SRÒ
+SPLÒ
+TL
+NEÓ
+SRÒ
+SPLÒ
+Size
+Emb-Attn
+10.84
+3.40
+67.19
+63.19
+11.31
+4.64
+55.60
+51.00
+6
+11.0GB
+Init-Attn
+10.21
+3.93
+61.80
+58.06
+10.39
+4.59
+53.47
+49.05
+6
+11.0GB
+Re-Attn
+8.99
+5.81
+40.84
+39.44
+8.85
+6.22
+37.76
+35.78
+6
+11.0GB
+Ours
+10.79
+3.11
+71.11
+67.23
+11.86
+4.29
+58.71
+53.41
+16
+9.2GB
+Table 4. Comparison of performing language self-attention: On
+the raw word embeddings at each step (Emb-Attn), on the ini-
+tialised language features at each step (Init-Attn), on the output
+language features from previous step (Re-Attn), or only at initiali-
+sation (Ours). Memory is the training time GPU memory cost.
+Learning Curves
+As shown in Fig. 4, we compare the
+learning curves of VLN
+œ
+BERT
+initialised from differ-
+ent models. The training losses of our method initialised
+from pre-trained OSCAR [33] converges faster than a ran-
+domly initialised model, and it reaches much higher SPL in
+both validation seen and unseen environments. Moreover,
+our model initialised from PREVALENT [16] learns signif-
+icantly faster than the other two methods and it is able to
+achieve a much better performance within much fewer it-
+erations. In terms of training in real time, the model init.
+OSCAR takes about 7 days4 to complete 600,000 itera-
+tions of training (best result achieved in 3.5 days), while the
+model init. PREVALENT takes about 4.5 days4 (best result
+achieved in 1 day). Using wall-clock time in Fig. 4 as the
+x-axis will enhance the discrepancy between the three mod-
+els. These results suggest that the pre-trained generic visi-
+olinguistic knowledge is beneﬁcial to the learning of VLN,
+and pre-training especially for navigation skills allows the
+agent to learn better in ﬁne-tuning.
+5. Conclusion
+In this paper, we introduce recurrence into Vision-and-
+Language BERT and rely on its original architecture to
+recognise time-dependent inputs. Such innovation allows
+V&L BERT to address problems with a partially observ-
+4Time includes evaluation on the validation splits every 2,000 itera-
+tions. Matterport 3D Simulator v0.1 is applied, whereas the latest version
+supports batches of agents so it is much more efﬁcient.
+0
+100
+200
+300
+400
+500
+600
+# Iteration (x1k)
+0.4
+0.6
+0.8
+1.0
+1.2
+1.4
+1.6
+Loss
+Train IL
+Ours (no init. OSCAR)
+Ours (init. OSCAR)
+Ours (init. PREVALENT)
+0
+100
+200
+300
+400
+500
+600
+# Iteration (x1k)
+2.5
+3.0
+3.5
+4.0
+4.5
+Train RL
+Ours (no init. OSCAR)
+Ours (init. OSCAR)
+Ours (init. PREVALENT)
+0
+100
+200
+300
+400
+500
+600
+# Iteration (x1k)
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+SPL
+Val Seen
+Ours (no init. OSCAR)
+Ours (init. OSCAR)
+Ours (init. PREVALENT)
+0
+100
+200
+300
+400
+500
+600
+# Iteration (x1k)
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+Val Unseen
+Ours (no init. OSCAR)
+Ours (init. OSCAR)
+Ours (init. PREVALENT)
+Figure 4. Comparison of the learning curves. no init. means ran-
+domly initialised network parameters.
+able Markov decision process, and allows the learning
+of downstream tasks to adequately beneﬁt from the pre-
+trained generic V&L knowledge. For VLN, our proposed
+VLN
+œ
+BERT
+applies BERT itself as the navigator net-
+work, which achieves SoTA performance in R2R [4] and
+REVERIE [47]. Moreover, results suggest that V&L BERT
+with recurrence is capable of VLN and REF multi-tasking.
+Future Work
+As suggested by the signiﬁcant improve-
+ment on R2R [4] achieved by our VLN
+œ
+BERT, we ex-
+pect that the model can improve the performance of other
+navigation settings such as street navigation [8] and navi-
+gation in continuous environments [25]. In this paper, we
+only apply our recurrent BERT for VLN. However, we be-
+lieve that it has a huge potential in addressing other tasks
+which require sequential interactions/decisions, such as lan-
+guage and visual dialog [6, 10, 24, 28, 48], dialog naviga-
+tion [11, 43, 44] and action anticipation for reactive robot
+response [1, 15, 23].
+8
+
+
+References
+[1] Mohammad Sadegh Aliakbarian, Fatemeh Sadat Saleh,
+Mathieu Salzmann, Basura Fernando, Lars Petersson, and
+Lars Andersson.
+Viena2: A driving anticipation dataset.
+In Asian Conference on Computer Vision, pages 449–466.
+Springer, 2018. 8
+[2] Peter Anderson, Angel Chang, Devendra Singh Chaplot,
+Alexey Dosovitskiy, Saurabh Gupta, Vladlen Koltun, Jana
+Kosecka, Jitendra Malik, Roozbeh Mottaghi, Manolis Savva,
+et al. On evaluation of embodied navigation agents. arXiv
+preprint arXiv:1807.06757, 2018. 5
+[3] Peter Anderson, Xiaodong He, Chris Buehler, Damien
+Teney, Mark Johnson, Stephen Gould, and Lei Zhang.
+Bottom-up and top-down attention for image captioning and
+visual question answering. In Proceedings of the IEEE con-
+ference on computer vision and pattern recognition, pages
+6077–6086, 2018. 12
+[4] Peter Anderson, Qi Wu, Damien Teney, Jake Bruce, Mark
+Johnson, Niko Sünderhauf, Ian Reid, Stephen Gould, and
+Anton van den Hengel. Vision-and-language navigation: In-
+terpreting visually-grounded navigation instructions in real
+environments.
+In Proceedings of the IEEE Conference
+on Computer Vision and Pattern Recognition, pages 3674–
+3683, 2018. 1, 2, 3, 5, 6, 7, 8, 12, 13
+[5] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hin-
+ton. Layer normalization. arXiv preprint arXiv:1607.06450,
+2016. 4
+[6] Bill Byrne, Karthik Krishnamoorthi, Chinnadhurai Sankar,
+Arvind Neelakantan, Ben Goodrich, Daniel Duckworth,
+Semih Yavuz, Amit Dubey, Kyu-Young Kim, and Andy
+Cedilnik. Taskmaster-1: Toward a realistic and diverse di-
+alog dataset. In Proceedings of the 2019 Conference on Em-
+pirical Methods in Natural Language Processing and the 9th
+International Joint Conference on Natural Language Pro-
+cessing (EMNLP-IJCNLP), pages 4516–4525, Hong Kong,
+China, Nov. 2019. Association for Computational Linguis-
+tics. 8
+[7] Angel Chang, Angela Dai, Thomas Funkhouser, Maciej Hal-
+ber, Matthias Niebner, Manolis Savva, Shuran Song, Andy
+Zeng, and Yinda Zhang. Matterport3d: Learning from rgb-d
+data in indoor environments. In 2017 International Confer-
+ence on 3D Vision (3DV), pages 667–676. IEEE, 2017. 12
+[8] Howard Chen, Alane Suhr, Dipendra Misra, Noah Snavely,
+and Yoav Artzi. Touchdown: Natural language navigation
+and spatial reasoning in visual street environments. In Pro-
+ceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, pages 12538–12547, 2019. 2, 8
+[9] Yen-Chun Chen, Linjie Li, Licheng Yu, Ahmed El Kholy,
+Faisal Ahmed, Zhe Gan, Yu Cheng, and Jingjing Liu. Uniter:
+Universal image-text representation learning. In European
+Conference on Computer Vision, 2020. 1, 2, 4
+[10] Abhishek Das, Satwik Kottur, Khushi Gupta, Avi Singh,
+Deshraj Yadav, José MF Moura, Devi Parikh, and Dhruv Ba-
+tra. Visual dialog. In Proceedings of the IEEE Conference on
+Computer Vision and Pattern Recognition, pages 326–335,
+2017. 8
+[11] Harm de Vries, Kurt Shuster, Dhruv Batra, Devi Parikh, Ja-
+son Weston, and Douwe Kiela. Talk the walk: Navigating
+new york city through grounded dialogue. arXiv preprint
+arXiv:1807.03367, 2018. 8
+[12] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina
+Toutanova. Bert: Pre-training of deep bidirectional trans-
+formers for language understanding. In Proceedings of the
+2019 Conference of the North American Chapter of the As-
+sociation for Computational Linguistics: Human Language
+Technologies, Volume 1 (Long and Short Papers), pages
+4171–4186, 2019. 1, 2, 3
+[13] Daniel Fried, Ronghang Hu, Volkan Cirik, Anna Rohrbach,
+Jacob Andreas,
+Louis-Philippe Morency,
+Taylor Berg-
+Kirkpatrick, Kate Saenko, Dan Klein, and Trevor Darrell.
+Speaker-follower models for vision-and-language naviga-
+tion. In Advances in Neural Information Processing Systems,
+pages 3314–3325, 2018. 2, 6, 12
+[14] Tsu-Jui Fu, Xin Eric Wang, Matthew Peterson, Scott
+Grafton, Miguel Eckstein, and William Yang Wang. Coun-
+terfactual vision-and-language navigation via adversarial
+path sampler. In European Conference on Computer Vision
+(ECCV), 2020. 2
+[15] Antonino Furnari and Giovanni Maria Farinella. What would
+you expect?
+anticipating egocentric actions with rolling-
+unrolling lstms and modality attention. In Proceedings of the
+IEEE International Conference on Computer Vision, pages
+6252–6261, 2019. 8
+[16] Weituo Hao, Chunyuan Li, Xiujun Li, Lawrence Carin, and
+Jianfeng Gao. Towards learning a generic agent for vision-
+and-language navigation via pre-training. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 13137–13146, 2020. 1, 2, 5, 6, 7, 8, 12,
+13
+[17] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Deep residual learning for image recognition. In Proceed-
+ings of the IEEE conference on computer vision and pattern
+recognition, pages 770–778, 2016. 5, 12
+[18] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term
+memory. Neural computation, 9(8):1735–1780, 1997. 2, 4
+[19] Yicong Hong, Cristian Rodriguez, Yuankai Qi, Qi Wu, and
+Stephen Gould.
+Language and visual entity relationship
+graph for agent navigation. Advances in Neural Information
+Processing Systems, 33, 2020. 2, 6, 12
+[20] Yicong Hong, Cristian Rodriguez, Qi Wu, and Stephen
+Gould. Sub-instruction aware vision-and-language naviga-
+tion. In Proceedings of the 2020 Conference on Empirical
+Methods in Natural Language Processing (EMNLP), pages
+3360–3376, Online, Nov. 2020. Association for Computa-
+tional Linguistics. 7, 15
+[21] Gabriel Ilharco, Vihan Jain, Alexander Ku, Eugene Ie, and
+Jason Baldridge.
+General evaluation for instruction con-
+ditioned navigation using dynamic time warping.
+arXiv
+preprint arXiv:1907.05446, 2019. 13, 14
+[22] Liyiming Ke, Xiujun Li, Yonatan Bisk, Ari Holtzman, Zhe
+Gan, Jingjing Liu, Jianfeng Gao, Yejin Choi, and Siddhartha
+Srinivasa.
+Tactical rewind: Self-correction via backtrack-
+ing in vision-and-language navigation. In Proceedings of the
+9
+
+
+IEEE Conference on Computer Vision and Pattern Recogni-
+tion, pages 6741–6749, 2019. 2, 6, 7
+[23] Hema S Koppula and Ashutosh Saxena. Anticipating hu-
+man activities using object affordances for reactive robotic
+response. IEEE transactions on pattern analysis and ma-
+chine intelligence, 38(1):14–29, 2015. 8
+[24] Satwik Kottur, José M. F. Moura, Devi Parikh, Dhruv Batra,
+and Marcus Rohrbach. CLEVR-dialog: A diagnostic dataset
+for multi-round reasoning in visual dialog.
+In Proceed-
+ings of the 2019 Conference of the North American Chap-
+ter of the Association for Computational Linguistics: Human
+Language Technologies, Volume 1 (Long and Short Papers),
+pages 582–595, Minneapolis, Minnesota, June 2019. Asso-
+ciation for Computational Linguistics. 8
+[25] Jacob Krantz, Erik Wijmans, Arjun Majumdar, Dhruv Batra,
+and Stefan Lee. Beyond the nav-graph: Vision-and-language
+navigation in continuous environments. In European Confer-
+ence on Computer Vision, 2020. 2, 8
+[26] Ranjay Krishna, Yuke Zhu, Oliver Groth, Justin Johnson,
+Kenji Hata, Joshua Kravitz, Stephanie Chen, Yannis Kalan-
+tidis, Li-Jia Li, David A Shamma, et al.
+Visual genome:
+Connecting language and vision using crowdsourced dense
+image annotations. International Journal of Computer Vi-
+sion, 123(1):32–73, 2017. 5, 12
+[27] Alexander Ku, Peter Anderson, Roma Patel, Eugene Ie, and
+Jason Baldridge. Room-across-room: Multilingual vision-
+and-language navigation with dense spatiotemporal ground-
+ing. In Proceedings of the 2020 Conference on Empirical
+Methods in Natural Language Processing (EMNLP), pages
+4392–4412, 2020. 2
+[28] S Lee, H Schulz, A Atkinson, J Gao, K Suleman, L El Asri,
+M Adada, M Huang, S Sharma, W Tay, et al. Multi-domain
+task-completion dialog challenge. Dialog System Technology
+Challenges, 8, 2019. 8
+[29] Gen Li, Nan Duan, Yuejian Fang, Ming Gong, Daxin Jiang,
+and Ming Zhou. Unicoder-vl: A universal encoder for vision
+and language by cross-modal pre-training. In Association
+for the Advancement of Artiﬁcial Intelligence, pages 11336–
+11344, 2020. 1, 2, 4
+[30] Linjie Li, Yen-Chun Chen, Yu Cheng, Zhe Gan, Licheng
+Yu, and Jingjing Liu.
+HERO: Hierarchical encoder for
+Video+Language omni-representation pre-training. In Pro-
+ceedings of the 2020 Conference on Empirical Methods in
+Natural Language Processing (EMNLP), pages 2046–2065,
+Online, Nov. 2020. Association for Computational Linguis-
+tics. 2
+[31] Liunian Harold Li, Mark Yatskar, Da Yin, Cho-Jui Hsieh,
+and Kai-Wei Chang.
+Visualbert:
+A simple and perfor-
+mant baseline for vision and language.
+arXiv preprint
+arXiv:1908.03557, 2019. 1, 2, 4, 5
+[32] Xiujun Li, Chunyuan Li, Qiaolin Xia, Yonatan Bisk, Asli
+Celikyilmaz, Jianfeng Gao, Noah A Smith, and Yejin Choi.
+Robust navigation with language pretraining and stochastic
+sampling. In Proceedings of the 2019 Conference on Empir-
+ical Methods in Natural Language Processing and the 9th
+International Joint Conference on Natural Language Pro-
+cessing (EMNLP-IJCNLP), pages 1494–1499, 2019. 1, 2,
+6
+[33] Xiujun Li, Xi Yin, Chunyuan Li, Pengchuan Zhang, Xiaowei
+Hu, Lei Zhang, Lijuan Wang, Houdong Hu, Li Dong, Furu
+Wei, et al. Oscar: Object-semantics aligned pre-training for
+vision-language tasks. In European Conference on Computer
+Vision, pages 121–137. Springer, 2020. 1, 2, 4, 5, 6, 8
+[34] Yikang Li, Nan Duan, Bolei Zhou, Xiao Chu, Wanli Ouyang,
+Xiaogang Wang, and Ming Zhou. Visual question genera-
+tion as dual task of visual question answering. In Proceed-
+ings of the IEEE Conference on Computer Vision and Pattern
+Recognition, pages 6116–6124, 2018. 2
+[35] Ilya Loshchilov and Frank Hutter.
+Decoupled weight de-
+cay regularization. In International Conference on Learning
+Representations, 2018. 5
+[36] Jiasen Lu, Dhruv Batra, Devi Parikh, and Stefan Lee. Vil-
+bert: Pretraining task-agnostic visiolinguistic representations
+for vision-and-language tasks. In Advances in Neural Infor-
+mation Processing Systems, pages 13–23, 2019. 1, 2, 4
+[37] Jiasen Lu, Vedanuj Goswami, Marcus Rohrbach, Devi
+Parikh, and Stefan Lee.
+12-in-1: Multi-task vision and
+language representation learning.
+In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 10437–10446, 2020. 2
+[38] Huaishao Luo, Lei Ji, Botian Shi, Haoyang Huang, Nan
+Duan, Tianrui Li, Xilin Chen, and Ming Zhou.
+Uni-
+vilm: A uniﬁed video and language pre-training model for
+multimodal understanding and generation.
+arXiv preprint
+arXiv:2002.06353, 2020. 2
+[39] Chih-Yao Ma, Jiasen Lu, Zuxuan Wu, Ghassan AlRegib,
+Zsolt Kira, Richard Socher, and Caiming Xiong.
+Self-
+monitoring navigation agent via auxiliary progress estima-
+tion.
+In Proceedings of the International Conference on
+Learning Representations (ICLR), 2019. 2, 5, 6, 12
+[40] Arjun Majumdar, Ayush Shrivastava, Stefan Lee, Peter An-
+derson, Devi Parikh, and Dhruv Batra. Improving vision-
+and-language navigation with image-text pairs from the web.
+In Proceedings of the European Conference on Computer Vi-
+sion, 2020. 1, 2
+[41] Volodymyr Mnih, Adria Puigdomenech Badia, Mehdi Mirza,
+Alex Graves, Timothy Lillicrap, Tim Harley, David Silver,
+and Koray Kavukcuoglu. Asynchronous methods for deep
+reinforcement learning. In International conference on ma-
+chine learning, pages 1928–1937, 2016. 5, 13
+[42] Duy-Kien Nguyen and Takayuki Okatani. Multi-task learn-
+ing of hierarchical vision-language representation. In Pro-
+ceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, pages 10492–10501, 2019. 2
+[43] Khanh Nguyen and Hal Daumé III. Help, anna! visual nav-
+igation with natural multimodal assistance via retrospective
+curiosity-encouraging imitation learning. In Proceedings of
+the 2019 Conference on Empirical Methods in Natural Lan-
+guage Processing and the 9th International Joint Conference
+on Natural Language Processing (EMNLP-IJCNLP), pages
+684–695, 2019. 2, 8
+[44] Khanh Nguyen, Debadeepta Dey, Chris Brockett, and Bill
+Dolan. Vision-based navigation with language-based assis-
+tance via imitation learning with indirect intervention.
+In
+Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 12527–12537, 2019. 2, 8
+10
+
+
+[45] Subhojeet Pramanik, Priyanka Agrawal, and Aman Hussain.
+Omninet: A uniﬁed architecture for multi-modal multi-task
+learning. arXiv preprint arXiv:1907.07804, 2019. 2
+[46] Yuankai Qi, Zizheng Pan, Shengping Zhang, Anton van den
+Hengel, and Qi Wu. Object-and-action aware model for vi-
+sual language navigation. In European Conference on Com-
+puter Vision, 2020. 2
+[47] Yuankai
+Qi,
+Qi
+Wu,
+Peter
+Anderson,
+Xin
+Wang,
+William Yang Wang, Chunhua Shen, and Anton van den
+Hengel.
+Reverie: Remote embodied visual referring ex-
+pression in real indoor environments.
+In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 9982–9991, 2020. 1, 2, 3, 4, 5, 6, 7, 8,
+12
+[48] Abhinav Rastogi, Xiaoxue Zang, Srinivas Sunkara, Raghav
+Gupta, and Pranav Khaitan. Towards scalable multi-domain
+conversational agents: The schema-guided dialogue dataset.
+In AAAI, 2020. 8
+[49] Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun.
+Faster r-cnn: Towards real-time object detection with region
+proposal networks. In Advances in neural information pro-
+cessing systems, pages 91–99, 2015. 5, 12
+[50] Kurt Shuster, Da Ju, Stephen Roller, Emily Dinan, Y-Lan
+Boureau, and Jason Weston.
+The dialogue dodecathlon:
+Open-domain knowledge and image grounded conversa-
+tional agents. In Proceedings of the 58th Annual Meeting of
+the Association for Computational Linguistics, pages 2453–
+2470, Online, July 2020. Association for Computational Lin-
+guistics. 2
+[51] Weijie Su, Xizhou Zhu, Yue Cao, Bin Li, Lewei Lu, Furu
+Wei, and Jifeng Dai. Vl-bert: Pre-training of generic visual-
+linguistic representations.
+In International Conference on
+Learning Representations, 2019. 1, 2, 4
+[52] Chen Sun, Austin Myers, Carl Vondrick, Kevin Murphy, and
+Cordelia Schmid. Videobert: A joint model for video and
+language representation learning. In Proceedings of the IEEE
+International Conference on Computer Vision, pages 7464–
+7473, 2019. 2
+[53] Hao Tan and Mohit Bansal.
+Lxmert:
+Learning cross-
+modality encoder representations from transformers.
+In
+Proceedings of the 2019 Conference on Empirical Methods
+in Natural Language Processing and the 9th International
+Joint Conference on Natural Language Processing (EMNLP-
+IJCNLP), pages 5103–5114, 2019. 1, 2, 4, 5, 13
+[54] Hao Tan, Licheng Yu, and Mohit Bansal.
+Learning to
+navigate unseen environments: Back translation with envi-
+ronmental dropout. In Proceedings of NAACL-HLT, pages
+2610–2621, 2019. 2, 5, 6, 7, 8, 12, 13
+[55] Jesse Thomason, Michael Murray, Maya Cakmak, and Luke
+Zettlemoyer. Vision-and-dialog navigation. In Conference
+on Robot Learning, pages 394–406, 2020. 1, 2, 3
+[56] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-
+reit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+Polosukhin. Attention is all you need. In Advances in neural
+information processing systems, pages 5998–6008, 2017. 1,
+3
+[57] Hu Wang, Qi Wu, and Chunhua Shen. Soft expert reward
+learning for vision-and-language navigation. In European
+Conference on Computer Vision, 2020. 2
+[58] Xin Wang, Qiuyuan Huang, Asli Celikyilmaz, Jianfeng Gao,
+Dinghan Shen, Yuan-Fang Wang, William Yang Wang, and
+Lei Zhang.
+Reinforced cross-modal matching and self-
+supervised imitation learning for vision-language navigation.
+In Proceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition, pages 6629–6638, 2019. 2, 6
+[59] Xin Wang, Vihan Jain, Eugene Ie, William Yang Wang, Zor-
+nitsa Kozareva, and Sujith Ravi. Environment-agnostic mul-
+titask learning for natural language grounded navigation. In
+European Conference on Computer Vision, 2020. 2
+[60] Zekun Yang, Noa Garcia, Chenhui Chu, Mayu Otani, Yuta
+Nakashima, and Haruo Takemura. Bert representations for
+video question answering.
+In The IEEE Winter Confer-
+ence on Applications of Computer Vision, pages 1556–1565,
+2020. 2
+[61] Licheng Yu, Zhe Lin, Xiaohui Shen, Jimei Yang, Xin Lu,
+Mohit Bansal, and Tamara L Berg. Mattnet: Modular atten-
+tion network for referring expression comprehension. In Pro-
+ceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition, pages 1307–1315, 2018. 7, 12
+[62] Bolei Zhou, Agata Lapedriza, Aditya Khosla, Aude Oliva,
+and Antonio Torralba. Places: A 10 million image database
+for scene recognition. IEEE transactions on pattern analysis
+and machine intelligence, 40(6):1452–1464, 2017. 5, 12
+[63] Fengda Zhu, Yi Zhu, Xiaojun Chang, and Xiaodan Liang.
+Vision-language navigation with self-supervised auxiliary
+reasoning tasks. In Proceedings of the IEEE/CVF Confer-
+ence on Computer Vision and Pattern Recognition, pages
+10012–10022, 2020. 2, 6
+[64] Wang Zhu, Hexiang Hu, Jiacheng Chen, Zhiwei Deng, Vi-
+han Jain, Eugene Ie, and Fei Sha. BabyWalk: Going farther
+in vision-and-language navigation by taking baby steps. In
+Proceedings of the 58th Annual Meeting of the Association
+for Computational Linguistics, pages 2539–2556. Associa-
+tion for Computational Linguistics, 2020. 2, 4
+11
+
+
+Appendices
+A. Datasets
+We evaluate the performance of our proposed model on
+two distinct datasets for VLN:
+• Room-to-Room (R2R) [4]:
+The agent is required
+to navigate in photo-realistic environments (Matter-
+port3D [7]) to reach a target following low-level nat-
+ural language instructions. Most of the previous works
+apply a panoramic action space for navigation [13],
+where the agent jumps among viewpoints pre-deﬁned
+on the connectivity graph of the environment.
+The
+dataset contains 61 scenes for training; 11 and 18
+scenes for validation and testing, respectively, in un-
+seen environments.
+• REVERIE [47]: The agent needs to ﬁrst navigate to a
+point where the target object is visible, then, it needs
+to identify the target object from a list of given candi-
+dates. In REVERIE, the navigational instructions are
+high-level while the instructions for object grounding
+are very speciﬁc. The dataset has in total 4,140 target
+objects in 489 categories, and each target viewpoint
+has 7 objects with 50 bounding boxes in average.
+B. Implementation Details
+We provide the implementation details of preparing vi-
+sual features (§3.35), decision making (§3.3), adaptation to
+PREVALENT [16] (§3.3 & 3.5), adaptation to REVERIE
+[47] (§3.3 & 3.5), critic function and reward shaping in re-
+inforcement learning (§3.4).
+B.1. Visual Features (§3.35)
+Navigation in R2R [4] and REVERIE [47] are con-
+ducted in the Matterport3D Simulator [7]. At each navi-
+gable viewpoint in the environment, the agent observes a
+360˝ panorama, consisting of 36 single-view images at 12
+headings (30˝ separation) and 3 elevation angles (˘30˝).
+Scene Features
+In our experiments, we only consider the
+scene features (grid features of the single-view images pro-
+vided by ResNet-152 [17] pre-trained on Places365 [62]) at
+the navigable directions as visual features to VLN
+œ
+BERT.
+Each visual feature is direction-aware, which is formulated
+by the concatenation of the convolutional image feature
+f v,i
+t
+P R2048 and the directional encoding di
+t P R128 as:
+Iv,i
+t
+“
+”
+f v,i
+t ; di
+t
+ı
+(15)
+The directional encoding is formed by replicating vector
+pcosθi
+t, sinθi
+t, cosφi
+t, sinφi
+tq by 32 times, where θi
+t and φi
+t
+5Link to Section 3.3 in Main Paper.
+represents the heading and elevation angles of the image
+with respect to the agent’s orientation [13, 54]. Moreover,
+the action features at which is fed to the state representation
+is exactly the directional encoding at the selected direction
+dc
+t, where c “ as
+t.
+Object Features
+In REVERIE [47], the target objects
+can appear at any single-view of the panorama, we extract
+the object features (regional features encoded by Faster-
+RCNN [49] pre-trained on Visual Genome [26] by Ander-
+son et al. [3]) according to the positions of objects provided
+in REVERIE [47]. The object features are position- and
+direction-aware, formulated as
+Io,k
+t
+“
+”
+f o,k
+t
+; pk
+t W p; dk
+t
+ı
+(16)
+where f o,k
+t
+P R2048 is the convolutional object features,
+dk
+t P R128 is the directional encoding of the single-view
+which contains the object. pk
+t represents the spatial posi-
+tion of the object within the image, as in MATTN [61], we
+apply pk
+t “
+“ xtl
+W , ytl
+H , xbr
+W , ybr
+H , w¨h
+W ¨H
+‰
+, where pxtl, ytlq and
+pxbr, ybrq are the top-left and bottom-right coordinates of
+the object, pw, hq and pW, Hq are the width and height of
+the object and the image, respectively. The matrix W p P
+R5ˆ128 is a learnable linear projection.
+B.2. Decision Making (§3.3)
+In R2R [4], there are two types of decisions that an
+agent infers during navigation; it either selects a naviga-
+ble direction to move, or it decides to stop at the cur-
+rent viewpoint. As in most of the previous work, stopping
+in VLN
+œ
+BERT is implemented by adding a zero vector
+vstop
+t
+to the list of visual features at navigable directions
+[13, 19, 39, 54], as
+V t “ xv1
+t, v2
+t, ..., vn
+t , vstop
+t
+| vi
+t P R2176y
+(17)
+Our VLN
+œ
+BERT determines to stop by predicting the
+largest attention score to the stop representation at the ﬁ-
+nal transformer layer. Otherwise, the agent will move to a
+navigable direction with the largest score.
+However, in REVERIE [47], we directly apply the at-
+tention scores over the candidate objects for stopping. To
+be speciﬁc, the visual tokens in REVERIE consists of se-
+quences of scene features and object features:
+xv1
+t, v2
+t, ..., vn
+t , o1
+t, o2
+t, ..., om
+t | vi
+t P V t, ok
+t P Oty
+(18)
+When the model predicts larger attention scores for at least
+one of the object token than all of the scene tokens, the
+agent will stop and will select the object with the largest
+score as the grounded object for REF. Such formulation has
+two advantages; First, it relates the object searching pro-
+cess to navigation, i.e., the agent should not stop naviga-
+tion if it has low conﬁdence of localising the target object.
+12
+
+
+TRM-Lang1
+Cross-modality encoder
+TRM-Vis1
+TRM-Lang2
+TRM-Vis2
+TRM-Lang3
+[CLS],     , [SEP]
+𝑈
+ Initialisation 
+Instruction
+Language encoder
+𝑠𝐿
+𝑡−1 𝑉𝐿
+𝑡
+𝑉𝑡
+State & Observation
+Single-modality encoder
+ Navigation 
+,
+𝑠0 𝑋
+,
+𝑠𝑡−1,
+𝑝𝑡
+New State &
+Decision
+𝑠𝑡,
+Figure 5. Adaptation to recurrent PREVALENT. At initialisation, the entire instruction is encoded by a language transformer (TRM-Lang1),
+where the output feature of the [CLS] token servers as the initial state representation of the agent. During navigation, the concatenated
+sequence of state, encoded language and new visual observation are fed to the cross-modality and the single-modality encoders to obtain
+the updated state and decision probabilities. The updated state and the language encoding from initialisation will be fused and applied as
+input at the next time step. The green star ( ) indicates the cross-modal matching and the past decision encoding (§3.3).
+Second, it allows the reinforcement learning to beneﬁt the
+object grounding, since the action logits for stop is the
+greatest attention scores over objects.
+B.3. Adaptation to PREVALENT (§3.3 & §3.5)
+As shown in Fig. 5, we adapt our VLN
+œ
+BERT to the
+LXMERT-like [53] architecture in PREVALENT [16]. At
+initialisation, the transformer TRM-Lang1 encodes the in-
+struction U and uses the output features of the [CLS] token
+to represent agent’s initial state. During navigation, the con-
+catenated sequence of the previous state st´1, the encoded
+language from initialisation X and the new visual obser-
+vation V t will be fed to the cross-modality encoder to ob-
+tain the language-aware state feature sL
+t´1 and the language-
+aware visual features V L
+t . Finally, TRM-Vis2 will process
+sL
+t´1 and V L
+t to produce a new state st and a decision pt.
+Pre-training of PREVALENT [16] applies the outputs
+from TRM-Lang3 for attended masked language modelling
+and action prediction, but ﬁne-tuning on R2R [4] only use
+the output language features from TRM-Lang1 and rely on a
+downstream network EnvDrop [54] for navigation. In con-
+trast, our method does not require any downstream network,
+we leverage the visual transformers TRM-Vis1 and TRM-
+Vis2 to learn state-language-vision relationship for better
+decision marking.
+Cross-Modal Matching
+The cross-modal matching for
+State Reﬁnement (see Eq. 12 in §3.3) is applied to
+enhance the state representation of PREVALENT-based
+VLN
+œ
+BERT. Since the ﬁnal transformer TRM-Vis2 only
+process the state and visual features, we apply the averaged
+attention scores over the visual features with respect to st
+to weight the input visual tokens V t, but apply the aver-
+aged attention scores over the textual features with respect
+to sL
+t´1 to weight the input language tokens X. Results in
+Table 5 show that cross-modal matching for state improves
+the agent’s performance in unseen environments.
+Models
+R2R Validation Seen
+R2R Validation Unseen
+TL
+NEÓ
+SRÒ
+SPLÒ
+TL
+NEÓ
+SRÒ
+SPLÒ
+w/o Matching
+10.87
+2.44
+76.79
+73.13
+11.72
+4.08
+62.07
+56.15
+with Matching
+11.13
+2.90
+72.18
+67.72
+12.01
+3.93
+62.75
+56.84
+Table 5. Performance of PREVALENT-based VLN
+œ
+BERT with
+and without cross-modal matching for agent’s state.
+B.4. Critic Function (§3.4)
+We apply the A2C [41] for reinforcement learning. At
+each time step, the critic, a multi-layer perceptron, predicts
+an expected value from the updated state representation as:
+et “ pReLUpstW E1qqW E2
+(19)
+where ReLU is the Rectiﬁed Linear Unit function, W E1
+and W E2 are learnable linear projections.
+B.5. Reward Shaping (§3.4)
+In addition to the progress rewards deﬁned in EnvDrop
+[54], we apply the normalised dynamic time warping [21]
+as a part of the reward to encourage the agent to follow the
+instruction to navigate. Moreover, we introduce a negative
+reward to penalise the agent if it misses the target.
+Progress Reward
+As formulated in the EnvDrop [54], we
+apply the progress rewards as strong supervision signals for
+directing the agent to approach the target. To be speciﬁc, let
+Dt to be the distance from agent to target at time step t, and
+∆Dt “ Dt ´ Dt´1 to be the change of distance by action
+at, the reward at each step (at‰stop) is deﬁned as:
+rD,step
+t
+“
+#
+`1.0,
+∆Dt ą 0.0
+´1.0,
+otherwise
+(20)
+When the agent decides to stop (at“stop), a ﬁnal reward
+is assigned depending on if the agent successfully complete
+the task:
+rD,final
+t
+“
+#
+`2.0,
+Dt ă 3.0
+´2.0,
+otherwise
+(21)
+13
+
+
+Overall, the agent will receive a positive reward if it ap-
+proaches the target and completes the task (by stopping
+within 3 meters to the target viewpoint), while it will be
+penalised with a negative reward if it moves away from the
+target or stops at a wrong viewpoint.
+Path Fidelity Rewards
+The Progress Reward encourages
+the agent to approach the target, but it does not constrain the
+agent to take the shortest path. As there could be multiple
+routes to the target, the agent could learn to take a longer
+path or even a cyclic path to maximise the total reward. To
+address the problem, we apply the normalised dynamic time
+warping reward [21], a measurement of the similarity be-
+tween the ground-truth path and the predicted path, to urge
+the agent to follow the instruction accurately. Let Pt be
+the normalised dynamic time warping [21] at time t, and
+∆Pt “ Pt ´ Pt´1 to be the change of P caused by action
+at, the reward for at‰stop is deﬁned as:
+rP,step
+t
+“ ∆Pt
+(22)
+and the reward for at“stop:
+rP,final
+t
+“
+#
+`2.0Pt,
+Dt ă 3.0
+`0.0,
+otherwise
+(23)
+Moreover, as suggested by many previous works, there
+exists a large discrepancy between the agent’s oracle suc-
+cess rate and success rate, indicating that it does not learn
+well to stop accurately. To address this issue, we introduce a
+negative stopping reward rS
+t which will be triggered when-
+ever the agent ﬁrst approaches the target but then departs
+from it. To be precise, if Dt´1ď1.0 and ∆Dt ą 0.0:
+rS
+t “ ´2.0ˆp1.0 ´ Dt´1q
+(24)
+The normalised dynamic time warping reward rP
+t and
+the stopping reward rS
+t together form the path ﬁdelity re-
+wards which can encourage the agent to navigate efﬁciently.
+In summary, the overall reward at each step during naviga-
+tion can be expressed as:
+rt “
+#
+rD,step
+t
+` rP,step
+t
+` rS
+t ,
+at‰stop
+rD,final
+t
+` rP,final
+t
+,
+at“stop
+(25)
+Ablation Study
+We perform ablation experiments on
+training the OSCAR-based and the PREVALENT-based
+VLN
+œ
+BERT with and without the path ﬁdelity rewards.
+As shown in Table 6, the models trained with the path ﬁ-
+delity rewards achieve higher Success Rate (SR) and lower
+Trajectory Length (TL), leading to higher Success weighted
+by Path Length (SPL). Despite the improvements in SR,
+the gap between the Oracle Success Rate (OSR) and SR
+is kept roughly the same for the PREVALENT-based model
+and is reduced by about 1.45% the OSCAR-based models.
+These results suggest that the path-ﬁdelity rewards beneﬁt
+the agent to navigate more accurate and efﬁcient. Note that,
+comparing to the results that are shown in Table 1 and Table
+3 of our Main Paper, such reward shaping only contributes
+to a slight gain of the improvement, whereas the structure
+of the recurrent BERT is much more inﬂuential.
+Models
+R2R Validation Seen
+R2R Validation Unseen
+TL
+OSR
+SRÒ
+SPLÒ
+TL
+OSR
+SRÒ
+SPLÒ
+OSCAR
+rD only
+11.15
+77.86
+70.71
+66.64
+12.62
+66.92
+58.32
+52.48
+rD ` rP ` rS
+10.79
+76.79
+71.11
+67.23
+11.86
+65.86
+58.71
+53.41
+PREVALENT
+rD only
+12.24
+77.28
+69.93
+64.46
+12.89
+69.52
+62.15
+55.65
+rD ` rP ` rS
+11.13
+78.16
+72.18
+67.72
+12.01
+70.24
+62.75
+56.84
+Table 6. Performance of OSCAR-based and PREVALENT-based
+VLN
+œ
+BERT trained with and without the path ﬁdelity rewards.
+C. Language Attention
+C.1. Additional Explanation of the Averaged Lan-
+guage Attention Weights (§4.1)
+In Figure 3 of the Main Paper, we visualised the averaged
+attention weights over all instructions in validation unseen
+split during navigation. Notice that in this visualisation, we
+interpolate the instruction to 80 words and the trajectory to
+15 steps for each sample to compute the averaged attention
+weights. Since a large portion of instructions in R2R are
+less than 80 words, the last few tokens in the plot are corre-
+sponding to the full stop punctuation and the [SEP] token,
+which are less likely to provide valuable information to the
+state and hence receive very little weight. However, for the
+last step in the bottom plot, the selected visual token for
+stopping could have a high correspondence to the full stop
+and [SEP] which are strong indications of the end of navi-
+gation.
+C.2. Self-Attended Language Features with Gradi-
+ent Accumulation (§4.2)
+To evaluate the inﬂuence of performing different lan-
+guage self-attention under the same batch size, we train
+Emb-Attn, Init-Attn and Re-Attn with gradient accumulation
+to achieve batch size of 16 (same as Ours) while keeping
+learning rate unchanged. Comparing to the results reported
+in Table 4 of the Main Paper, the performance of all the
+three methods has been signiﬁcantly improved. On the vali-
+dation unseen split, Emb-Attn even outperforms Ours which
+does not re-attend the language at each time step. How-
+ever, a downside for accumulating gradient is that the train-
+ing speed is signiﬁcantly reduced, which is about 2.5 times
+slower for accumulating 4 batches of size 4. Nevertheless,
+this result suggests that agent’s performance can be further
+14
+
+
+improved by training with larger batch size, potentially in-
+cluding Ours. Therefore, whether it is necessary to perform
+language self-attention at each navigational step when there
+is sufﬁcient computational power remains a question worth
+investigating. We will leave it as a future work.
+Models
+R2R Validation Seen
+R2R Validation Unseen
+Accu-
+Speed
+TL
+NEÓ
+SRÒ
+SPLÒ
+TL
+NEÓ
+SRÒ
+SPLÒ
+Grad
+Emb-Attn
+11.36
+2.97
+70.91
+66.26
+12.22
+4.15
+61.00
+54.85
+✓
+1.43
+Init-Attn
+12.11
+3.78
+64.84
+59.49
+12.32
+4.37
+58.62
+52.53
+✓
+1.33
+Re-Attn
+9.71
+4.44
+54.16
+51.51
+10.19
+5.28
+47.89
+44.64
+✓
+1.38
+Ours
+10.79
+3.11
+71.11
+67.23
+11.86
+4.29
+58.71
+53.41
+
+3.40
+Table 7. Comparison of performing language self-attention with
+gradient accumulation. We set the batch size of the ﬁrst three
+methods as 4 and accumulate the gradient for 4 iterations, so that
+the overall batch size for each update is 16, same as Outs. Unit
+for Speed is 1,000 iterations per hour (including the time spent on
+evaluation).
+D. Visualisation (§4.1)
+As shown in Figure 6, 7 and 8, we visualise the language-
+to-language and the state/vision-to-state/vision/language at-
+tention weights of a sample in the validation unseen split.
+As shown by the panoramas in Fig. 7 and the given in-
+struction “Exit the bedroom.
+Walk the opposite way of
+the picture hanging on the wall through the kitchen. Turn
+right at the long white countertop. Stop when you get past
+the two chairs.”, the agent needs to understand the com-
+plex contextual clues, including different scene clues (bed-
+room, kitchen), different object clues (picture, wall, coun-
+tertop, chair) and various directional clues (forward, oppo-
+site, left/right, stop) to complete the task.
+Language Self-Attention
+Fig. 6 shows the language self-
+attention attention weights at some selected heads at initial-
+isation (t“0); different heads demonstrate different func-
+tions and the attentions at different layers behave very dif-
+ferently. Plot (1) and (4) show the general pattern of atten-
+tions at shallow (Layer 0) and deep layers (Layer 8); words
+in shallow layers tend to collect information from the en-
+tire sentence, while words at deep layers have higher corre-
+spondence to the adjacent words since they are semantically
+more relevant. It is very interesting to see that the atten-
+tion head in Plot (2) learns to attend the adjectives and the
+action-related terms, which describe the objects and scenes,
+for the initialised state representation ([CLS]). This head
+also learns about the co-occurrence between different enti-
+ties, for example, picture has higher correspondence to wall,
+and countertop has higher correspondence to kitchen. In
+contrast, the attention head in Plot (3) learns to extract the
+important landmarks such as bedroom, picture, kitchen and
+chairs. Attention head in Plot (5) learns about the [SEP]
+token, which indicates the ending of the instruction. Atten-
+tion weights in Plot (6) show the most frequent pattern of
+the attention heads at the ﬁnal (l“12-th) layer, those heads
+seem to aggregate information from the punctuations in the
+instruction. This implies the heads could have learnt about
+breaking the sentence into multiple sub-sentences. Refer to
+the idea of sub-instruction proposed by Hong et al. [20],
+such attention pattern could be beneﬁcial for matching the
+current observation to a particular and the most relevant part
+of the instruction.
+State/Vision Step-wise Attention
+Fig. 7 shows the tra-
+jectory of the agent starting from a bedroom, taking a se-
+ries of actions and eventually stopping at the target loca-
+tion. It also displays the averaged attention weights at the
+ﬁnal (l“12-th) layer for the state and visual tokens. Note
+that the averaged attention for state/vision tokens is repre-
+sentative since we apply the averaged attention weights for
+visual-textual matching to state and use it as the action prob-
+abilities (see Eq. 12 and Decision Making in §3.3, respec-
+tively). As shown in Plot (1a-6a), the attention shifts from
+the beginning of the instruction to the end, which agrees
+with the agent’s navigation progress. It is also interesting
+to see that at the ﬁnal layer, the state token is more inﬂuen-
+tial to the predicted action at the ﬁrst two steps, while the
+language tokens are more inﬂuential at the later steps. The
+state/vision self-attention in Plot (1b-6b) reﬂects the action
+prediction at each time step. The ﬁrst row in each plot (at-
+tention of state with respect to candidate actions) shows the
+prediction result, we can see that the agent is very conﬁdent
+in each decisions. Moreover, starting from Step 3, the infor-
+mation from state and from different views are aggregated
+to support choosing the correct direction.
+State/Vision Layer-wise Attention
+To better understand
+how the visual and language features are aggregated to sup-
+port action prediction, we visualise the layer-wise attention
+at Step 4 of the trajectory (t“4). As shown by Fig. 8 Plot (1-
+12), at the ﬁrst two layers, candidate views collect informa-
+tion from the entire instruction. But as the signals propagate
+to deeper layers (Layer 3-6), the visual tokens attend more
+the middle part of the instruction, which should be more
+relevant to the current observations. Interestingly, starting
+from Layer 6, the visual features tend to dominate the atten-
+tion, and information aggregates toward the visual token at
+the predicted direction (which is the correct direction). We
+can see that, at Layer 7-9, the network still has some doubts
+about the candidate directions that are spatially closer to the
+correct direction. But after implicitly reasoning in deeper
+layers, the network becomes very conﬁdent about choosing
+the correct direction.
+15
+
+
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+(1) Language Attention - Layer 0, Head 1
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+(2) Language Attention - Layer 2, Head 0
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+(3) Language Attention - Layer 3, Head 5
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+(4) Language Attention - Layer 8, Head 10
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+(5) Language Attention - Layer 8, Head 1
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+(6) Language Attention - Layer 11, Head 10
+0.0
+0.6
+0.4
+0.4
+0.2
+1.0
+0.8
+0.0
+0.6
+0.4
+0.4
+0.2
+1.0
+0.8
+0.0
+0.6
+0.4
+0.4
+0.2
+1.0
+0.8
+Figure 6. Language self-attention weights of some selected heads at initialisation. The attention weights are normalised for each row.
+16
+
+
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+State
+Cand 1
+Cand 2
+Act
+Stop
+State
+Cand 1
+Cand 2
+Act
+Stop
+State
+Cand 1
+Cand 2
+Act
+Stop
+Panorama
+Step 1
+Panorama
+Step 2
+Panorama
+Step 3
+Panorama
+Step 4
+Panorama
+Step 5
+Panorama
+Step 6
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+State
+Cand 1
+Act
+Stop
+State
+Cand 1
+Act
+Stop
+State
+Cand 1
+Act
+Stop
+State
+Cand 1
+Act
+Cand 2
+Stop
+State
+Cand 1
+Act
+Cand 2
+Stop
+State
+Cand 1
+Act
+Cand 2
+Stop
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen.
+turn
+right
+at
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+State
+Cand 1
+Cand 2
+Cand 3
+Act/Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Act/Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Act/Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Act
+Cand 4
+Cand 5
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Act
+Cand 4
+Cand 5
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Act
+Cand 4
+Cand 5
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+(1a) State/Vision - Language
+(1b) State/Vision -
+State/Vision
+(2a) State/Vision - Language
+(3a) State/Vision - Language
+(4a) State/Vision - Language
+(5a) State/Vision - Language
+(6a) State/Vision - Language
+Forward
+Distance: 9.50
+Distance: 8.06
+Distance: 6.99
+Distance: 5.10
+Distance: 2.75
+Distance: 0.00
+Forward
+Turn Left
+Forward
+Turn Right
+Stop
+(2b) State/Vision -
+State/Vision
+(3b) State/Vision -
+State/Vision
+(4b) State/Vision -
+State/Vision
+(5b) State/Vision -
+State/Vision
+(6b) State/Vision -
+State/Vision
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+Figure 7. Visualisation of a trajectory and the averaged attention weights at the ﬁnal (l“12-th) layer. The centre of each panorama is
+roughly the agent’s heading direction at the corresponding time step. Distance is the agent’s distance to target in meters. The attention
+weights are normalised for each row. Texts in red indicates the predicted action (corresponds to a candidate view) at each time step.
+17
+
+
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+State
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+at
+[CLS]
+exit
+the
+bedroom
+.
+walk
+the
+opposite
+way
+of
+the
+picture
+hanging
+on
+the
+wall
+through
+the
+kitchen
+.
+turn
+right
+the
+long
+white
+counter
+##top
+.
+stop
+when
+you
+get
+past
+the
+two
+chairs
+.
+[SEP]
+Cand 1
+Cand 2
+Cand 3
+Cand 6
+Cand 4
+Act
+Stop
+(2) Layer 2
+(1) Layer 1
+(3) Layer 3
+(4) Layer 4
+(5) Layer 5
+(6) Layer 6
+(7) Layer 7
+(8) Layer 8
+(9) Layer 9
+(10) Layer 10
+(12) Layer 12
+(11) Layer 11
+0.0
+0.6
+0.4
+0.4
+0.2
+1.0
+0.8
+Figure 8. Averaged state/vision-to-state/vision/language attention weights at each layer at Step 4 of the trajectory. The attention weights
+are normalised for each row. Texts in red indicates the predicted action (corresponds to a candidate view) at the current time step (t“4).
+18

@@ -1,0 +1,107 @@
+---
+title: "Uni-NaVid: A Video-based Vision-Language-Action Model for Unifying Embodied Navigation Tasks"
+title_zh: Uni-NaVid：一种用于统一具身导航任务的基于视频的视觉-语言-动作模型
+authors: "Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li, Haoran Liu, Songlin Wei, Zhongyuan Wang, Zhizheng Zhang, He Wang"
+date: 2026-06-19
+pdf: assets/manual-pdfs/manual-20260619-085841/016-uni-navid-ecf07ff7-b43760f10ac7.pdf
+tags: ["query:手动上传", "paper:PDF", "query:embodied navigation", "query:vision-language-action model", "query:multi-task navigation", "query:video-based learning", "query:online token merge"]
+score: 10.0
+evidence: 用户手动上传 PDF
+tldr: 现有导航方法多针对特定任务，缺乏统一框架。本文提出Uni-NaVid，一个基于视频的视觉-语言-动作（VLA）模型，采用在线token合并策略高效处理RGB视频流，以5Hz频率端到端输出低层动作。在多个导航基准上取得SOTA性能，且真实世界实验验证其泛化性。该工作为具身导航的统一表示提供了新思路。
+source: manual
+selection_source: manual_upload
+figures_json: "[{\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-001.webp\", \"caption\": \"\", \"page\": 0, \"index\": 1, \"width\": 1868, \"height\": 798, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-002.webp\", \"caption\": \"\", \"page\": 0, \"index\": 2, \"width\": 1887, \"height\": 880, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-003.webp\", \"caption\": \"\", \"page\": 0, \"index\": 3, \"width\": 910, \"height\": 614, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-004.webp\", \"caption\": \"\", \"page\": 0, \"index\": 4, \"width\": 913, \"height\": 502, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-005.webp\", \"caption\": \"\", \"page\": 0, \"index\": 5, \"width\": 918, \"height\": 804, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-006.webp\", \"caption\": \"\", \"page\": 0, \"index\": 6, \"width\": 1874, \"height\": 635, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-007.webp\", \"caption\": \"\", \"page\": 0, \"index\": 7, \"width\": 924, \"height\": 677, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-008.webp\", \"caption\": \"\", \"page\": 0, \"index\": 8, \"width\": 922, \"height\": 395, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-009.webp\", \"caption\": \"\", \"page\": 0, \"index\": 9, \"width\": 910, \"height\": 274, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-010.webp\", \"caption\": \"\", \"page\": 0, \"index\": 10, \"width\": 648, \"height\": 508, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-011.webp\", \"caption\": \"\", \"page\": 0, \"index\": 11, \"width\": 912, \"height\": 254, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-012.webp\", \"caption\": \"\", \"page\": 0, \"index\": 12, \"width\": 924, \"height\": 338, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-013.webp\", \"caption\": \"\", \"page\": 0, \"index\": 13, \"width\": 1693, \"height\": 458, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-014.webp\", \"caption\": \"\", \"page\": 0, \"index\": 14, \"width\": 1684, \"height\": 389, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-015.webp\", \"caption\": \"\", \"page\": 0, \"index\": 15, \"width\": 1681, \"height\": 444, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-016.webp\", \"caption\": \"\", \"page\": 0, \"index\": 16, \"width\": 1679, \"height\": 436, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-017.webp\", \"caption\": \"\", \"page\": 0, \"index\": 17, \"width\": 82, \"height\": 70, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-018.webp\", \"caption\": \"\", \"page\": 0, \"index\": 18, \"width\": 1797, \"height\": 448, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-019.webp\", \"caption\": \"\", \"page\": 0, \"index\": 19, \"width\": 81, \"height\": 70, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-020.webp\", \"caption\": \"\", \"page\": 0, \"index\": 20, \"width\": 1774, \"height\": 434, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-021.webp\", \"caption\": \"\", \"page\": 0, \"index\": 21, \"width\": 80, \"height\": 72, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-022.webp\", \"caption\": \"\", \"page\": 0, \"index\": 22, \"width\": 82, \"height\": 69, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-023.webp\", \"caption\": \"\", \"page\": 0, \"index\": 23, \"width\": 1712, \"height\": 452, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-024.webp\", \"caption\": \"\", \"page\": 0, \"index\": 24, \"width\": 1735, \"height\": 461, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-025.webp\", \"caption\": \"\", \"page\": 0, \"index\": 25, \"width\": 1787, \"height\": 417, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-026.webp\", \"caption\": \"\", \"page\": 0, \"index\": 26, \"width\": 1744, \"height\": 429, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-027.webp\", \"caption\": \"\", \"page\": 0, \"index\": 27, \"width\": 1783, \"height\": 436, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-028.webp\", \"caption\": \"\", \"page\": 0, \"index\": 28, \"width\": 1766, \"height\": 433, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-029.webp\", \"caption\": \"\", \"page\": 0, \"index\": 29, \"width\": 1700, \"height\": 219, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-030.webp\", \"caption\": \"\", \"page\": 0, \"index\": 30, \"width\": 1696, \"height\": 216, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-031.webp\", \"caption\": \"\", \"page\": 0, \"index\": 31, \"width\": 1698, \"height\": 214, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-032.webp\", \"caption\": \"\", \"page\": 0, \"index\": 32, \"width\": 1693, \"height\": 219, \"label\": \"Figure\"}, {\"url\": \"assets/figures/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/fig-033.webp\", \"caption\": \"\", \"page\": 0, \"index\": 33, \"width\": 1731, \"height\": 325, \"label\": \"Figure\"}]"
+tables_json: "[{\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-001.webp\", \"caption\": \"\", \"page\": 0, \"index\": 1, \"width\": 845, \"height\": 238, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-002.webp\", \"caption\": \"\", \"page\": 0, \"index\": 2, \"width\": 874, \"height\": 655, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-003.webp\", \"caption\": \"\", \"page\": 0, \"index\": 3, \"width\": 876, \"height\": 396, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-004.webp\", \"caption\": \"\", \"page\": 0, \"index\": 4, \"width\": 895, \"height\": 371, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-005.webp\", \"caption\": \"\", \"page\": 0, \"index\": 5, \"width\": 881, \"height\": 409, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-006.webp\", \"caption\": \"\", \"page\": 0, \"index\": 6, \"width\": 715, \"height\": 300, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-007.webp\", \"caption\": \"\", \"page\": 0, \"index\": 7, \"width\": 858, \"height\": 339, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-008.webp\", \"caption\": \"\", \"page\": 0, \"index\": 8, \"width\": 921, \"height\": 295, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-009.webp\", \"caption\": \"\", \"page\": 0, \"index\": 9, \"width\": 916, \"height\": 495, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-010.webp\", \"caption\": \"\", \"page\": 0, \"index\": 10, \"width\": 902, \"height\": 222, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-011.webp\", \"caption\": \"\", \"page\": 0, \"index\": 11, \"width\": 568, \"height\": 140, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-012.webp\", \"caption\": \"\", \"page\": 0, \"index\": 12, \"width\": 876, \"height\": 401, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-013.webp\", \"caption\": \"\", \"page\": 0, \"index\": 13, \"width\": 625, \"height\": 664, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-014.webp\", \"caption\": \"\", \"page\": 0, \"index\": 14, \"width\": 877, \"height\": 300, \"label\": \"Table\"}, {\"url\": \"assets/tables/manual/manual-manual-20260619-085841-manual-016-b43760f10ac7-uni-navid-a-video-based-vision-language-action-model-for-unifying-embodied-navigation-tasks/table-015.webp\", \"caption\": \"\", \"page\": 0, \"index\": 15, \"width\": 863, \"height\": 241, \"label\": \"Table\"}]"
+motivation: 现有导航方法针对特定任务设计，难以统一，限制实际应用中的灵活性与协同能力。
+method: 提出Uni-NaVid，基于视频的VLA模型，引入在线token合并策略，时空维度压缩相似视觉信息，实现高效端到端动作输出。
+result: 在多个导航基准上达到SOTA，推理速度5Hz，仅用第一人称RGB视频；真实世界实验验证有效性与泛化性。
+conclusion: Uni-NaVid以统一框架融合多种导航任务，通过视频级VLA建模和高效处理策略，显著提升导航性能与部署效率。
+---
+
+## 摘要
+具身导航是智能机器人的一项基本能力，要求机器人遵循人类指令并在物理环境中自主移动。尽管取得了显著进展，但现有的大多数导航方法都是针对特定导航任务量身定制的，例如指令跟随、搜索物体、回答问题、跟踪人员等。然而，对高级具身导航日益增长的需求提出了设计一种实用导航代理的挑战，该代理能够自然地整合多种导航任务，并从这些任务的协同作用中受益。为此，我们提出了Uni-NaVid，这是一种基于视频的视觉-语言-动作（VLA）模型，旨在统一不同的导航任务范式，并通过促进不同导航子任务之间的协同作用来提高导航性能。该VLA模型可以直接将自然语言指令和RGB视频流作为输入，并以端到端的方式输出低级机器人动作。为了高效处理大量的RGB视频流，我们提出了一种在线令牌合并策略，该策略在空间和时间上整合相似的视觉信息，将推理速度提高到5 Hz。为了训练Uni-NaVid，我们收集了涵盖不同导航任务的360万导航数据样本。在多种导航基准上的大量实验表明，Uni-NaVid仅使用以自我为中心的RGB视频作为输入，在统一框架内实现了最先进的性能。此外，真实世界实验证实了该模型的有效性和效率，揭示了其强大的泛化能力。
+
+## Abstract
+Embodied Navigation is a fundamental capability for intelligent robots, requiring robots to follow human commands and move autonomously within physical environments. Despite significant advancements, most existing navigation approaches are tailored to specific navigation tasks, such as instruction following, searching objects, answering questions, tracking people, and more. However, the increasing demands on advanced embodied navigation pose the challenge of designing a practical navigation agent that can incorporate multiple navigation tasks naturally and benefits from the synergy between these tasks. To this end, we present Uni-NaVid, a video-based vision-language-action (VLA) model to unify different paradigms of navigation tasks and improve navigation performance by encouraging the synergy among different navigation sub-tasks. This VLA model can directly take natural language instructions and RGB video streams as inputs and output low-level robotic actions in an end-to-end manner. To efficiently process extensive RGB video streams, we propose an online token merge strategy that spatially and temporally consolidates similar visual information which improves the inference speed to 5 Hz. For training Uni-NaVid, we collect 3.6 million navigation data samples across different navigation tasks. Extensive experiments on diverse navigation benchmarks demonstrate that Uni-NaVid achieves state-of-the-art performance within a unified framework by using only ego-centric RGB video as inputs. Additionally, real-world experiments confirm the model's effectiveness and efficiency, shedding light on its strong generalizability.
+
+---
+
+## 论文详细总结（自动生成）
+
+# 论文详细中文总结
+
+## 一、论文的核心问题与整体含义（研究动机和背景）
+- **核心问题**：现有具身导航方法大多针对单一任务（如指令跟随、目标搜索、问答、人员跟随）专门设计，缺乏能够统一多种导航任务的通用框架，限制了实际应用中的灵活性与任务间协同潜力。
+- **研究动机**：设计一个实用、统一的导航代理，自然融合多种导航任务，并通过任务间的协同作用提升整体导航性能。现有方法要么依赖仿真环境的模仿学习/强化学习（面临Sim-to-Real差距），要么使用大型语言模型但受限于低频推理和离散化建模（如预定义图），输出灵活性差。
+- **整体含义**：提出Uni-NaVid，一种基于视频的视觉-语言-动作（VLA）模型，以端到端方式接收自然语言指令和第一人称RGB视频流，直接输出低层动作，实现多种导航任务的统一，并推动通用导航的实用化。
+
+## 二、论文提出的方法论
+- **核心思想**：将多个导航任务建模为统一的序列决策问题——给定当前帧序列和语言指令，预测未来多个离散动作。通过在线视觉token合并机制高效处理长视频，利用多任务训练和真实世界视频问答数据增强泛化能力。
+- **关键技术细节**：
+  - **输入输出**：仅使用单目RGB视频和自然语言指令，输出未来4个低层动作（FORWARD, TURN-LEFT, TURN-RIGHT, STOP），每个动作对应固定步长（25cm或30°）。
+  - **观察编码**：使用EVA-CLIP作为视觉编码器，每帧提取256个token。
+  - **在线视觉token合并（Online Visual Token Merging）**：
+    - 借鉴Atkinson-Shiffrin记忆模型，将视觉token分为当前（αcurr=2，保留64 tokens）、短期（αshort=8，保留4 tokens）、长期（αlong=16，保留1 token）三类，分别进行不同分辨率的网格池化（Grid Pooling）。
+    - 当新帧到达时，仅对边界帧进行池化操作，并将长期token根据余弦相似度（阈值τ=0.95）进一步合并，避免token数线性增长。算法1给出了详细流程。
+    - 该策略将推理时间压缩至约0.2秒/次，实现5Hz非阻塞导航。
+  - **动作规划**：合并后的视觉token通过两层MLP投影器与语言token对齐，加入导航指示token <NAV>，送入Vicuna-7B LLM，同时输出四个动作token。
+  - **训练数据**：收集了360万导航样本，涵盖四种任务——视觉语言导航（VLN，240万）、目标导航（ObjectNav，48.3万）、具身问答（EQA，24万视频-动作+1万视频-问答）、人类跟随（跟随，54.4万，基于Habitat 3.0自建）。另加入230万真实世界视频问答数据作为辅助任务。
+  - **训练策略**：两阶段训练——第一阶段单独训练投影器（使用图像QA数据），第二阶段联合微调投影器和LLM（使用视频QA和导航数据）。训练1个epoch。
+- **公式与算法**：论文给出在线token合并算法的伪代码（Algorithm 1），以及网格池化、投影、相似度合并等公式。核心方程包括视觉token分组（式2）、在线处理（式3-4）、长期token合并（式5-6）。
+
+## 三、实验设计
+- **数据集与场景**：
+  - **视觉语言导航**：VLN-CE R2R和RxR的验证集（Val-Unseen），连续环境。
+  - **目标导航**：HM3D ObjectNav（6类目标），以及HM3D-OVON（开放词汇，零样本）。
+  - **具身问答**：MP3D-EQA验证集，以及OpenEQA（额外实验）。
+  - **人类跟随**：自建的基于HM3D、HSSD、MP3D的跟随基准（使用文本描述人类）。
+  - **视频问答**：ScanQA、MSVD-QA、MSRVTT-QA、ActivityNet-QA（验证开放世界理解）。
+- **Benchmark**：每个任务使用标准评价协议，包括成功率（SR）、SPL、NE、ACC、FR、CR等。
+- **对比方法**：
+  - VLN：HPN+DN、CMA、VLN⟳BERT、Sim2Sim、GridMM、HAMT、ETPNav、InstructNav、NaVid等。
+  - ObjectNav：DD-PPO、Habitat-Web、PIRLNav、OVRL、VLFM等。
+  - EQA：NaviLLM、Habitat-lab baseline。
+  - Human Following：PoliFormer、IBVS。
+  - Video QA：VideoLLaMA、VideoChat、LLaMA-VID、VideoChat2等。
+- **公平性**：各任务使用默认设置，确保训练与验证场景无重叠；模型仅输入RGB，对比方法有的使用深度/里程计等额外信息。
+
+## 四、资源与算力
+- **训练资源**：使用40张NVIDIA H800 GPU，训练约35小时，总计约1400 GPU小时。
+- **推理资源**：在NVIDIA A100 GPU上部署，单次推理约0.2秒，加上通信约0.5秒完成一次感知-动作循环。
+- **机器人平台**：Unitree GO2四足机器人，搭载RealSense D455、LiDAR-L1和便携WiFi，仅RGB用于模型，LiDAR用于本地运动控制。
+
+## 五、实验数量与充分性
+- **实验数量**：非常充分。包括：
+  - 四大导航任务各在多个基准上的主要结果（共约10个表格）。
+  - 消融实验：多任务协同效果（图8a）、数据规模影响（图8b）、训练策略（<NAV> token、VQA数据）和记忆设计（当前/短期/长期token）的影响（表10）、token数量和阈值τ（表15）。
+  - 真实世界实验（表11、图5-7），包含简单/复杂指令、组合任务。
+  - 额外跨数据集验证（表12）、OpenEQA（表13）、跨环境跟随（表14）。
+  - 时间复杂度分析（图12）。
+- **充分性与客观性**：实验覆盖主流基准，对比方法多且包含SOTA；消融实验完整，验证了各个设计组件的必要性；真实世界实验零样本部署，验证泛化性。结论客观，未回避性能与方法的不足。
+
+## 六、论文的主要结论与发现
+- Uni-NaVid在统一框架内使用单一VLA模型，仅凭单目RGB视频，在VLN、ObjectNav、EQA、Human Following四个任务上均达到或接近SOTA性能。
+- 多任务联合训练带来协同增益，各任务性能均优于单独训练（图8a）。
+- 在线token合并机制显著提升推理效率（5Hz），且视觉记忆有助于长期导航（尤其是VLN）。
+- 加入真实世界视频问答数据可增强模型的开放世界理解和Sim-to-Real泛化能力。
+- 真实世界实验中，模型能够执行复杂复合指令（如“走向某人→跟随→搜索→回答颜色”），展现多任务切换能力。
+- 动作概率可视化显示模型能按顺序规划动作（先转向再前进），区分细微目标描述。
+
+## 七、优点
+- **统一性**：首次将四种关键导航任务（VLN、ObjectNav、EQA、Human Following）纳入一个端到端VLA模型，无需任务特定模块。
+- **高效性**：在线token合并策略使LLM推理时间稳定在0.2秒，实现非阻塞导航，解决了以往VLA模型在长序列中的延时问题。
+- **低输入要求**：仅需单目RGB视频和自然语言指令，无需深度、里程计或预建地图，便于真实世界部署。
+- **数据规模与多样性**：收集了360万模拟导航样本和230万真实视频问答样本，且自建了文本描述的人类跟随基准。
+- **实验严谨**：消融实验设计全面（多任务、记忆、token量、阈值等），跨数据集和真实世界验证了泛化性。
+- **开源承诺**：将公开完整源代码。
+
+## 八、不足与局限
+- **任务覆盖有限**：仅涵盖四种导航任务，未涉及例如动态障碍物避让、楼梯攀爬、室外导航等更广泛场景。
+- **机器人尺寸假设**：训练数据假设标准机器人尺寸（高度0.88-1.25m，半径0.1-0.6m），未考虑不同尺寸机器人适配。
+- **动作空间限制**：仅输出离散低层动作（前进/转向/停止），无法生成连续平滑轨迹，限制了复杂运动能力。
+- **数据多样性瓶颈**：模拟数据多样性有限，增加数据量时性能提升边际递减（图8b），尤其在人类跟随任务中因遮挡而收敛慢。
+- **问答能力依赖VQA预训练**：无VQA数据时模型几乎无法回答EQA问题，存在灾难性遗忘风险。
+- **真实世界实验量化不足**：仅报告了VLN任务的成功率（表11），其他真实场景未提供详细数值指标。
+- **计算资源需求高**：训练需要1400 GPU小时，对一般实验室门槛较高。
+
+（完）

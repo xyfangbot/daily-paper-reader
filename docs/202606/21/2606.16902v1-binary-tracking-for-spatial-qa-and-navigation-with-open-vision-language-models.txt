@@ -1,0 +1,400 @@
+Title: Binary Tracking for Spatial QA and Navigation with Open Vision-Language Models
+
+URL Source: https://arxiv.org/pdf/2606.16902v1
+
+Published Time: Tue, 16 Jun 2026 02:41:26 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Binary Tracking for Spatial QA and Navigation with Open Vision-Language Models 
+
+Dongbin Na ∗†‡ Chanwoo Kim ∗ Soonbin Rho Giyun Choi Gangbok Lee Dooyoung Hong †
+
+RGA Inc. 
+
+{dongbinna, cwkim, hasbro425, cky, gb.lee, dooyoung }@rgarobot.com 
+
+Abstract: This work addresses spatial question answering for service robots traversing long egocentric routes. Given a query such as “where can I find a dry cleaner on the way back home?” , the system returns a metric coordinate that downstream navigation components can act on. Prior Spatial Question Answer-ing approaches leverage retrieval-augmented agents built on closed-source mod-els such as GPT-4o for path exploration. However, robots operating in the real world often cannot reliably depend on online closed-source models due to net-work instability, communication latency, and deployment cost. It creates a need for open-source based Spatial Question Answering approaches that can run on-board the robot, yet prior research in this direction remains limited. This work proposes BinTrack , a simple yet effective, fully open-source spatial-localization agent that leverages the temporal ordering of a robot’s trajectory. BinTrack per-forms a binary search over the trajectory segments between two anchor landmarks identified from a query. It improves overall accuracy by up to 22 .8% over other open-source implementations and even matches the reported closed-source model result on the global category of the SpaceLocQA benchmark, the most challenging setting that has so far required strong reasoning agents such as GPT-4o. Further-more, its optimized inference strategy consistently yields more than a 1.5× in-ference speedup over previous approaches. Finally, this work releases Gangnam-Loop, a novel and practical multi-trip outdoor benchmark collected by deploying a real quadruped robot on public streets with the anonymization policy. It revis-its the same locations under different outdoor conditions and pairs the robot’s low viewpoint with the human owner’s. All experiments use only open-source models, ensuring full reproducibility. The source codes and datasets are publicly available at https://github.com/ndb796/BinaryTracking .
+
+Keywords: Spatial Question Answering; Robot Memory; Vision-Language Mod-els; Open-Source Reproducibility, Robot Navigation 
+
+# 1 Introduction 
+
+Spatial Question Answering (SQA) enables a robot to construct a searchable memory of observed entities and their locations from long-term egocentric video and odometry, and to infer query-relevant coordinates by jointly considering semantic and spatial constraints. Given spatial queries such as “Where did I see the dry cleaner this morning?” or “Where is the nearest AED to the lake-side?” , an SQA system outputs a target coordinate for the navigation, allowing the robot to move to the corresponding location. The state-of-the-art (SOTA) method achieves high accuracy on ba-sic and local queries [1], but relies on a closed-source model (i.e., GPT-4o) as both the planning agent and the visual verifier, as do earlier retrieval-augmented SQA systems [2, 3]. This depen-dency is incompatible with the navigation use case in many real-world settings. A robot guiding a human to the predicted coordinate may not assume reliable internet connectivity and tolerate the per-step latency of round-tripping every retrieval to a closed-source model. Moreover, repeatedly 
+
+> ∗
+
+Equal contribution. 
+
+> †
+
+Correspondence to dongbinna@postech.ac.kr and dooyoung@rgarobot.com .
+
+> ‡
+
+The project page: https://ndb796.github.io/BinaryTracking 
+
+> arXiv:2606.16902v1 [cs.RO] 15 Jun 2026
+
+sending video observations and queries to such a model incurs substantial operational cost. A natu-ral remedy is to deploy open-source models of comparable size onboard the robot, but this substitu-tion causes existing frameworks to degrade sharply [4, 5], especially on global queries that require multi-step reasoning along the trajectory between two landmarks (Appendix A). This performance gap stems not from the limited reasoning capability of open-source models but from the lack of an algorithmic primitive that matches the structure of the SQA data. In particular, global queries re-quire candidate verification and multi-step reasoning along the route, but prior frameworks rely on closed-source models to perform these key query-time steps. This work instead exploits the structure already present in the robot trajectory. A robot’s trajectory forms a temporally ordered sequence of spatially indexed observations, and the two anchor landmarks named by a query define a contiguous subsequence. This structure reduces target localization within the route to a one-dimensional search problem. This work proposes BinTrack , a fully open-source spatial-localization agent built on Bi-nary Tracking, a structured retrieval primitive that recursively halves the trajectory interval between two anchors, ranks candidates within each half by semantic similarity, and descends into the half with stronger evidence. BinTrack pairs this primitive with a multi-view memory that captures each segment from overview, center (focal), and detail perspectives, compensating for the limitations of smaller open-source verifiers without any closed-source model. Despite its simplicity, BinTrack out-performs other open-source implementations by up to 22 .8 % and even surpasses the best reported closed-source model result on the SpaceLocQA benchmark. It also achieves more than a 1.5× in-ference speedup over previous baseline approaches. Finally, this work releases GangnamLoop, a multi-trip outdoor benchmark recorded by a real quadruped robot on public urban streets, which addresses limitations of existing SQA benchmarks [1, 2] and is detailed in Section 5. 
+
+Technical contributions: 
+
+1. This work introduces BinTrack , a fully open-source SQA agent that uses Binary Tracking as its core retrieval primitive to exploit the temporal ordering of robot trajectories. 2. A fair open-source evaluation shows that BinTrack outperforms implementations of the two leading prior systems across all categories of the SpaceLocQA benchmark, achieving up to a 22 .8 % improvement over open-source baselines. 3. It also surpasses the reported closed-source model result on the SpaceLocQA benchmark, while using only open-source components. 4. GangnamLoop provides a multi-trip outdoor SQA benchmark for evaluating revisit han-dling and cross-domain robustness in service robot deployments. 
+
+# 2 Related Work 
+
+Spatial question answering for embodied agents. Previous studies cast robot memory as a queryable database of egocentric observations. ReMEmbR introduces the NaVQA benchmark and a retrieval-augmented agent that issues function calls over a vector database of caption embeddings produced by a Visual-Language Model (VLM) [2]. Embodied-RAG organizes the same type of memory as a hierarchical semantic forest, enabling kilometer-scale retrieval [3]. Meta-Memory ex-tends this line of work by augmenting caption-only memory with raw images that the verifier can directly inspect [1] . Its retrieval process uses three orchestrated tools, including semantic-similarity retrieval, spatial-range retrieval, and a graph-based memory-integration tool that constructs a way-point graph at query time [6]. Both methods obtain their headline results using a closed-source model as the agent and verifier. However, simply replacing the closed-source models used in these methods with comparably sized open-source models causes their accuracy to drop sharply on global queries. 
+
+Memory representations for robots. Other approaches compress the environment into 3D scene graphs or open-vocabulary semantic maps that excel at object-centric lookups over a fixed set of nodes or grid cells [7, 8, 9, 10, 11, 12]. However, this compression discards two cues essential for multi-hop spatial reasoning, the temporal order of observations and the intermediate frames between landmarks, so queries such as “What lies on the way from A to B?” can no longer be answered, since the notion of “between” is lost. 2Embodied and episodic question answering. Embodied QA requires an agent to navigate during inference [13, 14], and episodic memory QA retrieves relevant moments from a stored observation sequence [15]. SQA shares the use of accumulated egocentric experience but differs in that the answer must be a metric coordinate rather than a category label, and spatial relations such as “near,” “between,” and “on the way from” must be operationalized for navigation. 
+
+Cognitive maps and long-video agents. Yang et al. show that explicitly generating a cognitive map improves multi-modal LLM spatial reasoning [16, 17]. Meta-Memory adopts a related idea through its memory-integration tool, which constructs a waypoint graph at query time and performs graph search over retrieved memory [1]. Both approaches introduce explicit graph structures to support spatial reasoning. In contrast, long-video agents handle temporal question categories, but they do not ground their answers in metric coordinates required for robot navigation [18, 19]. 
+
+# 3 Problem Definition 
+
+Spatial Question Answering. An SQA instance consists of a robot trajectory T = {(It, xt)}nt=1 
+
+and a natural-language query Q, where It denotes the egocentric image observed at time t and 
+
+xt = ( xt, y t) denotes the corresponding 2D robot coordinate. Following prior work, the system first converts the raw trajectory into a searchable memory [1, 2]. The trajectory is divided into ∆t-second segments S = {S1, . . . , S N }, and each segment Si contains a subset of temporally adjacent frames. The system samples several evenly spaced frames from each segment, summarizes their visual content with a VLM, and embeds the resulting captions with a text encoder. Each memory entry stores the caption embedding, the segment identifier, and a representative pose pi = ( xi, y i),computed from the poses of frames in the segment Si. The memory system indexes these entries in a vector database so that semantic retrieval can retrieve candidate segments Si for downstream spatial reasoning. Given (T, Q ), the system parses the query into semantic targets and, when available, spatial constraints such as nearby objects, anchor landmarks, or route constraints. It then retrieves candidate segments Si from the vector database using the query embedding and applies spatial filtering or structured search according to the query type. For a basic query, retrieval mainly searches for segments Si whose captions match the target object. For a local query, the system combines semantic evidence from multiple nearby objects within a local region. For a global query, the system must reason over a contiguous interval of segment indices defined by anchor landmarks or route constraints. The retrieved candidates are then verified using visual evidence, and the system outputs the representative pose pi associated with the selected segment Si as a 2D metric coordinate ˆp ∈ R2.The prediction is considered correct if ∥ˆp − p⋆∥2 < τ , where p⋆ is the ground-truth coordinate and 
+
+τ = 15m is the default distance threshold following the convention adopted by prior work [1]. Queries fall into three categories: basic queries require single-object recall, such as “Where is a dry cleaner?” ; local queries require integrating multiple objects within a local region, such as “Where is the trash bin next to the vending machine?” ; and global queries require long-horizon spatial reasoning, often under a path constraint between two landmarks, such as “Where is the convenience store on the route from my office to the subway station?” . Appendix B provides implementation details, including the captioner, encoder, segment length, and embedding dimension. 
+
+Challenges in Global Queries. A global query such as “Where is Z on the route from X to Y ?” 
+
+requires the system to identify the route between two anchor landmarks and localize the target within that route. This setting is difficult because a long trajectory often contains many semantically similar candidates for Z across multiple regions. Graph-based path search handles this route constraint by constructing a waypoint graph and reasoning over the graph across multiple steps. Prior systems can make this strategy work with a strong closed-source model, which can coordinate candidate retrieval, route reasoning, and verifier calls throughout the multi-step process. However, the same reasoning process becomes unreliable when the pipeline uses a smaller open-source agent. As a result, global query performance drops sharply in the open-source deployment setting. This motivates a simpler, structured retrieval primitive that directly exploits the temporal order already present in the robot trajectory, rather than relying on agent-driven graph reasoning. 34 BinTrack 
+
+BinTrack introduces two primary changes to existing agent-driven SQA pipelines [1, 2]. It uses a multi-view memory representation and the Binary Tracking algorithm, which performs a structured search between two anchor landmarks. Two additional hardening mechanisms further protect the agent against ambiguous candidates, and Appendix C describes their details. 
+
+4.1 Multi-View Memory Representation 
+
+Prior work represents each segment with a single caption generated from a 2×2 concatenation of four evenly spaced frames [1]. This representation becomes unreliable with 7B-class open-source VLMs [5] because important objects may occupy only a small region of the combined image, and a single caption must summarize multiple viewpoints, often producing generic descriptions such as “a street with shops” rather than discriminative details such as “a coffee shop named BANAPRESSO on the right.” The proposed method instead represents each segment with three complementary views from the same open-source VLM under different prompts [5]. The full view captures the entire scene from the 2×2 concatenation, the center view describes objects directly ahead of the robot in the central frame, and the detail view captures visible storefronts, signs, and readable text. The memory system embeds the three captions with the same open-source text encoder and stores each caption as a separate entry with a view identifier in a local vector database [20, 21]. Semantic retrieval ranks candidates across all views jointly. Appendix D lists the per-view prompts and component identifiers. 
+
+4.2 Binary Tracking 
+
+Existing SQA systems either rely on simple semantic retrieval or perform graph-based path search after re-approximating the already available robot trajectory as a waypoint graph. However, a robot trajectory naturally forms a sequence of segments ordered by recording time. The two anchors in a global query define a contiguous segment interval [iX , i Y ], and the answer must lie within this interval if the robot follows a continuous route between the anchors. This observation formulates the search for Z within the interval as a one-dimensional search problem, making binary search a natural and efficient procedure for exploiting this structure. Algorithm 1 summarizes the Binary 
+
+Algorithm 1 Binary tracking: search over ordered segment indices between two anchors.                                                                           
+
+> 1: function BIN SEARCH (Z, pX,pY;kleaf , k )2: iX←arg min i∥pi−pX∥2;iY←arg min i∥pi−pY∥2▷anchor segment indices 3: (ℓ, r )←(min( iX, i Y) + 1 ,max( iX, i Y)−1)
+> 4: while r−ℓ > k leaf do
+> 5: m← ⌊ (ℓ+r)/2⌋
+> 6: L, R ←top-ksemantic scores for Zon [ℓ, m ],[m+1 , r ]
+> 7: if evid( L)≥evid( R)then ▷pick the half with stronger evidence 8: r←m
+> 9: else
+> 10: ℓ←m+ 1
+> 11: end if
+> 12: end while
+> 13: ˆi←VERIFY (top-kon [ℓ, r ],Z)14: return pˆi
+> 15: end function
+
+Tracking procedure. The algorithm takes a parsed route-constrained query and searches the trajec-tory interval between two anchor landmarks. Instead of constructing a waypoint graph, it repeatedly compares the semantic evidence in the left and right halves of the current interval and keeps the more promising half. Let Z denote the target entity in the query, and let X and Y denote the two anchor landmarks that define the route constraint. The query parser returns the target Z, and metric anchor coordinates pX , pY ∈ R2. For each trajectory segment Si, let pi ∈ R2 denote its represen-tative coordinates. Binary Tracking first locates the anchor segments iX = arg min i ∥pi − pX ∥2
+
+and iY = arg min i ∥pi − pY ∥2, and initializes the search interval (ℓ, r ) as the contiguous segment 4range between the two anchors. During search, m = ⌊(ℓ + r)/2⌋ denotes the midpoint of the cur-rent interval. The method computes evidence scores for the left interval [ℓ, m ] and the right interval 
+
+[m + 1 , r ], where the evidence score for an interval evid( ·) = α · mean i∈H σ(i) + β · max i∈H σ(i).The algorithm keeps the half with the larger evidence score. The loop stops when the interval length becomes no larger than the leaf size kleaf . The verifier then selects the final segment ˆi from the top-k
+
+candidates in the leaf interval, and the system returns pˆi as the predicted coordinate. Figure 1 illus-                            
+
+> X(office) Z(coffee shop) Y(subway)
+> trajectory:
+> iX=2 iY=17
+> Step 1
+> [ℓ=3 , r =16]
+> desc. left
+> left score: 0.81 right score: 0.42
+> Step 2
+> [ℓ=3 , r =9]
+> desc. right
+> left score: 0.30 right score: 0.79
+> Step 3 leaf [7 ,9]
+> verify →sˆ=9
+> ✓ˆp←(x9, y 9)
+> anchor segment ( iXor iY)active search interval
+> pruned by binary tracking target (coffee shop)
+
+Figure 1: Binary Tracking performs a binary search over the ordered segment indices between two anchor segments. trates the intuition behind Binary Tracking on an ordered trajectory. The query asks for a coffee shop on the way from the office to the subway, so the two anchor segments first define the search interval between them. Binary Tracking then repeatedly compares the left and right halves of the current interval and keeps the half with stronger evidence for the target. In the example, the first comparison keeps the left half, and the second comparison keeps the right half, reducing the search interval to a small leaf interval. A verifier then selects the final target segment from the remaining candidates, and the system returns the pose of that segment as the predicted coordinate. Let n denote the number of segments between the two anchors, and let cret and cver denote the costs of one semantic retrieval and one verifier call, respectively. Binary Tracking repeatedly halves the search interval until the remaining interval contains at most kleaf segments. This requires ⌈log 2(n/k leaf )⌉ iterations. At each iteration, the method performs one semantic retrieval on the left half and one on the right half, and it calls the verifier only once after reaching the final leaf interval. Thus, the total cost is 
+
+CBT (n) = 2 cret ⌈log 2(n/k leaf )⌉ + cver = O(log n) · cret + cver , (1) which scales logarithmically with the interval length. The naive worst case where the verifier in-spects all n candidates costs cret + nc ver . Binary Tracking instead invokes the expensive verifier only on the final leaf, which matters because cver ≫ cret for 7B-class open-source models. 
+
+4.3 Agent Loop and Hardening Mechanisms 
+
+BinTrack uses an open-source instruction-tuned language model as the planning agent [4, 22]. The agent runs a thought-and-action loop, where each step selects one action from a small set covering semantic and spatial retrieval primitives, the proposed Binary Tracking, and the final coordinate out-put. Appendix E lists the full tool set, tool descriptions, and per-trajectory filtering applied at each retrieval step. This simple design, driven primarily by Binary Tracking and multi-view memory, sub-stantially improves accuracy under the open-source constraint. Two additional lightweight harden-ing mechanisms further improve robustness when the verifier uses a smaller open-source VLM. The anchor-aware verification pool balances verifier candidates between semantically similar matches and anchor-consistent matches. The lock-on-Y rerank reorders candidates using a secondary anchor extracted from the query and provides a fallback when the agent does not converge within its step budget. Appendix F details both mechanisms. 5Figure 2: Overview of GangnamLoop on a representative round-trip route (office E to B and back). Day (red) and night (blue) trajectories are aligned on a common SLAM map. 
+
+# 5 The GangnamLoop Benchmark 
+
+Public SQA datasets typically consist of single one-pass tours collected in indoor or campus en-vironments [1, 2]. However, real service robots repeatedly travel the same routes and encounter appearance changes caused by illumination, weather, and foreground objects over time. They also face a viewpoint mismatch, as a quadruped service robot records video from a low viewpoint under approximately 0.8 m , while a human user typically asks spatial questions from an eye-level view-point in roughly the 1.5–1.9 m range. Existing datasets do not sufficiently capture revisits, domain shifts, and viewpoint mismatch in real service-robot deployments. To address this gap, this work re-leases GangnamLoop, a multi-trip outdoor SQA benchmark recorded by a real quadruped robot on public urban streets. Figure 2 gives an overview of one representative round-trip route, showing the day and night trajectories on the SLAM map together with the memory-construction view examples and a test query example used throughout the benchmark. 
+
+Recording platform. GangnamLoop uses a Unitree Go2 [23] with an Intel RealSense depth cam-era D455 [24], a Livox MID-360 LiDAR [25] with a built-in IMU. An onboard LiDAR-Inertial SLAM pipeline inspired by Point-LIO estimates the per-frame poses [26]. A human user walks alongside the robot during collection, and a subset additionally captures the user’s first-person view through a head-mounted camera. GangnamLoop reflects how real service robots operate in prac-tice, unlike public SQA benchmarks that use single-pass tours. A real quadruped robot records the benchmark data on public urban streets while revisiting the same locations under paired day and night conditions. The benchmark provides dual viewpoints from a low camera mounted on the robot and a head-mounted camera worn by the human user. It also includes anonymized real pedestrian scenes that rarely appear in existing SQA datasets. A direct comparison with related egocentric and embodied benchmarks is included in Appendix E. The full benchmark dataset contains 8 round-trip recordings. Each round trip starts and ends at a fixed office location ( E) and visits one of four nearby subway stations ( A–D) along the route. The collection schedule records each destination once dur-ing the day and once at night. Table 1 summarizes the resulting four pairs of day and night and the recording statistics. Appendix F lists the mapping between the symbols E, A, B, C, D, and the actual identities of the office and the station, together with the full collection schedule. 
+
+# 6 Experiments 
+
+All experiments can be run on a single workstation with two NVIDIA RTX 6000 Ada Generation GPUs ( 48 GB each) and no external API access, using only open-source models for the captioner, 6Table 1: GangnamLoop recording schedule.                                                                                                     
+
+> #Day Condition Destination (round trip) Pair w/ Duration RGB frames Queries 1Day 1 day E→A→E#8 14 m 43 s 25,545 45 2Day 1 day E→B→E#7 12 m 37 s 22,020 45 3Day 1 night E→C→E#6 32 m 47 s 56,883 45 4Day 1 night E→D→E#5 45 m 12 s 78,507 45 5Day 2 day E→D→E#4 49 m 40 s 86,208 45 6Day 2 day E→C→E#3 35 m 19 s 61,397 45 7Day 2 night E→B→E#2 13 m 41 s 23,753 45 8Day 2 night E→A→E#1 17 m 3 s 29,487 45
+> Totals (committed in open release): 221 m 1 s 383,800 360
+
+text encoder, planning agent, and visual verifier. The whole pipeline also fits within 20 GB of VRAM with 7B-class counterparts. Full model identifiers, prompts, and hyperparameters are in Appendix D. The evaluation uses the 270-query SpaceLocQA benchmark ( 90 basic, 90 local, 90 global across 6 trajectories) and all 8 GangnamLoop recordings. The main metric is success rate under a metric tolerance τ , with τ = 15 m as the headline setting. 
+
+6.1 Experiment results 
+
+Table 2: SQA comparison results on SpaceLocQA (270 queries, success at τ = 15 m ). ∆global 
+
+denotes the global-category change from the closed-source model backbone to its comparably sized open-source counterpart.                                      
+
+> Method Backbone Basic ↑Local ↑Global ↑Overall ↑∆global
+> Meta-Memory [1] closed-source 67.8 61.8 62.2 63.9 −29 .6
+> open-source †50.0 51.1 32.6 44.6 ReMEmbR [2] closed-source 58.5 57.8 46.3 54.2 −13 .7
+> open-source †56.7 61.1 32.6 50.1
+> BinTrack (ours) open-source 74.4 65.6 62.2 67.4 —
+> †Reproduced by us under the fair constraint (Qwen2.5-32B-AWQ agent and Qwen2.5-7B verifier).
+
+Table 2 reports success rates in τ =15 m on SpaceLocQA for both the closed-source model and the open-source backbone of prior systems. Under the fair open-source constraint, BinTrack outper-forms both open-source baselines in every category, with the largest gain on global queries ( +29 .6 % 
+
+over open-source Meta-Memory). More importantly, BinTrack also surpasses the best published closed-source model result of Meta-Memory by +6 .6, +3 .8, 0.0, and +3 .5 % on basic, local, global, and overall. The result on the global category is particularly noteworthy. Prior work has shown that global queries are the hardest setting and have so far been solvable only with strong reasoning agents such as GPT-4o [1], yet BinTrack matches that closed-source result ( 62 .2 % ) using only open-source local models, narrowing a gap that the open-source substitution alone widens by −29 .6 % . Table 3 gives a finer-grained per-sequence comparison for each category. The comparison includes three prior baselines, ReMEmbR, Embodied-RAG, and Meta-Memory, which use a closed-source model, GPT-4o, as reported in previous studies. In contrast, BinTrack uses only open-source local models. Even under this stricter open-source setting, BinTrack achieves the highest average accuracy in ev-ery category and ranks first on the majority of individual sequences across all six trajectories. This consistent ranking across sequences indicates that the accuracy of BinTrack is not driven by a few favorable trajectories but generalizes across diverse routes, which is in line with the design intent of Binary Tracking as a trajectory-structured primitive. These results show that an open-source pipeline with Binary Tracking can match or exceed strong closed-source model baselines without any online dependency. 
+
+6.2 Results on GangnamLoop 
+
+The evaluation further applies BinTrack to all 8 GangnamLoop recordings using the same pipeline. A key characteristic of GangnamLoop is that it revisits the same locations multiple times under 7Table 3: Per-sequence and per-category comparison on SpaceLocQA (success at τ = 15 m ). The three baselines are the closed-source model results from the Meta-Memory paper.                                                                                              
+
+> Category Method Seq 0 Seq 1 Seq 2 Seq 3 Seq 4 Seq 5 Avg ↑
+> Basic ReMEmbR [2] 46.7 53.3 82.2 71.1 40.0 57.8 58.5 Embodied-RAG [3] 42.2 37.8 71.1 62.2 35.6 68.9 53.0 Meta-Memory [1] 53.3 57.8 84.4 73.3 57.8 80.0 67.8
+> BinTrack (ours) 66.7 60.0 73.3 86.7 73.3 86.7 74.4
+> Local ReMEmbR [2] 68.9 60.0 51.1 66.7 44.4 55.6 57.8 Embodied-RAG [3] 62.2 48.9 57.8 53.3 46.7 62.2 55.2 Meta-Memory [1] 66.7 60.0 53.3 64.4 60.0 66.7 61.8
+> BinTrack (ours) 80.0 46.7 73.3 60.0 60.0 73.3 65.6
+> Global ReMEmbR [2] 51.1 44.4 60.0 37.8 51.1 33.3 46.3
+> Embodied-RAG [3] 37.8 42.2 40.0 20.0 40.0 44.4 37.4 Meta-Memory [1] 60.0 62.2 82.2 55.6 60.0 53.3 62.2
+> BinTrack (ours) 80.0 66.7 66.7 60.0 53.3 46.7 62.2
+
+different conditions, which directly stresses the revisit-handling ability of an SQA system. Since no closed-source model result has been reported on GangnamLoop, the comparison focuses on the strongest open-source baseline. BinTrack outperforms this baseline by more than 2.5 % in overall average accuracy across the 8 recordings, confirming that Binary Tracking transfers to outdoor low-viewpoint service-robot data and to the multi-visit setting without source-code changes (full per-recording breakdown in Appendix G). We further expect that augmenting GangnamLoop with ad-ditional and more challenging queries and labels will catalyze active follow-up research on stronger methods for service-robot spatial question answering. 
+
+6.3 Ablations and Failure Analysis 
+
+The ablation study examines the two core design choices of BinTrack, Binary Tracking, and multi-view memory, by removing them individually and jointly. The results show that both components matter. Starting from the full model accuracy of 67 .4% , removing Binary Tracking reduces accuracy to 63 .3% , removing multi-view memory reduces it to 63 .0% , and removing both further reduces it to 59 .6% . The degradation appears most strongly on global path-constrained queries, where Binary Tracking directly contributes to route-aware localization. Appendix H provides the full ablation table and detailed failure analysis. 
+
+# 7 Limitations 
+
+BinTrack, like prior systems, builds memory per trajectory. A naive cross-trajectory retrieval over shared landmarks gave no notable gain (Appendix J), so principled cross-trajectory integration is left to future work. A more practical limitation is that the captioning stage still requires offline background processing for newly visited routes, which constrains fully online deployment. 
+
+# 8 Conclusion 
+
+BinTrack is a fully open-source SQA agent built on Binary Tracking, a structured retrieval primitive matched to the temporal ordering of a robot’s trajectory. Using only 7B-class open-source models, BinTrack achieves a 67 .4% success rate on SpaceLocQA, outperforming open-source baselines by up to 22 .8 % and surpassing the best reported closed-source Meta-Memory result. This work also re-leases GangnamLoop, a multi-trip outdoor SQA benchmark collected with a real quadruped service robot on public urban streets, containing 8 round-trip recordings with paired day and night condi-tions, dual robot and human viewpoints, and anonymized real pedestrian scenes. Overall, the results show that trajectory-structured algorithmic primitives can narrow the gap between open-source and closed-source foundation-model pipelines for embodied spatial reasoning. 8References 
+
+[1] Y. Mao, H. Ye, W. Dong, C. Zhang, and H. Zhang. Meta-Memory: Retrieving and integrating semantic-spatial memories for robot spatial reasoning. arXiv preprint arXiv:2509.20754 , 2025. [2] A. Anwar, J. Welsh, J. Biswas, S. Pouya, and Y. Chang. ReMEmbR: Building and reasoning over long-horizon spatio-temporal memory for robot navigation. In Proceedings of the IEEE International Conference on Robotics and Automation (ICRA) , pages 2838–2845, 2025. [3] Q. Xie, S. Y. Min, P. Ji, Y. Yang, T. Zhang, K. Xu, A. Bajaj, R. Salakhutdinov, M. Johnson-Roberson, and Y. Bisk. Embodied-RAG: General non-parametric embodied memory for re-trieval and generation. arXiv preprint arXiv:2409.18313 , 2024. [4] A. Yang, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Li, D. Liu, F. Huang, H. Wei, H. Lin, J. Yang, J. Tu, J. Zhang, J. Yang, J. Yang, J. Zhou, J. Lin, K. Dang, K. Lu, K. Bao, K. Yang, L. Yu, M. Li, M. Xue, P. Zhang, Q. Zhu, R. Men, R. Lin, T. Li, T. Xia, X. Ren, X. Ren, Y. Fan, Y. Su, Y. Zhang, Y. Wan, Y. Liu, Z. Cui, Z. Zhang, and Z. Qiu. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 , 2024. [5] S. Bai, K. Chen, X. Liu, J. Wang, W. Ge, S. Song, K. Dang, P. Wang, S. Wang, J. Tang, H. Zhong, Y. Zhu, M. Yang, Z. Li, J. Wan, P. Wang, W. Ding, Z. Fu, Y. Xu, J. Ye, X. Zhang, T. Xie, Z. Cheng, H. Zhang, Z. Yang, H. Xu, and J. Lin. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 , 2025. [6] E. W. Dijkstra. A Note on Two Problems in Connexion with Graphs , pages 287–290. Associ-ation for Computing Machinery, New York, NY, USA, 1 edition, 2022. doi:10.1145/3544585. 3544600. [7] N. Hughes, Y. Chang, and L. Carlone. Hydra: A real-time spatial perception system for 3D scene graph construction and optimization. arXiv preprint arXiv:2201.13360 , 2022. [8] Q. Gu, A. Kuwajerwala, S. Morin, K. M. Jatavallabhula, B. Sen, A. Agarwal, C. Rivera, W. Paul, K. Ellis, R. Chellappa, et al. ConceptGraphs: Open-vocabulary 3D scene graphs for perception and planning. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 5021–5028. IEEE, 2024. [9] A. Werby, C. Huang, M. B¨ uchner, A. Valada, and W. Burgard. Hierarchical open-vocabulary 3D scene graphs for language-grounded robot navigation. In First Workshop on Vision-Language Models for Navigation and Manipulation at ICRA 2024 , 2024. [10] C. Huang, O. Mees, A. Zeng, and W. Burgard. Visual language maps for robot navigation. 
+
+arXiv preprint arXiv:2210.05714 , 2022. [11] N. M. M. Shafiullah, C. Paxton, L. Pinto, S. Chintala, and A. Szlam. CLIP-Fields: Weakly supervised semantic fields for robotic memory. arXiv preprint arXiv:2210.05663 , 2022. [12] S. Peng, K. Genova, C. M. Jiang, A. Tagliasacchi, M. Pollefeys, and T. Funkhouser. Open-Scene: 3D scene understanding with open vocabularies. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 815–824, 2023. [13] A. Das, S. Datta, G. Gkioxari, S. Lee, D. Parikh, and D. Batra. Embodied question answering. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) ,June 2018. [14] A. Majumdar, A. Ajay, X. Zhang, P. Putta, S. Yenamandra, M. Henaff, S. Silwal, P. Mcvay, O. Maksymets, S. Arnaud, K. Yadav, Q. Li, B. Newman, M. Sharma, V. Berges, S. Zhang, P. Agrawal, Y. Bisk, D. Batra, M. Kalakrishnan, F. Meier, C. Paxton, A. Sax, and A. Ra-jeswaran. OpenEQA: Embodied question answering in the era of foundation models. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) ,pages 16488–16498, June 2024. 9[15] S. Datta, S. Dharur, V. Cartillier, R. Desai, M. Khanna, D. Batra, and D. Parikh. Episodic memory question answering. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 19097–19106, 2022. [16] J. Yang, S. Yang, A. W. Gupta, R. Han, L. Fei-Fei, and S. Xie. Thinking in space: How multimodal large language models see, remember, and recall spaces. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 10632– 10643, June 2025. [17] E. C. Tolman. Cognitive maps in rats and men. Psychological Review , 55(4):189, 1948. [18] X. Wang, Y. Zhang, O. Zohar, and S. Yeung-Levy. VideoAgent: Long-form video understand-ing with large language model as agent. In European Conference on Computer Vision , pages 58–76. Springer, 2024. [19] Y. Fan, X. Ma, R. Wu, Y. Du, J. Li, Z. Gao, and Q. Li. VideoAgent: A memory-augmented multimodal agent for video understanding. In European Conference on Computer Vision , pages 75–92. Springer, 2024. [20] S. Lee, A. Shakir, D. Koenig, and J. Lipp. Open source strikes bread – new fluffy embedding model. https://www.mixedbread.com/blog/mxbai-embed-large-v1 , 2024. mxbai-embed-large-v1. [21] J. Wang, X. Yi, R. Guo, H. Jin, P. Xu, S. Li, X. Wang, X. Guo, C. Li, X. Xu, K. Yu, Y. Yuan, Y. Zou, J. Long, Y. Cai, Z. Li, Z. Zhang, Y. Mo, J. Gu, R. Jiang, Y. Wei, and C. Xie. Milvus: A purpose-built vector data management system. In Proceedings of the 2021 International Con-ference on Management of Data , SIGMOD ’21, pages 2614–2627. Association for Computing Machinery, 2021. doi:10.1145/3448016.3457550. [22] J. Lin, J. Tang, H. Tang, S. Yang, W.-M. Chen, W.-C. Wang, G. Xiao, X. Dang, C. Gan, and S. Han. AWQ: Activation-aware weight quantization for on-device LLM compression and acceleration. Proceedings of Machine Learning and Systems , 6:87–100, 2024. [23] Unitree Robotics. Unitree Go2 quadruped robot. https://www.unitree.com/go2 , 2024. [24] Intel Corporation. RealSense Depth Camera D455. https://realsenseai.com/ products/real-sense-depth-camera-d455f/ , 2020. [25] Livox Technology. Livox MID-360 lidar. https://www.livoxtech.com/mid-360 , 2024. [26] D. He, W. Xu, N. Chen, F. Kong, C. Yuan, and F. Zhang. Point-LIO: Robust high-bandwidth light detection and ranging inertial odometry. Advanced Intelligent Systems , 5(7):2200459, 2023. [27] P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. K¨ uttler, M. Lewis, W.-t. Yih, T. Rockt¨ aschel, et al. Retrieval-augmented generation for knowledge-intensive NLP tasks. 
+
+Advances in Neural Information Processing Systems , 33:9459–9474, 2020. 10 A Closed-to-Open Substitution Gap 
+
+Table 4 quantifies the performance degradation that motivates this work. When prior systems replace their closed-source agent and verifier with comparably sized open-source models under the fair-comparison constraint, accuracy drops sharply, especially in the global category. The closed-source and open-source rows match the corresponding rows in Table 2, ensuring consistency between the main results and this appendix. This appendix additionally reports the per-category ∆ values from closed-source to open-source settings for each baseline, making the category-wise concentration of the degradation explicit. For reference, the last row reports BinTrack, which uses only open-source components by design. Table 4: Effect of substituting closed-source models with comparably sized open-source models in prior SQA pipelines.                                          
+
+> Method Backbone Basic ↑Local ↑Global ↑Overall ↑
+> Meta-Memory [1] closed-source 67.8 61.8 62.2 63.9 open-source †50.0 51.1 32.6 44.6
+> ∆(closed →open) −17 .8−10 .7−29 .6−19 .3
+> ReMEmbR [2] closed-source 58.5 57.8 46.3 54.2 open-source †56.7 61.1 32.6 50.1
+> ∆(closed →open) −1.8+3 .3−13 .7−4.1
+> BinTrack (ours) open-source 74.4 65.6 62.2 67.4
+> †Reproduced by us under the fair open-source constraint.
+
+Table 4 shows the effect of replacing the closed-source model in prior SQA pipelines with com-parably sized open-source models, using a Qwen2.5-32B-AWQ agent and a Qwen2.5-7B verifier. Unlike Table 2, this appendix reports per-category ∆ values from the closed-source setting to the open-source setting for each baseline, making the category-wise degradation explicit. The degrada-tion concentrates in the global category for both baselines, with drops of −29 .6 and −13 .7 points, while the basic and local categories change much less and can even improve, as in ReMEmbR local accuracy with +3 .3 points. BinTrack achieves the strongest open-source global accuracy without using any closed-source com-ponent. The performance degradation from closed-source to open-source substitution concentrates in the global category for both Meta-Memory ( −29 .6 % p) and ReMEmbR ( −13 .7 % p), while the basic and local categories degrade much less. This pattern reflects the design of prior systems, where the closed-source model handles the verification and multi-step reasoning loop that global queries rely on most. The open-source baselines drop to roughly 32 .6 % global accuracy, indicating that the smaller agent cannot reliably coordinate the graph-based memory-integration pipeline. In the same open-source setting, BinTrack recovers 62 .2 % global accuracy by replacing graph-based reasoning with the trajectory-structured Binary Tracking primitive in Section 4.2. This primitive avoids the verifier-driven multi-step loop that becomes unreliable with a 32B-class open-source agent. 
+
+# B Implementation Details 
+
+This appendix lists the captioner, encoder, segment length, embedding dimension, decoding param-eters, and compute setup used throughout the experiments. Appendix D lists the per-view caption prompts and component identifiers, so this appendix focuses on algorithmic and implementation hyperparameters. 
+
+Segmentation and captioning. The pipeline divides the robot trajectory into fixed-length time segments of duration ∆t. The released configuration uses non-overlapping windows with ∆t =1.5 s . The method does not depend on this exact value, and values in the 1–3 s range show compa-rable behavior. Shorter segments provide finer caption granularity but increase the number of stored segments, while longer segments reduce memory size at the cost of coarser localization. For each segment, the pipeline samples four evenly spaced frames and arranges them into a single 2×2 image. 11 It then queries the video VLM three times using the three view prompts described in Appendix D. The system performs captioning once per route, caches the captions on disk, and reuses the cache for all subsequent retrieval steps without invoking the captioner again. 
+
+Embedding and indexing. The memory system embeds all three captions for each segment with 
+
+mxbai-embed-large-v1 [20], producing 1024 -dimensional embeddings. It stores each caption as a separate entry in a local vector database [21], together with its trajectory ID, segment index, and view ID. Every retrieval call applies the per-trajectory filter described in Appendix E. 
+
+Decoding parameters. All language and vision-language model calls use deterministic decoding with temperature 0 and top-p 1. The agent uses a configurable step budget, set to 4 in the released configuration, and a per-call generation cap of 400 tokens. This budget is sufficient for most queries because the agent usually reaches a FINAL answer within four steps. Appendix G reports the corre-sponding tool-call statistics. Each retrieval call requests up to top-k = 40 candidates, and the verifier inspects the top 12 candidates. Algorithm 1 uses a leaf size of kleaf = 16 . The system exposes these values as hyperparameters, so users can choose more conservative settings, such as a larger step budget or a wider top-k, without changing the algorithm. 
+
+Compute setup. The experiments use a single workstation with 2× NVIDIA RTX 6000 Ada Generation GPUs, each with 48 GB of VRAM, and 128 GB of system memory. The runtime places the agent and verifier on separate GPUs, while per-trajectory memory construction runs sequentially. The pipeline can also replace all four model roles, including the captioner, text encoder, planning agent, and visual verifier, with 7B-class open-source counterparts. This lightweight configuration fits within roughly 20 GB of VRAM on a single consumer GPU. Appendix G provides additional details on this configuration. 
+
+# C Hardening Mechanisms in Detail 
+
+Anchor-aware verification pool. The verifier inspects a pool of K candidate segments for each retrieval call. The system constructs this pool from the top-K segments ranked by caption embed-ding similarity to the target Z when the query has no anchor. The query may provide an anchor pose 
+
+pX , such as the from -pose in Binary Tracking or a pose extracted by an earlier retrieval step. In this case, the system combines the top-K/ 2 semantic matches with the top-K/ 2 segments closest to pX
+
+in Euclidean distance. This design prevents the verifier from considering only semantically plausible candidates. It is especially useful when the correct answer has a borderline semantic score but lies close to the relevant anchor. 
+
+Lock-on-Y rerank. The lock-on-Y rerank handles queries that ask for a target Z near or closest to a secondary anchor Y . This secondary anchor differs from the from and to anchors used in Binary Tracking. The system detects Y with two lightweight rules. The first rule uses regex patterns for English expressions such as “nearest Z to Y ”, “ Z closest to Y ”, “ Z near Y ”, and related variants. The second rule scans the preceding sentence for known location nouns such as lakeside , cafeteria ,
+
+entrance , lobby , and rooftop . After detecting Y , the agent performs a secondary retrieval for Y and verifies its candidates. The system then re-sorts the verified Z candidates by Euclidean distance to the closest verified Y pose. If the agent does not converge within its step budget, the system locks the reranked top-1 candidate as a fallback. The rerank runs only when the verifier confirms at least two distinct Y poses and the reranking changes the top-1 candidate. Both mechanisms act as agent-side wrappers. They do not require model retraining and only reorder the candidate set inspected by the open-source verifier. The ablation in Appendix H shows that each mechanism provides a small but consistent gain, about 2 % overall when removed individually. The gain appears most strongly in the global category, which supports their role as robustness layers around the verifier. 12 D Per-View Prompts and Component Identifiers 
+
+Per-view caption prompts. The captioning module generates three captions for each segment of duration ∆t using the open-source video VLM described in Appendix L. Each caption corresponds to one of the three views in Table 5. The system performs captioning once per route and caches the results for subsequent retrieval. Table 5: Caption prompts for the three views of each segment.                
+
+> View Prompt template full “You are a robot navigating an environment. The image is a 2×2grid of 4 consecutive frames. Describe what you see across these frames: visible objects, landmarks, signs, doors, rooms, distinctive structures, and the overall scene type. Be specific and con-crete. Limit to ∼80 words.” center “You are a robot. This image is a 2×2grid of 4 close-up center crops from 4 consec-utive frames. Identify ANY readable text, signs, room numbers, brand names, small objects, equipment labels, or fine details in the center of view. Be specific. Limit to
+> ∼80 words.” detail “You are a robot. Look at the 2×2grid of 4 consecutive frames. Now enumerate con-crete nouns visible: list distinct OBJECTS, FURNITURE, EQUIPMENT, SIGNAGE, BUILDING FEATURES, NATURAL FEATURES. Use short noun phrases separated by commas, grouped by category. ∼80 words.”
+
+Component identifiers. Table 6 lists the exact open-source model identifiers used for each role in the pipeline, including the captioner, text encoder, planning agent, and visual verifier. The pipeline runs all components locally and does not require any external API access during either memory construction or query-time inference. This setup ensures that the reported results reflect a fully open-source deployment setting rather than a hybrid system that depends on commercial services. Table 6: Open-source component identifiers used by BinTrack.                     
+
+> Role Identifier (HuggingFace-style) Notes Captioner Qwen2.5-VL-7B-Instruct [5] video-VLM, 2×2grid input Visual verifier Qwen2.5-VL-7B-Instruct [5] same checkpoint as captioner Text encoder mxbai-embed-large-v1 [20] 1024 -dim caption embeddings Planning agent Qwen2.5-32B-Instruct-AWQ [4, 22] 4-bit AWQ quantized Vector database Milvus [21] local, embedded, per-trajectory partitions
+
+# E Agent Tool Set and Comparison with Related Benchmarks 
+
+E.1 Agent Tool Set and Per-Trajectory Filtering Tool set. Table 7 summarizes the tools exposed to the planning agent at each step of its thought-and-action loop. The tool set includes retrieval primitives, Binary Tracking, and control actions for continuing reasoning or returning the final coordinate. The set remains intentionally small so that the agent’s behavior is easy to inspect and the ablation in Appendix H can isolate the contribution of each primitive. 
+
+Per-trajectory filtering. Every retrieval call, including SSR, SRR, and the internal retrieval in-side BT, uses a per-trajectory filter that restricts results to segments from the trajectory under eval-uation. The system implements this filter as a Milvus partition tag, so the vector database applies the restriction directly without Python-side post-filtering. This design ensures that all reported re-sults follow the single-trajectory retrieval protocol used by SpaceLocQA and prior work [1, 2]. Appendix J studies a controlled relaxation of this filter. 13 Table 7: Agent tools exposed to the planning agent at every step.                   
+
+> Tool Symbol Description Semantic-similarity retrieval SSR Top-ksegments by cosine similarity between the query embedding and each segment’s caption embedding (ranked jointly across the three views). Spatial-range retrieval SRR All segments whose representative pose lies within a radius r
+> of a query point p.Binary tracking BT Structured retrieval over the ordered segment interval be-tween two anchor landmarks; see Algorithm 1. (Exposed in the released code as the path-constrained retrieval action; the agent emits the action name PATH , which executes Binary Tracking.) Memory integration (legacy) MI Graph-based path search over a waypoint graph built from retrieved landmarks [1, 6]; kept for backward compatibility with prior pipelines. Final-answer emission FINAL Terminates the agent loop and emits a 2D pose ˆpas the pre-dicted coordinate.
+
+E.2 Comparison with Related Egocentric and Embodied Benchmarks 
+
+Table 8 compares GangnamLoop with public egocentric and embodied benchmarks. The comparison focuses on properties relevant to real service-robot SQA, including outdoor data collection, repeated visits to the same locations, paired robot and human viewpoints, and real-robot deployment. Here, “Repeat” indicates multiple visits to the same location under different conditions, and “Dual view” indicates paired robot-view and human-view recordings of the same route. Table 8: Comparison with public egocentric and embodied benchmarks.                                           
+
+> Benchmark Setting Answer type Outdoor Repeat Dual view Real robot OpenEQA [14] embodied QA language ––––EQA-MP3D [13] embodied QA language ––––EMQA [15] episodic QA category ––––NaVQA [2] SQA coordinate partial ––✓
+> SpaceLocQA [1] SQA coordinate partial –––GangnamLoop (this work) SQA coordinate ✓✓✓✓
+
+GangnamLoop differs from existing benchmarks by combining metric-coordinate answers with real outdoor service-robot data. It contains repeated day and night visits to the same public street lo-cations, paired robot and human viewpoints, and anonymized pedestrian scenes. Among the listed benchmarks, only NaVQA and GangnamLoop use a real robot for data collection, and only Gang-namLoop combines repeated visits with a dual-viewpoint protocol. SpaceLocQA is marked as par-tial outdoor because its sequences include outdoor campus walkways. The distinguishing property of GangnamLoop is therefore not outdoor recording alone, but the combination of repeated public-street visits and paired robot and human viewpoints, which directly supports evaluation of revisit handling, cross-domain robustness, and viewpoint mismatch. 
+
+# F GangnamLoop Collection Protocol 
+
+Route (anonymized). The fixed GangnamLoop route starts and ends at a single office location, de-noted by E, in a dense urban district of a large city. Each recording visits one of four nearby subway stations, denoted by A, B, C, and D, and returns to E along the same path. The one-way distance from E to each station entrance ranges from approximately 400 to 600 m , producing round trips of roughly 0.9-1.2 km . The four destinations cover different urban conditions, including commercial street frontage, narrow side streets, and a wider boulevard segment. This route design exposes the robot to a representative range of service-robot operating conditions. The dataset anonymizes the actual identities of E and A-D for privacy. Figure 4 shows the common SLAM map reconstructed for this route by the onboard LiDAR-Inertial SLAM pipeline. All eight recordings are registered to this single map, so that the office E, the four destinations A–D, and every day and night trajectory 14 share one coordinate frame, which is what makes revisits of the same location directly comparable across conditions.                              
+
+> (a) E→A(R1day, R8night).
+> (b) E→B(R2day, R7night). (d) E→D(R5day, R4night).
+> (c) E→C(R6day, R3night).
+
+Figure 3: Day (red) and night (blue) trajectories for the four GangnamLoop destinations, aligned on the common SLAM map. 
+
+Schedule and pairing. The collection schedule covers 2 days × 4 destinations × 2 times of day. Each destination has one daytime recording and one nighttime recording. The recording pairs (1 , 8) ,
+
+(2 , 7) , (3 , 6) , and (4 , 5) share the same destination but differ in time of day. These four pairs form the day and night cross-domain evaluation set for property (P2). Table 1 summarizes the full schedule and indicates each pair in the “Pair w/” column. 
+
+Companion viewpoint. A human user walks alongside the quadruped with an RGB camera for a subset of recordings. The system time synchronizes this human viewpoint with the robot’s onboard sensors. For owner viewpoint queries, the evaluation uses the robot pose at the matching timestamp as the ground truth coordinate. 
+
+Annotation procedure. The released labeling tool shows the synchronized RGB video and tra-jectory plot together. Annotators browse the video, select the frame that corresponds to the query target, type the question, choose the SQA category, and save the annotation. The selected frame provides the ground truth coordinate through its time-synchronized robot pose. At least two inde-pendent annotators label each recording. The annotation pipeline cross-validates the labels through relocalization and discards queries with more than 10 m inter-annotator disagreement. 15 Figure 4: The common SLAM map onto which all GangnamLoop trajectories are aligned. The map is reconstructed by the onboard LiDAR-Inertial SLAM pipeline and shared across the eight day/night recordings, providing a single coordinate frame for the office ( E) and the four station des-tinations ( A–D). This shared frame is what makes revisits of the same location directly comparable across day, night, and route. 
+
+Query budget. The benchmark targets approximately 360 queries in total, balanced across basic, local, and global categories. The query set also includes paired day-and-night examples for evaluat-ing cross-domain robustness and dual viewpoint examples for evaluating viewpoint mismatch. 
+
+Pedestrian anonymization policy. GangnamLoop contains real public-street recordings, so the raw videos inevitably include pedestrians and license plates unrelated to the project. The release pipeline applies face and license-plate detection to every RGB frame and blurs detected regions with a Gaussian kernel. The project releases only blurred frames and uses these anonymized frames for captioning, retrieval, and verification. This policy ensures that all models in this paper, including the captioner, encoder, and verifier, operate on anonymized inputs. It also prevents the reported results from relying on identifiable bystanders or private vehicle information. 
+
+# G Per-Recording GangnamLoop Results and Detailed Per-Trajectory Analyses 
+
+Table 9 reports the per-recording success rates on all eight GangnamLoop recordings at τ = 15 m .The recording identifiers R1-R8 follow the schedule in Table 1. This comparison includes only open-source baselines, since no closed-source model result has been reported on GangnamLoop. BinTrack consistently outperforms these baselines across recordings, confirming that the proposed pipeline transfers to outdoor low-viewpoint service robot data. Table 9: Per-recording results on GangnamLoop (success at τ = 15 m ).                                          
+
+> Method Backbone R1R2R3R4R5R6R7R8Overall Meta-Memory [1] open-source †15.6 31.1 0.0 6.7 20.0 8.9 26.7 15.6 15.6 ReMEmbR [2] open-source †24.4 33.3 4.4 8.9 24.4 11.1 31.1 6.7 18.0
+> BinTrack (ours) open-source 55.6 60.0 24.4 40.0 60.0 31.1 57.8 33.3 45.3
+> †Reproduced by us under the fair constraint (Qwen2.5-32B-AWQ agent and Qwen2.5-7B verifier [5]).
+
+16 Per-recording analysis. The success rate on GangnamLoop varies substantially across recordings, ranging from 24 .4% to 60 .0 % . Daytime recordings generally achieve higher accuracy than their night counterparts. Among the four-day and night pairs, the daytime recording performs better in three pairs: R1=55 .6 vs. R8=33 .3, R5=60 .0 vs. R4=40 .0, and R2=60 .0 vs. R7=57 .8. This trend reflects the illumination domain shift that GangnamLoop is designed to evaluate. Route length also affects performance. The longest routes, R3 and R6, correspond to the destination-C round-trip and contain the largest number of segments. These recordings yield the lowest success rates, 24 .4 % 
+
+and 31 .1 % , because longer trajectories introduce more same-class distractor landmarks and require Binary Tracking to search over longer anchor intervals. Table 10: Per-trajectory success rates on SpaceLocQA (45 queries each, success at τ = 15 m ).                               
+
+> Method 0123451ReMEmbR †[2] 51.1 48.9 62.2 57.8 42.2 40.0 2Meta-Memory †[1] 37.8 48.9 48.9 42.2 37.8 51.1
+> 3BinTrack (ours) 75.6 57.8 71.1 68.9 62.2 68.9
+> †Reproduced by us under the open-source constraint (Qwen2.5-32B-AWQ agent and Qwen2.5-7B verifier).
+
+Per-trajectory SpaceLocQA results. Table 10 reports the per-trajectory success rates of Bin-Track on the six SpaceLocQA trajectories at τ = 15 m . Each trajectory contains 45 queries. The comparison uses the v2 reproduction numbers under the fair open-source constraint, with the same agent and verifier based on Qwen2.5-32B-AWQ [5]. Trajectory 1 is the hardest case, as it covers a kilometer-scale campus route with a geographically separated dormitory cluster. The remaining trajectories are more compact and yield consistently higher accuracy. 
+
+Mean and median errors. On the 270-query SpaceLocQA benchmark, BinTrack achieves a mean localization error of 59 .7 m and a median error of 4.0 m . The large gap between the mean and median indicates that most predictions are close to the target, while a small number of catastrophic failures dominate the mean error. These failures mainly occur on the hardest trajectory, as discussed in Appendix H. 
+
+Success-rate curve. Table 11 reports the success rate of BinTrack under different metric tolerances 
+
+τ . This curve shows how performance changes as the localization threshold becomes stricter or more relaxed. Table 11: Success rate as a function of metric tolerance τ on SpaceLocQA ( 270 queries), under the fair open-source constraint (Qwen2.5-32 B-AWQ agent + Qwen2.5-VL-7B verifier). Meta-Memory and ReMEmbR are our faithful reproductions.                          
+
+> Method (SR % ↑)τ=5 mτ=10 mτ=15 mτ=20 mMeta-Memory [1] 32.2 41.9 44.6 47.8 ReMEmbR [2] 41.1 46.7 50.1 54.1
+> BinTrack (ours) 54.1 64.1 67.4 69.3
+
+Tool-call frequency. The tool-call statistics come from the logged agent traces on the Gangnam-Loop runs. Under the headline 32B-agent configuration, BinTrack issues an average of 3.0 tool calls per query. This includes one FINAL action and, on average, two retrieval or Binary Track-ing actions. Semantic-similarity retrieval accounts for the largest share of actions ( 37% ), followed by the FINAL action ( 27% ), spatial-range retrieval ( 27% ), Binary Tracking ( 5% ), and the legacy graph-based memory-integration tool ( 4% ). Binary Tracking accounts for only a small fraction of all actions because the agent invokes it mainly for route-constrained global queries rather than at every step. Nevertheless, it plays the decisive role for that category, as discussed in Section 4.2. The agent reaches an explicit FINAL answer within its step budget on 81% of queries. For the remaining queries, the lock-on-Y fallback in Appendix C supplies the predicted coordinate. 
+
+Per-step latencies. Under the configuration in Appendix B, a single semantic retrieval against the local vector database takes approximately 30 ms . A single verifier call is much more expensive 17 and takes on the order of one second per candidate image. Since a query may verify several candi-dates across the three views, verifier calls dominate end-to-end latency. A complete query resolves in roughly 45 –70 s on average. The average latency is 59 s on SpaceLocQA, 71 s under the 32B-agent GangnamLoop configuration, and 44 s with the 7B agent. These results support the motivation for Binary Tracking, which reduces expensive verifier calls by pruning the trajectory interval be-fore verification. Further latency reductions through verifier batching or distillation remain natural engineering directions. 
+
+Latency comparison with prior open-source pipelines. Table 12 reports end-to-end per-query latency on SpaceLocQA under the fair open-source constraint. All systems use the same Qwen2.5-32B-AWQ planning agent and Qwen2.5-VL-7B verifier. The reported speedup divides each base-line’s latency by the latency of BinTrack. The results substantiate the >1.5× speedup reported in the abstract and Section 1. This speedup comes from the structure of the inference process. BinTrack invokes the expensive vision-language verifier mainly once per query, after Binary Tracking reduces the search space to the final leaf interval. In contrast, graph-based baselines often re-verify many candidates across multiple agent steps, which increases end-to-end latency. Table 12: End-to-end per-query latency on SpaceLocQA ( 270 queries) under the fair open-source constraint.          
+
+> Method (open-source) Latency / query (s) ↓Speedup vs. BinTrack Meta-Memory [1] 111 .61.89 ×
+> ReMEmbR [2] 120 .32.04 ×
+> BinTrack (ours) 59 –
+
+Low-VRAM reproducibility. Although the main experiments use two NVIDIA RTX 6000 Ada Generation GPUs, BinTrack can run in a lighter configuration with only 7B-class open-source mod-els. This configuration replaces the captioner, text encoder, planning agent, and visual verifier with 7B-scale open-source counterparts while preserving the Binary Tracking primitive. The full infer-ence pipeline fits within roughly 20 GB of GPU VRAM, making BinTrack feasible on a single consumer GPU and more practical for resource-constrained service robots. Table 13: Effect of the planning-agent size on GangnamLoop (all 360 queries, success at τ = 15 m ).                                   
+
+> Planning agent Basic ↑Local ↑Global ↑Overall ↑Steps/q ↓Latency/q ↓
+> 32B-AWQ (headline) 50.0 43.3 42.5 45.3 2.96 71 s
+> 7B (low-VRAM) 55.8 45.8 30.0 43.9 2.92 44 s∆(7B −32B) +5 .8+2 .5−12 .5−1.4−0.04 −27 s
+
+Table 13 compares this low-VRAM configuration with the headline 32B-agent configuration on all 360 GangnamLoop queries. The 7B-only configuration loses only 1.4 % overall accuracy and achieves a ∼1.6× speedup, reducing per-query latency from 71 s to 44 s . It performs competitively on basic and local queries, while the main deficit appears in the global category ( −12 .5 % ), where the larger agent more reliably decomposes route-constrained queries into the two anchors required by Binary Tracking. These results show that the low-VRAM version of BinTrack remains close to the headline configuration while substantially reducing hardware and latency requirements. 
+
+# H Ablation Study and Failure Analysis 
+
+H.1 Extended Ablation Study 
+
+Table 14 reports the extended ablation on SpaceLocQA. The study evaluates the contribution of four components: multi-view memory (MV), Binary Tracking (BT), lock-on-Y rerank (LY), and anchor-aware verification pool (AA). The first block removes each component individually, while the second block removes pairwise combinations. Each configuration disables the corresponding component or components from the released pipeline. 18 Table 14: Extended ablation on SpaceLocQA (270 queries, success at τ = 15 m ).                                         
+
+> Configuration Basic ↑Local ↑Global ↑Overall ↑
+> BinTrack (full) 74.4 65.6 62.2 67.4
+> w/o BT 74.4 63.3 52.2 63.3 w/o MV 76.7 63.3 48.9 63.0 w/o LY 74.4 65.6 55.6 65.2 w/o AA 74.4 65.6 56.7 65.2 w/o BT & LY 74.4 64.4 47.8 62.2 w/o BT & AA 74.4 65.6 50.0 63.0 w/o MV & BT 76.7 60.0 42.2 59.6
+
+The two core components, Binary Tracking and multi-view memory, produce the largest drops on the global category when removed. Removing Binary Tracking reduces global accuracy by 10 .0 % , and removing multi-view memory reduces it by 13 .3 % . These results confirm that the two components directly support the path-constrained reasoning regime that motivates the proposed primitive. The two supplementary mechanisms, LY and AA, play a smaller but complementary role. Removing each of them individually reduces overall accuracy by about 2 % , showing that they provide modest but consistent robustness gains. 
+
+H.2 Failure Analysis Failure categorization. This analysis examines the 197 failed queries out of the 360 Gangnam-Loop queries under the headline 32B-agent configuration. A failure occurs when BinTrack predicts a coordinate more than 15 m away from the ground truth. The analysis classifies each failure into one of three categories, as shown in Table 15. The categorization uses logged agent traces, including the action sequence, verifier votes, and whether the agent invoked Binary Tracking. The released code includes the heuristic used for this categorization, making the analysis fully reproducible. Rep-resentative cases also undergo manual spot checks. The largest category consists of agent reasoning errors . These failures occur when the agent emits a FINAL answer before invoking Binary Track-ing on a clearly route-constrained query, or when it exhausts its step budget. Only 49 of the 120 
+
+global queries trigger Binary Tracking, which suggests that improving the agent’s tool selection is the largest opportunity for improving GangnamLoop accuracy. The next category consists of verifier and retrieval false negatives . These failures occur when the 7B-class verifier rejects or mis-ranks an image that actually contains the queried entity. They often involve small objects, partial occlusion, or non-English street signage, especially Korean text. Genuine memory misses, where no segment view captures the target, remain rare. This analysis folds such cases into the same category because separating them would require per-segment ground-truth matching. The last category consists of 
+
+anchor disambiguation failures . These failures occur when the agent invokes Binary Tracking but commits to the wrong same-class landmark, such as one of several convenience stores, even with the lock-on-Y rerank. The three categories are computed directly from the logged traces and sum exactly to the 197 failures. Table 15: Failure mode categorization on the 197 GangnamLoop queries with ˆp-error > 15 m under the headline 32B-agent configuration.         
+
+> Category Count Share Agent reasoning errors 84 42.6 % Verifier / retrieval false negatives 83 42.1 % Anchor disambiguation failures 30 15.2 %
+
+Representative examples. Agent reasoning errors include route-constrained queries such as 
+
+“Where is the nearest bus stop?” and “Where is the nearest JAJU sign?” . In these cases, the agent performed a single semantic retrieval and then issued FINAL without invoking Binary Tracking. An-chor disambiguation failures include queries such as “Where is the smoking area on the way from the CU convenience store to KFC?” and “Where is the blue bicycle on my way from the KFC to 
+
+19 the PC room?” . In these cases, Binary Tracking ran, but the verifier selected the wrong same-class landmark. Verifier false negatives include appearance-based queries such as “I see a large gray elec-trical utility box on the sidewalk and a sign reading ‘C’ on a building. . . ” . Such scenes are visually generic, and the 7B verifier often fails to disambiguate the correct segment. 
+
+Plausible mitigations. Stricter prompting can reduce the dominant agent-reasoning errors by forc-ing the agent to enumerate all named entities in the query before choosing a tool. The prompt can also require Binary Tracking whenever the query contains two route-defining anchors. This change provides the cheapest and highest-leverage fix because fewer than half of the global queries currently trigger Binary Tracking. A stronger verifier, such as a 32B-class open-source VLM, could reduce many verifier false negatives, especially for small objects, occlusions, and non-English signage. The current experiments do not use such a verifier because of the GPU memory constraints on the two-GPU workstation. Anchor disambiguation failures may decrease by extending the lock-on-Y rerank to handle three-anchor queries explicitly. 
+
+# I Correctness Condition and Empirical Check 
+
+This appendix recalls the sufficient condition under which Binary Tracking reaches a leaf interval containing a true target segment. We first state the condition assuming a unique target segment i⋆,and then relax it to the multi-target case that arises in GangnamLoop. Because a route-constrained query restricts the search to the directional sub-path between the anchor segments iX and iY , the target Z typically appears at a single segment within this interval, even when the full round-trip recording revisits the location. For each visited interval [ℓ, r ] with midpoint 
+
+m = ⌊(ℓ + r)/2⌋, let H⋆(ℓ, m, r ) denote the half that contains i⋆, and let H−(ℓ, m, r ) denote the other half. Let σ(i) denote the cosine similarity between the target query embedding and the caption embedding of segment Si, as used in the evidence score in Section 4.2. A sufficient condition for Binary Tracking to keep the correct half at every split is 
+
+max  
+
+> i∈H⋆(ℓ,m,r )
+
+σ(i) > max 
+
+> i∈H−(ℓ,m,r )
+
+σ(i). (2) This condition does not require the true target segment i⋆ itself to have the highest semantic score over the entire interval; it only requires the best candidate on the correct side to score higher than the best candidate on the wrong side at each split. The verifier then resolves the remaining ambiguity within the final leaf interval and selects the predicted segment ˆi.
+
+Multiple target segments under revisits. In the less common case where the anchor interval spans the turnaround point of a round trip, the same entity Z can correspond to more than one segment at the segment level. We therefore define the set of acceptable target segments within the anchor interval [iX , i Y ],
+
+I⋆ =  i ∈ [iX , i Y ] : ∥pi − p⋆∥2 < τ , (3) collecting every segment whose representative pose lies within the success tolerance τ of the ground-truth coordinate p⋆. Because revisits of the same landmark occur at nearly the same physical loca-tion, their representative poses typically fall within τ of one another, so all such segments are equally acceptable under the success metric of Section 3. Equation 2 then needs to hold only at splits where exactly one half contains a member of I⋆: letting H⋆ be that half, it guarantees that Binary Tracking descends toward an acceptable target. When both halves contain a member of I⋆, either descent reaches an acceptable target, so no condition is required at that split. The multi-view memory in Section 4.1 helps satisfy this condition in practice. A target segment may have a weak score in one view but a strong score in another view, increasing the chance that the correct half wins the split. 
+
+# J Naive Cross-Trajectory Retrieval Experiment 
+
+Setup. BinTrack builds a separate memory for each trajectory, as prior systems do, and applies a per-trajectory filter to every retrieval call (Appendix E.1). This appendix tests whether repeated visits 20 to the same locations in GangnamLoop can help retrieval with a simple cross-trajectory relaxation. The naive cross-trajectory mode removes the per-trajectory filter at retrieval time. Under this setting, SSR, SRR, and the internal retrieval inside BT can return candidate segments from all available trajectories of the same route. The rest of the BinTrack pipeline remains unchanged, including multi-view memory, the hardening mechanisms, and the verifier call on the leaf interval. This experiment requires no retraining, re-indexing, or algorithmic change. It only changes the partition tag passed to the vector database. 
+
+Result. The experiment compares the headline single-trajectory configuration with the naive cross-trajectory mode on the four-day and night pairs of GangnamLoop. Each query can retrieve candidates from both recordings in its day-and-night pair. The naive cross-trajectory mode produces no notable gain over the single-trajectory configuration. It yields a small improvement on basic queries but a small drop on global queries, and these effects approximately cancel in the overall accuracy. Because this probe does not change the headline conclusion, this appendix reports the re-sult qualitatively rather than adding a separate results table. A principled cross-trajectory integration method remains future work. 
+
+Discussion. Naive cross-trajectory retrieval does not benefit much from the union of trajectories for two structural reasons. A basic or local query already retrieves the correct segment from its own trajectory in most cases, so additional candidates from other trajectories mainly crowd the verifier pool. A global query also imposes a route constraint, and segments from different trajectories usually lie outside the anchor interval defined by the current query. Such candidates, therefore, add distrac-tors rather than improving the route-consistent answer. A more principled cross-trajectory method would need to align segments across trajectories before retrieval and then run Binary Tracking on the aligned representation. This direction remains future work. 
+
+Offline memory-build cost on new routes. The captioning step takes several GPU-hours on the 68-minute SpaceLocQA corpus and roughly one hour on a single GangnamLoop recording. Binary Tracking substantially reduces retrieval-time cost, but a newly visited route still requires offline or background captioning and embedding before the system can answer queries. This memory-build requirement remains a practical barrier to fully online deployment when the robot encounters an unseen route. Reducing the latency of memory construction is an important direction for future work. 
+
+# K Glossary and Detailed Task Definitions 
+
+This appendix provides extended definitions of the terms used in the main paper. Readers familiar with spatial question answering for embodied agents may skip this section. 
+
+Spatial question answering (SQA). SQA follows the task formulation of Meta-Memory [1] and ReMEmbR [2]. Given a robot’s egocentric trajectory, consisting of images and 2D poses, and a natural-language question, the system outputs a metric 2D coordinate ˆp as the answer. The evalu-ation counts a prediction as successful when its Euclidean distance to the annotated ground-truth coordinate falls below a fixed tolerance τ . This work adopts τ = 15 m throughout, following prior work. SQA differs from embodied question answering [13, 14] because the agent does not navigate during inference. It also differs from episodic memory QA [15] because the answer takes the form of a metric coordinate rather than a category label or a natural-language response. 
+
+Query categories. SpaceLocQA [1] groups questions into three categories of increasing difficulty. • Basic queries require recalling a single object or landmark. Examples include “Where is a dry cleaner?” and “Find a vending machine.” These queries usually require semantic retrieval followed by visual verification. • Local queries require integrating multiple attributes or objects within a small region. Ex-amples include “Which room contains a refrigerator, a microwave, and a window?” and 21 “Find the corner with both a coffee shop and a bus stop.” These queries usually combine semantic retrieval with spatial-range retrieval over a local neighborhood. • Global queries require reasoning over spatially separated entities along a long trajectory. Examples include “Where is the vending machine on the route from the basketball court to the football field?” and “Find the AED nearest the lakeside.” These queries often involve route constraints or anchor-relative reasoning, and they motivate Binary Tracking in this work. 
+
+Retrieval primitives (SSR, SRR, MI). This work retains the three retrieval primitive names intro-duced by Mao et al. [1]. Semantic-similarity retrieval (SSR) returns the top-k segments ranked by cosine similarity between the query embedding and each segment caption embedding. Spatial-range retrieval (SRR) returns segments whose poses lie within a given radius of a query point. Memory-integration (MI) constructs a topological waypoint graph from retrieved landmark positions and runs Dijkstra’s algorithm [6] to produce a path between two query points. Binary Tracking (BT) is the new retrieval primitive introduced in this paper, as described in Section 4.2. 
+
+Memory segment. Following Anwar et al. [2] and Mao et al. [1], the system divides the robot trajectory into fixed-length time segments. The released configuration uses ∆t = 1 .5 s , as described in Appendix B. Each segment contains four evenly spaced frames, their 2×2 concatenated image, one or more captions, a mean 2D pose, and a unique segment index. The robot’s memory for one trajectory consists of the full ordered set of these segments. 
+
+Verifier ensemble. Retrieval returns a small set of candidate segments. A vision-language model then judges whether the candidate images contain the queried entity. This work refers to one such judgment as a verifier call . It refers to a batch of judgments across multiple views or related candi-dates as a verifier ensemble . Section 4.3 and Appendix C describe how the agent uses these verifier calls. 
+
+Service robot deployment. This phrase refers to a deployment scenario in which a robot accom-panies a human user along a familiar, repeated route, such as a quadruped walking with a person to the same office or store. This scenario motivates three properties of GangnamLoop, labeled (P1)– (P3) throughout Appendix F. (P1) captures repeated visits to the same locations. (P2) captures do-main shifts across visits, such as day versus night or weather changes. (P3) captures the viewpoint mismatch between a low-mounted robot camera and a human user’s head-mounted viewpoint, as discussed in Section 5. 
+
+# L Background on Foundation Models and Retrieval Infrastructure 
+
+Open-source language and vision-language models. The pipeline uses an open-source instruction-tuned LLM as the planning agent [4] and deploys it in quantized form [22]. The cap-tioner and visual verifier share a single open-source video VLM [5]. All models run locally on a single workstation and require no external API access. Their permissive licenses also support repro-ducible open-source deployment. 
+
+Embedding and retrieval infrastructure. The memory system embeds captions with an open-source 1024 -dimensional text encoder [20] and indexes them in a local vector database [21]. This design follows the broader retrieval-augmented generation paradigm [27], where the system retrieves relevant memory entries before reasoning over them. The implementation uses these components to match prior work [1] and isolate the contribution of Binary Tracking. The Binary Tracking algorithm itself does not depend on a specific captioner, encoder, or vector database. 22

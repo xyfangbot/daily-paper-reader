@@ -1,0 +1,932 @@
+Title: Autonomous Driving with Priority-Ordered STL Specifications Under Multimodal Uncertainty
+
+URL Source: https://arxiv.org/pdf/2606.20336v1
+
+Published Time: Fri, 19 Jun 2026 01:21:46 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Autonomous Driving with Priority-Ordered STL Specifications Under Multimodal Uncertainty 
+
+Taha Bouzid, Shuhao Qi, Mircea Lazar, and Sofie Haesaert 
+
+Abstract —Autonomous vehicles must plan trajectories that satisfy a multitude of requirements on safety, passenger comfort, and compliance with traffic rules. However, in safety-critical sce-narios, it is not always possible to satisfy all requirements simulta-neously, necessitating their prioritization based on importance. At the same time, in these safety-critical scenarios, the uncertainty in trajectory predictions of the surrounding traffic, such as other vehicles and pedestrians, should be explicitly accounted for. In this work, we propose an uncertainty-aware trajectory planning framework that incorporates a predefined lexicographic ordering over Signal Temporal Logic (STL) specifications that stays valid under uncertainty. We implement this formulation with Model Predictive Path Integral (MPPI) control and we demonstrate the effectiveness of our method on simulation scenarios, showing that our framework efficiently handles conflicting objectives under realistic multi-modal uncertainty. 
+
+I. I NTRODUCTION 
+
+Autonomous vehicles (AV) must make real-time planning decisions based on uncertain predictions of the motion of other road users. These predictions are often multimodal [1], [2]. A scenario with such a multimodal prediction is given in Fig. 1, the green car needs to account for two possible predicted motions of the blue car, each with a different probability. At the same time, its planned trajectory must satisfy multiple cri-teria, such as safety requirements, traffic-rule compliance, and passenger comfort [3]. In realistic situations, these objectives cannot always be satisfied simultaneously across all modes. Consider the scenario in Fig. 1: the ego vehicle (green) must plan under two equally likely future modes of the blue vehicle, namely keeping its lane or cutting in, with only two candidate trajectories available. Trajectory T1 satisfies both the safety and the comfort rule in the lane-keeping mode but risks a collision in the cut-in mode, whereas T2 satisfies the safety rule in both modes at the cost of violating the comfort rule in each. In such safety-critical scenarios, T2 is clearly preferable, since it guarantees satisfaction of the highest-priority safety rule across all possible futures. This illustrates that, under multimodal uncertainty, it is essential to balance multiple objectives according to their priority order. To verify whether a trajectory satisfies its planning ob-jectives, such objectives are generally translated into formal specifications encoding safety and traffic rules using signal temporal logic (STL) [4], [5], as in [3], [6], [7], or with linear 
+
+The research has received funding from the European Union under the Horizon Europe Grant Agreement AIGGREGATE, no. 101202457. All au-thors are with Control Systems Group, Department of Electrical Engineering, Eindhoven University of Technology, Eindhoven, The Netherlands. Email: 
+
+{t.bouzid, s.qi, m.lazar, s.haesaert }@tue.nl 
+
+Fig. 1. Illustration of conflicting objectives under multimodal uncertainty and predefined lexicographic rule-ordering. 
+
+temporal logic (LTL) [8], [9]. STL in particular offers the advantage of robustness semantics [5], enabling the reformu-lation of the constrained planning problem as an optimization problem that maximizes the degree of satisfaction or violation of the specifications. For deterministic planning problems, the strict priority among traffic rules is encoded in [10] as a lexicographic hierarchy, in which any violation of a higher-priority STL rule dominates any combination of satisfactions and violations at lower priority. Building on this formulation, an equivalent differentiable rank-preserving reward that cap-tures the same hierarchy is constructed in [11] and embedded within a gradient-based receding-horizon planner. Halder and Althoff [12] embedded this priority structure into a lexi-cographic mixed-integer program over STL constraints, and their follow-up work [13] proposed a sampling-based planner with preordered objectives that avoids scalarization. However, these methods address priority-ordered rule satisfaction only under a deterministic setting, which is inadequate when the motion of surrounding objects is uncertain. Under multi-modal traffic predictions, rule satisfaction is inherently combinatorial: a trajectory may satisfy the highest-priority rule under one predicted mode of opponents but violate it under another predicted mode. Closing this gap therefore requires reasoning about rule satisfaction over the full distribution of future traffic evolution. Furthermore, to capture uncertainty arising from complex tasks such as those involving human road users, risk-aware formulations have also been proposed. In [8], a risk metric for LTL specifications is introduced that integrates the severity and timing of uncertain events. In [14], risk metrics such as CVaR are applied to STL specifications to capture the expected severity of rule violations in the tail of the loss distribution. However, none of these works incorporates a strict lexicographic priority ordering over STL specifications. We present a novel trajectory-planning framework that 
+
+> arXiv:2606.20336v1 [cs.RO] 18 Jun 2026
+
+accounts for priority-ordered STL rules under multimodal uncertainty of surrounding objects. The resulting non-smooth, non-convex planning problem is solved using an MPPI-based receding-horizon planner. In detail, our contributions are:  
+
+> •
+
+A stochastic extension of lexicographically ordered STL planning using risk-aware robustness satisfaction that preserves strict priority relations under uncertainty.  
+
+> •
+
+An MPPI-based planner for optimizing non-smooth or-dered STL objectives in multimodal traffic scenarios. II. P RELIMINARIES AND PROBLEM STATEMENT 
+
+A. System Definition 
+
+We refer to the autonomous vehicle (AV) as the ego vehicle. Let xek ∈ X ⊆ Rn and uk ∈ U ⊆ Rm denote, respectively, the ego state and control input at step k. The ego dynamics evolve according to the deterministic, discrete-time nonlinear system 
+
+xek+1 = f (xek, u k). (1) For an admissible initial state xe 
+
+> 0
+
+and input sequence u0: H−1 := (u0, . . . , u H−1) over the planning horizon H, the resulting state trajectory is xe 
+
+> 0: H
+
+:= ( xe
+
+> 0
+
+, . . . , x eH ). Analogously, let 
+
+xok ∈ X o ⊆ Rq denote the state of a surrounding object at step k. Since the future motion of the surrounding-object is stochastic, we model it over a probability space (Ω , A, P),where Ω is the sample space, A is a σ-algebra of measurable events, and P : A → [0 , 1] is a probability measure. Specifically, its future trajectory over the planning horizon is modeled as a random trajectory variable Xo 
+
+> 0: H
+
+: Ω → (X o)H+1 , where each realization Xo 
+
+> 0: H
+
+(ω) = ( xo
+
+> 0
+
+(ω), x o
+
+> 1
+
+(ω), . . . , x oH (ω)) , ω ∈ Ω, cor-responds to one possible future trajectory of the surrounding-object. For notational clarity, we present the formulation for a single surrounding object; it extends easily to the multi-object case. The state of the scenario is composed of the state of the ego vehicle and its environment object and is denoted as sk := ( xek, x ok) ∈ Rn+q at discrete step k. Similarly, we can define a full realization of the scenario over horizon 
+
+{0, 1, . . . , H } by s0: H := ( s0, s 1, . . . , s H ). Note that this realization is hence also implicitly a function of ω. In this work, we consider multimodal stochastic uncertainty over the future motion of the surrounding object, which is therefore more general than the unimodal assumption adopted in prior work [15]. 
+
+B. Signal Temporal Logic (STL) 
+
+In this work, we consider a future-time, discrete-time frag-ment of STL [4]. We consider time intervals I ⊆ Z≥0. For integers a, b ∈ Z≥0 with b ≥ a, let I := {a, a + 1 , . . . , b } then we define k + I := {k + a, k + a + 1 , . . . , k + b} for k ∈ Z≥0.The STL syntax over the signal s : Z≥0 → Rn+q is defined as follows: 
+
+φ := ⊤ | μ | ¬ φ | φ1 ∧ φ2 | φ1UI φ2, (2) where μ := ( l(sk) ≥ 0) is a predicate with l : Rn+q → R, and 
+
+¬, ∧, and UI denote negation, conjunction, and bounded until, respectively. The derived operators are φ1 ∨ φ2 := ¬(¬φ1 ∧¬φ2) (disjunction ), FI φ := ⊤UI φ (eventually ), and GI φ := 
+
+¬FI ¬φ (always ). Satisfaction of φ by s at step k is denoted by s |=k φ. The quantitative semantics of STL based on their robustness [5] are recursively defined by 
+
+ρ(⊤, s, k ) := + ∞,ρ(μ, s, k ) := l(sk),ρ(¬φ, s, k ) := −ρ(φ, s, k ),ρ(φ1 ∧ φ2, s, k ) := min  ρ(φ1, s, k ), ρ (φ2, s, k ),ρ(φ1 ∨ φ2, s, k ) := max  ρ(φ1, s, k ), ρ (φ2, s, k ),ρ(φ1UI φ2, s, k ) := max  
+
+> k′∈k+I
+
+min  ρ(φ2, s, k ′),
+
+min  
+
+> k′′ ∈[k,k ′)
+
+ρ(φ1, s, k ′′ ),ρ(GI φ, s, k ) := min  
+
+> k′∈k+I
+
+ρ(φ, s, k ′),ρ(FI φ, s, k ) := max  
+
+> k′∈k+I
+
+ρ(φ, s, k ′).
+
+(3) Based on the STL robustness [5], we can say that the signal 
+
+s satisfies φ, that is s ⊨ φ, if ρ(φ, s, 0) > 0 and s̸ ⊨ φ if 
+
+ρ(φ, s, 0) < 0 .Since φ is bounded-time, the robustness ρ(φ, s, 0) depends only on the finite prefix s0: H whenever H ≥ hrz( φ), where 
+
+hrz( φ) is the horizon of φ, i.e., the minimum signal length required to evaluate its satisfaction [14]. We therefore work with the truncated signal s0: H in what follows. 
+
+C. Conditional Value at Risk as a Risk Metric 
+
+The robustness defined in (3) depends on the composed signal s0: H . Since xe 
+
+> 0: H
+
+is a deterministic decision variable while Xo 
+
+> 0: H
+
+is a random variable, the composed signal s0: H
+
+is itself a random variable for any fixed ego trajectory, with realization s0: H (ω) =  (xe
+
+> 0
+
+, x o
+
+> 0
+
+(ω)) , . . . , (xeH , x oH (ω))  with 
+
+ω ∈ Ω. Following [14], we define the loss random variable 
+
+associated with specification φ and ego trajectory xe 
+
+> 0: H
+
+as the negated STL robustness: 
+
+Zφ(xe 
+
+> 0: H
+
+) : Ω → R, (4) with Zφ(xe 
+
+> 0: H
+
+)( ω) := −ρ(φ, s 0: H (ω), 0) for ω ∈ Ω. Since 
+
+ρ is positive under satisfaction and negative under violation, large positive values of Zφ(xe 
+
+> 0: H
+
+) correspond to severe rule violations. Evaluating Zφ(xe 
+
+> 0: H
+
+) in expectation averages over all outcomes and can therefore mask rare but severe violations that are decisive in safety-critical planning [16], [17]. To explicitly account for such tail events, we instead adopt a 
+
+risk metric R, a mapping from real-valued random variables on (Ω , A, P) to R whose level parameter controls how much weight is placed on the tail of the loss distribution. A common risk metric is the Value-at-Risk (VaR β ) at level β ∈ [0 , 1) ,defined as the β-quantile of the loss distribution: 
+
+VaR β (Zφ(xe 
+
+> 0: H
+
+)) := inf {α ∈ R : P(Zφ(xe 
+
+> 0: H
+
+) ≤ α) ≥ β} .
+
+This risk metric captures the loss threshold exceeded only with probability 1 − β but ignores the magnitude of losses beyond it. In contrast, the Conditional Value-at-Risk (CVaR) at level 
+
+β ∈ [0 , 1) is defined as 
+
+CVaR β (Zφ(xe 
+
+> 0: H
+
+)) := inf 
+
+> α∈R
+
+ α+ 11 − β E(Zφ(xe 
+
+> 0: H
+
+)−α)+ ,where (·)+ := max( ·, 0) . CVaR averages the loss over the worst (1 − β) fraction of outcomes and hence penalizes the magnitude of tail losses and is a coherent risk measure [17]. For notational brevity, we will use R interchangeably with 
+
+CVaR β in the remainder of this paper. 
+
+D. Problem Statement 
+
+We say that an STL-rule lexicographic ordering over Φ = (φ1, . . . , φ N ) is a strict priority relation if φ1 ≻ · · · ≻ φN ,where ≻ denotes “higher priority than”, and if satisfying a higher-priority rule strictly dominates any combination of sat-isfactions or violations at lower priority levels. To assess rule satisfaction under uncertainty from the predicted stochastic trajectory Xo 
+
+> 0: H
+
+, each rule φj ∈ Φ is evaluated by its own risk metric Rj at confidence level βj .Given the ordered rule set Φ, the per-rule risk metrics 
+
+Rj , the ego dynamics (1) initialized at xe
+
+> 0
+
+, and the pre-dicted stochastic trajectory Xo 
+
+> 0: H
+
+, our goal is to synthesize a receding-horizon trajectory planner for the ego vehicle that respects the lexicographic priority φ1 ≻ · · · ≻ φN under the risk evaluation. III. P LANNING UNDER RULE ORDERING AND UNCERTAINTY 
+
+A. Risk-Extended Satisfaction 
+
+As introduced in II-C, for a fixed ego trajectory xe 
+
+> 0: H
+
+,the loss random variable Zφj (xe 
+
+> 0: H
+
+) defined in (4) captures the uncertainty in the satisfaction of rule φj induced by the stochastic surrounding-object trajectory Xo 
+
+> 0: H
+
+. Applying the rule-specific risk metric Rj , we define the robustness risk of rule φj as 
+
+¯ρj (xe 
+
+> 0: H
+
+) := −R j
+
+ Zφj (xe 
+
+> 0: H
+
+) , j = 1 , . . . , N. (5) A positive value of ¯ρj (xe 
+
+> 0: H
+
+) indicates satisfaction in the risk metric of φj , whereas negative values indicate a violation. We denote the combined robustness risk vector, 
+
+¯ρ(xe 
+
+> 0: H
+
+) :=  ¯ρ1(xe 
+
+> 0: H
+
+), . . . , ¯ρN (xe 
+
+> 0: H
+
+) ∈ RN , (6) 
+
+B. Rule Ordering 1) Trajectory Rank under Uncertainty: To encode the lex-icographic priority order among rules in the uncertain setting, we quantitatively express the rule ordering Φ using a rank function following [11, Def. 1]. Let step : R → { 0, 1} map negative real numbers to 0 and all other real numbers to 1.The rank r : RN → { 1, . . . , 2N } applied to the robustness risk vector ¯ρ from (6) is defined as 
+
+r(¯ ρ(xe 
+
+> 0: H
+
+)) := 2 N −
+
+> N
+
+X
+
+> j=1
+
+2N −j step(¯ ρj (xe 
+
+> 0: H
+
+)) . (7) A lower rank value indicates satisfaction of higher-priority rules: rank 1 corresponds to all rules being satisfied, while rank 2N corresponds to all rules being violated. 
+
+2) Rank-Preserving Reward Function: The rank r from [11, Def. 1] captures which rules are satisfied but not how well . To also reward larger robustness margins within the same rank, we adapt the scalar reward function from [11], that (i) strictly reflects the lexicographic priority ordering across ranks, and (ii) uses the robustness risk as a continuous tie-breaker within a rank: 
+
+J(¯ ρ(xe 
+
+> 0: H
+
+)) := 
+
+> N
+
+X
+
+> j=1
+
+
+
+a·2N −j+1 step  ¯ρj (xe 
+
+> 0: H
+
+)+ 1 
+
+> N
+
+¯ρj (xe 
+
+> 0: H
+
+)
+
+
+
+,
+
+(8) We require a > 0 to be such that the robustness risk values are bounded as 
+
+¯ρj (xe 
+
+> 0: H
+
+) ∈ [−a/ 2, a/ 2] (9) Boundedness (9) ensures that the continuous tie-breaking term 1 
+
+> N
+
+¯ρj cannot overturn the discrete priority encoded by the exponential step terms, and is enforced in practice via normalization. 
+
+Remark 1. Our reward (8) differs from [11, Rem. 1] in that, for large N , it does not grow as aN ; when a ≫ 2, such exponential terms can become numerically large. 
+
+Proposition 1 (Lexicographic Order Preservation under Un-certainty) . Let xe 
+
+> 0: H
+
+and xe′ 
+
+> 0: H
+
+be two ego trajectories whose robustness risk vectors satisfy (9) . Then the reward J in (8) 
+
+preserves the lexicographic rank ordering: 
+
+r(¯ ρ(xe 
+
+> 0: H
+
+)) < r (¯ ρ(xe′ 
+
+> 0: H
+
+)) =⇒ J(¯ ρ(xe 
+
+> 0: H
+
+)) > J (¯ ρ(xe′ 
+
+> 0: H
+
+)) .
+
+Proof. See Appendix A. 
+
+3) Planning problem: The trajectory planning problem introduced in Section II-D can now be formalized as 
+
+max  
+
+> xe
+> 0: H, u 0: H−1
+
+J(¯ ρ(xe 
+
+> 0: H
+
+)) (10) s.t. xek+1 = f (xek, u k), k = 0 , . . . , H − 1,xek ∈ X , k = 0 , . . . , H, uk ∈ U , k = 0 , . . . , H − 1,xe 
+
+> 0
+
+given .
+
+IV. A PPROXIMATE RISK -A WARE PLANNING UNDER RULE 
+
+ORDERING 
+
+A. Scenario Tree Approximation 
+
+The problem defined in (10) is challenging to solve di-rectly because ¯ρ(xe 
+
+> 0: H
+
+) in the objective depends on the full distribution of the stochastic trajectory Xo 
+
+> 0: H
+
+, which can be continuous. To obtain a finite approximation suitable for real-time planning, we represent the distribution of Xo 
+
+> 0: H
+
+by a weighted scenario set [18], composed of M samples as 
+
+S = (xo,i  
+
+> 0: H
+
+, p i) Mi=1 ,
+
+where each xo,i  
+
+> 0: H
+
+= ( xo,i  
+
+> 0
+
+, . . . , x o,i H ) ∈ (X o)H+1 is a realization of the surrounding-object trajectory over the planning horizon with associated probability pi ≥ 0 and PMi=1 pi = 1 .Per-scenario robustness. For a fixed ego trajectory xe 
+
+> 0: H
+
+and scenario xo,i  
+
+> 0: H
+
+, the composed signal realization is 
+
+si 
+
+> 0: H
+
+:=  (xe
+
+> 0
+
+, x o,i  
+
+> 0
+
+), . . . , (xeH , x o,i H ).
+
+The robustness of rule φj under scenario i is then the deter-ministic scalar 
+
+zij := ρ φj , s i 
+
+> 0: H
+
+, 0, i = 1 , . . . , M, j = 1 , . . . , N. (11) computed from the STL robustness semantics (3). A positive value zij > 0 indicates that φj is satisfied under scenario i; a negative value indicates a violation. 
+
+Empirical CVaR approximation. Under the scenario approx-imation, the expectation in the CVaR formula is replaced by a weighted sum over the M scenarios. For a fixed ego trajectory 
+
+xe 
+
+> 0: H
+
+, the empirical robustness risk of rule φj is 
+
+ˆρj (xe 
+
+> 0: H
+
+) := − inf  
+
+> α∈R
+
+α + 11 − β
+
+> M
+
+X
+
+> i=1
+
+pi  −zij − α+
+
+!
+
+, (12) for j = 1 , . . . , N , where (·)+ := max( ·, 0) and β ∈ [0 , 1) 
+
+is the CVaR confidence level. This follows directly from substituting the weighted scenario sum for the expectation in the CVaR definition of Section II-C, with loss values −zij in place of Zφj (xe 
+
+> 0: H
+
+). A positive value ˆρj (xe 
+
+> 0: H
+
+) > 0 indicates satisfaction of φj ; a negative value indicates the opposite. We denote the combined empirical robustness risk vector, 
+
+ˆρ(xe 
+
+> 0: H
+
+) :=  ˆρ1(xe 
+
+> 0: H
+
+), . . . , ˆρN (xe 
+
+> 0: H
+
+) ∈ RN , (13) 
+
+Remark 2 (Scenario Approximation Consistency) . The empir-ical CVaR in (12) converges to the true CVaR of Zφj (xe 
+
+> 0: H
+
+) as 
+
+M → ∞ , provided the scenarios are drawn i.i.d. from the true distribution of Xo 
+
+> 0: H
+
+[19]. The approximation quality depends on how well the finite scenario set S captures the support and weights of the true distribution. B. Model Predictive Path Integral (MPPI) Control. 
+
+To solve (10), we employ MPPI [20], [21], a sampling-based stochastic optimal control method particularly well suited to our setting. At each receding-horizon step, MPPI draws V
+
+independent control perturbations, rolls each out through the ego dynamics (1), scores the resulting trajectories via a cost function, and returns a single control update via importance-weighted averaging, with temperature parameter λ > 0 con-trolling the selectivity of the weighting. The reward J in (8) is inherently non-smooth: STL robustness is built from nested 
+
+min /max operators, and the rank-preserving reward contains a discontinuous step function. While smooth approximations of STL robustness exist [22], they introduce approximation error that may both distort the lexicographic ordering and compromise the soundness property of STL robustness [5]. MPPI avoids this issue entirely, as it requires neither differ-entiability nor convexity and evaluates each rollout exactly. The V control perturbations are independently sampled and rolled out (Alg. 1, lines 5–6), scored via the rank-preserving reward (lines 7–9), and combined into a single control update via importance-weighted averaging (lines 11–12). The central 
+
+Algorithm 1 MPPI Receding-Horizon Planner  
+
+> 1:
+
+Input: initial state xe
+
+> 0
+
+, nominal controls u0: H−1, scenario set S, number of samples V , temperature λ 
+
+> 2:
+
+Output: updated nominal control sequence u0: H−1 
+
+> 3:
+
+while planning is active do  
+
+> 4:
+
+for each sample ℓ = 1 , . . . , V do  
+
+> 5:
+
+Draw perturbations ϵ(ℓ) 
+
+> k
+
+∼ N (0 , Σ) , k = 0 , . . . , H −1 
+
+> 6:
+
+Roll out v(ℓ) 
+
+> k
+
+= uk + ϵ(ℓ) 
+
+> k
+
+through (1) → (xe 
+
+> 0: H
+
+)(ℓ) 
+
+> 7:
+
+Evaluate per-scenario robustness zij via (11)  
+
+> 8:
+
+Compute the empirical robustness risk vector: 
+
+ˆρ(( xe 
+
+> 0: H
+
+)(ℓ)) via (13)  
+
+> 9:
+
+Compute rollout cost C(ℓ) ← − J ˆρ (xe 
+
+> 0: H
+
+)(ℓ)  
+
+> 10:
+
+end for  
+
+> 11:
+
+Compute importance weights ω(ℓ) ∝ exp  −C(ℓ)/λ  
+
+> 12:
+
+Update uk ← uk + PVℓ=1 ω(ℓ)ϵ(ℓ) 
+
+> k
+
+, k = 0 , . . . , H − 1 
+
+> 13:
+
+Apply u0; shift horizon and warm-start u0: H−1 
+
+> 14:
+
+end while 
+
+design choice lies in the rollout cost at Alg. 1, line 9: by setting C(ℓ) = −J(ˆ ρ(ℓ)), the MPPI objective directly encodes the priority-ordered robustness risk vector. V. C ASE STUDIES 
+
+We validate our proposed approach on two autonomous driving scenarios: a highway take-over maneuver with a mul-timodal front-vehicle cut-in (Use Case A), and a pedestrian crossing with a discrete positional uncertainty distribution (Use Case B). 
+
+A. Simulation Setup 
+
+Dynamics. The ego vehicle is modeled by the kinematic bicycle model [23], a standard choice for autonomous driv-ing [21]. The state is xek = ( pxk , p yk, ψ k, v k), collecting the planar position, heading angle, and longitudinal speed, while the control input uk = ( ak, δ k) consists of the longitudinal ac-celeration and the front-wheel steering angle. The continuous-time kinematics 
+
+˙px = v cos ψ, ˙py = v sin ψ, ˙ψ = vℓ tan δ, ˙v = a, (14) are discretized with sampling time ∆t via forward Euler integration. We denote the ego planar position as pk := (pxk , p yk) and the planar position of the surrounding object as 
+
+pok := ( xo,x k , x o,y k ) at step k.
+
+STL Rules. Table I lists the STL specifications used in both use cases. φsafe enforces a minimum clearance dsafe from the surrounding object over the planning horizon. φgoal requires the ego vehicle to reach a goal region of radius dgoal around 
+
+g within the horizon. φcomfort bounds the acceleration change and keeps the steering angle within its physical limit. φdash 
+
+confines the lateral position to the lane boundaries, preventing dashed-lane crossings. 
+
+MPPI Parameters. The MPPI parameters are summarised in Table II. At each replanning step, V trajectories are sampled and scored via a cost function with temperature λ
+
+controlling the selectivity of the weighting. The temperature λTABLE I STL RULE SPECIFICATIONS .                                                    
+
+> Rule STL Formula
+> Safety φsafe =G[0 ,H ](∥pk−pok∥ ≥ dsafe )
+> Goal φgoal =F[0 ,H ](∥pk−g∥ ≤ dgoal )
+> Passenger comfort φcomfort =G[0 ,H −1] (|ak−ak−1|≤
+> ∆amax )∧G[0 ,H −1] (|δk| ≤ δmax )
+> Not cross dashed lane line φdash =G[0 ,H ](ylow ≤yk≤yup )
+> TABLE II MPPI AND VEHICLE PARAMETERS .
+> Parameter Symbol Value
+> Horizon H16 Sampling time ∆t0.2 s
+> Samples (UC-A) VA220 Samples (UC-B) VB1200 Temperature λ0.1 Accel. noise std σa1.0 m /s2
+> Steering noise std σδ0.08 rad
+> Wheelbase ℓ2.7 m
+> Priority weight a2.01
+
+was tuned empirically to balance exploration and exploitation: a lower value sharpens the weight distribution towards the best trajectories, while a higher value spreads weight more uniformly across samples. Perturbations are drawn as zero-mean Gaussian noise with standard deviations σa and σδ .
+
+Computational Platform. All experiments are run on alaptop equipped with an AMD Ryzen 9 8940HX with Radeon Graphics CPU and an NVIDIA GeForce RTX 5060 GPU. The MPPI sample rollouts are parallelised on the GPU following the implementation of the MPPI-Generic CUDA library [24], which assigns each of the V independent trajectory rollouts to a separate GPU thread, fully exploiting the parallel structure of MPPI. 
+
+B. Use Case A: Highway Take-Over Under Uncertainty 
+
+Scenario description. As illustrated in Fig. 2, the ego vehicle starts in the middle lane of a three-lane highway with an objective to reach a longitudinal goal at x = 30 .0 m in the same lane. This goal can be seen as a reference waypoint pro-vided by a route planner or any global planning layer. A front vehicle initially occupying the lower lane may execute a cut-in maneuver into the middle lane. The uncertainty over its future motion is represented in this use case by five scenarios: one in which it keeps its lane, and four cut-in profiles of increasing aggressiveness. The choice of five scenarios is not restrictive; the framework supports any number of scenarios, and five were used here simply to capture multiple distinct behavioral modes of the front vehicle. In reality, these uncertainties can result from perception and prediction pipelines that fuse information from multiple sources and produce future trajectories for the same object, each with an associated probability. The lateral position of each cut-in profile evolves as a logistic sigmoid from the lower lane centre (−1.6 m) to the middle lane centre 
+
+(1 .6 m) . The keep-lane scenario W 5 is assigned probability 
+
+0.02 , while the four cut-in profiles W 1, W 2, W 3, and W 4 of increasing aggressiveness are assigned probabilities 0.55 , 0.25 ,
+
+0.12 , and 0.06 , respectively. In practice, such a distribution can be produced by a multimodal motion prediction model such as MTP [1], MultiPath [25], and CoverNet [2]. 
+
+Rule ordering and conflict. Two lexicographic orderings are evaluated under the same scenario distribution with CVaR level 
+
+β = 0 .70 :1) Safety-first (green): φsafe ≻ φgoal ≻ φdash .2) Lane-discipline-first (blue): φdash ≻ φgoal ≻ φsafe .Maintaining the same lane requires the ego to stay in the middle lane, while avoiding the high-probability cut-in threat may necessitate crossing the dashed line into the upper lane. The rank-preserving reward (8) ensures that whichever rule occupies the top priority strictly dominates the combined influence of all lower-priority rules.     
+
+> Fig. 2. Highway take-over scenario: ego trajectories under safety-first (green) and lane-discipline-first (blue) priority orderings at t= 0 .2 s ,2 s , and 3 s . Red lines show possible future trajectories of the surrounding vehicle.
+
+Results. Figure 2 shows three snapshots of the executed trajec-tories at t = 0 .2 s , 2 s , and 3 s . Under the safety-first ordering, the MPPI planner, as described in Alg. 1, steers its sampling distribution toward regions of high reward with respect to the objective (8). As a result, the green ego car deviates into the upper lane as early as t = 2 s . By t = 3 s it has fully crossed the dashed line, violating φdash , but maintaining a distance exceeding dsafe from all cut-in scenarios throughout the maneuver. Under the lane-discipline-first ordering, the blue ego remains in the middle lane across all three snapshots, satisfying φdash , but failing to maintain a safe distance from the cut-in vehicle, thereby violating φsafe . The computation time per planning step for this scenario is 0.77 ms, enabled by GPU parallelization across the 220 sampled rollouts. 
+
+C. Use Case B: Pedestrian Crossing Under Positional Uncer-tainty 
+
+Scenario description. In this scenario, the ego vehicle ap-proaches a pedestrian crossing where the pedestrian’s future position is stochastic, see Fig. 3. The uncertainty is represented by a discrete distribution over six candidate lateral positions, labeled 1–6 in decreasing order of likelihood, with associated probabilities represented in Table III. The pedestrian’s position is treated as a static obstacle over the planning horizon, modeling the case where the pedestrian’s potential crossing path is communicated to the ego vehicle instantaneously, for example via infrastructure-to-vehicle messaging or an onboard detector. The rule ordering used in this scenario is 
+
+φsafe ≻ φcomfort ≻ φgoal . 
+
+> Fig. 3. Pedestrian crossing scenario: ego trajectories under different CVaR levels; numbered circles indicate the six possible pedestrian positions in decreasing order of likelihood.
+
+Results. Table III reports the per-scenario safety robustness  
+
+> TABLE III PEDESTRIAN SCENARIO METRICS COMPARISON ACROSS CV AR
+> TRAJECTORIES .
+
+ρsafe per CVaR level 
+
+Scenario Prob CVaR 0.50 CVaR 0.70 CVaR 0.90 
+
+1 0.600 0.935 0.957 0.979 2 0.200 0.837 0.891 0.949 3 0.100 0.623 0.754 0.898 4 0.050 0.278 0.532 0.789 5 0.049 −0.150 0.114 0.624 6 0.001 −0.481 −0.322 0.297 
+
+ρsafe for each CVaR level. A positive value indicates satisfac-tion of φsafe ; a negative entry (highlighted in red) indicates a violation. As visible in Fig. 3, the three trajectories diverge laterally from the pedestrian positions: a higher CVaR level forces the planner to steer toward regions with lower tail risk, yielding a wider avoidance arc that maintains dsafe against the lower-probability positions. CVaR 0.50 produces violations in scenarios 5 and 6, accepting tail risk in exchange for a less conservative trajectory. CVaR 0.70 eliminates the violation in scenario 5 while retaining only the violation in scenario 6, re-sulting in a good balance between safety and goal attainment. 
+
+CVaR 0.90 satisfies φsafe across all six scenarios, including the least probable one, at the cost of the widest avoidance arc. These results demonstrate that the CVaR level provides a principled and interpretable mechanism for trading off tail-risk conservatism against task performance. A moderate level such as CVaR 0.70 remains less conservative than the worst case, making it a practical default for safety-critical autonomous driving applications. With 1200 samples, the computation time in this scenario increases to 7.53 ms per step ( 133 Hz). VI. C ONCLUSION 
+
+We presented a trajectory planning framework for au-tonomous vehicles that enforces lexicographically ordered STL specifications under multimodal uncertainty. By com-bining CVaR-based robustness risk with a rank-preserving reward, our approach ensures that higher-priority rules such as safety strictly dominate lower-priority objectives regardless of the uncertainty realization. The resulting planning problem is solved efficiently via an MPPI-based receding-horizon planner, validated on a highway take-over and a pedestrian crossing scenario. Several directions remain open for future work. The lexi-cographic priority structure can be extended to encode ethical principles directly as STL rules [26], [27], enabling formally verifiable morally motivated priority orderings. Integrating per-object behavioral classification via intention-aware pre-dictors [28], [29] would allow scenario weights and CVaR levels to be updated online per object class. Finally, validation on real-world closed-loop benchmarks such as nuPlan [30], which provide rich multimodal prediction outputs and diverse traffic scenarios, constitutes a critical next step toward real-world deployment of the framework. REFERENCES [1] H. Cui, V. Radosavljevic, F.-C. Chou, T.-H. Lin, T. Nguyen, T.-K. Huang, J. Schneider, and N. Djuric, “Multimodal trajectory predictions for autonomous driving using deep convolutional networks,” in 2019 International Conference on Robotics and Automation (ICRA) . IEEE, 2019, pp. 2090–2096. [2] T. Phan-Minh, E. C. Grigore, F. A. Boulton, O. Beijbom, and E. M. Wolff, “Covernet: Multimodal behavior prediction using trajectory sets,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2020, pp. 14 074–14 083. [3] M. Althoff, S. Maierhofer, G. Wursching, Y. Lin, F. Lercher, and R. Stolz, “No more traffic tickets: A tutorial to ensure traffic-rule compliance of automated vehicles,” Proceedings of the IEEE , 2025. [4] O. Maler and D. Nickovic, “Monitoring temporal properties of contin-uous signals,” in Formal Techniques, Modelling and Analysis of Timed and Fault-Tolerant Systems , ser. Lecture Notes in Computer Science, vol. 3253. Springer, 2004, pp. 152–166. [5] A. Donze and O. Maler, “Robust satisfaction of temporal logic over real-valued signals,” in Formal Modeling and Analysis of Timed Systems , ser. Lecture Notes in Computer Science, vol. 6246. Springer, 2010, pp. 92– 106. [6] S. Maierhofer, A.-K. Rettinger, E. C. Mayer, and M. Althoff, “Formaliza-tion of interstate traffic rules in temporal logic,” in Proc. IEEE Intelligent Vehicles Symposium (IV) , 2020, pp. 752–759. [7] S. Maierhofer, P. Moosbrugger, and M. Althoff, “Formalization of intersection traffic rules in temporal logic,” in Proc. IEEE Intelligent Vehicles Symposium (IV) , 2022, pp. 1135–1144. [8] S. Qi, Z. Zhang, Z. Sun, and S. Haesaert, “Risk-aware autonomous driving with linear temporal logic specifications,” in 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) ,2025, pp. 14 877–14 883. [9] Z. Zhang, Z. Sun, and S. Haesaert, “Intention-aware control based on belief-space specifications and stochastic expansion,” IEEE Transactions on Intelligent Vehicles , vol. 10, no. 3, pp. 1989–1998, 2025. [10] A. Censi, K. Slutsky, T. Wongpiromsarn, D. Yershov, S. Pendleton, J. Fu, and E. Frazzoli, “Liability, ethics, and culture-aware behavior specification using rulebooks,” in Proc. IEEE Int. Conf. Robotics and Automation (ICRA) , 2019, pp. 8536–8542. [11] S. Veer, K. Leung, R. K. Cosner, Y. Chen, P. Karkus, and M. Pavone, “Receding horizon planning with rule hierarchies for autonomous vehicles,” in 2023 IEEE International Conference on Robotics and Automation (ICRA) , 2023, pp. 1507–1513. [12] P. Halder, F. Christ, and M. Althoff, “Lexicographic mixed-integer mo-tion planning with STL constraints,” in Proc. IEEE Int. Conf. Intelligent Transportation Systems (ITSC) , 2023, pp. 1361–1367. [13] P. Halder and M. Althoff, “Sampling-based motion planning with preordered objectives,” in Proc. IEEE Intelligent Vehicles Symposium (IV) , 2025, pp. 125–131. [14] L. Lindemann, L. Jiang, N. Matni, and G. Pappas, “Risk of stochastic systems for temporal logic specifications,” ACM Transactions on Em-bedded Computing Systems , vol. 22, 01 2023. [15] M. H. W. Engelaar, Z. Zhang, M. Lazar, and S. Haesaert, “Risk-aware MPC for stochastic systems with runtime temporal logics,” in 
+
+Proceedings of the 8th IFAC Conference on Analysis and Design of Hybrid Systems (ADHS) , 2024, arXiv:2402.03165. [16] A. Majumdar and M. Pavone, “How should a robot assess risk? Towards an axiomatic theory of risk in robotics,” in Springer Proceedings in Advanced Robotics . Springer, 2020, pp. 75–84. [17] R. T. Rockafellar and S. Uryasev, “Optimization of conditional value-at-risk,” Journal of Risk , vol. 2, no. 3, pp. 21–41, 2000. [18] Y. Chen, U. Rosolia, W. Ubellacker, N. Csomay-Shanklin, and A. D. Ames, “Interactive multi-modal motion planning with branch model predictive control,” IEEE Robotics and Automation Letters , vol. 7, no. 2, pp. 5365–5372, 2022. [19] A. Shapiro, D. Dentcheva, and A. Ruszczy´ nski, Lectures on Stochastic Programming: Modeling and Theory , ser. MPS-SIAM Series on Opti-mization. Philadelphia, PA: SIAM, 2009, vol. 9. [20] G. Williams, P. Drews, B. Goldfain, J. M. Rehg, and E. A. Theodorou, “Aggressive driving with model predictive path integral control,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA) , 2016, pp. 1433–1440. [21] G. Williams, A. Aldrich, and E. A. Theodorou, “Model predictive path integral control: From theory to parallel computation,” J. Guid. Control Dyn. , vol. 40, no. 2, pp. 344–357, 2017. [22] L. Gilpin, V. Kurtz, and Y. Li, “A smooth robustness measure of signal temporal logic for symbolic control,” IEEE Control Systems Letters ,vol. 5, no. 1, pp. 241–246, 2021. [23] J. Kong, M. Pfeiffer, G. Schildbach, and F. Borrelli, “Kinematic and dynamic vehicle models for autonomous driving control design,” 06 2015, pp. 1094–1099. [24] B. Vlahov, J. Gibson, M. Gandhi, and E. A. Theodorou, “MPPI-Generic: A CUDA library for stochastic trajectory optimization,” 2024. [Online]. Available: https://arxiv.org/abs/2409.07563 [25] Y. Chai, B. Sapp, M. Bansal, and D. Anguelov, “Multipath: Multiple probabilistic anchor trajectory hypotheses for behavior prediction,” in 
+
+Proceedings of the 3rd Conference on Robot Learning , ser. Proceedings of Machine Learning Research, vol. 100. PMLR, 2020, pp. 86–99. [26] M. Geisslinger, F. Poszler, J. Betz, C. L¨ utge, and M. Lienkamp, “An ethical trajectory planning algorithm for autonomous vehicles,” Nature Machine Intelligence , vol. 5, pp. 137–144, 2023. [27] H. Wang, Y. Huang, A. Khajepour, D. Cao, and C. Lv, “Ethical decision-making platform in autonomous vehicles with lexicographic optimization based model predictive controller,” IEEE Transactions on Vehicular Technology , vol. 69, no. 8, pp. 8164–8175, 2020. [28] Z. Huang, X. Mo, and C. Lv, “Multi-modal motion prediction with transformer-based neural network for autonomous driving,” in IEEE International Conference on Robotics and Automation (ICRA) , 2022, pp. 2605–2611. [29] W. Wei and J. Wang, “Intention-based and risk-aware trajectory pre-diction for autonomous driving in complex traffic scenarios,” in 2025 IEEE International Conference on Real-time Computing and Robotics (RCAR) , 2025, pp. 345–350. [30] N. Karnchanachari, D. Geromichalos, K. S. Tan, N. Li, C. Eriksen, S. Yaghoubi, N. Mehdipour, G. Bernasconi, W. K. Fong, Y. Guo, and H. Caesar, “Towards learning-based planning: The nuPlan benchmark for real-world autonomous driving,” in IEEE International Conference on Robotics and Automation (ICRA) , 2024. 
+
+APPENDIX 
+
+The proof follows the structure of [11, Appendix], adapted to the reward J in (8) with base 2.
+
+Setup. Let ¯ρ and ¯ρ′ denote the robustness risk vectors of xe 
+
+> 0: H
+
+and 
+
+xe′ 
+
+> 0: H
+
+, respectively, with r(¯ ρ) < r (¯ ρ′). By definition of rank, there exists a highest-priority index at which ¯ρ satisfies a rule that ¯ρ′ does not. Define 
+
+k := min j | step(¯ ρj ) > step(¯ ρ′ 
+
+> j
+
+), j ∈ { 1, . . . , N } ,
+
+so that step(¯ ρk ) = 1 and step(¯ ρ′ 
+
+> k
+
+) = 0 . By minimality of k, the step values agree for all j < k , i.e., step(¯ ρj ) = step(¯ ρ′ 
+
+> j
+
+) for j =1, . . . , k − 1.
+
+Decomposition. Define b := Pk−1 
+
+> j=1
+
+a · 2N −j+1 step(¯ ρj ). Since the step values agree for j < k , this constant b is identical for both ¯ρ
+
+and ¯ρ′, and the rewards decompose as 
+
+J(¯ ρ) = b + a · 2N −k+1 +
+
+> N
+
+X
+
+> j=k+1
+
+a · 2N −j+1 step(¯ ρj ) + 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρj ,J(¯ ρ′) = b + 0 + 
+
+> N
+
+X
+
+> j=k+1
+
+a · 2N −j+1 step(¯ ρ′ 
+
+> j
+
+) + 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρ′ 
+
+> j
+
+.
+
+It remains to show J(¯ ρ′) < J (¯ ρ), which we establish via two claims. 
+
+Claim 1: 
+
+> N
+
+X
+
+> j=k+1
+
+a · 2N −j+1 step(¯ ρ′ 
+
+> j
+
+) < a · 2N −k+1 − a. 
+
+Since step( ·) ≤ 1, we bound the sum by dropping the step function and evaluating the geometric series exactly: 
+
+> N
+
+X
+
+> j=k+1
+
+a·2N −j+1 step(¯ ρ′ 
+
+> j
+
+) ≤ a
+
+> N
+
+X
+
+> j=k+1
+
+2N −j+1 = a 2N −k+1 −2.
+
+Since a > 0, we have a(2 N −k+1 − 2) < a (2 N −k+1 − 1) , which completes the proof of Claim 1. 
+
+Claim 2: 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρ′ 
+
+> j
+
+− a ≤ 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρj .
+
+By the boundedness assumption (9), each ¯ρj , ¯ρ′ 
+
+> j
+
+∈ [−a/ 2, a/ 2] .Therefore 1
+
+> N
+
+P 
+
+> j
+
+¯ρ′ 
+
+> j
+
+≤ a/ 2 and 1
+
+> N
+
+P 
+
+> j
+
+¯ρj ≥ − a/ 2, so the difference satisfies 1
+
+> N
+
+P 
+
+> j
+
+¯ρ′ 
+
+> j
+
+− 1
+
+> N
+
+P 
+
+> j
+
+¯ρj ≤ a, which is exactly Claim 2. 
+
+Conclusion. Applying Claim 1 to bound the lower-priority step terms of J(¯ ρ′), and then Claim 2 to handle the tie-breaking terms, gives 
+
+J(¯ ρ′) ≤ b + a 2N −k+1 − 2 + 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρ′ 
+
+> j
+
+(Claim 1) 
+
+≤ b + a 2N −k+1 − 2 + 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρj + a (Claim 2) 
+
+= b + a · 2N −k+1 − a + 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρj
+
+< b + a · 2N −k+1 + 1
+
+> NN
+
+X
+
+> j=1
+
+¯ρj = J(¯ ρ),
+
+which completes the proof.

@@ -1,0 +1,1956 @@
+Title: Natural Functional Gradients for Smooth Trajectory Optimization
+
+URL Source: https://arxiv.org/pdf/2605.28202v1
+
+Published Time: Thu, 28 May 2026 01:10:56 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Natural Functional Gradients for Smooth Trajectory Optimization 
+
+Kisang Park 1, Chanwoo Kim 1, Kyungjae Lee 2, Sungjoon Choi 1,3
+
+> 1
+
+Department of Artificial Intelligence, Korea University, Seoul, Republic of Korea 
+
+> 2
+
+Department of Statistics, Korea University, Seoul, Republic of Korea 
+
+> 3
+
+RLWRLD, Seoul, Republic of Korea 
+
+{qkrrltkd1626, chanwoo-kim, kyungjae_lee, sungjoon-choi }@korea.ac.kr 
+
+Abstract —Generating collision-free and smooth motions re-mains a central challenge in robotic manipulation, particularly in cluttered environments and narrow passages where feasible regions are highly constrained and fragmented. We propose a trajectory optimization framework that performs geometry-aware updates directly in function space using natural functional gradients. The method optimizes a Gaussian-smoothed surrogate objective that regularizes the optimization landscape through smooth trajectory perturbations while preserving trajectory-level structure. Because the updates are defined intrinsically in func-tion space, trajectory regularity can be controlled independently of a particular time discretization. We derive a practical Monte-Carlo estimator of the natural functional gradient that requires only black-box trajectory evaluations, making the method appli-cable when analytic gradients are unavailable or unreliable due to collision checking and contact-rich simulation. Experiments on constrained robotic manipulation tasks demonstrate that the proposed method improves trajectory feasibility and produces smoother motions than representative planning and trajectory optimization baselines in environments with narrow geometric clearances. Additional results, videos, and implementation details are available at the project page. 
+
+I. I NTRODUCTION 
+
+Trajectory optimization is a fundamental component of robotic motion generation. In manipulation tasks, a planner must simultaneously satisfy collision avoidance, kinematic feasibility, and trajectory smoothness under limited geometric clearance. These requirements become particularly challenging in cluttered environments, where feasible motions occupy only a small subset of the trajectory space and small deviations can induce collisions. In such regimes, feasibility alone is insufficient: the temporal regularity of the solution directly impacts tracking accuracy and robustness during execution. Existing approaches provide complementary advantages but expose a persistent trade-off between feasibility and smooth-ness. Sampling-based planners effectively explore highly non-convex configuration spaces and discover collision-free so-lutions, but often return piecewise-linear paths that require additional smoothing before execution [1, 2, 3]. Trajectory op-timization methods instead generate smooth motions directly, but they typically rely on local information and can become sensitive to initialization in fragmented feasible regions [4, 5, 6]. Recent GPU-accelerated methods improve optimization throughput, yet trajectory generation under narrow geometric constraints remains challenging [7]. A central difficulty is that feasibility and trajectory reg-ularity are often handled using separate representations and optimization procedures. Methods focused on feasibility com-monly operate on sparse geometric paths and defer smoothness to post-processing, while smooth trajectory optimization meth-ods directly optimize discretized trajectories and can struggle to escape poor local regions. As a result, maintaining trajectory stability while satisfying collision constraints remains difficult, particularly when optimization relies on black-box simulation costs or lacks reliable analytic gradients. This paper adopts a function-space perspective on trajectory optimization. Rather than representing trajectories using a fixed finite-dimensional parameterization, we model trajec-tories as elements of a Hilbert space and perform updates directly in function space. This formulation enables trajectory regularity to be controlled through the geometry induced by Gaussian kernels and allows smooth perturbations to be gen-erated independently of a particular trajectory discretization [8, 9, 10]. Building on this viewpoint, we propose a zeroth-order trajectory optimization framework based on natural functional gradients induced by Gaussian smoothing. The proposed update direction admits a simple weight-times-noise form, enabling practical Monte-Carlo optimization even when analytic gradients are unavailable or unreliable due to collision checking and contact-rich simulation. We additionally analyze the Gaussian-smoothed objective directly in Hilbert space and establish convergence guarantees with-out defining the optimization geometry through a particu-lar finite-dimensional trajectory parameterization. The result-ing framework combines smooth function-space perturbations with gradient-free optimization for constrained robotic motion generation tasks. The contributions of this paper are threefold. First, we introduce a function-space trajectory optimization framework based on natural functional gradients that performs geometry-aware trajectory updates directly in Hilbert space. Second, we develop a Gaussian smoothing formulation for zeroth-order trajectory optimization and provide convergence guarantees in function space. Third, we demonstrate on constrained robotic manipulation tasks that the proposed method improves trajectory feasibility and produces smoother trajectories than representative planning and trajectory optimization baselines in cluttered environments with narrow geometric clearances. 
+
+> arXiv:2605.28202v1 [cs.RO] 27 May 2026
+
+PREPRINT VERSION TABLE I: Conceptual comparisons of representative motion planning and trajectory optimization approaches.                                     
+
+> Method family Trajectory representation Cost differentiability required Gradient access Smoothness handling Sampling-based [1, 2] Discrete path No None Post-processing Gradient-based [4, 5] Finite-dimensional Yes / approximated Analytic Explicit regularization Stochastic optimization [6, 11] Finite-dimensional No Zeroth-order Implicit / penalty-based Inference-based / GP planning [12, 13, 9] Probabilistic trajectory model Yes / model-dependent Variational / analytic Model-based prior Evolutionary algorithms [14] Finite-dimensional No Zeroth-order Not intrinsic Zeroth-order optimization [15, 16] Finite-dimensional No Zeroth-order Via smoothing Homotopy / continuation [17, 18] Varies Varies Varies Via smoothing schedule Proposed (natural functional gradients) Function space No Zeroth-order Intrinsic (geometry-induced)
+
+II. R ELATED WORK 
+
+Trajectory optimization for robotic motion generation has been studied from multiple complementary perspectives, in-cluding sampling-based planning, gradient-based trajectory optimization, stochastic optimization, and zeroth-order black-box optimization. These approaches address different aspects of the core challenge: discovering feasible motions in highly nonconvex environments while maintaining trajectory smooth-ness and execution stability. Table I summarizes representative approaches according to trajectory representation, gradient ac-cess, differentiability requirements, and smoothness handling. Sampling-based planners such as PRM [1] and RRT [2, 19, 3] explore configuration spaces without relying on gradient information and are effective for discovering collision-free motions in cluttered environments. However, the resulting solutions are typically represented as sparse geometric paths and often require additional shortcutting or smoothing before execution. Gradient-based trajectory optimization methods such as CHOMP and TrajOpt [20, 4, 21, 5] instead optimize smooth trajectories directly using local cost information. Re-lated probabilistic and function-space formulations incorporate smoothness priors through Gaussian-process trajectory models and reproducing kernel Hilbert spaces [9, 10, 8]. Despite their effectiveness, these methods commonly rely on analytic or approximated gradients and can become sensitive to initial-ization in environments dominated by narrow feasible regions or nondifferentiable collision costs. Stochastic and gradient-free approaches relax differentia-bility requirements by estimating updates from sampled per-turbations or rollout trajectories. Representative examples include STOMP [6], path-integral methods [11, 22], evo-lutionary strategies [14, 23], and recent GPU-parallelized motion generation systems [7]. These methods are gener-ally more flexible with respect to black-box objectives and simulation-based costs, but most operate on finite-dimensional trajectory parameterizations and enforce smoothness indirectly through discretization-dependent penalties or post-processing. More broadly, zeroth-order optimization theory and Gaussian smoothing methods provide principled tools for optimization using only function evaluations [15, 24, 16, 25]. Related con-tinuation and homotopy methods further study how smoothed objectives can improve optimization behavior in nonconvex landscapes [17, 18]. Our work combines these perspectives through a function-space formulation of zeroth-order trajectory optimization. Rather than optimizing a finite-dimensional trajectory param-eterization, we perform geometry-aware updates directly in Hilbert space using natural functional gradients induced by Gaussian smoothing. This formulation enables smooth tra-jectory perturbations to be generated intrinsically in function space while remaining compatible with black-box trajectory evaluation. Unlike prior smooth trajectory optimization meth-ods, the proposed approach does not rely on analytic gradients or discretization-tuned smoothness penalties. At the same time, it differs from conventional stochastic optimization methods by explicitly incorporating function-space geometry into the update rule and smoothing process. We additionally analyze the Gaussian-smoothed objec-tive directly in function space and establish convergence guarantees without reducing the optimization problem to a finite-dimensional representation. As a result, the proposed method occupies a distinct position at the intersection of function-space trajectory optimization, Gaussian smoothing, and gradient-free robotic motion generation. III. P RELIMINARIES 
+
+This section introduces the minimum notation and back-ground required to describe our method. Our goal is to formalize trajectories as elements of a function space and to fix the probabilistic and geometric structures used later for defin-ing geometry-aware, zeroth-order updates. All methodological contributions begin in Section IV; the material here is standard and is included only to establish a common framework. 
+
+A. Trajectories in a Hilbert space 
+
+Let T > 0 be a fixed time horizon and let ξ : [0 , T ] → Rd
+
+denote a continuous-time trajectory. We model trajectories as elements of a separable real Hilbert space H equipped with inner product ⟨· , ·⟩ H and norm ∥ · ∥ H. This viewpoint is deliberately resolution-independent: time discretization is used only for numerical approximation and does not define the optimization geometry. In particular, the choice of H encodes a notion of regularity (e.g., smoothness) at the level of functions rather than finite-dimensional vectors. In robotic motion generation, this abstraction is natural because physically executable trajectories must satisfy tem-poral regularity constraints, and many objectives are most naturally expressed as functionals of the entire path. Sobolev spaces and reproducing kernel Hilbert spaces (RKHSs) are PREPRINT VERSION commonly used to encode smoothness and prior structure in trajectory optimization and motion planning [8, 9, 10]. Although our theoretical development is stated for a general Hilbert space, later sections will specialize to an RKHS-based implementation where the induced geometry directly shapes the smoothness of updates. 
+
+B. Zeroth-order objective 
+
+Let f : H → R ∪ {−∞} be a trajectory objective func-tional. In robotic manipulation and motion planning, f may aggregate task objectives, control effort, collision penalties, and environment-specific costs. We do not assume that f is differentiable with respect to ξ, nor that analytic gradients are available or reliable. Instead, we assume only zeroth-order access: given a candidate trajectory ξ, the value f (ξ) can be evaluated, for example by collision checking and simulation-based rollout. This assumption reflects common practice in robotics and simulation-based control. Collision checking and contact-rich dynamics often introduce nondifferentiabilities, and many pipelines incorporate black-box components or hard feasibility checks. As a result, gradient-free and zeroth-order optimiza-tion methods are widely used when analytic derivatives are unavailable or unstable [15, 16, 24]. Our method builds on this zeroth-order setting while explicitly addressing the need for smooth, executable trajectories. 
+
+C. Gaussian perturbations and Cameron–Martin space 
+
+Let Σ : H → H be a self-adjoint, positive, trace-class, and injective operator, and let σ > 0. We consider Gaussian pertur-bations ε ∼ N (0 , σ 2Σ) taking values in H. Such perturbations are the basis of Gaussian smoothing, a classical technique for regularizing nonsmooth or nonconvex objectives by averaging over local perturbations [24, 25]. In the context of trajectories, the covariance operator Σ shapes how perturbations vary over time and across dimensions, thereby directly influencing the smoothness of induced updates. A distinctive feature of Gaussian measures in infinite-dimensional spaces is that differentiation is naturally restricted to a subspace determined by the covariance. The associated Cameron–Martin space is defined as HΣ = Range(Σ 1/2),equipped with the inner product 
+
+⟨h1, h 2⟩HΣ = ⟨Σ−1/2h1, Σ−1/2h2⟩H, h1, h 2 ∈ H Σ. (1) The Cameron–Martin construction characterizes precisely the directions along which shifts of a Gaussian measure remain absolutely continuous and thus differentiable [26, 27, 28]. In Section IV, this geometry will induce a natural functional gradient for Gaussian-smoothed objectives, yielding smooth trajectory updates aligned with the covariance structure. IV. T RAJECTORY OPTIMIZATION VIA NATURAL 
+
+FUNCTIONAL GRADIENT 
+
+We now present our trajectory optimization method based on natural functional gradients. We treat a trajectory as a time-indexed function (e.g., t 7 → q(t) or t 7 → x(t)), rather than a finite vector of waypoints, and formulate the optimization in a Hilbert space where the inner product encodes trajectory smoothness. In this setting, the kernel defines the geometry of the trajectory space, determining how trajectories are com-pared and how updates are shaped. The central idea is to perform zeroth-order optimization di-rectly in this function space, rather than on a finite-dimensional parameterization. By combining exponential transformation with Gaussian smoothing in a Hilbert space, we obtain a geometry-aware update rule that produces smooth trajectories intrinsically while requiring only black-box evaluations of the underlying cost functional. This resulting update can be interpreted as a smooth deformation of the entire trajectory. Throughout this section, we emphasize a clear separation between three conceptual components: (i) the definition of a Gaussian-smoothed surrogate objective in function space, (ii) the derivation of its natural functional gradient under the Cameron–Martin geometry, and (iii) a practical discretization that enables efficient Monte-Carlo estimation and implementa-tion. This organization mirrors the logical flow from problem formulation to theory and finally to computation. 
+
+A. Gaussian-Smoothed Surrogate Objective 
+
+We consider trajectory optimization over a feasible set 
+
+S ⊂ H, where H is a separable real Hilbert space of trajectories ξ : [0 , T ] → Rd. The feasible set S encodes boundary conditions and admissibility constraints such as collision avoidance and joint limits. We assume only zeroth-order access to an objective functional f : S → R, evaluated through collision checking and/or simulation. To handle feasibility within a unified objective, we extend 
+
+f to all of H by setting f (ξ) = −∞ for ξ / ∈ S. This allows us to write all subsequent objectives as expectations over H
+
+without introducing explicit constraints. For a power parameter 
+
+Npow > 0, we define the exponentially transformed functional     
+
+> gNpow (ξ) := exp  Npow f(ξ),(2)
+
+which amplifies relative differences between trajectories while enforcing feasibility via the indicator. We smooth gNpow by Gaussian perturbations in H. Let Σ : 
+
+H → H be a self-adjoint, positive, trace-class, and injective covariance operator, and let 
+
+ε ∼ N (0 , σ 2Σ) , (3) where σ > 0 controls the magnitude of perturbations. The Gaussian-smoothed surrogate objective is then defined as 
+
+FNpow (μ) := EgNpow (μ + ε) , μ ∈ H , (4) where μ denotes the current mean trajectory. The role of this construction is twofold. First, Gaussian smoothing regularizes the optimization landscape by averag-ing over local perturbations in trajectory space. Second, the exponential transformation induces a homotopy-like effect: as 
+
+Npow increases, the surrogate objective increasingly concen-trates around trajectories with high original cost. Crucially, evaluating FNpow requires only evaluations of f (μ + ε) and does not rely on analytic gradients. PREPRINT VERSION 
+
+Algorithm 1 Natural Functional Gradient 
+
+Require: Initial mean trajectory μ0 (discretized on grid 
+
+{ti}mi=1 ); trajectory objective functional f (·) (black-box evaluation); kernel k(·, ·) and regularization λ > 0; noise scale σ > 0; power parameter Npow > 0; Monte-Carlo samples B; stepsizes {ηk}K−1 
+
+> k=0
+
+; iterations K.
+
+Ensure: Optimized mean trajectory μK . 
+
+> 1:
+
+Construct kernel matrix K ∈ Rm×m by Kij = k(ti, t j )
+
+and set Kλ ← K + λI . 
+
+> 2:
+
+Compute a matrix square root L such that LL ⊤ = Kλ
+
+(e.g., Cholesky factor).  
+
+> 3:
+
+Initialize μ ← μ0. 
+
+> 4:
+
+for k = 0 to K − 1 do  
+
+> 5:
+
+bg ← 0 ∈ Rm. 
+
+> 6:
+
+for s = 1 to B do  
+
+> 7:
+
+Sample z(s) ∼ N (0 , I m). 
+
+> 8:
+
+ε(s) ← σLz (s) ▷ ε (s) ∼ N (0 , σ 2Kλ) 
+
+> 9:
+
+Evaluate weight w(s) ← exp  Npow f (μ + ε(s)). 
+
+> 10:
+
+bg ← bg + 1 
+
+> Bσ 2
+
+w(s) ε(s). 
+
+> 11:
+
+end for  
+
+> 12:
+
+μ ← μ + ηk bg. 
+
+> 13:
+
+end for  
+
+> 14:
+
+return μ.
+
+B. Natural Functional Gradient 
+
+Gaussian measures in infinite-dimensional spaces admit dif-ferentiation only along a covariance-dependent subspace. The Gaussian measure N (0 , σ 2Σ) induces the Cameron–Martin space 
+
+HΣ := Range(Σ 1/2), (5) equipped with the inner product 
+
+⟨h1, h 2⟩HΣ = ⟨Σ−1/2h1, Σ−1/2h2⟩H, h1, h 2 ∈ H Σ. (6) This geometry characterizes the admissible directions along which the smoothed objective FNpow can be differentiated. 
+
+Lemma 1 (Directional derivative identity) . For any μ ∈ H 
+
+and any h ∈ H Σ, the directional derivative of FNpow exists and satisfies 
+
+DhFNpow (μ) = E
+
+"
+
+gNpow (μ + ε) X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+σ√λk
+
+ξk
+
+#
+
+, (7) 
+
+where ε = σ P 
+
+> k:λk>0
+
+√λk ξkek with ξki.i.d. 
+
+∼ N (0 , 1) is the Karhunen–Lo` eve representation associated with the eigende-composition Σek = λkek.
+
+The full proof can be found in the supplementary mate-rials. The result follows by rewriting FNpow (μ + th ) as an expectation with respect to a translated Gaussian measure and applying the Cameron–Martin theorem to obtain the corresponding Radon–Nikodym derivative (see Chapter 2 in [27]). 
+
+Lemma 2 (Closed form of the natural functional gradient) .
+
+There exists a unique ∇HΣ FNpow (μ) ∈ H Σ such that 
+
+DhFNpow (μ) = ⟨∇ HΣ FNpow (μ), h ⟩HΣ for all h ∈ H Σ,
+
+and it admits the closed-form representation 
+
+∇HΣ FNpow (μ) = σ−2 EgNpow (μ + ε) ε . (8) Lemma 2 shows that the directional derivative of FNpow ad-mits a Riesz representer in the Cameron–Martin space, yield-ing the closed-form expression in (8) [29]. This representation leads to a practical estimator, where Gaussian perturbations are weighted by their exponentiated objective values. Crucially, the resulting update depends only on zeroth-order evaluations of f , making it applicable in nondifferentiable or simulation-based settings. 
+
+C. Monte-Carlo Estimation and Update Rule 
+
+In practice, the expectation in (8) is approximated using Monte-Carlo sampling. Given i.i.d. samples ε(1) , . . . , ε (B) ∼N (0 , σ 2Σ) , we use the unbiased estimator 
+
+b∇HΣ FNpow (μ) = 1
+
+Bσ 2
+
+> B
+
+X
+
+> b=1
+
+gNpow (μ + ε(b)) ε(b). (9) The number of samples B controls the variance of the estimator, while the covariance operator Σ determines the smoothness of sampled perturbations. We perform an explicit natural-gradient ascent step 
+
+μk+1 = μk + ηk b∇HΣ FNpow (μk), (10) where ηk > 0 is a step size. Because the update direction lies in HΣ, trajectory smoothness is preserved intrinsically by construction. 
+
+D. Discretization for Implementation 
+
+For numerical implementation, we discretize trajectories on a time grid {ti}mi=1 ⊂ [0 , T ] and represent μ by its values on the grid. We implement the covariance operator Σ via a reproducing kernel Hilbert space (RKHS) kernel k : [0 , T ] ×
+
+[0 , T ] → R and its kernel matrix K ∈ Rm×m defined by 
+
+Kij = k(ti, t j ). We use a regularized kernel matrix Kλ =
+
+K + λI with λ > 0 to ensure numerical stability. Gaussian perturbations are sampled as 
+
+ε(s) = σK 1/2 
+
+> λ
+
+z(s), z(s) ∼ N (0 , I m), (11) so that ε(s) ∼ N (0 , σ 2Kλ). A direct discretization of (8) yields the estimator 
+
+bg(μ) = 1
+
+Bσ 2
+
+> B
+
+X
+
+> s=1
+
+exp  Npow f (μ + ε(s)) ε(s). (12) Then, the mean trajectory is updated according to (10). Algorithm 1 summarizes the proposed optimizer in its practical RKHS discretization. At each iteration, we draw smooth Gaussian perturbations by sampling z(s) ∼ N (0 , I m)
+
+and mapping them through the Cholesky factor L of the PREPRINT VERSION regularized kernel matrix Kλ, which implements the covari-ance structure that controls trajectory regularity. The update direction is estimated via (12): each perturbation is weighted by exp( Npow f (μ+ε(s))) and multiplied by the corresponding direction Lz (s), avoiding explicit matrix inversion. The result-ing Monte-Carlo estimate bg is then used for an explicit ascent step μ ← μ + ηk bg, yielding smooth trajectory updates whose structure is determined by the kernel while remaining compat-ible with black-box, potentially nondifferentiable objectives. 
+
+Remark (Resolution-agnostic discretization) . Although Algo-rithm 1 is implemented on a finite time grid, the optimization problem is formulated in the continuous Hilbert space H.The discretization serves only as a numerical representation and can therefore be refined or changed without altering the underlying trajectory optimization problem. 
+
+Remark (Finite-dimensional approximation and covariance truncation) . Although the proposed optimization method is formulated intrinsically in the infinite-dimensional Hilbert space H, the practical implementation operates on a finite-dimensional approximation induced by trajectory discretiza-tion and RKHS kernel representations. Let (ek)k≥1 denote the eigenbasis of the covariance oper-ator Σ, satisfying Σek = λkek, for λk > 0. For a truncation level deff ≥ 1, define the finite-dimensional subspace Hdeff := span {e1, . . . , e deff } ⊂ H , and let Pdeff : H → H deff denote the H-orthogonal projection Pdeff h = Pdeff 
+
+> k=1
+
+⟨h, e k⟩Hek. Here, 
+
+deff is interpreted as an effective dimension of the trajectory optimization problem and is closely related to the trajectory discretization level m used in the RKHS implementation. The projection operator introduced later plays an analogous role in the stochastic analysis and iteration-complexity guarantees. 
+
+V. I TERATION COMPLEXITY OF NATURAL FUNCTIONAL 
+
+GRADIENT 
+
+This subsection establishes theoretical guarantees for Gaussian-smoothed natural functional gradient ascent. In par-ticular, we show that exponential smoothing induces an op-timization landscape oriented toward global optimality that eliminates spurious stationary points, and we derive a global iteration-complexity bound based on Monte–Carlo estimation. 
+
+ξ∗ denotes a unique optimizer of the original objective f (ξ).We optimize a Gaussian-smoothed surrogate that serves as a tractable proxy in the zeroth-order setting. 
+
+Theorem 1 (Directional ascent toward optimal point) . Assume that gN (x) := eN f (x)1{x∈S} is bounded for each N . For 
+
+M > 0, define the ellipsoid KM := {μ ∈ H Σ : ∥μ∥HΣ ≤ M }.
+
+Then, for every ϵ > 0 and M > 0, there exists N0 =
+
+N0(ϵ, M, σ, Σ) < ∞ such that for all N ≥ N0, for every 
+
+μ ∈ KM satisfying ∥μ − ξ⋆∥H ≥ ϵ, letting 
+
+u := ( ξ⋆ − μ)/∥ξ⋆ − μ∥H, (13) 
+
+we have DΣuFN (μ) > 0.
+
+The proof can be found in the supplementary materials. Theorem 1 shows that, under stated conditions, the natural functional gradient of the surrogate is directionally aligned with ξ∗: outside an ϵ-neighborhood of ξ∗, the update provides a strict ascent direction toward ξ∗ for sufficiently large N. Consequently, the optimization is guided toward an ϵ neigh-borhood of the true optimum. 
+
+Remark (Eigen-directional ascent outside an ϵ-ball) . Let ei be an eigenfunction of the covariance operator Σ, i.e., Σei = λiei
+
+with λi > 0. Consider an iterate of the form μ = ξ⋆ − tϵe i
+
+with t > 1, so that ∥μ − ξ⋆∥H > ϵ . Then, by Theorem 1, the Cameron–Martin direction Σei is an ascent direction of the smoothed objective FN for all sufficiently large N . Equiv-alently, since directional derivatives are linear and λi > 0,the eigenfunction direction ei itself satisfies Dei FN (μ) > 0.
+
+Hence, outside the ϵ-ball around ξ⋆, the natural functional gradient always admits an ascent component toward the optimizer along the corresponding eigenmode. In particular, no point outside this neighborhood can be stationary for the smoothed objective. 
+
+We now derive an iteration complexity bound for the proposed stochastic natural functional gradient method by adapting standard stochastic gradient analysis to the Cameron– Martin geometry induced by Gaussian smoothing. 
+
+Lemma 3 (Second directional derivative identity) . Assume that gNpow is bounded. Then, for any h, k ∈ H Σ, the mixed second directional derivative exists and satisfies        
+
+> D2FNpow (μ)[ h, k ] = 1
+> σ2E
+> h
+> gNpow (μ+ε)
+> bh(ε)bk(ε)− ⟨ h, k ⟩HΣ
+> i
+> ,
+> (14)
+
+where bh(ε) := P 
+
+> j:λj>0
+
+⟨h, e j ⟩Hξj /pλj and 
+
+bk(ε) := P 
+
+> j:λj>0
+
+⟨k, e j ⟩Hξj /pλj . D2FNpow (μ)[ h, k ] =
+
+D2FNpow (μ)[ k, h ] also hold. 
+
+The proof can be found in the supplementary materials. Lemma 3 provides a closed-form second-order identity via Gaussian integration by parts. This identity directly yields a uniform bound on the operator norm of the Hessian along Cameron–Martin directions, leading to a Lipschitz constant that depends only on ∥gNpow ∥∞ and σ.
+
+Lemma 4 (Lipschitz continuity of the natural functional gradi-ent) . Assume that gNpow is bounded, and define ∥gNpow ∥∞ := sup ξ∈H |gNpow (ξ)| < ∞ Then the natural functional gradient 
+
+∇HΣ FNpow is Lipschitz continuous along Cameron–Martin directions: for any μ, ν ∈ H such that μ − ν ∈ H Σ, we have             
+
+> ∇HΣFNpow (μ)− ∇ HΣFNpow (ν)HΣ
+> ≤2∥gNpow ∥∞
+> σ2∥μ−ν∥HΣ.
+> (15)
+
+The proof can be found in the supplementary materials. We then control the stochasticity introduced by Monte-Carlo estimation. The following lemma shows unbiasedness and a second-moment bound that scales with deff , capturing the intrinsic effective dimension of the perturbations. 
+
+Lemma 5 (Second moment of the projected Monte-Carlo natural gradient estimator) . Let (ek)k≥1 be an eigenbasis of Σ, and define Hdeff := span {e1, . . . , e deff }. Let Pdeff :PREPRINT VERSION 
+
+H → Hdeff be the H-orthogonal projection. Let bg(μ) be the discretized Monte-Carlo estimator defined in (12) , where 
+
+ε(b) i.i.d. 
+
+∼ N (0 , σ 2Kλ). Then bg(μ) is an unbiased estimator of 
+
+Pdeff ∇HΣ FNpow (μ), and satisfies 
+
+E
+
+hbg(μ) 2
+
+> HΣ
+
+i
+
+≤ ∥gNpow ∥2
+
+> ∞
+
+deff 
+
+Bσ 2 . (16) The proof can be found in the supplementary materials. Combining the Lipschitz property with the second-moment bound yields a one-step expected ascent inequality. 
+
+Lemma 6 (One-step expected ascent) . Let Pdeff : H → H deff 
+
+be the H-orthogonal projection. Suppose that {μt} is gener-ated by the projected update rule. Then, conditioning on μt,               
+
+> EFNpow (μt+1 )μt
+> ≥FNpow (μt) + ηtPdeff ∇HΣFNpow (μt)2
+> HΣ
+> − ∥gNpow ∥3
+> ∞mBσ 4η2
+> t.(17)
+
+The proof can be found in the supplementary materi-als. Finally, we conclude with an iteration-complexity bound for the covariance-truncated stochastic dynamics. The result gives a zeroth-order convergence rate, expressed in terms of 
+
+∥gNpow ∥∞, σ, and deff .
+
+Theorem 2 (Iteration complexity in a Hilbert space) . Let 
+
+{μt}t≥0 ⊂ H be generated by the projected update rule with a constant stepsize η > 0. Then the iterates satisfy 
+
+min   
+
+> 0≤t≤T−1
+
+E
+
+h
+
+Pdeff ∇HΣ FNpow (μt) HΣ
+
+i
+
+≤ ε (18) 
+
+provided that T ≥ 4 ∥gNpow ∥4  
+
+> ∞deff
+> B σ 4ε4
+
+.
+
+The proof is provided in the supplementary materials. Here, 
+
+deff denotes the effective dimension induced by the truncated covariance eigenbasis. The iteration complexity scales linearly with deff , yielding an overall complexity of O(deff ε−4) for reaching ε-stationarity. To our knowledge, this is the first global convergence-rate result for trajectory optimization for-mulated directly in function space. 
+
+Remark (Comparison with Existing Trajectory Optimization Methods) . The proposed method is related to sampling-based planners such as RRT*, which are asymptotically optimal but often require additional smoothing for discrete paths [3]. In contrast, our method directly optimizes smooth trajectories through the Cameron–Martin geometry. Unlike CHOMP and TrajOpt, which rely on analytic gra-dients and discretization-dependent regularization [4, 5], the proposed approach does not require differentiable costs and remains applicable under nondifferentiable collision checking. From a zeroth-order optimization viewpoint, the resulting 
+
+O(ε−4) complexity matches standard Gaussian smoothing rates while explicitly revealing how the covariance operator controls exploration and trajectory regularity [24, 25]. 
+
+VI. E XPERIMENTS 
+
+This section evaluates the proposed natural functional gra-dient (NFG) trajectory optimizer across progressively more constrained settings. We first study optimization behavior in a synthetic narrow-passage environment (§VI-A), where the feasible region is fragmented and highly sensitive to trajectory perturbations. We then evaluate manipulation performance in cluttered cabinet insertion tasks (§VI-B), including unified ex-ecution validation under shared simulation conditions. Finally, we demonstrate real-world execution on a physical robotic platform (§VI-C) to illustrate the practical feasibility and smooth execution behavior of the proposed function-space trajectory optimization framework. 
+
+A. Synthetic Narrow-Passage Experiment 
+
+We first evaluate the proposed method in a synthetic narrow-passage trajectory optimization problem designed to study optimization behavior under fragmented feasible regions. The environment consists of multiple box-shaped obstacles ar-ranged along the temporal axis, producing a narrow collision-free corridor that occupies only a small subset of the trajectory space. Because small trajectory perturbations can easily induce collision, the environment provides a controlled benchmark for evaluating optimization behavior under constrained geometry. The task is formulated as a one-dimensional trajectory optimization problem over a fixed 1 s horizon discretized at 100 Hz . The objective combines collision avoidance with a trajectory regularity bonus based on the average absolute jerk of the trajectory. Additional details and environment specifications are provided in the supplementary material. For the proposed method, trajectory perturbations are gen-erated using a squared exponential (SE) kernel, defined as 
+
+kSE (x, x ′) = g2 exp  − 12l2 |x−x′|2, with variance g2 = 0 .29 
+
+and length-scale l = 0 .22 . The exponential smoothing pa-rameter is set to Npow = 100 , and each optimization step uses 100 Monte-Carlo trajectory perturbations. We compare against representative trajectory optimization baselines includ-ing CHOMP [4], STOMP [6], and MPPI [30]. All methods are initialized using the same linear interpolation trajectory between the initial and final states and evaluated under the same trajectory horizon and temporal discretization. NFG, CHOMP [4], and STOMP [6] are executed for 100 itera-tions, while MPPI [30] is evaluated using its standard online planning configuration. All experiments are repeated over five random seeds while using the same obstacle configuration and optimization setup across seeds. Performance is evaluated using success rate, runtime, path length, and average jerk. A trajectory is counted as successful if it remains collision-free throughout the trajectory horizon. Average jerk is computed from successful trajectories only. Table II summarizes the quantitative results. The proposed method achieves the highest success rate among the baselines, consistently discovering feasible trajectories despite the frag-mented feasible region. In contrast, local trajectory optimiza-tion methods, e.g., CHOMP [4] and STOMP [6], frequently fail to enter the narrow feasible corridor, while MPPI [30] occasionally discovers feasible solutions but produces trajec-tories with substantially larger jerk. Although some baselines achieve lower jerk values in individual successful trials, the PREPRINT VERSION TABLE II: Comparison with the baseline planners in the synthetic box-avoidance scenario.                                                    
+
+> Method Success Rate ↑Time ↓Path Length ↓Avg Jerk ↓
+> (%) (s)(m) (m/s3)NFG (Ours) 100.0 0.73 ±0.03 10.06 ±1.25 90.91 ±33.43 STOMP [6] 20.0 0.63 ±0.01 10.62 ±0.00 34.67 ±0.00
+> CHOMP [4] 20.0 0.02 ±0.00 10.82 ±0.00 43.52 ±0.00 MPPI [30] 60.0 0.37 ±0.00 7.68 ±0.43 621.22 ±86.07
+
+proposed method maintains a more consistent balance between feasibility and trajectory regularity across repeated runs. 
+
+B. Simulation Experiments in Cabinet Environments 
+
+We next evaluate the proposed method on robotic manipula-tion tasks in cluttered cabinet environments with progressively constrained geometry. The experiments study trajectory gen-eration under narrow collision-free clearances, where feasible motions require stable trajectory deformation near the inser-tion region. We first describe the cabinet environments and optimization setup (§VI-B1), followed by the execution-level evaluation protocol (§VI-B2) and quantitative comparisons against representative planning and trajectory optimization baselines (§VI-B3). 
+
+1) Environment Setup: We evaluate the proposed method using a Franka Research 3 manipulator in a cabinet insertion task. The robot inserts a cylindrical object into a cabinet while avoiding collisions with surrounding obstacles and cabinet walls. Because the insertion region contains limited geometric clearance, small trajectory deviations near the cabinet opening can induce collision during execution. To study performance under progressively constrained geometry, we consider four environments with increasing levels of difficulty: free space, fully open, quarter-closed, and half-closed, as illustrated in Fig. 1. The free space environment is included as a sanity-check setting without cabinet constraints, while the remain-ing environments introduce progressively narrower cabinet openings around the insertion region. All environments share the same initial and final joint configurations, allowing the effect of geometric constraints on trajectory generation to be evaluated consistently across environments. The trajectory objective combines collision avoidance with joint-space motion regularization. Collision costs are com-puted from penetration depth and contact information obtained during simulation, while an additional path-length regulariza-tion term penalizes excessive joint-space motion along the trajectory horizon. This formulation encourages trajectories that avoid collision while limiting unnecessarily aggressive configuration changes during execution. All methods are ini-tialized using the same joint-space linear interpolation trajec-tory between the start and goal configurations and evaluated under the same simulation and execution settings. Following the synthetic narrow-passage experiment, the proposed method uses a squared exponential (SE) kernel to generate smooth trajectory perturbations in function space. The kernel variance is set to g2 = 1.0, and the length-scale is chosen as half of the trajectory horizon. Trajectory 
+
+Fig. 1: Cabinet insertion environments with increasing geo-metric constraints: (a) free space, (b) fully open, (c) quarter-closed, and (d) half-closed. optimization is performed over a fixed 5 s horizon discretized at 100 Hz using 100 sampled trajectories per optimization step with Npow = 20 . Each optimization run is executed for at most 
+
+30 iterations or 300 s and terminates early once a collision-free trajectory is found. We compare the proposed method against representative motion planning and trajectory optimization baselines, includ-ing BiTRRT [31], CHOMP [4], STOMP [6], and cuRobo [7]. These methods cover sampling-based planning, gradient-based trajectory optimization, stochastic trajectory optimization, and GPU-accelerated motion generation, respectively. All base-lines are evaluated using the same start and goal configu-rations, trajectory discretization, and execution settings. For each cabinet environment, all methods are evaluated over five random seeds under the same environment geometry and task configuration. Additional implementation details and evaluation settings are provided in the supplementary material. 
+
+2) Unified Execution Evaluation: The compared planners employ different internal trajectory representations, optimiza-tion strategies, and collision models. Some methods generate sparse geometric waypoints [31], while others directly opti-mize discretized joint trajectories [4, 6] or rely on planner-specific collision approximations during optimization [7]. As a result, the native outputs of different planners are not directly comparable under a shared execution setting without additional trajectory processing and validation. To enable a consistent comparison, all generated trajectories are converted into a unified time-parameterized joint-space trajectory and resampled at a fixed execution frequency of 
+
+100 Hz . The resampled trajectories are then evaluated in the MuJoCo simulator using the same collision-checking and execution settings across all methods. A rollout is consid-ered successful if the resampled execution trajectory remains collision-free throughout the full trajectory horizon. In addition to success rate, we report total optimization time and average jerk computed from the executed trajectories. Average jerk is reported only for successful trajectories and is used to evaluate trajectory regularity during execution. 
+
+3) Quantitative Results: Table III summarizes the quanti-tative results across the cabinet environments. We report suc-cess rate, total optimization time, and average jerk measured from the executed trajectories after trajectory resampling and simulation-based validation. A trajectory is counted as suc-cessful if the resampled execution trajectory remains collision-free throughout the full trajectory horizon. Average jerk is reported only for successful trajectories and is used to evaluate PREPRINT VERSION 
+
+Fig. 2: Joint trajectories for the fully open cabinet environment. The top and bottom rows show the joint positions (rad) and joint velocities (rad /s) of the Franka Research 3 manipulator, respectively. STOMP [6] fails to generate a feasible trajectory. TABLE III: Comparison with baseline planners across cabinet environments. (a) Success Rate ( ↑, %)                        
+
+> Method Free Space Fully Open Quarter-Closed Half-Closed NFG (Ours) 100.0 100.0 100.0 100.0
+> BiTRRT [31] 100.0 40.0 13.3 16.7 STOMP [6] 100.0 0.0 0.0 0.0 CHOMP [4] 100.0 100.0 0.0 0.0 cuRobo [7] 100.0 100.0 100.0 100.0
+
+(b) Optimization Time ( ↓, s)                                                  
+
+> NFG (Ours) 0.31 ±0.01 4.10 ±2.89 103.68 ±75.29 166.10 ±91.63 BiTRRT [31] 0.19 ±0.02 0.30 ±0.04 0.51 ±0.29 0.82 ±0.18
+> STOMP [6] 0.00 ±0.00 ---CHOMP [4] 0.13 ±0.01 0.31 ±0.10 --cuRobo [7] 0.01 ±0.00 0.020 ±0.01 14.24 ±0.17 128.87 ±0.18
+
+(c) Average Jerk ( ↓, rad /s3)                                      
+
+> NFG (Ours) 461.61 ±178.53 461.61 ±178.52 694.06 ±275.11 840.40 ±370.27
+> STOMP [6] 0.82 ±0.18 ---CHOMP [4] 57.62 ±0.05 109.21 ±6.39 --cuRobo [7] 1141.31 ±39.28 859.73 ±11.19 1219.58 ±54.75 1177.27 ±79.62
+
+trajectory regularity during execution. In the free space and fully open cabinet environments, mul-tiple planners, including the proposed method, BiTRRT [31], and cuRobo [7], are able to generate collision-free trajectories under the shared execution setting. Because the geometric constraints are relatively mild in these scenarios, feasible motions can often be discovered without substantial trajectory deformation. As the cabinet opening becomes smaller, how-ever, the feasible region becomes increasingly narrow, making feasible trajectory generation significantly more difficult in the quarter-closed and half-closed environments. Under these more constrained settings, the proposed method maintains successful trajectory generation across all cabi-net configurations while producing lower average jerk than cuRobo [7]. The joint trajectories in Fig. 2 exhibit gradual configuration changes throughout the insertion motion without abrupt transitions near the constrained region. In contrast, sampling-based and optimization-based baselines show re-duced success rates as the cabinet opening becomes narrower. cuRobo [7] also achieves high feasibility across the eval-uated cabinet environments while demonstrating substantially faster optimization times. However, the resulting trajectories exhibit larger execution jerk under the shared evaluation setting. Overall, the results suggest that the proposed method provides stable trajectory generation in cluttered manipulation environments while maintaining smooth trajectory evolution near narrow geometric constraints. 
+
+C. Real-World Robotic Demonstration 
+
+We further evaluate the proposed method on a real-world manipulation task using a Doosan Robotics A0912 manipula-tor in a cluttered bookshelf environment. The task requires the robot to transfer a cylindrical object from a second-level shelf to a target placement region located inside a narrow compart-ment on the third level of the bookshelf. Because the target region is partially enclosed by surrounding shelf structures, feasible motions require accurate trajectory generation near constrained workspace boundaries. The initial and final robot configurations are determined from inverse kinematics solutions corresponding to the grasp pose and target placement pose of the cylindrical object, re-spectively. Trajectory optimization is initialized using a joint-space linear interpolation trajectory between the initial and final configurations. The optimized trajectories are generated over a fixed 5 s horizon discretized at 100 Hz and executed directly on the robot using the same temporal discretization. Figure 3 shows representative snapshots from the real-world experiment. The robot successfully completes the transfer and insertion task while maintaining stable motion near the constrained shelf geometry. These results demonstrate that the proposed method can generate feasible and smooth motions in cluttered real-world manipulation environments. VII. D ISCUSSION AND LIMITATIONS 
+
+This work demonstrates that natural functional gradient optimization provides a practical framework for trajectory generation in constrained robotic manipulation environments. By operating directly in function space and applying Gaussian smoothing, the proposed method generates smooth trajectory PREPRINT VERSION 
+
+Fig. 3: Real-world robotic manipulation in a cluttered environment with a narrow box constraint. perturbations while remaining compatible with zeroth-order optimization and black-box trajectory evaluation. The resulting framework allows feasibility and trajectory regularity to be handled within a unified optimization procedure, particularly in environments with narrow geometric clearances and frag-mented feasible regions. Table IV summarizes conceptual differences between the proposed method and representative planning and trajectory optimization approaches. Unlike methods that rely on geo-metric primitives or approximated collision representations, the proposed framework directly incorporates simulator-based contact evaluation during optimization. This allows trajectory updates to be computed using the same simulation environ-ment employed during execution without requiring additional analytical approximations of collision geometry. The formula-tion also operates as a unified framework that jointly handles smooth trajectory generation and collision-aware optimization while remaining compatible with parallel rollout-based evalu-ation. The primary limitation of the proposed approach is the additional computational cost introduced by Monte-Carlo es-timation of the natural functional gradient. Although the optimization procedure is naturally parallelizable, the required number of sampled trajectory perturbations can still become expensive in high-dimensional problems or time-critical set-tings. Improving sample efficiency and exploiting large-scale parallel computation, similar to recent GPU-accelerated mo-tion generation systems [7], remain important directions. The performance of the method additionally depends on the covariance operator used to generate trajectory perturbations. Although fixed squared exponential kernels are effective across the evaluated tasks, performance can vary depending on the smoothing scale and covariance structure [24, 25]. Designing adaptive or task-dependent covariance operators that better reflect environmental geometry, contact structure, or task con-straints remains an important open problem. VIII. C ONCLUSION 
+
+This paper presented a trajectory optimization framework that performs geometry-aware updates directly in function space using natural functional gradients induced by Gaus-sian smoothing. The proposed method enables zeroth-order trajectory optimization with smooth function-space perturba-TABLE IV: Comparison of motion planning methods                             
+
+> Method Smooth No Primitive Simulator Single Parallel Trajectory Approx. Contact Solver Package -izable
+> Bi-RRT [31] ✓✓
+> STOMP [6] ✓✓✓
+> CHOMP [4] ✓✓
+> MPPI [30] ✓✓✓✓
+> CuRobo [7] ✓✓✓
+> Ours ✓✓✓✓✓
+
+tions without relying on analytic gradients or discretization-dependent smoothness penalties. We additionally analyzed the Gaussian-smoothed objective directly in Hilbert space and es-tablished convergence guarantees for the resulting optimization procedure. Experiments on constrained robotic manipulation tasks demonstrated that the proposed method improves suc-cess rate and produces smoother execution trajectories than representative planning and trajectory optimization baselines in cluttered environments with narrow geometric clearances. These results suggest that function-space natural functional gradient optimization provides a practical framework for trajectory generation when feasible regions are sparse and reliable gradient information is difficult to obtain. ACKNOWLEDGEMENT 
+
+We thank RLWRLD for generously supporting our exper-iments by providing access to the Franka Research 3 robot platform and the Inspire Hand system. REFERENCES 
+
+[1] L. E. Kavraki, P. ˇ Svestka, J. Latombe, and M. H. Over-mars, “Probabilistic roadmaps for path planning in high-dimensional configuration spaces,” IEEE Transactions on Robotics and Automation , vol. 12, no. 4, pp. 566–580, 1996. [2] S. M. LaValle, “Rapidly-exploring random trees: A new tool for path planning,” Tech. Rep. TR 98-11, Computer Science Department, Iowa State University, Oct. 1998. [3] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal motion planning,” The International Journal of Robotics Research , vol. 30, no. 7, pp. 846–894, 2011. [4] M. Zucker, N. Ratliff, A. D. Dragan, M. Pivtoraiko, M. Klingensmith, C. M. Dellin, J. A. Bagnell, and PREPRINT VERSION S. S. Srinivasa, “Chomp: Covariant hamiltonian opti-mization for motion planning,” The International Journal of Robotics Research , vol. 32, no. 9-10, pp. 1164–1193, 2013. [5] J. Schulman, Y. Duan, J. Ho, A. Lee, I. Awwal, H. Brad-low, J. Pan, S. Patil, K. Goldberg, and P. Abbeel, “Mo-tion planning with sequential convex optimization and convex collision checking,” The International Journal of Robotics Research , vol. 33, no. 9, pp. 1251–1270, 2014. [6] M. Kalakrishnan, S. Chitta, E. Theodorou, P. Pastor, and S. Schaal, “Stomp: Stochastic trajectory optimization for motion planning,” in Proceedings of the IEEE Interna-tional Conference on Robotics and Automation (ICRA) ,pp. 4569–4574, 2011. [7] B. Sundaralingam, S. Hari, A. Fishman, C. Garrett, K. V. Wyk, V. Blukis, A. Millane, H. Oleynikova, A. Handa, F. Ramos, N. Ratliff, and D. Fox, “Curobo: Parallelized collision-free minimum-jerk robot motion generation,” 
+
+arXiv preprint arXiv:2310.17274 , 2023. [8] Z. Marinho, B. Boots, A. D. Dragan, A. Byravan, G. J. Gordon, and S. S. Srinivasa, “Functional gradient motion planning in reproducing kernel hilbert spaces,” in Pro-ceedings of Robotics: Science and Systems (RSS) , 2016. [9] M. Mukadam, X. Yan, and B. Boots, “Gaussian process motion planning,” in Proceedings of the IEEE Interna-tional Conference on Robotics and Automation (ICRA) ,pp. 9–15, 2016. [10] J. Dong, M. Mukadam, F. Dellaert, and B. Boots, “Mo-tion planning as probabilistic inference using gaussian processes and factor graphs,” in Proceedings of Robotics: Science and Systems (RSS) , 2016. [11] E. A. Theodorou, J. Buchli, and S. Schaal, “A generalized path integral control approach to reinforcement learn-ing,” Journal of Machine Learning Research , vol. 11, pp. 3137–3154, 2010. [12] M. Toussaint, “Robot trajectory optimization using ap-proximate inference,” in Proceedings of the 26th Annual International Conference on Machine Learning (ICML) ,pp. 1049–1056, 2009. [13] S. Levine, “Reinforcement learning and control as prob-abilistic inference: Tutorial and review,” arXiv preprint arXiv:1805.00909 , 2018. [14] N. Hansen and A. Ostermeier, “Completely derandom-ized self-adaptation in evolution strategies,” Evolutionary computation , vol. 9, no. 2, pp. 159–195, 2001. [15] A. Flaxman, A. T. Kalai, and H. B. McMahan, “Online convex optimization in the bandit setting: gradient de-scent without a gradient,” in Proceedings of the Sixteenth Annual ACM-SIAM Symposium on Discrete Algorithms, SODA, Vancouver, British Columbia, Canada, January 23-25, 2005 , pp. 385–394, SIAM, 2005. [16] J. C. Duchi, M. I. Jordan, M. J. Wainwright, and A. Wibisono, “Optimal rates for zero-order convex opti-mization: The power of two function evaluations,” IEEE Trans. Inf. Theory , vol. 61, no. 5, pp. 2788–2806, 2015. [17] H. Mobahi and J. W. Fisher III, “A theoretical analysis of optimization by gaussian continuation,” in Proc. of the Twenty-Ninth AAAI Conference on Artificial Intelligence, January 25-30, 2015, Austin, Texas, USA (B. Bonet and S. Koenig, eds.), pp. 1205–1211, AAAI Press, 2015. [18] E. Hazan, K. Y. Levy, and S. Shalev-Shwartz, “On grad-uated optimization for stochastic non-convex problems,” in Proceedings of the 33nd International Conference on Machine Learning, ICML, New York City, NY, USA, June 19-24, 2016 (M. Balcan and K. Q. Weinberger, eds.), vol. 48, pp. 1833–1841, JMLR.org, 2016. [19] J. J. K. Jr. and S. M. LaValle, “RRT-Connect: An efficient approach to single-query path planning,” in Proceedings of the IEEE International Conference on Robotics and Automation (ICRA) , pp. 995–1001, 2000. [20] N. Ratliff, M. Zucker, J. A. Bagnell, and S. Srinivasa, “Chomp: Gradient optimization techniques for efficient motion planning,” in Proceedings of the IEEE Interna-tional Conference on Robotics and Automation (ICRA) ,pp. 489–494, May 2009. [21] J. Schulman, J. Ho, A. Lee, I. Awwal, H. Bradlow, and P. Abbeel, “Finding locally optimal, collision-free trajectories with sequential convex optimization,” in Pro-ceedings of Robotics: Science and Systems (RSS) , 2013. [22] G. Williams, A. Aldrich, and E. A. Theodorou, “Model predictive path integral control using covariance variable importance sampling,” arXiv preprint arXiv:1509.01149 ,2015. [23] N. Hansen, Y. Akimoto, and P. Baudis, “CMA-ES/pycma on Github.” Zenodo, DOI:10.5281/zenodo.2559634, Feb. 2019. [24] Y. E. Nesterov and V. G. Spokoiny, “Random gradient-free minimization of convex functions,” Found. Comput. Math. , vol. 17, no. 2, pp. 527–566, 2017. [25] K. Gao and O. Sener, “Generalizing gaussian smoothing for random search,” in International Conference on Ma-chine Learning, 17-23 July 2022, Baltimore, Maryland, USA , vol. 162 of Proceedings of Machine Learning Research , pp. 7077–7101, PMLR, 2022. [26] S. Amari, “Natural gradient works efficiently in learn-ing,” Neural Computation , vol. 10, no. 2, pp. 251–276, 1998. [27] V. I. Bogachev, Gaussian measures . No. 62, American Mathematical Soc., 1998. [28] G. Da Prato and J. Zabczyk, Stochastic equations in infinite dimensions , vol. 152. Cambridge university press, 2014. [29] F. Riesz and B. S. Nagy, Functional analysis . Courier Corporation, 2012. [30] G. Williams, A. Aldrich, and E. Theodorou, “Model predictive path integral control using covariance variable importance sampling,” arXiv preprint arXiv:1509.01149 ,2015. [31] L. Jaillet, J. Cort´ es, and T. Sim´ eon, “Sampling-based path planning on configuration-space costmaps,” IEEE Transactions on Robotics , vol. 26, no. 4, pp. 635–646, 2010. PREPRINT VERSION SUPPLEMENTARY APPENDIX 
+
+APPENDIX APROOF 
+
+Lemma A.1 (Directional derivative identity) . Let ε ∼ N (0 , σ 2Σ) . Then, for any μ ∈ H and any h ∈ H Σ = Range(Σ 1/2), the directional derivative of FNpow exists and satisfies 
+
+DhFNpow (μ) = E
+
+"
+
+gNpow (μ + ε) X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+σ√λk
+
+ξk
+
+#
+
+, (A.1) 
+
+where 
+
+ε = σ X 
+
+> k:λk>0
+
+pλk ξkek, ξki.i.d. 
+
+∼ N (0 , 1) , (A.2) 
+
+is the Karhunen–Lo` eve representation associated with the eigendecomposition Σek = λkek.Proof: Let 
+
+γ = N (0 , σ 2Σ) . (A.3) By definition, 
+
+FNpow (μ) = 
+
+Z
+
+> H
+
+gNpow (μ + x) γ(dx ). (A.4) For t ∈ R,
+
+FNpow (μ + th ) = 
+
+Z
+
+> H
+
+gNpow (μ + th + x) γ(dx ). (A.5) Introducing the change of variables y = x + th , we obtain 
+
+FNpow (μ + th ) = 
+
+Z
+
+> H
+
+gNpow (μ + y) γt(dy ), (A.6) where 
+
+γt(A) = γ(A − th ). (A.7) Since h ∈ H Σ = Range(Σ 1/2), we also have th ∈ Range(Σ 1/2). Hence the Cameron–Martin theorem implies γt ≪ γ,with Radon–Nikodym derivative 
+
+dγ t
+
+dγ (y) = exp 
+
+ tσ bh(y) − 12σ2 t2∥h∥2
+
+> HΣ
+
+
+
+, (A.8) where bh is the Gaussian measurable linear functional associated with h. Set 
+
+Rt(y) := exp 
+
+ tσ bh(y) − 12σ2 t2∥h∥2
+
+> HΣ
+
+
+
+. (A.9) Then 
+
+FNpow (μ + th ) = 
+
+Z
+
+> H
+
+gNpow (μ + y)Rt(y) γ(dy ). (A.10) Therefore, 
+
+FNpow (μ + th ) − FNpow (μ)
+
+t = E
+
+
+
+gNpow (μ + ε) Rt(ε) − 1
+
+t
+
+
+
+. (A.11) Now write 
+
+ε = σ X 
+
+> k:λk>0
+
+pλk ξkek, ξki.i.d. 
+
+∼ N (0 , 1) . (A.12) For h ∈ H Σ, define hk = ⟨h, e k⟩H. The Gaussian linear functional bh is given by 
+
+bh(ε) = X 
+
+> k:λk>0
+
+hk
+
+√λk
+
+ξk. (A.13) PREPRINT VERSION This series converges in L2, because 
+
+E
+
+ X 
+
+> k:λk>0
+
+hk
+
+√λk
+
+ξk
+
+> 2
+
+ = X 
+
+> k:λk>0
+
+h2
+
+> k
+
+λk
+
+= ∥Σ−1/2h∥2 
+
+> H
+
+< ∞. (A.14) Thus, 
+
+ddt Rt(ε)
+
+> t=0
+
+= bh(ε)
+
+σ = X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+σ√λk
+
+ξk. (A.15) Since gNpow is bounded and Rt(ε) is an exponential of a one-dimensional Gaussian random variable, differentiation under the expectation is justified. Taking t → 0 gives 
+
+DhFNpow (μ) = E
+
+h
+
+gNpow (μ + ε)bh(ε)
+
+i
+
+. (A.16) 
+
+Lemma A.2 (Closed form of the natural functional gradient) . There exists a unique element 
+
+∇HΣ FNpow (μ) ∈ H Σ (A.17) 
+
+such that 
+
+DhFNpow (μ) = ∇HΣ FNpow (μ), h HΣ for all h ∈ H Σ, (A.18) 
+
+and it admits the closed-form representation 
+
+∇HΣ FNpow (μ) = σ−2EgNpow (μ + ε)ε . (A.19) 
+
+Proof: By Lemma A.1, for every h ∈ H Σ,
+
+DhFNpow (μ) = E
+
+"
+
+gNpow (μ + ε) X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+σ√λk
+
+ξk
+
+#
+
+, (A.20) where 
+
+ε = σ X 
+
+> k:λk>0
+
+pλk ξkek, ξki.i.d. 
+
+∼ N (0 , 1) . (A.21) Define 
+
+Λμ(h) := DhFNpow (μ). (A.22) Since gNpow is bounded, say 
+
+∥gNpow ∥∞ ≤ M, (A.23) we obtain 
+
+|Λμ(h)| ≤ M E
+
+" X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+σ√λk
+
+ξk
+
+#
+
+. (A.24) The random variable 
+
+X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+σ√λk
+
+ξk (A.25) is centered Gaussian with variance 
+
+X 
+
+> k:λk>0
+
+⟨h, e k⟩2
+
+> H
+
+σ2λk
+
+= 1
+
+σ2 ∥h∥2 
+
+> HΣ
+
+. (A.26) Since h ∈ H Σ = Range(Σ 1/2), the element Σ−1/2h is well-defined as the unique element in Range(Σ) satisfying 
+
+h = (Σ) 1/2(Σ) −1/2h. (A.27) PREPRINT VERSION In the eigenbasis of Σ, we have 
+
+Σek = λkek. (A.28) Hence 
+
+Σ−1/2h = X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+√λk
+
+ek, (A.29) and therefore 
+
+∥h∥2 
+
+> HΣ
+
+= ∥Σ−1/2h∥2 
+
+> H
+
+= X 
+
+> k:λk>0
+
+⟨h, e k⟩2
+
+> H
+
+λk
+
+< ∞. (A.30) Thus the series is well-defined precisely because h ∈ H Σ.Hence 
+
+|Λμ(h)| ≤ M
+
+r 2
+
+π
+
+∥h∥HΣ
+
+σ2 . (A.31) Therefore Λμ is a bounded linear functional on the Hilbert space HΣ. By the Riesz representation theorem, there exists a unique 
+
+G(μ) ∈ H Σ (A.32) such that 
+
+Λμ(h) = ⟨G(μ), h ⟩HΣ ∀h ∈ H Σ. (A.33) We now identify G(μ). Define 
+
+m(μ) := EgNpow (μ + ε)ε . (A.34) Since gNpow is bounded and 
+
+E∥ε∥2 
+
+> H
+
+= σ2 Tr(Σ) < ∞, (A.35) the Bochner integral defining m(μ) is well-defined in H.Using the Karhunen–Lo` eve expansion of ε,
+
+ε = σ X 
+
+> k:λk>0
+
+pλk ξkek, (A.36) we compute 
+
+m(μ) = σ X 
+
+> k:λk>0
+
+pλk EgNpow (μ + ε)ξk
+
+ ek. (A.37) Hence 
+
+⟨m(μ), e k⟩H
+
+σ√λk
+
+= EgNpow (μ + ε)ξk
+
+ . (A.38) Therefore, for h ∈ H Σ,
+
+⟨m(μ), h ⟩HΣ = X 
+
+> k:λk>0
+
+⟨m(μ), e k⟩H⟨h, e k⟩H
+
+σ2λk
+
+(A.39) 
+
+= X 
+
+> k:λk>0
+
+EgNpow (μ + ε)ξk
+
+ ⟨h, e k⟩H
+
+σ√λk
+
+(A.40) 
+
+= E
+
+"
+
+gNpow (μ + ε) X 
+
+> k:λk>0
+
+⟨h, e k⟩H
+
+σ√λk
+
+ξk
+
+#
+
+(A.41) 
+
+= DhFNpow (μ). (A.42) Thus m(μ) represents the bounded functional Λμ. By uniqueness of the Riesz representer, 
+
+G(μ) = m(μ). (A.43) PREPRINT VERSION Hence the gradient with respect to HΣ is rescaled by σ−2:
+
+∇HΣ FNpow (μ) = σ−2EgNpow (μ + ε)ε . (A.44) This proves the claim. 
+
+Theorem A.1 (Directional ascent toward optimal point) . Assume that gN (x) := eN f (x)1{x∈S} is bounded for each N . For 
+
+M > 0, define the ellipsoid KM := {μ ∈ H Σ : ∥μ∥HΣ ≤ M }. Then, for every ϵ > 0 and M > 0, there exists N0 =
+
+N0(ϵ, M, σ, Σ) < ∞ such that for all N ≥ N0, for every μ ∈ KM satisfying ∥μ − ξ⋆∥H ≥ ϵ, letting 
+
+u := ξ⋆ − μ
+
+∥ξ⋆ − μ∥H
+
+, (A.45) 
+
+we have DΣuFNpow (μ) > 0.Proof: Fix ϵ > 0 and M > 0. Since Σ is trace class, Σ1/2 is compact. Therefore 
+
+KM = {v ∈ H Σ : ∥v∥HΣ ≤ M } (A.46) is compact in the H-topology. Choose δ ∈ (0 , ϵ/ 2) small enough so that 
+
+A := S ∩ B(ξ⋆, δ ) (A.47) contains a nonempty open ball. This is possible because ξ⋆ ∈ int( S). Define 
+
+Vδ := sup 
+
+> x∈S
+> ∥x−ξ⋆∥H≥δ
+
+f (x). (A.48) By assumption of the uniqueness of ξ⋆,
+
+Vδ < f (ξ⋆). (A.49) Choose D such that 
+
+Vδ < D < f (ξ⋆). (A.50) By continuity of f at ξ⋆, shrinking δ if necessary, we may assume that 
+
+f (x) ≥ D for all x ∈ A. (A.51) Fix μ ∈ KM satisfying 
+
+∥μ − ξ⋆∥H ≥ ϵ, (A.52) and set 
+
+u = ξ⋆ − μ
+
+∥ξ⋆ − μ∥H
+
+. (A.53) Then u ∈ H and ∥u∥H = 1 . Moreover, 
+
+Σu ∈ Range(Σ) ⊂ Range(Σ 1/2) = HΣ. (A.54) By Lemma A.1, applied with h := Σ u,
+
+DΣuFNpow (μ) = 1
+
+σ2 E
+
+h
+
+eN f (μ+ε)1{μ+ε∈S}bh(ε)
+
+i
+
+. (A.55) Let 
+
+ε = σ X 
+
+> k:λk>0
+
+pλk ξkek. (A.56) Since 
+
+⟨Σu, e k⟩H = λk⟨u, e k⟩H, (A.57) we have, 
+
+⟨ε, u ⟩H = σ X 
+
+> k:λk>0
+
+pλk⟨u, e k⟩Hξk. (A.58) PREPRINT VERSION Therefore 
+
+bh(ε) = ⟨ε, u ⟩H. (A.59) Thus, with 
+
+X := μ + ε, (A.60) finally, we obtain 
+
+DΣuFNpow (μ) = 1
+
+σ2 E
+
+h
+
+eN f (X)1{X∈S}⟨X − μ, u ⟩H
+
+i
+
+. (A.61) We decompose the expectation in (A.61) into 
+
+T1 := E
+
+h
+
+eN f (X)⟨X − μ, u ⟩H1{X∈A}
+
+i
+
+, (A.62) and 
+
+T2 := E
+
+h
+
+eN f (X)⟨X − μ, u ⟩H1{X∈S\A}
+
+i
+
+. (A.63) If X ∈ A, then 
+
+∥X − ξ⋆∥H ≤ δ. (A.64) Hence 
+
+⟨X − μ, u ⟩H = ⟨X − ξ⋆, u ⟩H + ⟨ξ⋆ − μ, u ⟩H
+
+≥ −∥ X − ξ⋆∥H + ∥ξ⋆ − μ∥H
+
+≥ ϵ − δ > 0.
+
+(A.65) Since f (X) ≥ D on A, we get 
+
+T1 ≥ (ϵ − δ)eN D Pμ(X ∈ A), (A.66) where X ∼ N (μ, σ 2Σ) .Since A contains a nonempty open set and the Gaussian measure N (0 , σ 2Σ) has full support, we have 
+
+Pμ(X ∈ A) > 0 for each μ ∈ KM . (A.67) Moreover, the map 
+
+μ 7 → Pμ(X ∈ A) (A.68) is continuous on KM . Since KM is compact, 
+
+pA := inf 
+
+> μ∈KM
+
+Pμ(X ∈ A) > 0. (A.69) Therefore 
+
+T1 ≥ (ϵ − δ)pAeN D . (A.70) Next, on S \ A, we have 
+
+f (X) ≤ Vδ . (A.71) Therefore 
+
+|T2| ≤ eN V δ E[|⟨ X − μ, u ⟩H|] . (A.72) Since 
+
+X − μ = ε, (A.73) and ⟨ε, u ⟩H is centered Gaussian with variance 
+
+σ2⟨Σu, u ⟩H ≤ σ2∥Σ∥op , (A.74) we obtain 
+
+E[|⟨ ε, u ⟩H|] ≤ σ
+
+r 2∥Σ∥op 
+
+π . (A.75) PREPRINT VERSION Hence 
+
+|T2| ≤ σ
+
+r 2∥Σ∥op 
+
+π eN V δ . (A.76) Since D > V δ , there exists N0 < ∞ such that for all N ≥ N0,
+
+σ
+
+r 2∥Σ∥op 
+
+π eN V δ ≤ 12 (ϵ − δ)pAeN D . (A.77) Combining (A.70) and (A.76), we get 
+
+T1 + T2 ≥ T1 − | T2| ≥ 12 (ϵ − δ)pAeN D > 0. (A.78) Substituting this into (A.61) yields 
+
+DΣuFNpow (μ) = 1
+
+σ2 (T1 + T2) > 0. (A.79) This holds uniformly for every 
+
+μ ∈ KM with ∥μ − ξ⋆∥H ≥ ϵ. (A.80) The proof is complete. 
+
+Lemma A.3 (Second directional derivative identity) . Assume that gNpow is bounded. Then, for any h, k ∈ H Σ = Range(Σ 1/2),the mixed second directional derivative exists and satisfies 
+
+D2FNpow (μ)[ h, k ] = 1
+
+σ2 E
+
+h
+
+gNpow (μ + ε)
+
+bh(ε)bk(ε) − ⟨ h, k ⟩HΣ
+
+i 
+
+, (A.81) 
+
+where 
+
+bh(ε) := X 
+
+> j:λj>0
+
+⟨h, e j ⟩H
+
+pλj
+
+ξj , bk(ε) := X 
+
+> j:λj>0
+
+⟨k, e j ⟩H
+
+pλj
+
+ξj , (A.82) 
+
+and D2FNpow (μ)[ h, k ] = D2FNpow (μ)[ k, h ].
+
+Proof: Fix μ ∈ H and h, k ∈ H Σ. For (s, t ) ∈ R2, define 
+
+Φ( s, t ) := FNpow (μ + sh + tk ) = 
+
+Z
+
+> H
+
+gNpow (μ + sh + tk + x) γ(dx ). (A.83) Using the change of variables y = x + sh + tk , we write 
+
+Φ( s, t ) = 
+
+Z
+
+> H
+
+gNpow (μ + y) γs,t (dy ), (A.84) where 
+
+γs,t (A) = γ(A − sh − tk ). (A.85) Since sh + tk ∈ H Σ, the Cameron–Martin theorem gives γs,t ≪ γ, with Radon–Nikodym derivative 
+
+dγ s,t 
+
+dγ (y) = exp 
+
+ 1
+
+σ sbh(y) + 1
+
+σ tbk(y) − 12σ2 ∥sh + tk ∥2
+
+> HΣ
+
+
+
+. (A.86) Denote this density by Rs,t (y). Then 
+
+Φ( s, t ) = EgNpow (μ + ε)Rs,t (ε) . (A.87) By the Karhunen–Lo` eve representation, 
+
+bh(ε) = X 
+
+> j:λj>0
+
+⟨h, e j ⟩H
+
+σpλj
+
+ξj , bk(ε) = X 
+
+> j:λj>0
+
+⟨k, e j ⟩H
+
+σpλj
+
+ξj . (A.88) These are centered Gaussian random variables with finite variances 
+
+E|bh(ε)|2 = ∥h∥2 
+
+> HΣ
+
+< ∞, E|bk(ε)|2 = ∥k∥2 
+
+> HΣ
+
+< ∞. (A.89) Moreover, 
+
+E[bh(ε)bk(ε)] = ⟨h, k ⟩HΣ . (A.90) PREPRINT VERSION Expanding the Cameron–Martin norm gives 
+
+∥sh + tk ∥2 
+
+> HΣ
+
+= s2∥h∥2 
+
+> HΣ
+
++ 2 st ⟨h, k ⟩HΣ + t2∥k∥2 
+
+> HΣ
+
+. (A.91) Therefore, 
+
+Rs,t (ε) = exp 
+
+ sσ bh(ε) + tσ bk(ε) − 12σ2 s2∥h∥2 
+
+> HΣ
+
+− 1
+
+σ2 st ⟨h, k ⟩HΣ − 12σ2 t2∥k∥2
+
+> HΣ
+
+
+
+. (A.92) Since gNpow is bounded and Rs,t is the exponential of a two-dimensional Gaussian random vector, differentiation under the expectation is justified locally around (s, t ) = (0 , 0) . A direct differentiation gives 
+
+∂2
+
+∂s ∂t Rs,t (ε)
+
+> (s,t )=(0 ,0)
+
+= 1
+
+σ2
+
+bh(ε)bk(ε) − ⟨ h, k ⟩HΣ
+
+
+
+. (A.93) Hence 
+
+D2FNpow (μ)[ h, k ] = ∂s∂tΦ(0 , 0) = 1
+
+σ2 E
+
+h
+
+gNpow (μ + ε)
+
+bh(ε)bk(ε) − ⟨ h, k ⟩HΣ
+
+i 
+
+. (A.94) This is exactly (A.81). Symmetry follows because 
+
+bh(ε)bk(ε) = bk(ε)bh(ε) (A.95) and 
+
+⟨h, k ⟩HΣ = ⟨k, h ⟩HΣ . (A.96) The proof is complete. 
+
+Lemma A.4 (Lipschitz continuity of the natural functional gradient) . Assume that gNpow is bounded, and define ∥gNpow ∥∞ := sup ξ∈H |gNpow (ξ)| < ∞ Then the natural functional gradient ∇HΣ FNpow is Lipschitz continuous along Cameron–Martin directions: for any μ, ν ∈ H such that μ − ν ∈ H Σ, we have 
+
+∇HΣ FNpow (μ) − ∇ HΣ FNpow (ν) HΣ
+
+≤ 2∥gNpow ∥∞
+
+σ2 ∥μ − ν∥HΣ . (A.97) 
+
+Proof: Fix μ ∈ H and h, k ∈ H Σ. By Lemma A.3, 
+
+D2FNpow (μ)[ h, k ] = 1
+
+σ2 E
+
+h
+
+gNpow (μ + ε)
+
+bh(ε)bk(ε) − ⟨ h, k ⟩HΣ
+
+i 
+
+. (A.98) The Gaussian random variables 
+
+bh(ε) = X 
+
+> j:λj>0
+
+⟨h, e j ⟩H
+
+pλj
+
+ξj , bk(ε) = X 
+
+> j:λj>0
+
+⟨k, e j ⟩H
+
+pλj
+
+ξj (A.99) are centered with variances 
+
+E|bh(ε)|2 = ∥h∥2 
+
+> HΣ
+
+, E|bk(ε)|2 = ∥k∥2 
+
+> HΣ
+
+. (A.100) Therefore, by Cauchy–Schwarz, 
+
+E
+
+h
+
+|bh(ε)bk(ε)|
+
+i
+
+≤ ∥ h∥HΣ ∥k∥HΣ . (A.101) Using boundedness of gNpow , we obtain 
+
+|D2FNpow (μ)[ h, k ]| ≤ 1
+
+σ2 ∥gNpow ∥∞E
+
+h
+
+|bh(ε)bk(ε)|
+
+i
+
++ 1
+
+σ2 ∥gNpow ∥∞|⟨ h, k ⟩HΣ | (A.102) 
+
+≤ 2
+
+σ2 ∥gNpow ∥∞∥h∥HΣ ∥k∥HΣ . (A.103) Now fix μ, ν ∈ H such that 
+
+d := ν − μ ∈ H Σ. (A.104) For t ∈ [0 , 1] , define 
+
+ψ(t) := DhFNpow (μ + td ). (A.105) PREPRINT VERSION Then 
+
+ψ′(t) = D2FNpow (μ + td )[ h, d ]. (A.106) Hence, 
+
+DhFNpow (ν) − DhFNpow (μ) = 
+
+Z 10
+
+D2FNpow (μ + td )[ h, d ] dt. (A.107) Taking absolute values and applying the previous estimate yields 
+
+|DhFNpow (ν) − DhFNpow (μ)| ≤ 
+
+Z 10
+
+2
+
+σ2 ∥gNpow ∥∞∥h∥HΣ ∥d∥HΣ dt (A.108) 
+
+= 2
+
+σ2 ∥gNpow ∥∞∥h∥HΣ ∥ν − μ∥HΣ . (A.109) By Lemma A.2, 
+
+DhFNpow (μ) = ∇HΣ FNpow (μ), h HΣ . (A.110) Therefore, 
+
+∇HΣ FNpow (ν) − ∇ HΣ FNpow (μ) HΣ ≤ 2∥gNpow ∥∞
+
+σ2 ∥ν − μ∥HΣ . (A.111) This completes the proof. 
+
+Lemma A.5 (Second moment of the projected Monte–Carlo natural gradient estimator) . Let (ek)k≥1 be an eigenbasis of Σ, and define Hdeff := span {e1, . . . , e m}. Let Pdeff : H → H deff be the H-orthogonal projection. Define the projected Monte–Carlo estimator 
+
+bg(μ) := 1
+
+Bσ 2
+
+> B
+
+X
+
+> b=1
+
+gNpow (μ + ε(b))Pdeff ε(b), (A.112) 
+
+where ε(b) i.i.d. 
+
+∼ N (0 , σ 2Σ) . Then bg(μ) is an unbiased estimator of Pdeff ∇HΣ FNpow (μ), and satisfies 
+
+E
+
+hbg(μ) 2
+
+> HΣ
+
+i
+
+≤ ∥gNpow ∥2
+
+> ∞
+
+deff 
+
+Bσ 2 . (A.113) 
+
+Proof: Unbiasedness is immediate by linearity of expectation. Since 
+
+Pdeff ε(b) 
+
+> t
+
+= σ
+
+> deff
+
+X
+
+> k=1
+
+pλkξ(b) 
+
+> t,k
+
+ek, (A.114) we have 
+
+∥Pdeff ε(b) 
+
+> t
+
+∥2 
+
+> HΣ
+
+= σ2
+
+> deff
+
+X
+
+> k=1
+
+(ξ(b) 
+
+> t,k
+
+)2. (A.115) Therefore 
+
+E∥Pdeff ε(b) 
+
+> t
+
+∥2 
+
+> HΣ
+
+= σ2deff . (A.116) Using independence and Jensen’s inequality, 
+
+E[∥bg(μt)∥2 
+
+> HΣ
+
+| μt] ≤ 1
+
+Bσ 4 ∥g∥2
+
+> ∞
+
+E∥Pdeff εt∥2 
+
+> HΣ
+
+= ∥g∥2
+
+> ∞
+
+deff 
+
+Bσ 2 . (A.117) 
+
+Lemma A.6 (One-step expected ascent) . Let Pdeff : H → H deff be the H-orthogonal projection. Suppose that {μt} is generated by the projected update rule. Then, conditioning on μt,
+
+EFNpow (μt+1 ) μt
+
+ ≥ FNpow (μt) + ηt Pdeff ∇HΣ FNpow (μt) 2
+
+> HΣ
+
+− ∥gNpow ∥3
+
+> ∞
+
+deff 
+
+Bσ 4 η2 
+
+> t
+
+. (A.118) PREPRINT VERSION 
+
+Proof: For simplicity, write F := FNpow , g := gNpow , G t := ∇HΣ F (μt). Since bg(μt) ∈ H deff ⊂ H Σ, the ascent lemma in the Hilbert space HΣ applies. Namely, for any d ∈ H Σ,
+
+F (μt + d) ≥ F (μt) + ⟨Gt, d ⟩HΣ − ∥gNpow ∥∞
+
+σ2 ∥d∥2 
+
+> HΣ
+
+. (A.119) Taking 
+
+d = ηtbg(μt), (A.120) we obtain 
+
+F (μt+1 ) ≥ F (μt) + ηt⟨Gt, bg(μt)⟩HΣ − ∥gNpow ∥∞
+
+σ2 η2 
+
+> t
+
+∥bg(μt)∥2 
+
+> HΣ
+
+. (A.121) Taking conditional expectation given μt,
+
+E[F (μt+1 ) | μt] ≥F (μt) + ηt ⟨Gt, E[bg(μt) | μt]⟩HΣ − ∥gNpow ∥∞
+
+σ2 η2 
+
+> t
+
+E[∥bg(μt)∥2 
+
+> HΣ
+
+| μt]. (A.122) By linearity of Pdeff and unbiasedness of the Monte–Carlo estimator, 
+
+E[bg(μt) | μt] = Pdeff Gt. (A.123) Here Pdeff is the H-orthogonal projection onto Hdeff . Since Σek = λkek, the same coordinate projection is also orthogonal with respect to HΣ on HΣ. Hence 
+
+⟨Gt, P deff Gt⟩HΣ = ∥Pdeff Gt∥2 
+
+> HΣ
+
+= σ2∥g∥2
+
+> ∞
+
+deff 
+
+Bσ 2 . (A.124) Lemma A.5 provides an upper bound of the projected estimator. Substituting this bound gives the claim. 
+
+Theorem A.2 (Projected iteration complexity in a Hilbert space) . Let {μt}t≥0 ⊂ H be generated by the projected update rule with a constant stepsize η > 0. Then the iterates satisfy 
+
+min   
+
+> 0≤t≤T−1
+
+E
+
+h
+
+Pdeff ∇HΣ FNpow (μt) HΣ
+
+i
+
+≤ ε (A.125) 
+
+provided that 
+
+T ≥ 4 ∥gNpow ∥4 
+
+> ∞
+
+deff 
+
+B σ 4ε4 . (A.126) 
+
+Proof: By Lemma A.6, 
+
+EFNpow (μt+1 ) μt
+
+ ≥FNpow (μt) + η Pdeff ∇HΣ FNpow (μt) 2
+
+> HΣ
+
+− ∥gNpow ∥3
+
+> ∞
+
+deff 
+
+Bσ 4 η2. (A.127) Taking full expectation and summing over t = 0 , . . . , T − 1,
+
+η 
+
+> T−1
+
+X
+
+> t=0
+
+E Pdeff ∇HΣ FNpow (μt) 2
+
+> HΣ
+
+≤E[FNpow (μT )] − FNpow (μ0) + ∥gNpow ∥3
+
+> ∞
+
+deff 
+
+Bσ 4 η2T. (A.128) Since 
+
+FNpow (μ) ≤ ∥ gNpow ∥∞,
+
+we obtain 
+
+η 
+
+> T−1
+
+X
+
+> t=0
+
+E Pdeff ∇HΣ FNpow (μt) 2
+
+> HΣ
+
+≤ ∥ gNpow ∥∞ + ∥gNpow ∥3
+
+> ∞
+
+deff 
+
+Bσ 4 η2T. (A.129) Dividing by ηT ,
+
+1
+
+T 
+
+> T−1
+
+X
+
+> t=0
+
+E Pdeff ∇HΣ FNpow (μt) 2
+
+> HΣ
+
+≤ ∥gNpow ∥∞
+
+ηT + ∥gNpow ∥3
+
+> ∞
+
+deff 
+
+Bσ 4 η. (A.130) Hence 
+
+min   
+
+> 0≤t≤T−1
+
+E Pdeff ∇HΣ FNpow (μt) 2
+
+> HΣ
+
+≤ ∥gNpow ∥∞
+
+ηT + ∥gNpow ∥3
+
+> ∞
+
+deff 
+
+Bσ 4 η. (A.131) PREPRINT VERSION Optimizing the right-hand side over η > 0 gives 
+
+η =
+
+s
+
+Bσ 4
+
+∥gNpow ∥2
+
+> ∞
+
+deff T .
+
+Substituting this value yields 
+
+min   
+
+> 0≤t≤T−1
+
+E Pdeff ∇HΣ FNpow (μt) 2
+
+> HΣ
+
+≤ 2∥gNpow ∥2
+
+> ∞
+
+√deff 
+
+σ2√B√T . (A.132) Finally, Jensen’s inequality implies 
+
+min   
+
+> 0≤t≤T−1
+
+E Pdeff ∇HΣ FNpow (μt) HΣ
+
+≤
+
+s
+
+2∥gNpow ∥2
+
+> ∞
+
+√deff 
+
+σ2√B√T . (A.133) Therefore, it suffices that 
+
+2∥gNpow ∥2
+
+> ∞
+
+√deff 
+
+σ2√B√T ≤ ε2, (A.134) which is equivalent to 
+
+T ≥ 4 ∥gNpow ∥4 
+
+> ∞
+
+deff 
+
+σ4B ε 4 . (A.135) APPENDIX BSYNTHETIC EXPERIMENT ANALYSIS 
+
+This appendix provides additional details for the synthetic narrow-passage experiment in Sec. VI-A. Sec. C.1 specifies the environment geometry and the trajectory scoring function used in the benchmark. Sec. C.2 summarizes the optimization methods and the evaluation protocol for all baselines. Sec. C.3 relates the observed success rates and smoothness statistics to the geometric structure of the feasible region and the update mechanisms of the different methods. 
+
+A. Environment and Objective 
+
+We consider a one-dimensional trajectory 
+
+y : [0 , 1] → R, (B.1) discretized at L = 100 time steps (100 Hz over a 1 s horizon). The environment is defined by four rectangular obstacle regions in the (t, y ) plane, 
+
+Bi = [ t0 
+
+> i
+
+, t 1 
+
+> i
+
+] × [y0 
+
+> i
+
+, y 1 
+
+> i
+
+], (B.2) with 
+
+B1 : t ∈ [0 .2, 0.25] , y ∈ [−1.0, 4.0] ,
+
+B2 : t ∈ [0 .4, 0.6] , y ∈ [−2.0, 2.0] ,
+
+B3 : t ∈ [0 .7, 1.0] , y ∈ [0 .5, 5.0] ,
+
+B4 : t ∈ [0 .7, 1.0] , y ∈ [−5.0, −0.5] .
+
+(B.3) The feasible set is the complement of the union of these boxes. This geometry induces a narrow, time-fragmented corridor: at each time interval only a small subset of y(t) is feasible, and admissible regions shift discontinuously across time. For a discretized trajectory y = ( y1, . . . , y L), we define the per-time-step penetration score 
+
+st = min 
+
+> i
+
+(
+
+− min( yt − y0 
+
+> i
+
+, y 1 
+
+> i
+
+− yt), (t, y t) ∈ B i,
+
+0, otherwise .
+
+Thus, st ≤ 0, and st = 0 indicates that the trajectory is collision-free at time step t.The trajectory score is defined by separating collision and collision-free cases: 
+
+f (y) = 
+
+
+
+exp  −λjerk ¯J(y) , if st = 0 ∀t, 
+
+> 1
+> L
+
+PLt=1 st, otherwise ,PREPRINT VERSION 
+
+Fig. B.1: Best trajectories obtained by each method in the synthetic box-avoiding scenario. where λjerk = 10 −4 and ¯J(y) denotes the average absolute jerk of the trajectory. The jerk is computed using a third-order finite-difference operator Ajerk :
+
+j = Ajerk y, ¯J(y) = 1
+
+L
+
+> L
+
+X
+
+> t=1
+
+|jt|.
+
+For trajectories that intersect obstacles, the score is given by the average penetration penalty and remains non-positive. For collision-free trajectories, the exponential bonus assigns higher scores to trajectories with lower average absolute jerk. Thus, the objective first prioritizes feasibility and then favors smoother feasible trajectories. 
+
+B. Optimization Methods 
+
+We compare the proposed natural functional gradient (NFG) method with representative baseline optimizers. Our method directly maximizes the score f (y) defined in Sec. C.1 using Monte-Carlo estimation with N = 100 trajectory perturbations per iteration. All baseline methods instead solve a minimization problem and aim to reduce collision while encouraging smooth feasible trajectories. STOMP minimizes the transformed objective J(y) = 1 − f (y) using stochastic finite-difference updates. At each iteration, 
+
+N = 100 trajectory perturbations are sampled from the same trajectory covariance used by the proposed method, and the update direction is estimated from exponentially weighted trajectory costs. Lower-cost trajectories receive larger update weights through normalized exponential reweighting. CHOMP also minimizes J(y) = 1 − f (y), but relies on analytic gradient updates instead of stochastic sampling. For collision trajectories, the gradient is computed from the outward normal direction corresponding to the deepest penetration region. When the trajectory lies exactly at the midpoint between two penetration boundaries, the update direction is selected randomly between the two outward directions to avoid ambiguous gradient assignments. For collision-free trajectories, the objective reduces to an exponential penalty on the average absolute jerk, and gradients are computed from the corresponding finite-difference jerk operator. CHOMP updates trajectories deterministically aside from this tie-breaking procedure and does not use trajectory sampling. MPPI follows a rollout-based optimization formulation. Rather than directly optimizing f (y), it minimizes a running cost composed of obstacle penalties and a terminal goal objective: 
+
+J = X
+
+> t
+
+Jobs (t) + X
+
+> t
+
+Jgoal (t),
+
+where Jobs corresponds to the box penetration penalty and 
+
+Jgoal (t) = ( yt − ygoal )2
+
+encourages the trajectory to reach the target state. Trajectory perturbations are generated using Wiener-process noise, and trajectory updates are computed through exponential reweighting of sampled rollouts. PREPRINT VERSION 
+
+C. Observed Behavior and Failure Analysis 
+
+All methods are evaluated over five random seeds with identical environment settings. The initial trajectory for all runs is a zero-valued trajectory, corresponding to linear interpolation between the initial and final states. A trial is counted as successful if the resulting trajectory remains collision-free over the full horizon. Reported success rates and smoothness statistics in Table III correspond to averages over these five runs. The narrow and temporally fragmented feasible corridor occupies only a small region in trajectory space, so most trajectory perturbations intersect at least one obstacle. Representative optimized trajectories are illustrated in Fig. B.1. STOMP occasionally discovers feasible trajectories, but many sampled perturbations receive similar collision penalties, making consistent progress toward the narrow corridor difficult. CHOMP often deforms the trajectory toward the feasible region through local gradient updates, but the optimization can remain sensitive to initialization and local penetration geometry. MPPI reaches the feasible corridor more frequently, but the resulting trajectories exhibit substantially larger jerk due to stochastic rollout variability and the absence of an explicit smoothness mechanism. In contrast, the proposed method performs updates on a Gaussian-smoothed surrogate objective within the induced function-space geometry. The covariance structure enables smooth trajectory perturbations while aggregating weak feasibility information across sampled trajectories. As a result, the method consistently discovers feasible trajectories that pass through the narrow corridor while maintaining relatively smooth trajectory evolution, yielding the highest success rate and lower jerk than MPPI, as reported in Sec. VI-A. APPENDIX CSIMULATION EXPERIMENT ANALYSIS 
+
+This appendix provides additional details on the simulation experiments in constrained cabinet environments. The focus is to clarify the evaluation pipeline used for comparing different planners under a unified execution and collision-checking model. Since the compared methods produce trajectories with heterogeneous representations and implicit assumptions, all outputs are post-processed into a common time-parameterized form and re-evaluated in a physics-based simulator. 
+
+A. Experimental Setup of the Proposed Method 
+
+All simulation experiments are conducted using a Franka Research 3 manipulator equipped with an Inspire left hand. The task consists of grasping a cylindrical object from a shelf and inserting it into a target cabinet while avoiding collisions with the surrounding environment. The manipulated object is a cylinder with radius 3 cm and height 30 cm .The cabinet environment has dimensions of 60 cm × 140 cm × 60 cm , and the cabinet floor is positioned 10 cm above the table surface. Scene difficulty is controlled by varying the cabinet door opening angle, resulting in four environments: free space, fully open, quarter closed, and half closed. All environments share the same initial and target robot configurations, while the geometric constraints near the insertion region become progressively tighter as the cabinet opening decreases. The proposed method generates joint-space trajectories over a fixed discretized horizon and performs optimization directly in function space using Gaussian trajectory perturbations. Additional implementation details regarding trajectory discretization, optimization parameters, and execution settings are provided in the supplementary material. In our implementation, trajectories are represented with a temporal resolution of 100 Hz over a 5 s horizon. At each iteration, 
+
+N = 100 candidate trajectories are sampled and evaluated using a trajectory-level objective that reflects geometric feasibility and motion regularity. All candidates are optimized and compared under this shared discrete-time representation. Let ξ(j) = {q(j) 
+
+> t
+
+}Ht=1 denote the j-th sampled joint trajectory, where q(j) 
+
+> t
+
+∈ Rn and H is the planning horizon. To discourage excessive joint motion, we define a path-length regularization term 
+
+C(j)len =
+
+> n
+
+X
+
+> d=1
+> H−1
+
+X
+
+> t=1
+
+q(j) 
+
+> t+1 ,d
+
+− q(j) 
+
+> t,d
+
+.
+
+Geometric feasibility is evaluated in the simulator at every time step. Let n(j) 
+
+> t
+
+denote the number of contact points at time t,and let d(j) 
+
+> t
+
+denote the minimum signed distance between the robot and the environment, where d(j) 
+
+> t
+
+< 0 indicates penetration. The instantaneous collision score is defined as 
+
+ϕ(j) 
+
+> t
+
+=
+
+(
+
+0, d(j) 
+
+> t
+
+> 0,n(j) 
+
+> t
+
+d(j) 
+
+> t
+
+, d(j) 
+
+> t
+
+≤ 0.
+
+For each trajectory, the collision signal is aggregated using the worst-case value along the horizon, 
+
+C(j)col = min  
+
+> t∈{ 1,...,H }
+
+ϕ(j) 
+
+> t
+
+.PREPRINT VERSION The final objective for each sampled trajectory is given by 
+
+f (ξ(j)) = C(j)col − λ C (j)len ,
+
+where λ > 0 balances collision avoidance and joint-space path length. 
+
+B. Unified Evaluation Pipeline 
+
+The compared planners produce joint trajectories under different internal representations and execution assumptions. Some return sparse waypoints, while others optimize time-discretized trajectories or rely on internal smoothing and collision approximations. To enable a consistent execution-level comparison, all planner outputs are post-processed into a common time-parameterized joint-space trajectory and evaluated using the same simulation and collision-checking pipeline. Let {qi}Li=1 denote the joint-space waypoints produced by a planner, where qi ∈ Rn. After unwrapping angular joints to remove 2π discontinuities, we compute the incremental joint-space distances 
+
+∆si = ∥qi+1 − qi∥2, i = 1 , . . . , L − 1, (C.1) and define the cumulative arc-length 
+
+s1 = 0 , si =
+
+> i−1
+
+X
+
+> j=1
+
+∆sj , i = 2 , . . . , L, (C.2) with total path length S = sL.Each waypoint is assigned a time stamp by linearly mapping arc-length to a fixed duration T ,
+
+ti = si
+
+S T, i = 1 , . . . , L. (C.3) This defines a continuous-time parameterization of the discrete path that is independent of the planner’s internal time representation. A uniform time grid is then defined as 
+
+τk = k − 1
+
+f , k = 1 , . . . , M, M = T f, (C.4) where f = 100 Hz and T = 5 s . This grid defines the shared execution resolution used for all planners. For each joint dimension d ∈ { 1, . . . , n }, the resampled trajectory is obtained by linear interpolation between consecutive waypoints, 
+
+qd(τk) = qi,d + τk − ti
+
+ti+1 − ti
+
+ qi+1 ,d − qi,d 
+
+, ti ≤ τk < t i+1 . (C.5) This yields a time-parameterized joint trajectory 
+
+q(τk) =  q1(τk), . . . , q n(τk), k = 1 , . . . , M. (C.6) The resampled trajectory is executed in MuJoCo, and collision checks are performed at every time step. A trial is counted as successful if and only if the entire time-parameterized trajectory is collision-free. Because the compared planners rely on different internal representations, collision models, and time discretizations, their outputs are evaluated under different native execution assumptions. The unified evaluation therefore provides a common execution-level reference in which all methods are assessed under identical simulation and collision-checking conditions. Table C.1 summarizes the main structural differences in how each method represents and executes trajectories. Although CHOMP and STOMP also optimize time-discretized trajectories with the same nominal horizon and sampling rate, their update rules are defined within their own internal execution models. As a result, some trajectories that are feasible under native settings can exhibit large inter-step joint changes when resampled and executed at a fixed rate. These effects should be interpreted as differences in how planner-specific assumptions translate under a shared execution model, rather than as a statement of correctness of one execution model over another. 
+
+C. Analysis on Baseline Execution Behaviors 
+
+To examine execution-level feasibility under a shared reference model, all planner outputs are re-evaluated using the unified post-processing and collision-checking pipeline described in Section B.2. Each output is first converted into a fixed-length, time-parameterized joint trajectory and then executed in MuJoCo, where collision checks are performed at every time step. In our experimental evaluation, we observed a distinct discrepancy: several baseline methods (cuRobo, STOMP, and CHOMP) frequently reported finding valid, collision-free solutions based on their internal metrics. However, when these same solutions were subjected to the unified evaluation pipeline described above, they often resulted in collisions. We analyzed the generated trajectories and identified that these failures were not necessarily due to algorithmic errors, but rather due to structural differences in geometric approximation and temporal discretization handling. PREPRINT VERSION TABLE C.1: Summary of structural differences in trajectory representation and execution among the compared planners.             
+
+> Method What is optimized How it is executed
+> BiRRT Sparse geometric waypoints Smoothed and time-parameterized CHOMP Time-discretized joint trajectory Executed on fixed grid STOMP Stochastic time trajectory Executed on fixed grid cuRobo Convexified approximate motion Executed under internal model
+> NFG (Ours) Function-space joint trajectory Executed under unified model
+
+1) BiTRRT: For sampling-based planners such as BiTRRT, the outputs typically consist of sparse geometric waypoints that connect the start and goal configurations. When these sparse configurations are linearly interpolated to match the 100 Hz shared execution resolution, collisions were occasionally observed along the resampled trajectory segments. This phenomenon highlights a trade-off inherent in the configuration of the planner. While it is possible to mitigate execution-level collisions by reducing the planning range (i.e., the maximum length of edges in the tree) or increasing the resolution of edge collision checking, such adjustments generally increase the computational burden. In our experiments, stricter edge constraints often led to increased planning times or a higher frequency of timeouts, resulting in incomplete solutions. This indicates that performance under the unified evaluation is highly dependent on the balance between planning efficiency and the granularity of the generated path. 
+
+Fig. C.1: Trajectory comparison for the 7-DOF Panda manipulator. The sequences of black circles represent the discrete, original waypoints optimized by CHOMP, while the red dotted lines represent the linearly interpolated trajectory used for execution. A significant discontinuity is observed between the initial configuration ( t = 0 ) and the first optimized waypoint, creating a linear path that may violate collision constraints during continuous execution. 
+
+2) CHOMP and STOMP: For discrete-time optimization methods such as CHOMP and STOMP, the discrepancies observed under the unified evaluation were primarily driven by kinematic inconsistencies arising from the discretization of the trajectory. These methods optimize a fixed set of waypoints to minimize a cost function. Our analysis revealed that while the optimized waypoints themselves were mostly collision-free, the solvers can exhibit discontinuities under the unified execution model suitable for high-frequency control. As illustrated in the supplementary figures (e.g., Fig. C.1), we observed significant joint-space jumps, particularly between the fixed start configuration and the first adjacent optimized waypoint (and similarly near the goal configuration). Fig. C.2 visualizes the physical consequence of this discontinuity: the robot is required to transition between two vastly different configurations—from a resting pose to an insertion pose—within a single discrete time step. Although the discrete states at steps t and t + 1 (e.g., the start state and the first waypoint) were valid configurations in isolation, they were sufficiently distant in configuration space that the linear path connecting them intersected with obstacles. When Eq. (143) was applied to interpolate these sparse waypoints for the 100 Hz controller, the intermediate states generated during this transition violated collision constraints. This phenomenon indicates that checking feasibility only at discrete knot points may be insufficient for complex manipulation tasks where obstacles lie in the manifold between waypoints. Consequently, a divergence occurs between the feasibility under native planner assumptions (based on discrete knot points) and the actual execution feasibility (which requires continuous motion through the interpolated path). PREPRINT VERSION 
+
+Fig. C.2: Visualization of the kinematic discontinuity in the MuJoCo environment. (a) The initial robot configuration and (b) the immediate next waypoint generated by CHOMP. The large spatial displacement between these two consecutive states implies that the linearly interpolated path—required for controller execution—inevitably intersects with the cabinet geometry, resulting in a collision despite both individual endpoints being collision-free. 
+
+3) cuRobo: For cuRobo, we utilized the built-in functionality to approximate the attached cylindrical object and robot links using collision spheres. While this approximation is efficient for collision checking within the planner’s native framework, it introduces a geometric discrepancy compared to the high-fidelity meshes used in the MuJoCo simulator. This discrepancy is primarily associated with the configuration of the primitive-based approximation. As illustrated in the supplementary figures, the method relies on pre-defined collision spheres (e.g., the yellow spheres in Fig. C.3(a)) to represent the robot’s volume. Consequently, the planner’s ability to navigate tight spaces becomes sensitive to the size and distribution of these primitives. If the collision spheres are set to be smaller or sparsely distributed, the planner may not detect potential collisions in the interstitial spaces between spheres or in the gaps between the primitive approximation and the actual mesh surface (as shown in Fig. C.3(b)). This can lead to trajectories that are valid under the sphere model but result in contact during high-fidelity execution. Conversely, if the spheres are inflated to cover these gaps, the effective volume of the robot increases. In the ”half-closed” cabinet scenario, this expanded geometry can occupy the limited available clearance, potentially preventing the planner from finding a feasible solution due to the restricted free space. While increasing the number of collision spheres could reduce these geometric gaps, doing so generally increases the computational cost of the collision checking routines. This presents a trade-off where improving geometric accuracy to match the unified evaluation standard may affect the computational efficiency that characterizes the method. These observations highlight how differences in internal trajectory representations, collision models, and execution assumptions can influence outcomes when evaluated under a common, rigorous reference pipeline. While sampling-based planners rely on post-processing for smoothness and discrete optimizers depend on knot-point feasibility, the proposed NFG method operates directly within the function space. By avoiding auxiliary modeling assumptions—such as convexified collision geometry or separate smoothing stages—our approach naturally aligns with the unified execution model, demonstrating intrinsic robustness in constrained environments. PREPRINT VERSION 
+
+Fig. C.3: (a) Illustration of the user-defined collision spheres (yellow) approximating the robot links. (b) Comparison showing the volumetric mismatch between the collision primitives and the original mesh. Reducing the sphere size or density results in interstitial gaps where collisions fail to be detected. Conversely, inflating the spheres to cover these gaps introduces excessive padding, which artificially restricts robot movement and can prevent the discovery of feasible trajectories in constrained environments.

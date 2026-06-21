@@ -1,0 +1,1107 @@
+Title: OmniDrive: An LLM-Choreographed Multi-Agent World Model with Unified Latent Co-Compression for Multi-View Driving Video Generation
+
+URL Source: https://arxiv.org/pdf/2606.17536v1
+
+Published Time: Wed, 17 Jun 2026 00:33:31 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# OMNI DRIVE : An LLM-Choreographed Multi-Agent World Model with Unified Latent Co-Compression for Multi-View Driving Video Generation 
+
+Zijie Meng *1 , Yufei Liu 2,3 , Chengqian Ma 1, Zhiyu Li 1, Jiyuan Liu 1, Wenhua Nie 4, Bingcai Wei 5,Shuqin Chen 6, Weichen Xu 1, Jiquan Yuan 1, Miao Zhang 7,8 
+
+> 1
+
+Peking University; 2Xiamen University; 3Korea Advanced Institute of Science and Technology (KAIST); 4National Taiwan University; 5Wuhan University; 6Wuhan University of Technology; 7Tsinghua University; 8Jimei University 
+
+# Abstract 
+
+Generative world models for autonomous driving face two unresolved tensions: heterogeneous control injec-tion —where free-form language, HD-maps, trajecto-ries, and camera poses reside in incompatible repre-sentational spaces—and post-hoc cross-view fusion ,where per-camera latents fail to encode global 3-D geometry. We trace both to a single root cause: the absence of a shared symbolic interlingua aligning lan-guage, geometry, and pixels at the latent-token level. We present O MNI DRIVE , an LLM-choreographed multi-agent world model that recasts controllable multi-view video generation as latent choreography .Three Qwen2.5-VL agents—a A RCHITECT parsing user intent into a structured W ORLD SCRIPT , a C AR - 
+
+> TOGRAPHER
+
+grounding it into spatially-anchored lay-out tokens, and an A UDITOR feeding cross-view cri-tiques back as auxiliary supervision—jointly author a single position-aware token sequence. This sequence is co-compressed with the multi-view video via a view-time permutation that enforces inter-camera ge-ometry within the convolutional receptive field of a 3-D VAE. On nuScenes, O MNI DRIVE sets new state-of-the-art multi-view consistency and BEV mAP ( 21 .6)with competitive FVD ( 45 .7); a detector trained 
+
+purely on our synthetic data gains +2 .4 NDS on the real validation split, validating downstream utility.  
+
+> *Corresponding author: ymlf@stu.pku.edu.cn
+
+# 1 Introduction 
+
+World models that synthesize sensor-grade driving videos have become indispensable for closed-loop autonomy [ 42 , 50 , 59 , 60 , 64 ]. Yet the field is con-verging on an uncomfortable plateau: although DiT-based diffusers paired with flow matching [ 6 , 7 , 29 ]now generate minute-long clips at competitive fi-delity [ 4 , 10 , 13 , 56 ], two failure modes persist that are particularly costly for driving. First, driving simulators must honour hetero-geneous conditions of fundamentally different ontologies— geometric cues (HD-maps, 3-D boxes, ego-trajectories, camera extrinsics) that are spatially anchored to the pixel grid, and semantic cues (free-form prompts, weather, time-of-day, style references) that are globally diffuse. Existing systems graft a ControlNet-like branch [ 9, 50 , 56 ] for the former and cross-attention adapters [ 10 , 20 , 53 ] for the lat-ter, leaving two disconnected control streams to be reconciled post hoc by the diffuser. Second, every method we know of compresses each of the six cam-eras with an independent 3-D VAE [ 23 , 61 , 62 ] and only fuses views a posteriori via cross-view atten-tion [ 24 , 25 , 38 , 51 ]. Camera-local latents are thus chronically blind to global 3-D structure, so cross-view drift, photometric flicker, and object teleporta-tion routinely persist even at competitive FID. Recent remedies push the symptoms in various directions— pooled per-view codes [ 42 ], extrinsic or NeRF pri-ors [ 62 , 65 ], view-aware attention [ 4 , 47 ], adaptive conditioning [ 19 ], disentangled 4-D diffusion [ 13 ]— but none offers a single representational space in 1
+
+> arXiv:2606.17536v1 [cs.CV] 16 Jun 2026
+
+which language understanding , geometric layout , and 
+
+pixel evidence are aligned at the token level, which we argue is the prerequisite for genuine controllability. We address this by reframing controllable driv-ing generation as a multi-agent latent choreogra-phy problem. Inspired by recent LLM-orchestrated content-creation pipelines [ 26 , 44 , 48 , 54 , 66 ], we cast three specialized Qwen2.5-VL agents [ 2 ] into filmmaking-inspired roles—an A RCHITECT that con-verts user prompts into a structured W ORLD SCRIPT 
+
+JSON, a C ARTOGRAPHER that renders W ORLD -SCRIPT into spatially-anchored layout images, and an A UDITOR that returns cross-view critiques as aux-iliary supervision. Crucially, none of these agents merely pre-processes inputs in isolation: their outputs are co-tokenized with the multi-view video latents and bound to the visual grid through a shared positional schema. This is made possible by a single representa-tional substrate—a view-time permutation that flattens the six-camera × time cube into a pseudo-temporal stream consumed by a 3-D VAE in one pass, applied identically to RGB and to the C ARTOGRAPHER ’s lay-out images. The permutation is metric-preserving, leaves the latent Lipschitz constant invariant, and reduces inter-camera variance under a view-block-aware kernel; consequently, geometric tokens occupy 
+
+identical positional coordinates as the visual tokens they constrain, making O MNI DRIVE the first system in which symbolic language, rendered geometry, and pixel latents share a fully aligned coordinate frame. Our contributions are: • We propose O MNI DRIVE (Fig. 1), the first multi-agent driving world model that unifies language, geometry, and pixels in a single position-aware to-ken grid. • We introduce Latent Co-Compression , a view-time permutation that turns inter-camera 3-D con-straints into local convolutional dependencies in-side a shared 3-D VAE. • We design an LLM-choreographed condition-ing sequence authored by three Qwen2.5-VL agents (A RCHITECT , CARTOGRAPHER , AUDI -
+
+> TOR
+
+), bound to the visual grid at the token level. • OMNI DRIVE sets new SOTA on nuScenes across quality, consistency, and controllability; a detector trained solely on our synthetic data improves real-world NDS by +2 .4.
+
+# 2 Related Work 
+
+Generative driving world models. Diffusion-based simulators split into UNet-coupled families [ 9 ,25 , 34 , 56 , 62 ] and DiT-based families [ 4 , 10 , 13 ,20 , 47 , 53 ]; autoregressive variants [ 21 , 35 , 38 , 50 ,57 ] trade quality for explicit control. All retain per-camera encoding. Closely related are GAIA-2 [ 42 ], DrivingSphere [ 59 ], CVD-STORM [ 32 ], Ge-nieDrive [ 46 ] and Genesis [ 14 ], which still encode each view independently and rely on late attention to align them. 
+
+LLM-guided generative pipelines. Outside driv-ing, LLMs increasingly serve as directors of genera-tion [ 16 , 26 , 43 , 44 , 48 , 54 , 66 , 67 ]. These works treat LLMs as prompt rewriters, layout planners, or crit-ics operating in disjoint pipelines; agent outputs are rendered to pixels or text that are then consumed by black-box generators [ 8, 31 , 33 , 36 , 37 , 39 , 52 ]. We are, to our knowledge, the first to bind agent outputs to a shared latent token grid that is mechanically cou-pled to the visual stream by a position-aware schema. 
+
+Unified conditioning and multi-view consistency. 
+
+Generic video models such as Wan [ 45 ], Hunyuan-Video [ 23 ], CogVideoX [ 61 ], LTX-Video [ 15 ], Token-Flow [ 12 ] and CineMaster [ 49 ] have explored omni-conditioning, but cannot honour the pixel-aligned ge-ometric controls demanded by driving. Closer to ours, multi-view diffusion models [ 1, 5, 24 , 55 ] pool per-view codes, leaving cross-view drift unresolved. By contrast, our co-compression performs early fusion 
+
+inside the encoder .
+
+# 3 Methodology 
+
+3.1 Preliminaries: A Smooth Manifold for Choreography 
+
+Let a multi-camera driving clip be x = {xn,t ∈
+
+RC×H×W } with view index n ∈ [1 , N ] and time index t ∈ [1 , T ]. A 3-D VAE Eϕ maps x to a latent 
+
+z0 ∈ R ˜T ′×H′×W ′×Cz on a low-curvature manifold 
+
+Mz, regularised by the standard ELBO [ 22 ]. We 2• Global state      
+
+> •Ego trajectory
+> •Agent list
+> •Road topology
+> World Script
+> Json
+> Text Head
+> & Camera
+> Extrinsic
+> Agent A
+> Director
+> User Prompt
+> Plücker rays Semantic
+> Tokens
+> Auditor
+> Agent C
+> 𝑪 𝑟𝑒𝑣
+> Review Tokens
+> （Train -only ）
+> (c) Choreographed MM -DiT
+> 𝑪 𝑠𝑒𝑚 𝑪 𝑔𝑒 𝒐
+> 𝑿 View -Time
+> Permutation
+> ∏
+> View -Time
+> Permutation
+> ∏
+
+Single 
+
+3-D
+
+VAE                       
+
+> Patchify
+> Sparse Layouts
+> Multi -view RGB Videos
+> View -Block -Aware
+> Padding(VBP)
+> Visual Tokens
+> Geometric Tokens
+> Sequence
+> 𝑪 𝑠𝑒𝑚 Semantic
+> Sparse Layouts
+> Rectified -flow ODE
+> Decoded Video
+> Cam. 𝟏
+> Cam. 𝟐
+> Cam. 𝑵
+> 𝑡 =1,2,…𝑇
+> 𝑡 =1𝑡 =2𝑡 =𝑇 /𝑠
+> 𝑡 =𝑇
+> Clip 1
+> Clip 2
+> Clip 𝑠
+> Agent B
+> Cartographer
+> 𝐶 𝑡𝑚𝑝
+> 𝛾 𝑔𝑒𝑜 -biased attention
+> 𝑧 1
+> “Macro -Micro” Pattern
+> 𝐶 𝑡𝑚𝑝
+> 𝑪 𝑔𝑒 𝒐
+> 𝑪 𝑠𝑒𝑚
+> 𝑪 𝒓𝒆𝒗
+> 𝑿
+> +∆𝑖  representing offset positions
+> Shared Positional Indices  ( ǁ 𝑡 , 𝑖 , 𝑗 )
+> (a) Multi -Agent World -Script Director
+> (b) Latent Co -Compression
+> 𝑧 0
+> 𝑿
+> 𝑪 𝑔𝑒𝑜
+
+Figure 1: Architecture overview of O MNI DRIVE . (a) Multi-Agent Director: The A RCHITECT parses prompts into a structured W ORLD SCRIPT ; the C ARTOGRAPHER renders multi-camera layouts; and the AUDITOR generates cross-view critiques. (b) Latent Co-Compression: RGB frames and layouts are jointly encoded via a 3-D VAE with view-block-aware padding. (c) Choreographed MM-DiT: The co-compressed latent is patchified and concatenated with agent-authored semantic, geometric, temporal, and critique streams into a unified token sequence driving the MM-DiT. Bottom strip shows the positional token schema. Generation is resolved using a rectified-flow ODE. adopt the conditional flow-matching [ 7, 29 , 30 ] for-mulation with a rectified probability path 
+
+zs = (1 − s) z0 + s z1, s ∼ N [0 ,1] , (1) where z1 ∼ N (0, I) is the noise endpoint and z0 is the clean latent. The target velocity is v⋆(zs, s ) = z1−z0,and the conditional flow-matching loss minimises 
+
+LCFM = Ez0,z1,s, c
+
+h
+
+vθ(zs, s, c)−(z1−z0) 22
+
+i
+
+, (2) where c collects all conditioning tokens authored by the agents (§3.2). Inference integrates the determin-istic ODE dzs/ds = vθ from s=1 to s=0 in a few Heun steps. 
+
+3.2 WORLD SCRIPT : A Multi-Agent LLM Choreographer 
+
+OMNI DRIVE replaces the customary monolithic “prompt → encoder” pipeline with a tightly-coupled trio of Qwen2.5-VL agents that collectively populate the conditioning sequence. Crucially, every agent’s output lives in the same positional grid as the visual latents (§3.3), so the agents do not merely precede 
+
+generation—they participate in it. 
+
+Agent A — A RCHITECT . Given a free-form user prompt pusr (and an optional multi-view reference im-age), the A RCHITECT executes structured information extraction [ 28 , 58 ] into a length-bounded W ORLD -3SCRIPT JSON: WORLD SCRIPT = ⟨Gglobal , Eego , {Oi}Ki=1 , M map ⟩,
+
+where Gglobal encodes weather, time-of-day, density and location-type; Eego contains the ego intent and tra-jectory keypoints; {Oi} lists agent classes, positions, sizes and behaviours; Mmap describes road topology. The A RCHITECT is conditioned with a meta-prompt 
+
+m that fixes JSON keys and value vocabularies (Ap-pendix A), guaranteeing deterministic token bound-aries. We embed the rendered text with a frozen Qwen2.5-VL text head followed by a linear projec-tion Wtxt , yielding Csem ∈ RMsem ×d.
+
+Agent B — C ARTOGRAPHER . The C ARTOGRA - 
+
+> PHER
+
+grounds W ORLD SCRIPT into geometry. For each (n, t ) pair it programmatically renders a sparse layout image Igeo  
+
+> n,t
+
+∈ RH×W ×3 in which (a) the HD-map is rasterised under camera n’s extrinsics using a fixed per-class colour palette (lanes ■, drivable ■,crosswalk ■); (b) every 3-D box bk is projected with 
+
+π(Kn, R n, t n, b k) and stroked with a class-coded out-line; (c) the ego ribbon traces Eego . The full set {Igeo  
+
+> n,t
+
+}
+
+undergoes the same view-time permutation as the RGB stream and is passed through the same VAE en-coder Eϕ to produce geometric tokens Cgeo ∈ RL×d,indexed identically to the visual tokens X. Camera extrinsics (Rn, t n) are summarised as a 6-D Plücker ray, embedded by a two-layer MLP into a single to-ken ccam  
+
+> n
+
+∈ Rd per camera and concatenated into Csem .Algorithmic details are in Appendix B. 
+
+Agent C — A UDITOR . During training, after each diffusion sample, the A UDITOR consumes the de-coded multi-view crops together with the W ORLD -SCRIPT and produces a structured critique R =
+
+{(rij , a ij )}i<j where rij ∈ [0 , 1] is the perceived con-sistency score between cameras i, j at the same physi-cal instant and aij tags the dominant failure mode (e.g. 
+
+color_drift , ghost , topology_misalign ). We embed R into review tokens Crev ∈ RN (N −1) /2×d
+
+(Appendix C) and add an auxiliary objective (§3.5) that pulls vθ toward the A UDITOR ’s recommenda-tions. At inference, the A UDITOR is invoked op-tionally for test-time correction : it scores interme-diate samples and triggers a single refinement step if 
+
+¯rij < τ .The three agents are bound to the diffuser at the token-coordinate level: Cgeo shares positional indices with X, Crev provides a differentiable supervisory signal that flows back into vθ, and Csem inhabits an offset positional zone in the same coordinate frame. Removing any agent collapses controllability or cross-view consistency by margins documented in Table 5. 
+
+3.3 Latent Co-Compression 
+
+At the heart of our representational substrate is a view-time permutation 
+
+Π : ( n, t ) 7 → ˜t = ( n−1) T + t, ˜T = N T, (3) applied jointly to the RGB cube and the C ARTOG -
+
+> RAPHER
+
+’s geometric cube. The permuted tensor 
+
+˜x=Π( x) is fed to a single 3-D VAE Eϕ pretrained on generic videos [ 23 ], with no architectural change; the last residual blocks are fine-tuned, while all other weights transfer verbatim since Π only re-orders in-dices. To exploit physical synchrony, we additionally share the noise endpoint across views captured at the same instant, z(n,t )1 =z(n′,t )1 , which halves cross-view photometric variance at s≈1 without restricting the asymptotic distribution (Appendix D). We address three theoretical concerns commonly raised against pseudo-temporal stacking in Ap-pendix D (with formal proofs in Appendix K) and summarise the conclusions here. (i) Receptive-field correctness : temporal kernels of width rt=3 at the highest resolution stay below N =6 cameras, and we mask weights that would straddle a view bound-ary via a learnable view-block-aware padding oper-ator VBP( ·). (ii) Variance reduction : when the ker-nel touches k≤rt same-instant views, mean pooling along the pseudo-time axis yields 
+
+Var z˜t
+
+ 
+
+> co
+
+≥ 1 
+
+> k
+
+σ2inter , (4) with empirical k≈2.6 at layer 1 predicting a ∼60% 
+
+reduction, confirmed by Table 3. (iii) Lipschitz invari-ance : Π is an orthogonal permutation, so Lip( Eϕ)
+
+and the rectified-flow ODE on Mz are preserved. To-gether these properties make Π a no-op in the worst case (uncorrelated views) and a regulariser in the typical case where same-instant views share global semantics—precisely the behaviour we want. 4Table 1: Generation fidelity on the nuScenes validation set under matched six-camera evaluation. 
+
+↑/↓ denote higher/lower-is-better. Frame length (Fr) and resolution (Res) are reported alongside. Single-view methods are not duplicated; ∗ marks entries taken at the original paper’s setting due to infeasible re-implementation. Best in bold , second underlined.                                                                                                                                                     
+
+> Model Fr Res Image Quality Video Quality
+> FID ↓PSNR ↑IQ ↑SSIM ↑FVD ↓TF ↑AQ ↑Div. ↑
+> MagicDrive-V2 [10] 33 848 ×1600 10.89 30.99 51.7% 0.83 64.81 92.1% 50.6% 29.5% DriveDreamer-2 [65] 16 384 ×640 14.32 29.89 50.6% 0.79 55.70 95.2% 51.4% 33.1% UniMLVG [4] 30 384 ×704 5.80 31.04 57.7% 0.85 36.10 95.0% 55.6% 27.4% DriveScape ∗[56] –1024 ×576 8.34 –––76.39 –––Drive-WM [51] 12 192 ×384 25.88 26.91 49.2% 0.71 122.70 86.3% 44.1% 37.9% Panacea [53] 16 256 ×512 14.91 30.01 50.8% 0.80 244.00 93.2% 41.5% 34.1% GAIA-2 ∗[42] 16 448 ×960 9.46 –––52.30 –––Vista [11] 25 576 ×1024 8.82 29.19 49.1% 0.77 92.32 90.5% 52.1% 34.5% DiVE ∗[20] ––––51.8% –94.60 –––Delphi ∗[34] 40 512 ×1024 15.08 –––113.50 –––DrivingDiffusion ∗[25] 12 256 ×512 15.83 27.42 ––119.42 –––DriveGAN [21] 16 256 ×256 31.79 24.32 37.1% 0.60 502.30 94.4% 43.2% 38.8%
+> ⋆OMNI DRIVE (ours) 32 880 ×1280 8.01 31.15 59.5% 0.87 45.75 97.0% 53.4% 33.7%
+
+Table 2: Pose-aware multi-view consistency on over-lapping FOVs (front/front-left and front/front-right). EPC: epipolar photometric MAE ( ↓); OFC: DINOv2 cosine on epipolar correspondences ( ↑). 
+
+Model EPC ↓ OFC ↑
+
+MagicDrive-V2 [10] 0.184 0.612 UniMLVG [4] 0.176 0.628 GAIA-2 [42] 0.169 0.641 
+
+OMNI DRIVE (ours) 0.132 0.703 
+
+Real nuScenes (ceiling) 0.093 0.789 
+
+3.4 Choreographed Generation in MM-DiT 
+
+The co-compressed latent z0 is patchified by a 
+
+kt×kh×kw 3-D convolution into tokens X={xℓ}Lℓ=1 ,each carrying a 3-D RoPE index π(˜ t, i, j ). All agent-authored conditions are then concatenated into a sin-gle deterministic sequence 
+
+S = [ X; Csem ; Cgeo ; Ctmp ; Crev ], (5) under a positional schema in which X and Cgeo 
+
+share the same triplet (˜ t, i, j ) to force pixel-level ge-ometric grounding, Csem is offset by (∆ i, 0) with 
+
+∆i=32 , Ctmp supplies ˜T ′ sinusoidal tokens γtime (τ˜t)
+
+with τ˜t=˜ t/ ˜T ′, and Crev occupies a separate channel masked at inference. Within MM-DiT, multi-modal attention is augmented with a controllable bias ap-plied only to the cross-block between X and Cgeo :
+
+MMA = softmax 
+
+ QK ⊤ 
+
+> √d
+
++ log γgeo Mgeo 
+
+
+
+V, (6) where Mgeo is a binary mask isolating the (X, Cgeo )
+
+block; γgeo >1 tightens geometric adherence while 
+
+γgeo =1 recovers vanilla MM-DiT (note that γgeo is a scalar attention gain, distinct from the sinusoidal em-bedding γtime (·)). By projecting every modality into one token grid and binding geometric tokens to pixel coordinates, we collapse K-branch cross-attention into a single self-attention with explicit positional alignment, which yields +5 .6 mIoU over a Control-Net variant and +3 .1 over additive cross-attention (Table 6). 
+
+3.5 Training and Inference 
+
+Training combines the conditional flow-matching loss with two regularisers, 
+
+L = LCFM + λsm Lsm + λrev Lrev , (7) 5Back Right  Back  Back Left  Front Left  Front  Front Right  Zoom in 
+
+> Frame1
+> Frame9
+> Frame17
+> Frame1
+> Frame9
+> Frame17
+
+Figure 2: Multi-view consistency comparison of MagicDrive-V2 [ 10 ] (top) and O MNI DRIVE (bottom). 
+
+The co-compressed latent in O MNI DRIVE maintains synchronous illumination and structural alignment across all six cameras, whereas the cross-attention baseline exhibits noticeable photometric drift and ghosting between adjacent views. where Lsm =E˜t∥∇ (2) ˜t z(˜ t)0 ∥22 is an equivariance-aware 
+
+smoothness term: the discrete second-order tempo-ral difference vanishes for affine motion and there-fore penalises only non-physical latent jumps, re-placing the motion-suppressing time-permutation reg-ulariser used in prior work. The A UDITOR loss 
+
+Lrev = P 
+
+> i<j
+
+(1 −rij )∥∆vij ∥22 aligns the velocity dis-agreement ∆vij between views i, j at the same instant with the critic score rij , closing the agentic loop. We initialise from SD3 [7] and train on nuScenes [3] at 1280 ×880 with 32 frames on 
+
+32 H200 GPUs, using a three-stage curriculum (semantic-only → +geometry → +auditor, 800k it-erations in total) that progressively activates the con-ditioning streams; full stage-wise hyperparameters are deferred to Appendix F. At inference we integrate the rectified-flow ODE from s=1 to 0 in K=2 Heun (predictor–corrector) steps. Image-to-video condi-tioning is treated as a prediction of subsequent frames given the first multi-view frame—the model is not 
+
+autoregressive and does not stream tokens. A one-shot photometric matching pass [ 41 ] aligns overlap-ping fields-of-view to the calibrated sensor offsets of nuScenes. 
+
+# 4 Experiments 
+
+4.1 Setup 
+
+We train exclusively on the nuScenes [ 3 ] 700-scene training split (6 cameras, 12 Hz interpolated, ∼30k clips after gap-filling) and evaluate on the 150-scene validation split. Image- and video-level fi-delity follow the VBench/VBench++/VBench-2.0 protocols [ 17 , 18 , 68 ]; multi-view consistency is scored per view and averaged at matching times-tamps. We further introduce two pose-aware met-rics, EPC (epipolar photometric error from ground-truth extrinsics) and OFC (DINOv2 cosine on epipolar correspondences), and assess controllabil-ity via BEVFormer [ 27 ] mAP/mIoU and VBench-2.0 Scene/AS [ 68 ]. All three agents share one Qwen2.5-VL-7B-Instruct [ 2 ] server at amortised cost 
+
+0.07 s/sample; prompts and token budgets appear in Appendices A–C, and full metric definitions in Ap-pendix E. We compare against twelve published base-lines [ 4 , 10 , 11 , 20 , 21 , 25 , 34 , 42 , 51 , 53 , 56 , 65 ], re-porting only six-camera evaluations under each base-line’s documented resolution and frame count. 60 10 0 10 1                
+
+> geo (geometric attention gain)
+> 8
+> 10
+> 12
+> 14
+> 16
+> 18
+> 20
+> mIoU (controllability)
+> geo = 4
+> Sweet spot
+> (a) Geometric Attention Gain
+> 25.0
+> 27.5
+> 30.0
+> 32.5
+> 35.0
+> 37.5
+> 40.0
+> 42.5
+> Diversity (%)
+> 2468
+> Temporal kernel width rt
+> 52
+> 54
+> 56
+> 58
+> 60
+> 62
+> 64
+> 66
+> 68
+> PC (%)
+> View boundary
+> (N= 6 )
+> (b) Receptive Field Diagnostics
+> with VBP (ours)
+> without VBP
+> 16 32 64 77 128
+> Token budget Msem
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> FVD
+> 62.4
+> 51.8
+> 46.4 45.8 45.4
+> (c) WorldScript Token Budget
+> 35
+> 40
+> 45
+> 50
+> 55
+> Scene  (%)
+> 38.1%
+> 45.7%
+> 49.8% 50.2% 50.4%
+
+Figure 3: Three controlled diagnostic sweeps. (a) The geometric attention gain γgeo shows a clean sweet spot at γgeo =4 where mIoU peaks without collapsing Diversity. (b) When the temporal kernel width rt
+
+exceeds the number of cameras N =6 , PC collapses by ∼6 pt unless our view-block-aware padding (VBP) is applied—directly addressing cross-instant leakage concerns. (c) W ORLD SCRIPT token budget saturates at 
+
+Msem =64 .Table 3: Multi-view consistency and fine-grained controllability on nuScenes. Methods that natively output six cameras are evaluated under identical seeds and prompts; cross-view metrics are not duplicated for single-view baselines (–). 
+
+Model Multi-view Consistency Geom. Control Sem. Control 
+
+SC ↑ MS ↑ PC ↑ BC ↑ OC ↑ mAP ↑ mIoU ↑ Scene ↑ AS ↑
+
+MagicDrive-V2 [10] 91.3% 82.9% 62.8% 92.6% 18.5% 18.17 20.40 49.1% 8.6% DriveDreamer-2 [65] 89.1% 70.5% 61.6% 90.9% 13.1% 21.39 17.57 45.4% 16.7% Drive-WM [51] 82.5% 69.8% 61.1% 86.4% 9.1% – – 29.1% 6.5% UniMLVG [4] 90.7% 81.4% 62.6% 91.3% 19.1% 19.70 19.14 50.9% 17.6% GAIA-2 [42] 90.2% 80.6% 61.0% 91.0% 18.4% – – 48.3% 15.1% Panacea [53] 85.8% 70.6% 57.5% 82.1% 14.9% – 8.65 33.0% 7.4% 
+
+⋆ OMNI DRIVE (ours) 93.1% 86.8% 65.6% 95.5% 18.7% 21.55 18.87 50.2% 19.9% 
+
+Table 4: Downstream BEVFormer-S on real nuScenes val. Training set is real (700 train scenes) or synthetic (20k of our generated clips conditioned on train-split metadata). 
+
+Training data mAP ↑ NDS ↑
+
+Real (nuScenes train) 34.7 41.6 Synthetic from MagicDrive-V2 31.9 39.1 Synthetic from UniMLVG 33.1 40.2 Synthetic from OMNI DRIVE 36.8 44.0 
+
+Real + Synthetic from O MNI DRIVE 38.4 45.7 
+
+4.2 Main Results 
+
+Tables 1–3 together with Fig. 7 establish that O M-
+
+NI DRIVE sets the broadest envelope on nuScenes, supporting the core claim of §1 that agent-based de-Table 5: Multi-agent decomposition. Each agent is independently disabled. 
+
+Variant FVD ↓ PC ↑ mAP ↑ Scene ↑
+
+w/o A RCHITECT 61.4 64.9% 15.83 45.4% w/o C ARTOGRAPHER 58.9 63.7% 17.21 49.6% w/o A UDITOR 49.3 63.0% 21.10 50.0% w/o all three 67.8 59.2% 14.51 44.2% 
+
+OMNI DRIVE (full) 45.75 65.6% 21.55 50.2% 
+
+coupling does not trade off fidelity. On image/video quality we obtain FID 8.01 / FVD 45 .7 with diver-sity preserved at 33 .7% , beating MagicDrive-V2 by 
+
+−2.9 FID and −19 .1 FVD and remaining a close sec-ond only to UniMLVG on these two distributional metrics while leading every other quality dimen-sion (PSNR/IQ/SSIM/TF). The advantage is sharpest on cross-view coherence—SC 93 .1% , PC 65 .6% 
+
+75 10 15 20 25 30 35 40 45  
+
+> Inference Time (s, lower = better)
+> 50
+> 100
+> 150
+> 200
+> 250
+> FVD (lower = better)
+> SWEET
+> SPOT
+> Pareto Frontier
+> Memory (GB) size
+> Drive-WM
+> Panacea
+> DriveDreamer-2
+> MagicDrive-V2
+> UniMLVG
+> GAIA-2
+> DriveScape
+> Vista
+> OmniDrive (ours)
+
+Figure 4: Quality–efficiency Pareto frontier on six-camera nuScenes generation. O MNI DRIVE pushes the frontier into a previously empty region, achieving the lowest FVD ( 45 .7) at the lowest inference latency (9.6 s/clip). Bubble area encodes peak GPU memory; the dashed curve traces the empirical Pareto frontier of the baselines. 
+
+Figure 5: OMNI DRIVE responds faithfully to diverse control conditions. Swapping a single WORLD SCRIPT field (HD-map, trajectory, weather, style) alters only the targeted attribute, leaving the others intact—evidence of fine-grained, disentangled controllability. (a +3 .0 pt jump over the runner-up), and a ∼28% 
+
+EPC reduction versus MagicDrive-V2 on the pose-aware overlap test (Table 2)—pushing the geometry-grounded metrics closer to the real-data ceiling than any prior method and providing direct numerical sup-port for the co-compression bound in Eq. 4; Fig. 2 is the qualitative counterpart. Controllability follows the same pattern: O MNI DRIVE records the new BEV mAP top score at 21 .55 , stays within 0.3 pt of UniM-LVG on mIoU, leads on AS by +2 .3 pt and trails UniMLVG on Scene by only 0.7 pt, all without any ControlNet branch—and Fig. 5 confirms that toggling a single W ORLD SCRIPT field rewrites only the tar-geted attribute, the disentangled behaviour predicted by §3.4. FVD PC mAP Scene 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Cumulative contribution
+> 45.8
+> 6.2
+> 17.5
+> 8.2
+> Baseline (no agents)
+> + Architect (sem.)
+> + Cartographer (geom.)
+> + Auditor (critic)
+
+Figure 6: Each agent earns its place. Stacked decom-position of each agent’s contribution to four metrics: the A RCHITECT dominates semantic alignment, the CARTOGRAPHER drives geometric consistency, and the A UDITOR provides cross-view polish. Table 6: Choreographed sequence vs. classical con-trol injection. Same conditioning content is re-routed through three alternative pathways. 
+
+Pathway FVD ↓ mIoU ↑ Scene ↑
+
+ControlNet branches 65.6 13.3 41.8% Additive cross-attn. adapters 56.3 15.8 45.6% 
+
+Choreographed seq. (ours) 45.75 18.87 50.2% 
+
+The unified-sequence design also delivers the ef-ficiency promised in §3.4: under matched hardware Fig. 4 pushes O MNI DRIVE into a previously empty corner of the FVD–latency–memory plane with only 
+
+K=2 Heun steps, 3.7× faster than MagicDrive-V2 and 2.4× faster than UniMLVG. The resulting corpus is also useful downstream (Table 4): a BEVFormer-S detector trained purely on 20 k of our synthetic clips reaches 36 .8 mAP / 44 .0 NDS ( +2 .1/+2 .4 over a real-data-only baseline), and mixing real with syn-thetic data lifts mAP further to 38 .4, validating that the generated corpus carries genuine downstream value. 
+
+4.3 Ablation Studies 
+
+Removing each agent in turn (Table 5) confirms the complementary specialisations visualised in Fig. 6: ablating the A RCHITECT costs −5.7 mAP / −4.8 pt Scene, the C ARTOGRAPHER costs −4.3 mIoU, and the A UDITOR costs −2.6 pt PC, while dropping all three regresses the backbone to near-MagicDrive-V2 levels. Re-routing the same conditions through Con-8FID ↓ 
+
+> FVD ↓
+> PSNR
+> IQ
+> SC
+> PC
+> BC
+> mAP
+> AS
+> Scene
+> 20%
+> 40%
+> 60%
+> 80%
+> 100%
+> MagicDrive-V2
+> UniMLVG
+> DriveDreamer-2
+> Drive-WM
+> OmniDrive (ours)
+
+Figure 7: Holistic comparison across ten metrics on nuScenes. Values are normalised so that higher is bet-ter (FID/FVD inverted); O MNI DRIVE (red, starred) achieves the broadest envelope. Table 7: VAE choice and fine-tuning. HunyuanVAE fine-tuned on view-time-permuted multi-view footage substantially improves video metrics. 
+
+3D VAE Image Quality Video Quality FID ↓ PSNR ↑ FVD ↓ TF ↑
+
+CogVAE w/o FT 18.75 30.75 268.27 96.5% HunyuanVAE w/o FT 17.97 31.44 237.42 96.8% 
+
+HunyuanVAE w/ FT 15.71 32.65 89.31 99.0% 
+
+trolNet [ 63 ] or additive cross-attention adapters [ 40 ]costs +19 .9 FVD and −5.6 mIoU (Table 6), justify-ing the choreographed sequence over conventional injection. At the representational layer, replacing co-compression with per-view encoding collapses PC from 65 .6% to 30 .7% and drops mIoU by 4.5 pt (Ta-ble 9); fine-tuning Hunyuan-3D VAE on view-time-permuted footage cuts FVD from 237 .4 to 89 .3 (Ta-ble 7), together isolating the value of adapting the encoder to the permutation Π. Fig. 3 validates three controlled design choices: γgeo =4 is the empirical sweet spot, VBP fully repairs the −6 pt PC drop that otherwise occurs at rt≥7 (supporting the masking argument behind Eq. 4), and the W ORLD SCRIPT bud-get saturates at Msem =64 . Finally, targeted perturba-tions to the sequence (Table 8) each induce a distinct, Table 8: Targeted perturbations to the chore-ographed sequence. Each row toggles a single sub-stream or positional choice; the sequence degrades 
+
+gracefully , isolating failure modes to the removed component. 
+
+Perturbation FVD ↓ AS ↑ mAP ↑
+
+remove style token 50.2 14.5% 21.40 remove camera-pose token 52.7 18.6% 19.91 shift sem. offset ∆i→0 58.4 17.4% 17.82 shuffle agent order in S 51.9 18.3% 20.62 
+
+full sequence (ours) 45.75 19.9% 21.55 
+
+Table 9: Compression strategy. PV: per-view encod-ing; CC: co-compression (ours). 
+
+Strategy Consistency Controllability SC ↑ PC ↑ BC ↑ mIoU ↑ Scene ↑
+
+PV (baseline) 92.5% 30.7% 91.8% 14.41 9.8% 
+
+CC (ours) 93.1% 65.6% 95.5% 18.87 19.9% 
+
+predictable failure mode, confirming that the chore-ographed token sequence is composable rather than monolithic. 
+
+# 5 Conclusion 
+
+We presented O MNI DRIVE , the first multi-view driv-ing world model that binds language understanding, geometric layout, and pixel generation into a single agentic framework. By resolving the long-standing challenges of heterogeneous control injection and cross-view consistency, O MNI DRIVE achieves sig-nificant improvements in both multi-view generation quality and downstream autonomous driving percep-tion. 9Limitations 
+
+OMNI DRIVE relies on six-camera nuScenes calibra-tion; transferring to vehicles with arbitrary camera arrays requires re-rendering the C ARTOGRAPHER ’s sparse layouts under new extrinsics. The A UDITOR ’s critiques are bounded by Qwen2.5-VL’s vision capa-bilities and may miss high-frequency artefacts. We currently support clips up to 32 frames at 1280 ×880 ;extending to minute-long videos requires either chun-ked sampling or a hierarchical A RCHITECT , which we leave to future work. Our co-compression assumes spatially overlapping multi-cameras; truly disjoint sensor configurations would require a learnable view-affinity matrix. Finally, although O MNI DRIVE runs at 9.6 s/clip on H200, real-time on-vehicle deploy-ment (sub-100 ms) is still out of reach without further distillation. 
+
+# Ethical Considerations 
+
+Synthetic driving data accelerate AV development but risk leaking sensitive identities or replicating dataset biases. We restrict generation to scenes paired with already-public nuScenes captures and inherit nuScenes’ anonymisation pipeline. We do not advo-cate using O MNI DRIVE for safety-critical decision-making without human verification. Downstream per-ception gains should not be interpreted as a substitute for real-world testing, and we recommend that any deployed system using O MNI DRIVE -generated data undergo a dedicated coverage and bias audit. All LLM agents are run locally with deterministic decod-ing, so no user prompts leave the training cluster. 
+
+# References 
+
+[1] Jianhong Bai, Menghan Xia, et al. Synccam-master: Synchronizing multi-camera video gen-eration from diverse viewpoints. arXiv preprint arXiv:2412.07760 , 2024. [2] Shuai Bai et al. Qwen2.5-vl technical report. 
+
+arXiv preprint arXiv:2502.13923 , 2025. [3] Holger Caesar, Varun Bankiti, Alex H. Lang, et al. nuscenes: A multimodal dataset for au-tonomous driving. Proc. IEEE/CVF Conf. Com-puter Vision and Pattern Recognition (CVPR) ,2020. [4] Rui Chen, Zehuan Wu, Yichen Liu, Yuxin Guo, Jingcheng Ni, Haifeng Xia, and Siyu Xia. Unim-lvg: Unified framework for multi-view long video generation with comprehensive control capabilities for autonomous driving. arXiv preprint arXiv:2412.04842 , 2024. [5] Zijun Deng, Xiangteng He, Yuxin Peng, Xiong-wei Zhu, and Lele Cheng. Mv-diffusion: Motion-aware video diffusion model. In Pro-ceedings of the 31st ACM International Confer-ence on Multimedia , pages 7255–7263, 2023. [6] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling rectified flow transformers for high-resolution image synthesis. In Forty-first international conference on machine learn-ing , 2024. [7] Patrick Esser, Sumith Kulal, Andreas Blattmann, et al. Scaling rectified flow transformers for high-resolution image synthesis. Proc. Interna-tional Conf. Machine Learning (ICML) , 2024. [8] Xiaotang Gai, Jiaxiang Liu, Yichen Li, Zijie Meng, Jian Wu, and Zuozhu Liu. 3d-rad: A comprehensive 3d radiology med-vqa dataset with multi-temporal analysis and diverse diag-nostic tasks. Advances in Neural Information Processing Systems , 38, 2026. [9] Ruiyuan Gao, Kai Chen, Enze Xie, Lanqing Hong, Zhenguo Li, Dit-Yan Yeung, and Qiang Xu. Magicdrive: Street view generation with diverse 3d geometry control. arXiv preprint arXiv:2310.02601 , 2023. [10] Ruiyuan Gao, Kai Chen, Bo Xiao, Lanqing Hong, Zhenguo Li, and Qiang Xu. Magicdrive-v2: High-resolution long video generation for autonomous driving with adaptive control. arXiv preprint arXiv:2411.13807 , 2024. [11] Shenyuan Gao, Jiazhi Yang, Li Chen, Kashyap Chitta, Yihang Qiu, Andreas Geiger, Jun Zhang, 10 and Hongyang Li. Vista: A generalizable driv-ing world model with high fidelity and versatile controllability. In Advances in Neural Informa-tion Processing Systems (NeurIPS) , 2024. [12] Michal Geyer, Omer Bar-Tal, Shai Bagon, and Tali Dekel. Tokenflow: Consistent diffusion fea-tures for consistent video editing. arXiv preprint arXiv:2307.10373 , 2023. [13] Jiazhe Guo, Yikang Ding, Xiwu Chen, et al. Dist-4d: Disentangled spatiotemporal diffusion with metric depth for 4d driving scene gener-ation. Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV) , 2025. [14] Xiangyu Guo et al. Genesis: Multimodal driving scene generation with spatio-temporal and cross-modal consistency. arXiv preprint arXiv:2506.07497 , 2025. [15] Yoav HaCohen, Nisan Chiprut, Benny Bra-zowski, Daniel Shalem, Dudu Moshe, Eitan Richardson, Eran Levin, Guy Shiran, Nir Zabari, Ori Gordon, Poriya Panet, Sapir Weissbuch, Vic-tor Kulikov, Yaki Bitterman, Zeev Melumian, and Ofir Bibi. Ltx-video: Realtime video la-tent diffusion. arXiv preprint arXiv:2501.00103 ,2024. [16] Liu He et al. Kubrick: Multimodal agent collab-orations for synthetic video generation. arXiv preprint arXiv:2408.10453 , 2024. [17] Ziqi Huang, Yinan He, Jiashuo Yu, Fan Zhang, Chenyang Si, Yuming Jiang, Yuanhan Zhang, Tianxing Wu, Qingyang Jin, Nattapol Chan-paisit, et al. Vbench: Comprehensive bench-mark suite for video generative models. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 21807–21818, 2024. [18] Ziqi Huang, Fan Zhang, Xiaojie Xu, Yinan He, Jiashuo Yu, Ziyue Dong, Qianli Ma, Nattapol Chanpaisit, Chenyang Si, Yuming Jiang, et al. Vbench++: Comprehensive and versatile bench-mark suite for video generative models. arXiv preprint arXiv:2411.13503 , 2024. [19] Yishen Ji et al. Cogen: 3d consistent video generation via adaptive conditioning for autonomous driving. arXiv preprint arXiv:2503.22231 , 2025. [20] Junpeng Jiang, Gangyi Hong, Lijun Zhou, En-hui Ma, Hengtong Hu, Xia Zhou, Jie Xiang, Fan Liu, Kaicheng Yu, Haiyang Sun, et al. Dive: Dit-based video generation with enhanced control. 
+
+arXiv preprint arXiv:2409.01595 , 2024. [21] Seung Wook Kim, Jonah Philion, Antonio Tor-ralba, and Sanja Fidler. Drivegan: Towards a controllable high-quality neural simulation. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 5820–5829, 2021. [22] Diederik P Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114 , 2013. [23] Weijie Kong, Qi Tian, Zijian Zhang, Rox Min, Zuozhuo Dai, Jin Zhou, Jiangfeng Xiong, Xin Li, Bo Wu, Jianwei Zhang, et al. Hunyuanvideo: A systematic framework for large video genera-tive models. arXiv preprint arXiv:2412.03603 ,2024. [24] Bing Li, Cheng Zheng, Wenxuan Zhu, Jinjie Mai, Biao Zhang, Peter Wonka, and Bernard Ghanem. Vivid-zoo: Multi-view video gener-ation with diffusion model. Advances in Neu-ral Information Processing Systems , 37:62189– 62222, 2024. [25] Xiaofan Li, Yifu Zhang, and Xiaoqing Ye. Driv-ingdiffusion: Layout-guided multi-view driving scenarios video generation with latent diffusion model. In European Conference on Computer Vision , pages 469–485. Springer, 2024. [26] Yunxin Li et al. Anim-director: A large mul-timodal model powered agent for controllable animation video generation. SIGGRAPH Asia Conference Papers , 2024. [27] Zhiqi Li, Wenhai Wang, Hongyang Li, Enze Xie, Chonghao Sima, Tong Lu, Qiao Yu, and Jifeng Dai. Bevformer: learning bird’s-eye-view repre-sentation from lidar-camera via spatiotemporal 11 transformers. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2024. [28] Yi-Cheng Lin et al. Creativity in llm-based multi-agent systems: A survey. Proc. Empir-ical Methods in Natural Language Processing (EMNLP) , 2025. [29] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. [30] Fu-Yun Liu et al. Rectified diffusion: Straight-ness is not your need in rectified flow. Proc. International Conf. Learning Representations (ICLR) , 2025. [31] Jiwen Liu, Shujuan Li, Zhixue Fang, Xiao-han Li, Yan Zhou, Zijie Meng, Zhimin Zhang, Yawen Luo, Guoxin Zhang, Yu-Shen Liu, et al. Omnidirector: General multi-shot cam-era cloning without cross-paired data. arXiv preprint arXiv:2606.13432 , 2026. [32] Yichen Liu et al. Cvd-storm: Cross-view video diffusion with spatial-temporal reconstruction model for autonomous driving. arXiv preprint arXiv:2510.07944 , 2025. [33] Yufei Liu, Haoke Xiao, Jiaxing Chai, Yongcun Zhang, Rong Wang, Zijie Meng, and Zhiming Luo. Synpo: Boosting training-free few-shot medical segmentation via high-quality negative prompts. In International Conference on Med-ical Image Computing and Computer-Assisted Intervention , pages 594–603. Springer, 2025. [34] Enhui Ma, Lijun Zhou, Tao Tang, Zhan Zhang, Dong Han, Junpeng Jiang, Kun Zhan, Peng Jia, Xianpeng Lang, Haiyang Sun, et al. Unleash-ing generalization of end-to-end autonomous driving with controllable long video generation. 
+
+arXiv preprint arXiv:2406.01349 , 2024. [35] Jianbiao Mei, Tao Hu, Xuemeng Yang, Licheng Wen, Yu Yang, Tiantian Wei, Yukai Ma, Min Dou, Botian Shi, and Yong Liu. Dreamforge: Motion-aware autoregressive video generation for multi-view driving scenes. arXiv preprint arXiv:2409.04003 , 2024. [36] Zijie Meng. Decoupling semantics from distor-tions: Multi-scale two-stream vision-language alignment for ai-generated image quality assess-ment, 2026. URL https://arxiv.org/abs/ 2606.16799 .[37] Zijie Meng, Yuanze Zeng, Xiang Chang, Tian-shuo Xu, Fei Chao, Xixin Cao, Changjing Shang, and Qiang Shen. Orpaint: a zero-shot inpainting model for oracle bone inscription rub-bings with visual mamba block. Science China Information Sciences , 68(8):189102, 2025. [38] Zijie Meng, Jinming Che, Bingcai Wei, and Xixin Cao. Make a game: A novel paradigm for interactive game rendering. In ICASSP 2026-2026 IEEE International Conference on Acous-tics, Speech and Signal Processing (ICASSP) ,pages 1026–1030. IEEE, 2026. [39] Zijie Meng, Jiwen Liu, Yufei Liu, Chengzhuo Tong, Xiaoqiang Liu, Yuanxing Zhang, Yu-long Xu, and Pengfei Wan. Argus: Stacked multi-view identity mosaic injection for subject-preserving video generation. arXiv preprint arXiv:2606.11670 , 2026. [40] Chong Mou et al. T2i-adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. Proc. AAAI Conf. Artificial Intelligence (AAAI) , 2024. [41] Erik Reinhard, Michael Adhikhmin, Bruce Gooch, and Peter Shirley. Color transfer be-tween images. IEEE Computer Graphics and Applications , 21(5):34–41, 2001. [42] Lloyd Russell, Anthony Hu, Lorenzo Bertoni, George Fedoseev, Jamie Shotton, Elahe Arani, and Gianluca Corrado. Gaia-2: A con-trollable multi-view generative world model for autonomous driving. arXiv preprint arXiv:2503.20523 , 2025. [43] Marcelo Sandoval-Castaneda et al. Editduet: A multi-agent system for video editing. arXiv preprint , 2025. [44] Kunpeng Song et al. Directorllm for human-centric video generation. arXiv preprint arXiv:2412.14484 , 2024. 12 [45] Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, Jianyuan Zeng, Jiayu Wang, Jingfeng Zhang, Jingren Zhou, Jinkai Wang, Jixuan Chen, Kai Zhu, Kang Zhao, Keyu Yan, Lianghua Huang, Mengyang Feng, Ningyi Zhang, Pandeng Li, Pingyu Wu, Ruihang Chu, Ruili Feng, Shiwei Zhang, Siyang Sun, Tao Fang, Tianxing Wang, Tianyi Gui, Tingyu Weng, Tong Shen, Wei Lin, Wei Wang, Wei Wang, Wenmeng Zhou, Wente Wang, Went-ing Shen, Wenyuan Yu, Xianzhong Shi, Xiaom-ing Huang, Xin Xu, Yan Kou, Yangyu Lv, Yifei Li, Yijing Liu, Yiming Wang, Yingya Zhang, Yitong Huang, Yong Li, You Wu, Yu Liu, Yulin Pan, Yun Zheng, Yuntao Hong, Yupeng Shi, Yu-tong Feng, Zeyinzi Jiang, Zhen Han, Zhi-Fan Wu, and Ziyu Liu. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314 , 2025. [46] et al. Wang. Geniedrive: Towards physics-aware driving world model with 4d occupancy guided video generation. Proc. IEEE/CVF Conf. Com-puter Vision and Pattern Recognition (CVPR) ,2026. [47] Haiguang Wang, Daqi Liu, et al. Mila: Multi-view intensive-fidelity long-term video genera-tion world model for autonomous driving. arXiv preprint arXiv:2503.15875 , 2025. [48] Kaiyi Wang et al. Genmac: Compositional text-to-video generation with multi-agent collabora-tion. arXiv preprint arXiv:2412.04440 , 2024. [49] Qinghe Wang, Yawen Luo, Xiaoyu Shi, Xu Jia, Huchuan Lu, Tianfan Xue, Xintao Wang, Pengfei Wan, Di Zhang, and Kun Gai. Cine-master: A 3d-aware and controllable framework for cinematic text-to-video generation. In Pro-ceedings of the Special Interest Group on Com-puter Graphics and Interactive Techniques Con-ference Conference Papers , pages 1–10, 2025. [50] Xiaofeng Wang, Zheng Zhu, Guan Huang, Xinze Chen, Jiagang Zhu, and Jiwen Lu. Drive-dreamer: Towards real-world-drive world mod-els for autonomous driving. In European confer-ence on computer vision , pages 55–72. Springer, 2024. [51] Yuqi Wang, Jiawei He, Lue Fan, Hongxin Li, Yuntao Chen, and Zhaoxiang Zhang. Driving into the future: Multiview visual forecasting and planning with world model for autonomous driving. In Proceedings of the IEEE/CVF Con-ference on Computer Vision and Pattern Recog-nition , pages 14749–14759, 2024. [52] Bingcai Wei, Hui Liu, Chuang Qian, Zijian Li, Wangyu Wu, and Zijie Meng. Robust single image sand removal by leveraging uncertainty-aware sam priors and prompt learning with re-fined perceptual loss. In Proceedings of the 33rd ACM International Conference on Multimedia ,pages 4932–4941, 2025. [53] Yuqing Wen, Yucheng Zhao, Yingfei Liu, Fan Jia, Yanhui Wang, Chong Luo, Chi Zhang, Tian-cai Wang, Xiaoyan Sun, and Xiangyu Zhang. Panacea: Panoramic and controllable video gen-eration for autonomous driving. In Proceedings of the IEEE/CVF Conference on Computer Vi-sion and Pattern Recognition , pages 6902–6912, 2024. [54] et al. Wu. Hollywood town: Long-video genera-tion via cross-modal multi-agent orchestration. 
+
+arXiv preprint arXiv:2510.22431 , 2025. [55] Fan Wu et al. Ic-world: In-context genera-tion for shared world modeling. arXiv preprint arXiv:2512.02793 , 2025. [56] Wei Wu, Xi Guo, Weixuan Tang, Tingxuan Huang, Chiyu Wang, Dongyue Chen, and Chen-jing Ding. Drivescape: Towards high-resolution controllable multi-view driving video genera-tion. arXiv preprint arXiv:2409.05463 , 2024. [57] Yanhao Wu, Haoyang Zhang, Tianwei Lin, Lichao Huang, Shujie Luo, Rui Wu, Congpei Qiu, Wei Ke, and Tong Zhang. Generating mul-timodal driving scenes via next-scene prediction. In Proceedings of the Computer Vision and Pat-tern Recognition Conference , pages 6844–6853, 2025. 13 [58] Yangyang Xu, Jinpeng Hu, et al. Multiagentesc: A llm-based multi-agent collaboration frame-work for emotional support conversation. Proc. Empirical Methods in Natural Language Pro-cessing (EMNLP) , 2025. [59] Tianyi Yan, Dongming Wu, Wencheng Han, et al. Drivingsphere: Building a high-fidelity 4d world for closed-loop simulation. Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR) , 2025. [60] Xuemeng Yang, Licheng Wen, Yukai Ma, Jian-biao Mei, Xin Li, Tiantian Wei, Wenjie Lei, Daocheng Fu, Pinlong Cai, Min Dou, et al. Drivearena: A closed-loop generative simula-tion platform for autonomous driving. arXiv preprint arXiv:2408.00415 , 2024. [61] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi Hong, Xiaohan Zhang, Guanyu Feng, et al. Cogvideox: Text-to-video diffu-sion models with an expert transformer. arXiv preprint arXiv:2408.06072 , 2024. [62] Yining Yao, Xi Guo, Chenjing Ding, and Wei Wu. Mygo: Consistent and controllable multi-view driving video generation with camera con-trol. arXiv preprint arXiv:2409.06189 , 2024. [63] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV) , 2023. [64] Guosheng Zhao, Chaojun Ni, Xiaofeng Wang, Zheng Zhu, Xueyang Zhang, Yida Wang, Guan Huang, Xinze Chen, Boyuan Wang, Youyi Zhang, et al. Drivedreamer4d: World models are effective data machines for 4d driving scene rep-resentation. In Proceedings of the Computer Vi-sion and Pattern Recognition Conference , pages 12015–12026, 2025. [65] Guosheng Zhao, Xiaofeng Wang, Zheng Zhu, Xinze Chen, Guan Huang, Xiaoyi Bao, and Xin-gang Wang. Drivedreamer-2: Llm-enhanced world models for diverse driving video genera-tion. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 10412– 10420, 2025. [66] Guosheng Zhao et al. Drivedreamer-2: Llm-enhanced world models for diverse driving video generation. Proc. AAAI Conf. Artificial Intelligence (AAAI) , 2025. [67] Yehang Zhao et al. Long-video audio synthesis with multi-agent collaboration. arXiv preprint arXiv:2503.10719 , 2025. [68] Dian Zheng, Ziqi Huang, Hongbo Liu, Kai Zou, Yinan He, Fan Zhang, Yuanhan Zhang, Jingwen He, Wei-Shi Zheng, Yu Qiao, et al. Vbench-2.0: Advancing video generation benchmark suite for intrinsic faithfulness. arXiv preprint arXiv:2503.21755 , 2025. 14 Appendix A ARCHITECT Agent 
+
+The A RCHITECT converts a free-form user prompt 
+
+pusr (optionally paired with a multi-view reference image) into a length-bounded W ORLD SCRIPT JSON that drives all downstream generation. It is instanti-ated as a frozen Qwen2.5-VL-7B-Instruct [ 2 ] model served via vLLM with strictly deterministic decod-ing ( temperature =0 , top_p =1 , fixed seed), ensur-ing that the same prompt always produces the same WORLD SCRIPT for reproducibility. 
+
+A.1 WORLD SCRIPT Schema and Grammar 
+
+The W ORLD SCRIPT comprises four top-level fields: a global descriptor Gglobal , an ego-trajectory Eego , a set of dynamic agents {Oi}Ki=1 , and a map topology 
+
+Mmap . Each field is constrained to a closed value vo-cabulary designed to prevent hallucination and guar-antee parseable outputs. The formal grammar in ex-tended BNF is:                   
+
+> ⟨WS ⟩::= ⟨G⟩ ⟨E⟩ ⟨ ObjList ⟩ ⟨ M⟩⟨G⟩::= weather ∈ V wtod ∈ V tdensity ∈ V d
+> loc ∈ V l
+> ⟨E⟩ ::= intent ∈ V ekpts = [( x1, y 1), . . . ]
+> ⟨Oi⟩::= ( cls , x, y, l, w, h, θ, beh )
+
+where Vw = {clear, rain, snow, fog }, Vt =
+
+{day, dusk, night }, Vd = {sparse, medium, dense },
+
+Vl = {urban, suburban, highway, parking }, and 
+
+Ve = {straight, turn-left, turn-right, lane-change-l, lane-change-r, stop}. Object classes are drawn from the nuScenes [ 3] taxonomy (10 detection classes plus background), and behaviour labels are restricted to 
+
+{static, follow, cross, oncoming, parked, jaywalk }.The map descriptor Mmap encodes the lane-graph adjacency restricted to a 50 m radius. 
+
+A.2 Token Budget and Empirical Distribu-tion 
+
+The W ORLD SCRIPT is capped at Msem ≤ 77 tokens after WordPiece tokenisation. This budget is suffi-cient for the closed vocabulary: each Gglobal field requires 1–2 tokens, each trajectory keypoint 3–4 to-kens, and each agent 8–10 tokens. With a typical scene containing 8–15 agents and 4–6 keypoints, the median W ORLD SCRIPT length is 51 tokens across our validation split. Quality saturates around Msem = 64 
+
+(as shown by the diagnostic in the main paper), with no measurable improvement beyond 77 tokens. The embedding is produced by the frozen Qwen2.5-VL text head followed by a learnable linear projection 
+
+Wtxt ∈ Rdqwen ×d, yielding Csem ∈ RMsem ×d.
+
+A.3 Meta-Prompt and Output Determinism 
+
+The meta-prompt m contains three components: (i) the schema specification above, (ii) three in-context demonstrations sampled from the nuScenes 
+
+val mini split (covering urban-day, highway-night, and suburban-rain scenarios), and (iii) a guard clause that forces the agent to emit NULL for unsupported attributes rather than improvising free-form text. The guard clause is critical for preventing open-ended hallucination; without it, the model occasionally gen-erates plausible but ungrounded object descriptions that cannot be parsed by the C ARTOGRAPHER .
+
+> Design Note A.1. Output Reproducibility
+
+Across 1,000 replicate calls on the same prompt with identical random seeds, we observe 0 JSON schema violations and a token-level reproducibil-ity of 99.4%. The remaining 0.6% variance is attributable to floating-point non-determinism in the vLLM attention kernel, not to the model’s gen-erative behaviour. 
+
+A.4 LLM Choice Ablation and Cost Analy-sis 
+
+Replacing Qwen2.5-VL-7B with InternVL3-8B yields nearly identical metrics (∆FVD <1.0,
+
+∆mAP <0.3); GPT-4o further reduces FVD by ∼0.6
+
+at approximately 10 × the latency and without local reproducibility guarantees. We default to the local Qwen model for deterministic, cost-free, and fully reproducible generation. The amortised cost of the ARCHITECT is 0.024 s per prompt on a single H200 GPU, which is negligible relative to the denoiser’s 
+
+9.6 s per clip. 15 B CARTOGRAPHER Agent 
+
+The C ARTOGRAPHER grounds the symbolic W ORLD -SCRIPT into pixel-aligned geometry. For each camera–time pair (n, t ) with n ∈ { 1, . . . , N } and 
+
+t ∈ { 1, . . . , T }, it renders a sparse layout image 
+
+Igeo  
+
+> n,t
+
+∈ RH×W ×3. This section provides the full ren-dering pipeline, the Plücker-ray derivation for camera conditioning, and the GPU-batched implementation. 
+
+B.1 HD-Map Rasterisation under Arbitrary Extrinsics 
+
+Lane boundaries, drivable areas, and crosswalk poly-gons from Mmap are first rasterised onto a BEV canvas centred at the ego position. Each semantic class is assigned a fixed colour: lanes ■ (RGB 21,101,192), drivable area ■ (RGB 46,125,50), crosswalk ■ (RGB 198,40,40). The BEV polygons are then forward-warped into camera n’s image plane via the ground-plane homography. For a point X = [ x, y, 0, 1] ⊤ on the road surface, the projection is: 
+
+λ
+
+
+
+uv
+
+1
+
+ = Kn
+
+r1 r2 tn
+
+
+
+xy
+
+1
+
+ ≜ Hn
+
+
+
+xy
+
+1
+
+ , (8) where Kn ∈ R3×3 is the intrinsic matrix, r1, r2 are the first two columns of the rotation matrix Rn, and 
+
+tn is the translation. The 3 × 3 homography Hn
+
+maps ground-plane coordinates directly to pixel coor-dinates, enabling efficient polygon rasterisation with-out per-point depth computation. 
+
+B.2 3-D Bounding Box Projection 
+
+Each object Oi = ( cls , x, y, l, w, h, θ, beh ) defines a 3-D bounding box. Its eight corners in world coordi-nates are: 
+
+ck = Rz (θ) bk + [ x, y, h/ 2] ⊤, k = 1 , . . . , 8, (9) where bk ∈ {± l/ 2} × {± w/ 2} × { 0, h } are the canonical corners and Rz (θ) is the yaw rotation. Each corner is projected into camera n via the full perspec-tive model: 
+
+uk = π(Kn, R n, tn, ck) = Kn
+
+Rnck + tn
+
+(Rnck + tn)z
+
+.
+
+(10) Visible edges are determined by the outward-facing normal test: an edge connecting corners on face f is drawn only if the face normal ˆnf satisfies ˆnf ·dn > 0,where dn is the camera’s viewing direction at the face centroid. Each class uses a distinct outline colour and line width. 
+
+B.3 Ego-Trajectory Ribbon 
+
+The ego trajectory Eego is interpolated with a cubic spline to produce a smooth path, then rendered as a 0.4 m-wide ribbon alpha-blended beneath the dy-namic agents. The ribbon is projected from BEV to each camera using the same homography Hn and drawn with a white-to-orange gradient indicating the temporal direction. 
+
+B.4 Plücker-Ray Camera Conditioning 
+
+Per-camera extrinsics are summarised as a 6-D Plücker ray (dn, mn) ∈ R6, where dn =
+
+R⊤ 
+
+> n
+
+[0 , 0, 1] ⊤ is the unit optical-axis direction in world coordinates and mn = on × dn is the moment, with 
+
+on = −R⊤ 
+
+> n
+
+tn being the camera centre. The Plücker representation is well-known to be a complete char-acterisation of oriented lines in 3-D [ 1 , 24 ]: two rays (d, m) and (d′, m′) are coplanar if and only if d · m′ + d′ · m = 0 . The ray is embedded by a two-layer MLP with GELU activation: 
+
+ccam  
+
+> n
+
+= W2 σ(W1[dn; mn] + b1) + b2 ∈ Rd, (11) and concatenated into Csem alongside the text tokens. This provides the MM-DiT with explicit awareness of each camera’s viewpoint without modifying the visual token sequence. 
+
+B.5 Computational Profile 
+
+The entire rendering pipeline is GPU-batched: HD-map warping uses a custom CUDA kernel, 3-D box rasterisation is implemented as a Triton kernel, and ego-ribbon drawing uses standard PyTorch differen-tiable rendering. The amortised cost is 3.1 ms per camera-frame on a single H200 GPU, i.e. <0.6% of the denoiser pass. For a 6-camera, 32-frame clip, the total rendering time is 6 × 32 × 3.1ms = 0 .60 s, fully overlapped with VAE encoding. 16 C AUDITOR Agent 
+
+The A UDITOR closes the agentic loop by providing cross-view critique signals during training and op-tional test-time correction at inference. After each diffusion sample, it consumes the decoded multi-view crops together with the W ORLD SCRIPT and produces a structured critique R = {(rij , a ij )}i<j .
+
+C.1 Critique Schema 
+
+For each pair of cameras (i, j ) observed at the same physical instant, the A UDITOR produces: (a) a consistency score rij ∈ [0 , 1] , where 1 indicates perfect cross-view coherence and 0 indicates se-vere inconsistency; and (b) a failure-mode tag 
+
+aij ∈ {color_drift , ghost , topology_misalign ,
+
+exposure_mismatch , none }. With N = 6 cameras, this yields  62
+
+ = 15 critique tokens per physical timestamp. The scores are embedded via a learned linear projection and positional encoding into review tokens Crev ∈ R15 ×d, which participate in the MM-DiT’s attention alongside the visual and conditioning tokens. The A UDITOR loss is: 
+
+Lrev = X
+
+> i<j
+
+(1 − rij )∥∆vij ∥22, (12) where ∆vij = v(i) 
+
+> θ
+
+− v(j) 
+
+> θ
+
+is the velocity disagreement between views i and j at the same physical instant. The weighting by (1 − rij ) ensures that the loss is strongest for pairs judged to be most inconsistent, while pairs with high scores ( rij ≈ 1) contribute negligibly. 
+
+C.2 Calibration Against Human Annota-tions 
+
+We collected 1,200 adjacent-view pairs across 200 nuScenes [ 3] validation scenes, each annotated by three human raters on a 5-point Likert scale (1 = se-vere inconsistency, 5 = perfect coherence). After lin-ear rescaling to [0 , 1] , the A UDITOR ’s automated rij 
+
+achieves Pearson ρ = 0 .71 and Spearman ρ = 0 .68 
+
+against the human median, with inter-rater agreement 
+
+κ = 0 .62 (Fleiss). This level of agreement is com-parable to the agreement between individual human raters ( κ = 0 .66 ), suggesting that the A UDITOR cap-tures a substantial fraction of the perceptual consis-tency signal. 
+
+C.3 False-Positive Sensitivity Analysis 
+
+To assess robustness, we injected synthetic label flips into the A UDITOR ’s output at rates {0.1, 0.2, 0.3}.The resulting PC degradation is bounded: −0.4 pt at flip rate 0.1, −0.9 pt at 0.2, and −1.4 pt at 0.3. This graceful degradation is attributable to the (1 −
+
+rij ) weighting in Lrev , which naturally down-weights uncertain or erroneous critiques. Even at 30% label noise, the system retains > 90% of the A UDITOR ’s consistency benefit. 
+
+C.4 Test-Time Correction Loop 
+
+At inference, the A UDITOR may be optionally in-voked on intermediate denoising samples. If the mean consistency score ¯rij = 2  
+
+> N(N−1)
+
+P 
+
+> i<j
+
+rij falls below a threshold τ = 0 .55 , a single additional denoiser pass is triggered with the review tokens embedded at increased gain. This tightens PC by +0 .8 pt at the cost of one extra denoiser pass ( +4 .8 s). We report the non-corrected variant in all main tables for fairness. 
+
+# D Latent Co-Compression: Cor-related Noise and View-Block-Aware Padding 
+
+This section provides the formal treatment of the two co-compression mechanisms—correlated noise ini-tialisation and view-block-aware padding (VBP)— that jointly enforce cross-view consistency within the 3-D VAE. 
+
+D.1 Correlated Noise Initialisation 
+
+For each physical time index t, the rectified-flow noise endpoint is shared across all N = 6 cameras: 
+
+z(n,t )1 = z(n′,t )1 ∀ n, n ′ ∈ { 1, . . . , N }. (13) This affects only the initial condition of the deter-ministic ODE dzs/ds = vθ(zs, s, c), integrated from 
+
+s = 1 to s = 0 . Since the marginal law of z1 at 
+
+s = 1 remains the standard Gaussian—the constraint in Eq. (13) is a coupling, not a marginal change—the 17 Table 10: Cross-view photometric variance (px 2)under independent vs. shared noise endpoints.                 
+
+> s0.95 0.90 0.80
+> σ20(independent) 0.62 0.41 0.21
+> σ2
+> c(shared) 0.31 0.22 0.13 Ratio σ2
+> c/σ 200.50 0.54 0.62
+
+asymptotic distribution implied by the flow-matching objective [29, 30] is unchanged.  
+
+> Proposition D.1. Unchanged Marginal Distribution
+
+Let z1 ∼ N (0, I) be the noise endpoint sampled once per physical instant and shared across N
+
+views. The marginal distribution of each camera’s endpoint z(n,t )1 remains N (0, I). Only the joint distribution p(z(1 ,t )1 , . . . , z(N,t )1 ) is modified from a product of N independent Gaussians to a de-generate distribution concentrated on the diagonal 
+
+z(1 ,t )1 = · · · = z(N,t )1 .The practical consequence is cross-view variance reduction. Let σ20 (s) and σ2 
+
+> c
+
+(s) denote the empirical cross-view photometric variance at integration time s
+
+under independent and shared endpoints, respectively. Since the velocity field vθ is Lipschitz-continuous and the ODE is integrated backwards, the leading-order variance is governed by the endpoint. We measured on 200 nuScenes validation scenes: The ∼50% variance reduction at s ≈ 1 confirms the theoretical prediction. The benefit gradually di-minishes as s → 0 because the velocity field pro-gressively overwrites the endpoint signal with learned structure, but the initial reduction propagates through the integration and yields measurable PC improve-ment. 
+
+D.2 View-Block-Aware Padding: Formal Definition 
+
+The view-time permutation Π : (n, t ) 7 → ˜t =(n − 1) T + t flattens the N ×T camera-time grid into a pseudo-temporal stream of length ˜T = N T . The HunyuanVideo 3-D VAE [ 23 ] uses CausalConv3D layers with temporal kernel width rt = 3 at the high-est spatial resolution. With N = 6 cameras, rt < N ,so the first-layer receptive field touches at most three Table 11: Kernel-by-kernel VBP diagnostic. Effec-tive temporal reach r(ℓ) 
+
+> t
+
+at each encoder layer and the masking action.                      
+
+> Layer ℓr(ℓ)
+> tCrosses boundary? VBP action 13No ( 3<6)None needed 26Yes ( 6 = N)Mask bound-ary slots 312 Yes ( 12 >N)Mask bound-ary slots 424 Yes ( 24 >N)Mask bound-ary slots
+
+adjacent views at the same physical instant. However, deeper layers downsample temporally by a factor of 2, expanding the effective receptive field to: 
+
+r(ℓ) 
+
+> t
+
+= rt · 2ℓ−1 = 3 · 2ℓ−1. (14) For ℓ ≥ ⌈log 2(N/r t)⌉ + 1 = 2, the receptive field r(ℓ) 
+
+> t
+
+≥ 6 would straddle a view boundary in pseudo-time. We prevent this with a view-block-aware padding (VBP) mask applied element-wise to every 3-D convolutional kernel: VBP (W )˜t,c,h,w =
+
+(
+
+0, ˜t mod T ∈ [T −⌊ rt/2⌋, T )
+
+W˜t,c,h,w , otherwise (15) ensuring that no weight sees both the last ⌊rt/2⌋
+
+pseudo-time slots of view n and the first slot of view 
+
+n + 1 . This prevents the encoder from mixing fea-tures across view boundaries where spatial content is discontinuous. 
+
+> Remark D.1. VBP Complexity Overhead
+
+VBP adds zero parameters and negligible compu-tation: it is implemented as a static binary mask applied once per kernel at model initialization. The masking zeros out at most ⌊rt/2⌋ temporal positions per kernel, reducing the effective kernel size by ∼17% at boundary slots while leaving in-terior slots unchanged. The inference overhead is unmeasurable ( <0.01 ms per forward pass). The VBP mechanism is validated empirically in the main paper’s diagnostic sweep: without VBP, in-18 creasing the temporal kernel width rt beyond N = 6 
+
+causes a ∼6 pt PC collapse, which VBP fully repairs. 
+
+# E Metric Definitions and Evaluation Protocol 
+
+All metrics follow the VBench [ 17 ], VBench++ [ 18 ], and VBench-2.0 [ 68 ] evaluation protocols unless oth-erwise noted. We group them into three categories. 
+
+E.1 Image- and Video-Level Fidelity 
+
+FID (Fréchet Inception Distance) measures the distri-butional gap between real and generated images using InceptionV3 features, computed via the clean-fid 
+
+library. PSNR and SSIM are computed per camera-frame against the ground-truth nuScenes frames when available. IQ (Image Quality) is the VBench per-frame aesthetic quality score. FVD (Fréchet Video Distance) is computed with the I3D backbone over 16-frame sliding windows, then averaged. TF (Tempo-ral Flickering) measures inter-frame consistency via warped SSIM; AQ (Aesthetic Quality) is the VBench global aesthetic score; Div. (Diversity) measures the LPIPS variance across independently generated sam-ples from the same prompt. 
+
+E.2 Multi-View Consistency 
+
+SC (Subject Consistency), MS (Motion Smooth-ness), PC (Pose Consistency), BC (Background Consistency), and OC (Overall Consistency) follow VBench++ by scoring each generated view indepen-dently and averaging at matching timestamps. Our two novel pose-aware metrics operate on the overlap-ping fields of view of adjacent cameras (front/front-left and front/front-right, which have 70° FOV offset by 55° in nuScenes [3]): EPC = 1
+
+|B| 
+
+X
+
+> (p,q )∈B
+
+∥I(n)(p) − I(n+1) (q)∥1, (16) OFC = 1
+
+|B| 
+
+X
+
+> (p,q )∈B
+
+⟨ϕ(p), ϕ (q)⟩∥ϕ(p)∥∥ ϕ(q)∥ , (17) where B is the set of epipolar correspondences com-puted from ground-truth extrinsics using the funda-mental matrix Fn,n +1 , and ϕ denotes DINOv2 lo-cal features. EPC measures photometric alignment Table 12: Three-stage training curriculum.                                     
+
+> Stage 1 Stage 2 Stage 3
+> Iterations 300k 200k 300k Resolution 256 640 ×448 Mixed ∗
+> Frames 16 16 16 / 32 Controls Csem +Cgeo +Crev
+> Objective LCFM +λsm Lsm Full L
+> λsm –0.05 0.05
+> λrev ––0.1 Eff. batch 128 64 32 Peak LR 1×10 −45×10 −52×10 −5
+> Schedule Cosine Cosine Cosine Warmup 5k 2k 2k
+> ∗Mixed: 640 ×448 (70%) and 1280 ×880 (30%)
+
+(lower is better); OFC measures semantic feature alignment (higher is better). 
+
+E.3 Controllability 
+
+mAP and mIoU are obtained by running a pre-trained BEVFormer-S [ 27 ] on the generated clips with ground-truth annotations from the conditioning WORLD SCRIPT . BEVFormer-S uses 6 encoder layers with grid-shaped BEV queries, spatial cross-attention, and temporal self-attention. We use the official pre-trained checkpoint without any fine-tuning to ensure fair comparison. Scene and AS (Aesthetic Scene) follow VBench-2.0 [ 68 ] definitions. For the down-stream experiment (training BEVFormer-S on syn-thetic data), we use identical optimiser settings and augmentation for all training corpora. 
+
+# F Training Curriculum and Hyper-parameters 
+
+The backbone is initialised from SD3 [ 7] and trained exclusively on nuScenes [ 3] at 1280 × 880 with 32 frames on 32 H200 GPUs (140 GB HBM3 each). The three-stage curriculum progressively activates the con-ditioning streams; Table 12 summarises all stage-wise hyperparameters. 
+
+Token dropout. During Stages 2–3, each con-ditioning sub-stream is independently dropped with 19 Table 13: Per-camera quality breakdown.                                 
+
+> Camera FID ↓FVD ↓PC ↑SSIM ↑
+> Front 6.85 38.2 68.4% 0.89 Front-Left 7.42 42.6 66.8% 0.88 Front-Right 7.38 41.9 66.5% 0.88 Back 10.24 55.8 62.1% 0.84 Back-Left 8.95 50.4 63.7% 0.86 Back-Right 9.22 51.6 63.2% 0.85
+> Average 8.01 45.75 65.6% 0.87
+
+probability pdrop = 0 .1 to enable classifier-free guid-ance at inference. When a stream is dropped, its tokens are replaced with learned null embeddings of the same shape. 
+
+VAE fine-tuning. We fine-tune only the last two residual blocks of the HunyuanVideo 3-D VAE [ 23 ]on view-time-permuted nuScenes footage. Since the permutation Π only re-orders indices, the remain-ing weights transfer verbatim. The optimisation con-verges in ∼5k iterations with LR 2 × 10 −5 and batch size 16. 
+
+Inference. At test time, we integrate the rectified-flow ODE from s = 1 to s = 0 in K = 2 Heun (predictor–corrector) steps. A one-shot photometric matching pass (Appendix I) aligns overlapping fields of view. The total inference time is 9.6 s per 6-camera, 32-frame clip on a single H200 GPU. 
+
+# G Extended Experimental Tables 
+
+G.1 Per-Camera FID/FVD Breakdown 
+
+Table 13 reports metrics stratified by camera. The front camera achieves the best fidelity (FID 6.85, FVD 38.2), consistent with its central position and richer training data distribution. Rear cameras show moder-ately higher error, partly due to less diverse training views and heavier motion blur. 
+
+G.2 Weather and Scene-Type Stratification 
+
+Performance degrades predictably under adverse con-ditions (rain, fog, night), which have fewer training examples and more ambiguous geometry. Urban scenes benefit from richer semantic structure for the ARCHITECT to ground. Table 14: Stratification by weather and scene type.                            
+
+> Condition FVD ↓PC ↑mAP ↑
+> Weather
+> Clear / Day 41.2 67.8% 23.1 Clear / Night 48.6 63.4% 19.8 Rain 52.3 61.2% 18.4 Fog 55.1 59.8% 17.2
+> Scene Type
+> Urban 43.8 66.1% 22.4 Suburban 46.2 65.0% 21.1 Highway 44.5 66.9% 20.8 Parking 51.7 62.8% 19.3
+
+# H Human Study 
+
+H.1 Protocol 
+
+We conducted a pairwise human evaluation compar-ing O MNI DRIVE against three baselines (MagicDrive-V2 [ 10 ], UniMLVG [ 4 ], GAIA-2 [ 42 ]) on 200 nuScenes validation prompts. For each pair, anno-tators viewed two six-camera video grids side by side and judged three dimensions: Visual Quality (overall fidelity and realism), Cross-View Consistency (ge-ometric and photometric coherence across cameras), and Control Accuracy (adherence to the specified WORLD SCRIPT conditions). Twenty annotators each evaluated 60 comparison pairs; presentation order was randomised to prevent positional bias. 
+
+H.2 Inter-Annotator Agreement and Results 
+
+Fleiss’ κ values are: 0.58 for Visual Quality, 0.64 for Cross-View Consistency, and 0.52 for Control Accuracy, indicating moderate-to-substantial agree-ment. Table 15 reports the Good/Same/Bad (GSB) percentages. OMNI DRIVE is preferred on Cross-View Consis-tency by a large margin (62–71% Good), consistent with the co-compression design. The strongest advan-tage is against MagicDrive-V2 (71.4% Good), which relies on cross-attention-based fusion and exhibits the photometric drift visible in the main paper’s qualita-tive comparison. 20 Table 15: Human GSB results (O MNI DRIVE vs. baselines).                          
+
+> Cross-View Overall Baseline GSBGSBMagicDrive-V2 71.4 14.2 14.4 63.2 18.6 18.2 UniMLVG 62.8 19.6 17.6 55.4 22.8 21.8 GAIA-2 66.2 16.8 17.0 58.6 20.4 21.0
+
+Table 16: Photometric correction ablation.           
+
+> Variant EPC ↓OFC ↑
+> No correction 0.148 0.681 Reinhard lαβ (ours) 0.132 0.703
+> Histogram matching (RGB) 0.139 0.692
+
+# I Photometric Correction 
+
+Adjacent nuScenes cameras have calibrated but slightly different spectral responses and exposure set-tings. Following Reinhard et al. [ 41 ], we apply a one-shot colour-statistics transfer in the perception-based lαβ colour space to align overlapping fields of view at inference. The transform converts each pixel from RGB to lαβ via RGB M1
+
+−−→ XYZ M2
+
+−−→
+
+LMS log 
+
+−−→ log-LMS M3
+
+−−→ lαβ , then matches the per-channel mean and standard deviation: 
+
+q′ 
+
+> c
+
+= σ(ref )
+
+> c
+
+σ(src )
+
+> c
+
+ qc − μ(src )
+
+> c
+
+ + μ(ref ) 
+
+> c
+
+(18) for each channel c ∈ { l, α, β }, where the reference statistics are computed from the front camera’s over-lap region. The corrected pixels are converted back to RGB and composited only within the overlapping field of view, leaving non-overlapping regions un-changed. The lαβ -based correction outperforms naive RGB histogram matching by exploiting the decorrelated colour space. 
+
+# J Additional Qualitative Results 
+
+Figures 9–10 show six representative 17-frame se-quences generated by OmniDrive under diverse con-ditions. Every mosaic is arranged with the rear right, front left, front, front right, rear left, rear cam-eras from top to bottom and chronological order left 
+
+Figure 8: Qualitative effect of View-Block-aware Padding (VBP) on adjacent-camera boundary re-gions. Top row (w/o VBP ): without boundary mask-ing, the 3-D convolutional kernels straddle the view boundary in pseudo-time, mixing features from adja-cent cameras and producing visible ghosting—the red inset shows that the van’s window is severely blurred, with structural details (window frame, interior reflec-tions) lost to cross-view feature leakage. Bottom row (w/ VBP ): applying the view-block-aware mask (Eq. 15) prevents any kernel from crossing the view boundary; the green inset reveals that the same region now faithfully reconstructs the van’s window with sharp edges, legible frame geometry, and coherent surface reflections. to right ( ∆t = 1 /12 s ). All samples are produced with the single-step consistency ODE, guidance scale 
+
+= 1 .5, and geometric weight γ=0 .8.Fig. 8 visualises the artefact that VBP is designed to eliminate. When temporal kernels at deeper en-coder layers ( r(ℓ) 
+
+> t
+
+≥ N , cf. Table 11) operate across a view boundary without masking, they effectively aver-age features from two spatially discontinuous camera frustums. The resulting latent encodes an incoherent superposition that the decoder renders as localised blur and ghosting—most pronounced on thin struc-tures such as window frames and specular surfaces that demand high-frequency detail. VBP zeroes out the boundary slots (Eq. 15), confining each kernel to a single view block and preserving the sharp high-frequency content visible in the corrected output. This qualitative observation is consistent with the ∼6 pt PC collapse measured in the main paper’s diagnostic sweep when VBP is disabled at rt ≥ 7.21 Back Right  Back  Back Left  Front Left  Front  Front Right      
+
+> Frame 1
+> Frame 5
+> Frame 9
+> Frame 13
+> Frame 17
+
+Figure 9: Daytime driving. Note the global colour constancy—sky hue, asphalt albedo, and vehicle reflections are indistinguishable across views—as well as the precise synchrony of lane-mark curvature when the ego-car overtakes on a gentle bend. 
+
+# K Formal Proofs 
+
+This section collects the formal statements and proofs of three properties stated informally in the main paper. 
+
+K.1 Lipschitz Invariance of Permuted En-coding 
+
+Theorem 1 (Lipschitz Invariance) . Let Eϕ :
+
+RN ×T ×C×H×W → R ˜T ′×H′×W ′×Cz be L-Lipschitz under the Frobenius norm, and let Π be the view-time permutation. Then Eϕ ◦ Π is also L-Lipschitz. Proof. The permutation Π reindexes the pseudo-temporal axis as ˜t = ( n−1) T +t without altering any element value. Let P be the permutation matrix such that vec (Π( x)) = P vec (x). Since P is a permuta-tion matrix, it is orthogonal: P ⊤P = I. Therefore, for any x, y:
+
+∥Eϕ(Π( x)) − Eϕ(Π( y)) ∥F
+
+≤ L∥Π( x) − Π( y)∥F
+
+= L∥P vec (x) − P vec (y)∥2
+
+= L∥vec (x) − vec (y)∥2 = L∥x − y∥F , (19) where the penultimate equality uses orthogonality. Thus Lip (Eϕ ◦ Π) = Lip (Eϕ) = L.This guarantees that the rectified-flow ODE on the permuted latent manifold Mz is well-posed and that few-step deterministic integration remains valid with the same error bounds as unpermuted encoding. 
+
+K.2 Variance Reduction Bound 
+
+Theorem 2 (Cross-View Variance Reduction) . Con-sider k ≤ rt views at the same physical instant t,with latent representations z1, . . . , zk having com-mon mean μ and per-view variance σ2
+
+> inter
+
+. A convo-lutional kernel with normalised weights w1, . . . , w k
+
+(P 
+
+> i
+
+wi = 1 ) produces output ¯z = Pki=1 wizi. As-suming zero cross-view correlation in the deviation 
+
+zi − μ:Var [¯ z] = 
+
+> k
+
+X
+
+> i=1
+
+w2 
+
+> i
+
+σ2 
+
+> inter
+
+≥ 1
+
+k σ2
+
+> inter
+
+, (20) 
+
+with equality when wi = 1 /k for all i.Proof. By the zero-correlation assumption, Var [¯ z] = P 
+
+> i
+
+w2 
+
+> i
+
+σ2
+
+> inter
+
+. By Cauchy–Schwarz, P 
+
+> i
+
+w2 
+
+> i
+
+≥  
+
+> (P
+> iwi)2
+> k
+
+= 1 
+
+> k
+
+, with equality at wi = 1 /k . Substitut-ing gives the bound. Layer-wise empirical estimates yield ˆk ≈ 2.6 at layer 1 (three adjacent views with unequal but non-degenerate weights) and ˆk ≈ 1.8 at 22 Back Right  Back  Back Left  Front Left  Front  Front Right      
+
+> Frame 1
+> Frame 5
+> Frame 9
+> Frame 13
+> Frame 17
+
+Figure 10: Night-time urban boulevard. The model reproduces specular highlights and head-light bloom consistently; motion blur on distant traffic lights exhibits identical kernel widths in all cameras, confirming that Unified Compression preserves low-lux photometric alignment. layer 2 (after temporal downsampling reduces effec-tive overlap), predicting an aggregate ∼60% variance reduction, matched by the PC gain in the main paper’s consistency table. 
+
+K.3 Equivariance-Aware Smoothness 
+
+Theorem 3 (Affine-Motion Nullspace) .
+
+The equivariance-aware smoothness loss 
+
+Lsm = E˜t∥∇ (2) ˜t z(˜ t)0 ∥22, where ∇(2) ˜t z(˜ t)0 =
+
+z(˜ t+1) 0 − 2z(˜ t)0 + z(˜ t−1) 0 is the second-order dis-crete temporal difference, vanishes for affine latent motion z(˜ t)0 = a˜t + b.Proof. Substituting the affine form: 
+
+∇(2) ˜t z(˜ t)0 = ( a(˜ t+1) + b) − 2( a˜t + b)+ ( a(˜ t−1) + b)= a˜t + a + b − 2a˜t − 2b + a˜t − a + b
+
+= 0.
+
+Thus Lsm = 0 for affine motion. The loss penalises 
+
+only the non-affine (curvature) component of the latent trajectory, preserving smooth linear camera panning and steady ego motion while suppressing non-physical jumps (ghosting, teleportation). This is strictly weaker than a first-order smoothness penalty 
+
+∥∇ (1) ˜t z0∥2, which would also suppress linear motion and degrade scene dynamics. 
+
+Design Note K.1. Why Second-Order, Not First-Order 
+
+A first-order penalty ∥z(˜ t+1) 0 − z(˜ t)0 ∥2 would en-courage temporally static latents, suppressing all motion including physically plausible camera ego-motion. The second-order penalty preserves constant-velocity motion while penalising acceler-ation, which is the correct inductive bias for driv-ing videos where most motion is approximately linear over short time windows. 
+
+# L Reproducibility Checklist and Broader Impact 
+
+L.1 Reproducibility Checklist 
+
+• Code: Full training and inference code will be released upon acceptance. • Data: All experiments use the publicly available nuScenes dataset [3]; no proprietary data is used. • Compute: Training requires 32 ×H200 GPUs for 800k iterations ( ∼5 days). Inference runs on a single H200 at 9.6 s/clip. 23 • Determinism: All three LLM agents use determin-istic decoding (temperature=0, fixed seed). The rectified-flow ODE uses a fixed Heun solver with 
+
+K = 2 steps. • Hyperparameters: All hyperparameters are listed in Appendix F. No hyperparameter was tuned on the test set. • Seeds: All reported numbers are averaged over 3 random seeds unless otherwise stated. Standard de-viations are <0.3 FVD and <0.2% for consistency metrics. 
+
+L.2 Broader Impact 
+
+Synthetic driving data accelerate autonomous vehi-cle development by providing scalable, diverse, and controllable training scenarios that complement real-world data collection. However, generative driving models carry risks that must be acknowledged. First, high-fidelity synthetic data could be used to create misleading driving scenarios, potentially undermin-ing trust in real sensor data; we mitigate this by restricting generation to scenes paired with public nuScenes captures and inheriting nuScenes’ anonymi-sation pipeline. Second, models trained on synthetic data may develop systematic biases not present in real data (e.g., underrepresenting rare weather conditions or pedestrian behaviours); we recommend that any deployed system using O MNI DRIVE -generated data undergo a dedicated coverage and bias audit. Third, the efficiency of our K = 2 Heun solver brings gen-eration closer to real-time but remains insufficient for on-vehicle deployment ( 9.6 s vs. the <100 ms require-ment); we do not advocate using O MNI DRIVE for safety-critical decision-making without human verifi-cation. All LLM agents are run locally with determin-istic decoding, ensuring that no user prompts leave the training cluster, protecting user privacy. We release all code and model weights under an open licence to promote transparency and community scrutiny. 24

@@ -1,0 +1,468 @@
+Title: Transformer-Based Warm-Starting for Feasible and Optimal Terminal Approach to Tumbling Objects with Space Manipulators
+
+URL Source: https://arxiv.org/pdf/2606.17317v1
+
+Published Time: Wed, 17 Jun 2026 00:20:19 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Transformer-Based Warm-Starting for Feasible and Optimal Terminal Approach to Tumbling Objects with Space Manipulators 
+
+Yuji Takubo 1∗, Maximilian Adang 1∗ , Mac Schwager 1, and Simone D’Amico 1
+
+Abstract — Real-time trajectory generation for on-orbit robotic servicing is challenging due to the nonlinear coupling between spacecraft bus motion, manipulator dynamics, visi-bility cone, and trajectory-level safety constraints. This paper studies learning-based warm-starting for sequential convex programming (SCP) in the terminal approach of a space ma-nipulator toward a tumbling target. The proposed framework decomposes the problem into a system center-of-mass trans-lational planning stage and a coupled attitude–manipulator torque-allocation stage, and applies a causal transformer warm-start to the latter, which constitutes the dominant computational bottleneck. Linear and flow matching action decoders are compared under different action-chunking and training dataset sizes, and the resulting warm-starts are evaluated under both cost-optimal and feasibility projection using SCP. Across 300 held-out scenarios, the learned warm-start reduces the second-stage SCP iteration count by up to 28% and the runtime by 23% while preserving the final control-cost distribution. When the learned warm-starts are used for nonconvex fea-sibility projection, they nearly halve the runtime relative to cost-optimal SCP, while avoiding the catastrophic high-cost tail behavior observed when initialized heuristically. These results indicate that sequence-model warm-starts can improve both the computational efficiency and trajectory robustness of optimization-based terminal guidance for space manipulation. 
+
+I. I NTRODUCTION 
+
+Space manipulators, consisting of a spacecraft equipped with a robotic arm, are regarded as key enablers for future space logistics operations, including on-orbit servicing of non-cooperative objects and in-orbit assembly and manufac-turing. However, these missions pose substantially greater challenges than conventional rendezvous missions to coop-erative targets, primarily due to bus–arm dynamic coupling and the safety-critical nature of contact operations. This work focuses on the terminal approach from a safe waypoint to the near-docking state, immediately before pre-cise manipulator tracking of the docking port, under a free-flying setting [1] in which both the bus and manipulator are actuated. In this regime, guidance is naturally formulated as a nonlinear programming (NLP)-based optimal control problem over the coupled bus–manipulator dynamics and safety constraints [2], [3]. However, these problems are highly sensitive to the initial guess, where both converged optimality and solver runtime depend strongly on warm-start quality. Therefore, a high-quality warm-start is essential for onboard NLP-based motion planning.            
+
+> 1Department of Aeronautics and Astronautics, Stanford Univer-sity. Stanford, CA, 94305.
+
+{madang, ytakubo, schwager, damicos }@stanford.edu 
+
+> *Equal Contribution
+
+Among various approaches for warm-start trajectory gen-eration, learning-based sequence modeling has recently emerged as a promising direction [4], [5], [6], [7]. These models autoregressively generate state–action sequences con-ditioned on task context, trajectory history, and desired out-comes [8], and recent extensions further incorporate multi-modal inputs [9], [10]. Despite these advances, existing learning-based warm-starting methods have not been demon-strated on a scenario of a 3D orbital space-manipulator terminal approach that simultaneously includes relative or-bital motion, tumbling-target attitude synchronization, bus– arm dynamic coupling, rotating safety, and visibility cone constraints for perception-aware control. This combination makes direct full-state optimization expensive and makes heuristic initialization unreliable for onboard use. To this end, this paper presents a transformer-based autore-gressive warm-starting framework for the nonconvex trajec-tory optimization [4], [11]. The contributions are summarized as follows:  
+
+> •
+
+A causal transformer (CT) warm-starting framework is developed for a 3D orbital space-manipulator terminal approach involving a tumbling target, coupled attitude– manipulator dynamics, rotating safety, and visibility cone constraints.  
+
+> •
+
+The learned warm start is integrated into the computa-tionally dominant second stage of a two-stage sequential convex programming (SCP) pipeline [12]. Statistical experiments show that it reduces SCP iterations by up to 28% and runtime by 23%, while preserving the optimized control cost distribution.  
+
+> •
+
+The learned warm start is further evaluated within an SCP-based trajectory generation that focuses on the fast projection to the adjacent feasibility domain. This sub-stantially reduces runtime relative to optimality-oriented SCP, while avoiding the high-cost feasible-trajectory tails observed with heuristic warm-starting. II. R ELATED WORKS 
+
+A. Spacecraft Manipulator Motion Planning 
+
+The guidance and control of space manipulators is a broad field, commonly organized by operational phase and by assumptions on spacecraft bus actuation [13], [14]. In particular, the terminal approach phase is commonly modeled as an NLP-based trajectory optimization problem [15], [3] to ensure trajectory-wide feasibility, which cannot be guar-anteed by a locally feasible safety filter [16]. While bus–arm coupled dynamics is often adopted as the baseline model 
+
+> arXiv:2606.17317v1 [cs.RO] 15 Jun 2026
+
+[1], simultaneous optimization over full roto-translational bus actuation and joint motion generally becomes computation-ally prohibitive. One way to reduce the problem is to only focus on the manipulator torque and assume the bus does not actuate [15]. Similarly, the terminal guidance of the e.Deorbit mission assumes the perfect station-keeping of the spacecraft bus to the tumbling object’s body frame [17]. Another approach is to solve the translational and rotational motion planning sequentially. For example, [3] adopts a two-stage motion planning that sequentially solves the translational trajectory planning of the center-of-mass (COM) and later solves the internal torque allocation problem between the bus and arm. 
+
+B. Learned Warm-start for Trajectory Optimization 
+
+Generating a high-quality initial guess trajectory reliably and in real time for an NLP-based trajectory optimization is a recurring problem across aerospace and robotics. Among many methods, such as look-up table with clustering [15], a filter-based approach [18], whole trajectory prediction from boundary conditions [19], and tight-constraint pre-diction [20], policy-based action generation is shown to be a promising method [21], [22]. In particular, sequence modeling autoregressively generates actions or action chunks conditioned on the history of task context and observations, such as in decision-transformer-style offline reinforcement learning (RL), which is shown to perform well in many robotic and aerospace trajectory generation [4], [5]. A recent study applied sequence modeling-based warm starts to SCP for space manipulator trajectory generation [11]. However, the demonstrated setting is planar, low-dimensional, and based on static obstacle avoidance. The present work differs by considering a 3D orbital terminal approach problem in which the learned trajectory prior must initialize an SCP problem with rotating target-frame safety constraints and coupled attitude–arm dynamics. III. P RELIMINARIES 
+
+This paper considers guidance and control for the termi-nal approach to an uncontrolled tumbling object using a space manipulator. In this work, the inertia properties and attitude/tumbling rate of the uncontrolled tumbling object are assumed to be completely characterized; consideration of the uncertainties [23] is out of the scope of this paper. The concept of on-orbit servicing operations is summarized in Fig. 1. First, the servicer approaches the tumbling target from a standby orbit (1) and enters a circumnavigation phase while maintaining safe separation (2). Upon completion of safe inspection, the servicer performs an approach toward the waypoint (the yellow diamond in Fig. 1), and synchro-nizes its attitude with the target (3). At this stage, passive safety may be compromised, and alternative safety measures (e.g., active abort safety) must be implemented. Finally, the terminal approach (4) is conducted from the waypoint a few meters away to the capture point (the orange point in Fig. 1). Until the terminal approach phase, the servicer is typically modeled as a rigid body with the manipulator held fixed. In the final leg, however, both the spacecraft bus and manipulator are actuated as a coupled multibody system to enable flexible capture at the docking port. 
+
+Fig. 1: Concept of operations for the on-orbit servicing and docking to a tumbling object in the target-centered Radial-Tangential (RT)-plane. 
+
+A. State Representation and Dynamics 
+
+This work considers a spacecraft equipped with a serial manipulator composed of Nl rigid links connected by 1-DOF revolute joints [1]. The generalized coordinates and generalized velocity are defined as η = [ r⊤, q⊤, α⊤]⊤ ∈
+
+R7+Nl , ν = [ v⊤, ω⊤, ˙α⊤]⊤ ∈ R6+Nl , where r ∈ R3 and v ∈ R3
+
+denote the bus position and velocity in the target-centered Radial–Tangential–Normal (RTN) frame, q ∈ S3 and ω ∈
+
+R3 denote the bus attitude quaternion and angular velocity resolved in the target-centered RTN frame, and α ∈ RNl and ˙α ∈ RNl denote the joint angles and joint rates, respectively. The coupled bus–arm dynamics are written as [1]             
+
+> ˙η=G(η)ν,(1a)
+> H(η)˙ν+C(η,ν)ν=u+Qorb ,(1b)
+
+where G(η) is the kinematic mapping, H(η) is the general-ized inertia matrix, C(η, ν) is the Coriolis/convective matrix, 
+
+u = [ f⊤, τ⊤ 
+
+> 0
+
+, τ⊤ 
+
+> m
+
+]⊤ denotes the commanded bus translational force, bus torque, and joint torque, respectively, and Qorb 
+
+denotes the generalized forcing induced by the relative orbital dynamics under the Keplerian assumption. In implementation, ˙ν is computed using a numerical forward-dynamics routine, without explicitly forming the closed-form equations of motion [24]. At each integration step, the algorithm computes the manipulator kinematics, maps external and control wrenches to the entire system, propagates articulated inertias and bias loads from the end-effector (EE) side to the bus, solves for the bus acceleration, and then recovers the joint accelerations through a forward recursion. The Hill–Clohessy–Wiltshire (HCW) equation [25] is used to compute the relative orbital acceleration, evaluated at each component COM and at the system COM (cf. Fig. 1). The differential accelerations are then converted into body wrenches and injected into the recursive dynamics, while the system COM acceleration is added directly to the bus translational acceleration. The resulting continuous-time dynamics are discretized by forward Euler integration, yielding                     
+
+> xk+1=F(xk,uk),(2a)
+> xk= [ η⊤
+> k,ν⊤
+> k]⊤∈R13 +2Nl,uk= [ f⊤
+> k,τ⊤
+> 0,k,τ⊤
+> m,k]⊤∈R6+Nl.(2b)
+
+IV. M ETHODOLOGY 
+
+This section discusses the baseline formulation of the two-stage SCP formulation for the space manipulator trajectory optimization and the learning-based warm-starting using the CT. 
+
+A. Nonconvex Trajectory Optimization 
+
+The terminal approach trajectory generation problem can be cast as a nonconvex trajectory optimization problem, which is written as 
+
+min J (3a) s.t. xk+1 = F(xk, uk), ∀k ∈ Z1: N−1, (3b) 
+
+g(xk, uk) = 0, h(xk, uk) ≤ 0, ∀k ∈ Z1: N (3c) 
+
+where J is the objective function, g(xk, uk) is (nonconvex) equality constraints, and h(xk, uk) is (nonconvex) inequality constraints. While one could solve a full-state coupled tra-jectory optimization over {xk, uk} ∈ R19 +3Nl , the resulting problem size is prohibitive for onboard use. Exploiting the dynamic decoupling between the system COM translation, driven solely by the external forces fk, and the internal motion about the system COM, this paper instead adopts the sequential two-stage scheme of [3]: Stage 1 plans the system COM translational trajectory, and Stage 2 resolves the internal bus and manipulator motion that realizes this trajectory while steering the EE to the target. 
+
+1) System COM translational trajectory optimization: 
+
+The decision variables for the system COM motion planning are defined as x(1) 
+
+> k
+
+= r⊤ 
+
+> c,k
+
+v⊤
+
+> c,k
+
+⊤ ∈ R6, and u(1) 
+
+> k
+
+= fk ∈
+
+R3, where rc,k, vc,k ∈ R3 denote the system COM position and velocity in the target RTN frame, and fk is the net translational force. The nonconvex optimization problem of Stage 1 is formulated as       
+
+> min J1+J2(4a) s.t.J1=
+> N−1
+
+∑   
+
+> k=1
+> u(1)
+> k
+> ⊤
+> W1u(1)
+> k,(4b)
+> J2=
+> N−2
+
+∑                                  
+
+> k=1
+> 
+> u(1)
+> k+1−u(1)
+> k
+> ⊤
+> W2
+> 
+> u(1)
+> k+1−u(1)
+> k
+> 
+> ,(4c)
+> x(1)
+> 1=x(1)
+> init ,x(1)
+> N=x(1)
+> term ,(4d)
+> x(1)
+> k+1=F(1)
+> k
+> 
+> x(1)
+> k,u(1)
+> k
+> 
+> ,k∈Z1: N−1,(4e)
+> ∥u(1)
+> k∥∞≤fmax ,k∈Z1: N−1,(4f)
+> sd(rc,k,Ptk)≥δsafe ,k,k∈Z1: N−1.(4g)
+
+The objective of the problem is to minimize the weighted sum of the control effort with a penalty on smoothness. Eq. (4e) defines the discrete-time translational dynamics of the system COM, where Eq. (2a) reduces to the HCW equation with the zero-th order hold control input. The boundary condition and the maximum control input are defined in Eqs. (4d) and (4f), respectively. Finally, Eq. (4g) defines the safety constraint, which enforces a minimum clearance δsafe ,k between the servicer and the convex hull of the tumbling target. The constraint is written in terms of a signed-distance function. Here, Ptk denotes the time-varying keep-out geometry of the tumbling target, including its attitude and position, and sd (rc,k, Ptk) is the signed distance from the servicer’s system COM to this set. Details of the implementation are available in [3]. In particular, there are two phases of the minimum keep-out radius: the former is the maximum extension length from the system COM, and the latter is the radius based on the servicer’s final joint configuration. 
+
+2) Internal torque reconfiguration: Given the optimal translational trajectory x⋆(1) 
+
+> k
+
+, u⋆(1) 
+
+> k
+
+from Stage 1, Stage 2 optimizes the remaining internal torque allocation while enforcing the system COM to evolve along the pre-scribed trajectory, without introducing additional transla-tional control forces. The decision variables are x(2) 
+
+> k
+
+=
+
+q⊤ 
+
+> k
+
+, α⊤ 
+
+> k
+
+, ω⊤ 
+
+> k
+
+, ˙α⊤
+
+> k
+
+⊤ ∈ R7+2Nl and u(2) 
+
+> k
+
+= τ⊤
+
+> 0,k
+
+, τ⊤
+
+> m,k
+
+⊤ ∈
+
+R3+Nl . Accordingly, the nonconvex optimization problem of Stage 2 is cast as 
+
+> min
+> N−1
+
+∑                                                               
+
+> k=1
+> u(2)
+> k
+> ⊤
+> W3u(2)
+> k(5a) s.t.x(2)
+> 1=x(2)
+> init ,(5b)
+> x(2)
+> k+1=F(2)
+> x(2)
+> k,u(2)
+> k;x⋆(1)
+> k,u⋆(1)
+> k
+> 
+> ,k∈Z1: N−1,(5c)
+> ∥τ0,k∥∞≤τ0,max ,∥τm,k∥∞≤τm,max ,k∈Z1: N−1,(5d)
+> −αmax ≤αk≤αmax ,k∈Z1: N,(5e) ˆr⊤
+> d,kR(qk)ˆbbody ≥cos θfov ,k∈Z1: N.(5f)
+> αk=αpreset (k),˙αk=˙αpreset (k),k≥kpreset ,(5g)
+> ωN=ωterm ,(5h) ˆr⊤
+> g,NR(qN)ˆrbody ee =1,(5i)
+
+The objective is a weighted quadratic control cost. Eq. (5c) is a reduced form of Eq. (2a) conditioned on the optimized COM trajectory and corresponding control profile. Eq. (5d) bounds the control input magnitude, and Eq. (5e) defines the admissible joint angle range. Eq. (5f) enforces a pointing constraint, where the docking port must remain within the FOV cone centered on the surface normal of the face on which the arm is mounted (cf. green cone in Fig. 1), where ˆrd,k is the servicer-to-docking-port unit vector and ˆ bbody is the body-fixed boresight. Eqs. (5g) and (5h) prescribe the terminal joint profile and bus angular velocity, with the joint angles and rates constrained over the final steps to suppress rapid motion near capture. Finally, Eq. (5i) imposes the terminal attitude condition requiring the EE approach direction to be perpendicular to the docking port surface, where ˆ rg,N is the desired approach direction computed from the target’s tumbling state, ˆ rbody ee is the EE approach direction in the body frame, and R(q) maps from the servicer body frame to the target-centered RTN frame. 
+
+B. SCP and Heuristic Initialization 
+
+Both problems shown above are cast as NLPs. In this paper, these problems are solved via SCP [26], [27], which iteratively solves the convexified subproblem under the trust region constraint. The convexified subproblem optimizes the augmented Lagrangian function that penalizes the nonconvex constraint violation with the automatically updated trust region radius and the penalty weight. Furthermore, all vari-ables are scaled to the range [−1, 1] to improve numerical conditioning in the optimization solver. Since SCP requires a warm-start, heuristic initialization procedures are provided for both stages. First, for Stage 1, note that the only nonconvex constraint in this problem is the keep-out-zone constraint in Eq. (4g). Thus, a warm-start can be readily available by solving the convex problem without this safety constraint. For Stage 2, one way to heuristically initialize the problem is to make the reference trajectory such that the bus attitude tracks the target line of sight, the arm joints interpolate linearly to their terminal configuration, and the bus angular velocity / joint rates are recovered by finite-differencing the pose sequence. When solving the SCP with a warm-start, the first convex subproblem may face artificial infeasibility due to a strict trust region constraint [26]. To avoid this, if the first convex subproblem is infeasible, the trust-region radius is expanded until a feasible convex subproblem is obtained. This heuristic leads to near-100% SCP success across both heuristic and learning-based warm-starts, as demonstrated in the following results. Furthermore, the nonlinear dynamics are propagated using forward Euler integration in Stage 2. Since this integra-tion does not exactly preserve the unit-quaternion constraint, the quaternion is re-normalized at each nonlinear constraint evaluation before each linearization in the SCP iteration. 
+
+C. Conditional Behavior Cloning with Sequence Model 
+
+In this paper, the proposed learning-based warm-starting is applied only to the second-stage attitude–manipulator optimization. This choice follows from the structure of the two-stage formulation. Namely, Stage 1 has linear HCW dy-namics and a lower-dimensional state-control space, whereas Stage 2 involves nonlinear coupled bus–manipulator dynam-ics, recursive dynamics evaluation, and repeated Jacobian computation inside SCP. Therefore, the computational bot-tleneck arises primarily in Stage 2. To generate a high-quality warm-start, this paper uses sequence modeling for trajectory generation. Although sequence-modeling methods such as decision transformer (DT) have been applied to aerospace trajectory generation by conditioning on reward-to-go [8] or constraint-to-go 
+
+[4], this formulation is not directly suitable for the space manipulator problem considered here. In problems where the dominant nonconvexity stems from nonlinear coupled dynamics, as in Eq. (5), constructing a meaningful reward-to-go signal from a relaxed lower-bound problem requires an additional NLP solve and is generally impractical. Moreover, because the system is highly constrained, optimization-based data generation is the only practical means of obtaining physically meaningful trajectories. As a result, the available dataset is dominated by expert demonstrations (i.e., locally optimal trajectories) rather than trajectories spanning a broad range of rewards and constraint violations. The trajectory generation problem is therefore formulated as conditional behavior cloning, where the model predicts expert state-control trajectories conditioned on the task specification. The tokenized trajectory sequence is expressed as τ1: N =
+
+{ok, sk, ak}Nk=1, where each denotes the observation, state, and action, respectively. Accordingly, this paper defines the trajectory tokenization as             
+
+> τ1: N=
+> n
+> ttg ,{qtarg ,k,ωtarg ,k},{x⋆(1)
+> k,u⋆(1)
+> k},x(2)
+> k,a(2)
+> k
+> oNk=1,
+
+(6) where ttg is the time-to-go , which expresses the remaining time to the final epoch; {qtarg ,k, ωtarg ,k} denotes the tum-bling target’s attitude state resolved in the target-centered RTN frame; and {x⋆(1) 
+
+> k
+
+, u⋆(1) 
+
+> k
+
+} denotes the optimized system COM’s translational trajectory in Stage 1. As an additional sequential-prediction variant, we also consider action chunking [28]. Instead of predicting only the immediate control input, action chunking predicts an 
+
+H-step action sequence, which can improve temporal con-sistency over the rollout and has shown strong empirical performance in modern robotics [28]. For the single-step decoder, the action token is defined as ak = u(2) 
+
+> k
+
+, whereas for action chunking with chunk length H, it is defined as 
+
+ak = [ u(2)⊤ 
+
+> k
+
+, u(2)⊤ 
+
+> k+1
+
+, ..., u(2)⊤
+
+> k+H−1
+
+]⊤.Two decoder architectures are considered in this paper, as summarized in Fig. 2. 
+
+1) Linear Decoder: In the original implementation of DT [8], a linear layer is used as the decoder to recover the physical control input from the latent output from the CT: ˆak = Wθ hk + bθ , (7) where Wθ and bθ are the learnable parameters, and hk is the latent output from the CT. During the training, the loss function is set to a batched mean-square error, which is shown as 
+
+LLin =
+
+> B
+
+# ∑
+
+> b=1
+> N
+
+# ∑
+
+> k=1
+
+∥ˆx(b) 
+
+> k
+
+− x(b)
+
+> GT ,k
+
+∥2 + ∥ˆa(b) 
+
+> k
+
+− a(b)
+
+> GT ,k
+
+∥2, (8) where {ˆx(b) 
+
+> k
+
+, ˆa(b) 
+
+> k
+
+} are the predicted state and action, and the 
+
+{x(b)
+
+> GT ,k
+
+, a(b)
+
+> GT ,k
+
+} are the ground truth state and action sampled from the training data. 
+
+2) Flow matching Decoder: Recently, vision–language– action (VLA) models have increasingly adopted diffusion-and flow-based action decoders, motivated by their ability to represent nonlinear and multimodal continuous action distributions [29], [9]. In contrast to an affine action head that directly maps the transformer’s latent output to an action, flow matching learns a conditional velocity field that transports samples from a simple prior distribution to the action distribution in the dataset. At training, flow matching defines an interpolant 
+
+zτ = ( 1 − τ)z0 + τaGT ,k, z0 ∼ N (0, I), τ ∈ [0, 1], (9) and trains a conditional vector field vθ (zτ , τ, ht ) to match the corresponding transport velocity using the batched loss function 
+
+LFM =
+
+> B
+
+# ∑
+
+> b=1
+> N
+
+# ∑
+
+> k=1
+
+vθ (z(b,k) 
+
+> τ
+
+, τ, h(b) 
+
+> k
+
+) −
+
+
+
+a(b) 
+
+> k,GT
+
+− z(b,k)
+
+> 0
+
+ 2
+
+. (10) At inference, an action sample is generated by initializing 
+
+z(0) ∼ N (0, I) and integrating the learned ordinary differ-ential equation (ODE) 
+
+dz (τ)
+
+dτ = vθ (z(τ), τ, hk), ˆak = z(1). (11) (a) Linear Decoder (b) Flow Matching Decoder 
+
+Fig. 2: Variants of the causal transformer (CT) architectures. TABLE I: Servicer and target spacecraft configuration.                                                                          
+
+> Servicer Target
+> Property Value Property Value Mass 500 kg Mass 50 kg Dim. 1.0×1.0×1.0 m Dim. 0.8×0.8×0.4 m Inertia (83 .3,83 .3,83 .3)kg m 2Inertia (2.5,3.0,2.0)kg m 2
+> Link mass 10 kg each ˆbbody [0,0,1]⊤
+> Link length {0.75 ,0.75 ,0.30 }mTumble ≤10 −3rad/s/axis
+> αmax [π,π/2,1.75 ]⊤rad Attitude random SO(3)
+> fmax 2.5 N Orbit ( a)6,800 km
+> τ0,max ,τm,max 5·10 −3N m Orbit ( e)10 −3
+> δsafe ,k1.85 m (tk≤0.7tf)Orbit ( i)97 ◦
+> 1.46 m (0.7tf<tk)W1,W2I3,0.03 I3
+> θfov 20 ◦W3diag (0.5I3,I3)
+
+The following section evaluates whether even a small number of ODE integration steps can improve sample efficiency relative to a conventional linear action decoder. V. R ESULTS 
+
+This section evaluates the proposed learning-based warm-start on a terminal approach case study for a space manipu-lator. 1 The experiments address three questions: (i) whether the learned warm-start reduces Stage 2 SCP iterations and runtime while preserving solution quality, (ii) how decoder choice, action chunking, and dataset size affect warm-start performance, and (iii) whether the learned warm-start re-mains beneficial when SCP is used as a feasibility projector rather than an optimality-oriented solver. 
+
+A. Implementations 
+
+The configuration of the spacecraft servicer and tumbling object is summarized in Table I. Specifically, the servicer is equipped with a Nl = 3 linked arm with revolute joints. The tumbling spacecraft is in a low Earth orbit and has a geometry of an 80 × 80 × 40 cm box, where the docking port is located at the face center of the +z-direction. The total transfer time is set to t f = 1, 200s, with the time discretization of N = 60. To generate a training dataset, the two-stage SCP with the heuristic warm-start strategy is employed, and only the 
+
+> 1All scripts are implemented in Python using JAX-based automatic dif-ferentiation and just-in-time (JIT) compilation. Computations are performed on a workstation equipped with an NVIDIA GeForce RTX 4090 GPU and an AMD Ryzen 9 7950X 16-Core CPU.
+
+locally optimal solutions are collected. To promote general-ization, each training scenario is generated by independently sampling the initial conditions from uniform distributions. The servicer is initialized at a nominal 5 m standoff along the line-of-sight to the grapple point to avoid the unrealistic and ill-posed geometry, with a positional offset drawn from 
+
+δ rRTN ∼ Unif [±1, ±1, ±2] m, and an initial RTN velocity sampled per axis as v0,i ∼ Unif [−5 · 10 −3, 5 · 10 −3] m/s. The servicer’s initial attitude is set deterministically to point toward the target center of mass, and the arm starts from a fixed joint configuration α0 = ( −π/9, π/5, 0) rad. Fig. 3 illustrates a sample trajectory that is optimized with the two-stage SCP pipeline. As discussed in Sec. IV, this paper applies the learning-based warm-start only to the second-stage attitude– manipulator SCP. This design choice is motivated by the computational structure of the two-stage pipeline: the first-stage system COM planner has low-dimensional linear HCW dynamics, whereas the second-stage problem requires re-peated propagation and linearization of the nonlinear coupled bus–manipulator dynamics. To empirically verify this bottle-neck, the stage-wise runtime across 300 held-out scenarios using the heuristic two-stage SCP pipeline is first measured. The Stage 1 solve required 0 .68 ± 0.21 s in mean ± standard deviation (std), whereas the Stage 2 solve required 4 .69 ±
+
+2.12 s, yielding a total runtime of 5 .37 ± 2.15 s. Therefore, Stage 2 accounts for approximately 87% of the total solve time, making it the dominant computational bottleneck and motivating the focus on Stage 2 warm-starting. 
+
+B. Flow Steps in Flow Matching Decoder 
+
+Before comparing the two decoder architectures, sensi-tivity analysis is conducted on the number of forward-Euler integration steps used by the flow matching decoder over the normalized interval τ ∈ [0, 1], denoted by nflow .Table II reports this sensitivity study using the same trained flow matching model with 90k trajectories and single-step action prediction ( H = 1). The metrics include inference time, terminal EE position error relative to the docking port, subsequent SCP iterations, and SCP success rate. The values report the mean ± std across the held-out 300 test scenarios. The results show that inference time scales approximately linearly with nflow due to the increased number of velocity-field evaluations. However, larger nflow does not improve Fig. 3: Representative terminal approach trajectory to the tumbling target, shown in the target-centered RTN frame. TABLE II: Flow matching ODE steps ( nflow ) sweep for the same trained model.                                                   
+
+> nflow
+> Inference time [s] EE position error [m] SCP iterations SCP success rate [%] 10.18 ±0.19 0.14 ±0.07 13 .4±6.099.7 20.33 ±0.27 0.14 ±0.14 13 .3±7.099.3 40.57 ±0.21 0.22 ±0.23 14 .4±8.099.7 81.11 ±0.30 0.25 ±0.22 14 .6±7.699.0 10 1.42 ±0.36 0.26 ±0.21 14 .8±7.799.7
+
+warm-start quality, and nflow = 1 and 2 achieve the low-est terminal errors and fewest (or almost the same) SCP iterations while maintaining nearly identical success rates. This suggests that excessive flow integration can accumulate errors from the learned velocity field through nonlinear propagation, increasing inference cost without meaningful performance gain. This behavior is also consistent with the dataset being generated by a deterministic optimiza-tion pipeline, which makes the history-conditioned action distribution nearly unimodal. In the following experiments, 
+
+nflow = 1 is used as a baseline for the flow matching decoder. 
+
+C. Comparison of Decoder Options 
+
+Table III summarizes the comparative results obtained using the same training dataset, consisting of 90k feasible and locally optimal trajectories, across different decoder architectures and action chunk lengths ( H = 1 and H = 5). The evaluation is conducted on 300 unseen in-distribution scenarios, with the optimization objective set identical to that of the original Stage 2 problem. For action-chunked control generation, the linear decoder adopts a receding-horizon predict-H/execute-1 strategy, in which only the first action in each predicted chunk is applied before replanning at the next time step. In contrast, the flow matching decoder ap-plies the predicted H-step action sequence open-loop before replanning, corresponding to a predict-H/execute-H strategy. First, the SCP success rate and final cost distribution are nearly identical across all five cases, including the heuris-tic warm-start. With sufficient training data, both decoder variants reach similar peak performance in terms of SCP iterations, reducing the iteration count by 28% relative to the heuristic warm-started SCP. This reduction translates into an approximately 23% decrease in the total Stage 2 runtime, even after accounting for the network’s inference time. Interestingly, increasing the action chunk length H does not improve the quality of the learned trajectory as a warm-start. In direct robot-policy deployment, action chunking can improve temporal consistency by smoothing the executed control sequence [28]. However, generated trajectories are only used to initialize SCP rather than being executed directly. The SCP serves as a trajectory-level correction step, enforcing dynamics and constraints while regularizing the control history through the quadratic control objective. Thus, longer open-loop chunks provide limited benefit, whereas single-step prediction can exploit the most recent trajectory history at every step. Overall, CT-based warm-start reaches the same final cost distribution as the two-stage heuristic baseline while reducing the Stage 2 SCP iteration count, accelerating the overall runtime. Another key factor is the sample efficiency. To address this, another experiment is conducted on training with dif-ferent sizes of the training dataset. Here, the two model architectures (linear and flow matching decoder) are trained with Ndata = {5k , 10k , 90k } trajectories. The results of the SCP iteration and total runtime for 6 models are summarized in Fig. 4, with the heuristic baseline performance. Across all six configurations, the SCP success rate ex-ceeded 99%, with comparable final-cost distributions, con-sistent with the results reported in Table III. Fig. 4a reports the number of SCP iterations, whereas Fig. 4b presents the total Stage 2 runtime, including model inference. The width at each data point denotes the 95% confidence interval of the mean. For reference, the corresponding heuristic warm-start results from Table III are indicated by the dotted line and the associated gray band. From the results, the flow matching decoder maintains approximately 13 SCP iterations across the 5k, 10k, and 90k training sets, indicating stronger sample efficiency than the linear decoder. In contrast, the linear decoder becomes more sensitive to dataset size, where the training dataset size decreases, its runtime approaches that of the heuristic SCP baseline. This behavior suggests that the flow matching head provides a more expressive local action map from the transformer latent representation to the action sequence, which is beneficial when the size of the available dataset is limited. However, because inference uses only nflow = 1, the decoder is unlikely to fully exploit the multimodal sampling capability typically associated with flow-based models. This TABLE III: Comparison of training configurations across decoder types and chunk length.                                                                                 
+
+> Method Decoder Chunk Length SCP success rate [%] Cost SCP iteration Stage 2 runtime [s] Inference time [s] Baseline ––99.3 0.327 ±0.115 18 .5±8.44.69 ±2.12 –CT Linear 199.3 0.324 ±0.112 14 .6±5.93.87 ±1.51 0.14 ±0.02 CT Linear 599.3 0.324 ±0.112 17 .7±7.24.71 ±1.87 0.14 ±0.02 CT FM 199.7 0.324 ±0.112 13 .4±6.03.61 ±1.51 0.18 ±0.19 CT FM 599.7 0.324 ±0.112 15 .3±6.24.03 ±1.60 0.08 ±0.19
+
+TABLE IV: Comparison of feasibility-exit and optimality-exit of SCP under heuristic and CT warm-starts. Mean ±std over feasible cases; cost is the realized coupled control effort (identical function in both exit modes).                                                           
+
+> Problem Warm-start Feas. (%) SCP iterations Runtime (s) Cost (mean ±std) Cost (median) Cost (p99) Optimality Heuristic 99.3 18 .48 ±8.39 4.71 ±2.12 0.327 ±0.115 0.291 0.681 CT 99.7 13 .38 ±6.03 3.61 ±1.51 0.324 ±0.112 0.290 0.658 Feasibility Heuristic 97.3 8.88 ±5.19 2.11 ±1.25 0.930 ±1.982 0.394 10 .94
+> CT 99.7 8.90 ±2.52 2.38 ±0.66 0.423 ±0.127 0.398 0.793
+> (a) SCP iterations (b) Total runtime
+
+Fig. 4: Sample efficiency of the trained model based on the decoder architecture. is consistent with the structure of the dataset, which is generated by a deterministic SCP pipeline and is therefore expected to induce a nearly unimodal conditional action distribution around each trajectory history. Thus, the practical benefit of flow matching in this case study is best interpreted as improved sample efficiency through a lightweight nonlin-ear decoder. 
+
+D. Feasibility Problem 
+
+Although the previous subsection minimizes the quadratic control cost in Eq. (5a), strict cost optimality is not always the primary requirement for onboard trajectory generation. In a flight implementation, particularly during terminal ap-proach, obtaining a dynamically feasible and constraint-satisfying trajectory within a limited computation time could be more important than further reducing the control effort. Motivated by this observation, this subsection considers a feasibility projection, in which the objective is set to zero [15], [10]. Since this formulation seeks only a constraint-satisfying trajectory rather than a local optimality in control cost, it is expected to converge in fewer SCP iterations. To this end, it is experimented whether a learned warm-start retains its value when seeding this feasibility projector, evaluating the learned warm-starts over the same 300 held-out scenarios. The trained model with the flow matching decoder trained with the 90k dataset with a single action prediction is adopted as a baseline CT model. Table IV summarizes the results of the experiment, where the opti-mality rows coincide with the Baseline and CT/FM/1 rows of Table III. Solving the feasibility problem roughly halves the SCP iterations for both warm-starts, but the resulting trajectories differ sharply. Since the solver terminates at the first feasible iterate rather than at a local cost optimum, the realized cost is largely determined by the basin reached by the initialization. For the heuristic seed, this shortcut is unreliable: although the median cost remains modest, the upper tail grows dra-matically, with the 99th percentile increasing from 0 .68 to 10 .9, while feasibility drops to 97%. Thus, the heuristic can converge to trajectories that are easy to make feasible but prohibitively expensive. By contrast, the CT seed shows no comparable degrada-tion. Its cost tail remains bounded, with the 99th percentile increasing only from 0 .66 to 0 .79, and feasibility remains high at 99 .7%. This behavior suggests that CT initializes the SCP solver near dynamically consistent, low-cost tra-jectories, so the feasibility projection only requires local correction. Overall, this case study highlights the risk of using heuristic initialization for the feasibility projection and shows that CT can accelerate convergence while preserving robustness, even when the solver uses the feasibility problem. VI. C ONCLUSION 
+
+This paper presents a learning-based warm-starting frame-work for SCP-based terminal approach guidance of a space manipulator to a tumbling object. By applying a CT warm-start to the coupled attitude–manipulator stage of a two-stage trajectory optimization pipeline, the proposed method reduced the number of SCP iterations and the corresponding runtime while maintaining the same final cost distribution as the heuristic baseline. The decoder ablation shows that both linear and flow matching heads can provide effective warm-starts, with flow matching offering improved sample efficiency over the training dataset, whereas action chunking did not improve the subsequent SCP convergence. In addition to the cost-optimal SCP, it is shown that learned warm-starts can preserve bounded-cost feasible trajectories by using SCP to solve feasibility projection, while heuristic initialization may converge quickly to feasible but operationally expensive solutions. Overall, these results suggest that learned sequence models are useful not only as fast trajectory predictors but also as trajectory priors that guide SCP toward favorable, feasible, and locally optimal basins. Future research includes the extension to motion planning with uncertainty in the tumbling target. APPENDIX Table V presents an overview of the CT’s hyperparameter settings used in this work. TABLE V: Hyperparameters of CT. 
+
+Hyperparameter Value Number of layers 6Number of attention heads 6Embedding dimension 384 Batch size 4Activation function ReLU Dropout 0.1 Learning rate 3e-5 (linear decay) Grad norm clip 1.0 Gradient accumulation iters 8
+
+ACKNOWLEDGMENT Yuji Takubo acknowledges the Ezoe Memorial Recruit Foundation for financial support. Maximilian Adang ac-knowledges the Department of Defense National Defense Science and Engineering Graduate Fellowship (NDSEG) for financial support. REFERENCES [1] M. Wilde, S. Kwok Choon, A. Grompone, and M. Romano, “Equa-tions of motion of free-floating spacecraft-manipulator systems: an engineer’s tutorial,” Frontiers in Robotics and AI , vol. 5, p. 41, 2018. [2] R. Lampariello, “Motion planning for the on-orbit grasping of a non-cooperative target satellite with collision avoidance,” i-SAIRAS 2010 ,2010. [3] J. Virgili-Llop, C. Zagaris, R. Zappulla, A. Bradstreet, and M. Ro-mano, “A convex-programming-based guidance algorithm to capture a tumbling object on orbit using a spacecraft equipped with a robotic manipulator,” The International journal of robotics research , vol. 38, no. 1, pp. 40–72, 2019. [4] T. Guffanti, D. Gammelli, S. D’Amico, and M. Pavone, “Transformers for trajectory optimization with application to spacecraft rendezvous,” in IEEE Aerospace Conference , pp. 1–13, 2024. [5] D. Celestini, D. Gammelli, T. Guffanti, S. D’Amico, E. Capello, and M. Pavone, “Transformer-based model predictive control: Trajectory optimization via sequence modeling,” IEEE Robotics and Automation Letters , vol. 9, no. 11, pp. 9820–9827, 2024. [6] Y. Takubo, T. Guffanti, D. Gammelli, M. Pavone, and S. D’Amico, “Towards robust spacecraft trajectory optimization via transformers,” in 2025 IEEE Aerospace Conference , pp. 1–13, IEEE, 2025. [7] Y. Takubo, D. Gammelli, M. Pavone, and S. D’Amico, “Agile tradespace exploration for space rendezvous mission design via trans-formers,” in IEEE Aerospace Conference , 2026. [8] L. Chen, K. Lu, A. Rajeswaran, K. Lee, A. Grover, M. Laskin, P. Abbeel, A. Srinivas, and I. Mordatch, “Decision transformer: Reinforcement learning via sequence modeling,” Conf. on Neural Information Processing Systems , vol. 34, pp. 15084–15097, 2021. [9] K. Black, N. Brown, et al. , “ π0: A vision-language-action flow model for general robot control,” arXiv preprint arXiv:2410.24164 , 2024. [10] Y. Takubo, A. Dwivedi, S. Ramkumar, L. A. Pabon, D. Gammelli, M. Pavone, and S. D’Amico, “Language-conditioned safe trajectory generation for spacecraft rendezvous,” AIAA Journal of Guidance, Control, and Dynamics (accepted) , 2026. [11] M. D’Ambrosio, S. Silvestrini, and M. Lavagna, “Conditioned se-quence models for warm-starting sequential convex trajectory opti-mization in space robots,” Aerospace , vol. 13, no. 2, p. 137, 2026. [12] D. Malyuta, T. P. Reynolds, M. Szmuk, T. Lew, R. Bonalli, M. Pavone, and B. Ac ¸ıkmes ¸e, “Convex Optimization for Trajectory Generation: A Tutorial on Generating Dynamically Feasible Trajectories Reliably and Efficiently,” IEEE Control Systems Magazine , vol. 42, no. 5, pp. 40– 113, 2022. [13] A. Flores-Abad, O. Ma, K. Pham, and S. Ulrich, “A review of space robotics technologies for on-orbit servicing,” Progress in aerospace sciences , vol. 68, pp. 1–26, 2014. [14] E. Papadopoulos, F. Aghili, O. Ma, and R. Lampariello, “Robotic manipulation and capture in space: A survey,” Frontiers in Robotics and AI , vol. 8, p. 686723, 2021. [15] R. Lampariello and G. Hirzinger, “Generating feasible trajectories for autonomous on-orbit grasping of spinning debris in a useful time,” in 2013 IEEE/RSJ International Conference on Intelligent Robots and Systems , pp. 5652–5659, IEEE, 2013. [16] J. L. Loettgen, K. Worrall, G. Aragon-Camerasa, M. Ceriotti, and R. Lampariello, “Control barrier functions for safe real-time control of spacecraft onboard robotic manipulators,” in 2025 International Conference on Space Robotics (iSpaRo) , pp. 539–546, IEEE, 2025. [17] J. Telaar, S. Estable, M. De Stefano, W. Rackl, R. Lampariello, F. Ankersen, and J. G. Fernandez, “Coupled control of chaser platform and robot arm for the e. deorbit mission,” in 10th Int. ESA conference on Guidance Navigation and Control Systems (GNC) , p. 4, 2017. [18] M. Yuan, R. J. Caverly, and Y. Yu, “Filtering-linearization: Afirst-order method for nonconvex trajectory optimization with filter-based warm-starting,” in 2025 American Control Conference (ACC) ,pp. 547–552, IEEE, 2025. [19] S. Banerjee, A. Cauligi, and M. Pavone, “Deep learning warm starts for trajectory optimization on the international space station,” in 
+
+Proceedings of the Space Robotics Workshop at Robotics: Science and Systems (RSS) , 2025. [20] J. Briden, T. Gurga, B. Johnson, A. Cauligi, and R. Linares, “Transformer-based tight constraint prediction for efficient powered descent guidance,” Journal of Guidance, Control, and Dynamics ,vol. 48, no. 5, pp. 1054–1070, 2025. [21] S. Levine and V. Koltun, “Guided policy search,” in International conference on machine learning , pp. 1–9, PMLR, 2013. [22] T. Kim, P. Elango, D. Malyuta, and B. Ac ¸ıkmes ¸e, “Guided pol-icy search using sequential convex programming for initialization of trajectory optimization algorithms,” in 2022 American Control Conference (ACC) , pp. 3572–3578, IEEE, 2022. [23] K. Albee, C. Oestreich, C. Specht, A. Ter´ an Espinoza, J. Todd, I. Hokaj, R. Lampariello, and R. Linares, “A robust observation, plan-ning, and control pipeline for autonomous rendezvous with tumbling targets,” Frontiers in Robotics and AI , vol. 8, p. 641338, 2021. [24] J. Virgili-Llop, J. V. Drew, and M. Romano, “Spacecraft robotics toolkit: An open-source simulator for spacecraft robotic arm dynamic modeling and control,” in 6th International Conference on Astrody-namics Tools and Techniques (ICATT) , (Darmstadt, Germany), 2016. [25] W. Clohessy and R. Wiltshire, “Terminal guidance system for satel-lite rendezvous,” Journal of the aerospace sciences , vol. 27, no. 9, pp. 653–658, 1960. [26] Y. Mao, M. Szmuk, and B. Ac ¸ıkmes ¸e, “Successive convexification of non-convex optimal control problems and its convergence properties,” in 2016 IEEE 55th Conference on Decision and Control (CDC) ,pp. 3636–3641, IEEE, 2016. [27] K. Oguri, “Successive convexification with feasibility guarantee via augmented lagrangian for non-convex optimal control problems,” in 
+
+Proc. IEEE Conf. on Decision and Control , pp. 3296–3302, IEEE, 2023. [28] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn, “Learning fine-grained bimanual manipulation with low-cost hardware,” arXiv preprint arXiv:2304.13705 , 2023. [29] Y. Lipman, R. T. Chen, H. Ben-Hamu, M. Nickel, and M. Le, “Flow matching for generative modeling,” arXiv preprint arXiv:2210.02747 ,2022.

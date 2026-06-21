@@ -1,0 +1,358 @@
+Title: FlashNav: Ultra-Fast Policy Training for Robot Navigation within 20 Seconds
+
+URL Source: https://arxiv.org/pdf/2606.15846v1
+
+Published Time: Tue, 16 Jun 2026 01:18:00 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# FlashNav: Ultra-Fast Policy Training for Robot Navigation within 20 Seconds 
+
+Shanze Wang 1,2,∗ Yiwei Qian 1,3,∗ Xinming Zhang 1,4 Jun Xue 1,5 Siwei Cheng 1,4
+
+Xianghui Wang 1,2 Qingyuan Hu 1 Xiaoyu Shen 1 Wei Zhang 1,†
+
+> 1
+
+Eastern Institute of Technology, Ningbo 2The Hong Kong Polytechnic University 
+
+> 3
+
+National University of Singapore 4University of Science and Technology of China 
+
+> 5
+
+Shanghai Jiao Tong University Correspondence to: Wei Zhang <zhw@eitech.edu.cn> .
+
+# Abstract 
+
+Deep reinforcement learning has shown strong potential for robot navigation, but its practical deployment is still limited by the long wall-clock cost of policy training. This paper presents FlashNav, a GPU-first framework for ultra-fast range-based robot navigation training. To the best of our knowledge, FlashNav is the first DRL-based robot navigation framework that reaches seconds-level policy training, with the fastest deployable policy trained in less than 20 seconds. The key idea is to align simulation with the navigation MDP: FlashNav preserves the essential components for velocity-level navigation, including occupancy geometry, range sensing, goal-conditioned control, robot motion dynamics, collision handling, termination, and reset, while removing unnecessary rendering and high-fidelity physical details from the training loop. Built on a batched bitmap simulator and a fully GPU-resident training pipeline with our FastDSAC learner, FlashNav generates massive parallel navigation transitions entirely on GPU. Experiments on TurtleBot2 and Unitree Go2 show that FlashNav achieves a 100% success-rate below 20 seconds on an RTX 5090 and remains within tens of seconds across desktop GPUs. The learned policies further transfer to physical wheeled and legged robots in static and dynamic indoor scenes, demonstrating that DRL-based navigation can be trained at seconds-level speed while preserving deployable obstacle-avoidance behavior. 
+
+# 1 Introduction 
+
+Learning-based robot navigation provides an alternative to hand-designed local planners by mapping range observations and goal information directly to continuous velocity commands. This formulation is useful in cluttered indoor environments, where manually tuning collision-avoidance behavior across robot platforms and scenes remains costly. However, the practical use of DRL-based navigation is still constrained by wall-clock training cost. A single policy-training run can take hours or longer, slowing algorithm design, robot-platform adaptation, and sim-to-real validation. Training time should therefore be treated as a first-order systems metric for robot navigation, rather than as an implementation detail. Prior work has improved learning-based navigation from complementary directions. IPAPRec shows that LiDAR representation strongly affects the generalization and learning speed of mapless navigation agents by emphasizing short-range obstacles and compressing less informative long-range values [ 1]. DRL-VO, NavRL, and HEIGHT further improve reward design, safety handling, simulation-based 
+
+> ∗Equal contribution
+> †Corresponding author Preprint.
+> arXiv:2606.15846v1 [cs.RO] 14 Jun 2026
+
+training, and interaction modeling in dynamic or crowded scenes [ 2– 4]. Model-based learning planners such as NeuPAN also show that point-based representations can support real-time map-free navigation across different robots and environments [ 5]. These methods advance the policy and task side of navigation learning, but they do not directly focus on minimizing the end-to-end training time of range-based velocity policies. The simulator and runtime stack behind policy learning are equally important. Stage provides lightweight 2D simulation for mobile robots and sensors [ 6], while Gazebo and PyBullet provide more general 3D simulation interfaces for robotics and reinforcement learning [ 7, 8 ]. GPU simulation systems such as Isaac Gym show that placing simulation and learning on a GPU-centric path can greatly increase robot RL throughput [ 9]. General RL systems and recent robot RL system studies further show that training efficiency depends on the complete simulation-learning loop, including environment execution, data movement, buffering, and parameter synchronization, rather than on simulator speed alone [10, 11]. These observations motivate a narrower systems question: how fast can a deployable range-based velocity policy be trained when the simulator abstraction is matched to the navigation MDP? For the ground-robot navigation task studied in this paper, the policy does not require rendering or high-fidelity physical details. The decision process is determined by a compact set of variables: occupancy geometry, range observations, relative-goal state, bounded velocity commands, collision-aware rewards, termination, and reset. General-purpose simulators remain valuable for high-fidelity validation and broader robot tasks, but their full physical and rendering stacks may be unnecessary for the inner loop of velocity-level navigation-policy training. This paper presents FlashNav, a GPU-first framework for ultra-fast range-based robot navigation training. FlashNav treats navigation training as a task-specific simulation-learning systems problem. The simulator represents all parallel environments as batched GPU tensors over a task-level occupancy bitmap. At each vectorized environment step, it produces fixed-shape transition tensors through paral-lel range sensing, planar motion integration, collision and footprint checking, reward computation, and indexed reset of terminated environments. This keeps the rollout interface regular while allowing only completed environment slots to be reset. The learner trains compact MLP velocity policies with FastTD3 [ 12 ], FastSAC [ 13 ], and FastDSAC [ 14 ]. This design keeps the learning interface compact while allowing environment transitions and policy optimization to remain on a highly parallel execution path. The resulting system shows that FlashNav can train deployable navigation policies within 20 s in the fastest evaluated setting, and the learned policies can be transferred to physical robots in static and dynamic indoor scenes. Our main contributions are summarized as follows: 
+
+FlashNav abstraction. We propose FlashNav , an ultra-Fast policy training framework for robot navigation that learns a deployable navigation policy within 20 seconds . FlashNav formulates range-based velocity-level navigation as a batched bitmap-geometry problem, retaining the navigation-relevant MDP components, including occupancy geometry, range sensing, goal-conditioned control, collision checking, reward computation, and episode termination, while removing rendering, full physics, and whole-body dynamics from the inner training loop when they are not part of the navigation MDP. 
+
+GPU-first vectorized training runtime. We develop an integrated simulation and learning runtime that connects batched range sensing, sparse reset, GPU replay storage, large-batch policy and critic-network updates, and actor-weight synchronization within a single off-policy training loop. This design keeps both environment transition and policy optimization on a highly parallel execution path, reducing overhead from simulator and learner decoupling as well as host-device data transfer. 
+
+Seconds-level training and deployment evidence. We evaluate FlashNav with FastSAC, FastDSAC, and FastTD3 across TurtleBot2 and Unitree Go2 embodiments, showing that policies trained within 20 s can be directly deployed on real-world robot platforms in static and dynamic scenes. 
+
+# 2 FlashNav Training Framework 
+
+This section presents FlashNav as an end-to-end DRL training framework for range-based robot navigation. FlashNav trains velocity-level navigation policies within a short wall-clock budget by combining a compact policy interface, a vectorized bitmap simulator, and a GPU-resident training runtime. 2Table 1: Compact comparison of simulator stacks for learning-based navigation. The reported time scale is taken from the cited sources when available and is not an identical benchmark across robots, tasks, algorithms, or hardware platforms.               
+
+> Simulator stack Compute path Reported time scale ROS Stage [6] CPU sim. + GPU learner Day-level [1] Gazebo [7] CPU sim. + GPU learner Day-level [4] NVIDIA Isaac Sim [3] GPU sim. + GPU learner Hour-level [3] PyBullet [8] CPU sim. + GPU learner Day-level [4] FlashNav GPU bitmap sim. + GPU learner Seconds-level ( <20 s best)
+
+2.1 Navigation Task Formulation and Policy Architecture 
+
+We consider goal-conditioned robot navigation in a planar occupancy environment. At the beginning of each episode, the robot is initialized at a collision-free pose and receives a target position sampled from the free space. At each step, the policy observes 2D LiDAR readings, the relative goal position in the robot body frame, and the current velocity state, and outputs a continuous velocity command. The episode terminates when the robot reaches the goal, collides with an obstacle, or reaches the episode horizon. A robot instance is specified by its footprint, sensing field of view, velocity limits, collision parameters, and kinematic constraints, allowing the same task formulation to support different ground-robot embodiments. The navigation problem is formulated as a DRL-based sequential decision-making problem. We denote the state provided to the policy at time step t as 
+
+st = ˆl1, . . . , ˆlm, d gt , φ gt , v t, ω t
+
+, (1) where ˆl1, . . . , ˆlm are processed LiDAR readings, dgt and φgt are the relative distance and angle to the goal, and vt and ωt are the current linear and angular velocities. Following IPAPRec [ 1 ], each LiDAR reading is transformed by an adaptively parametric reciprocal function, 
+
+ˆlj = 1 /(¯lj − β), j = 1 , . . . , m, (2) where β is a trainable parameter updated jointly with the policy network. This representation emphasizes short-range obstacles and compresses less informative long-range readings while keeping the policy input compact. The reward function is defined as 
+
+rt =
+
+
+
+rsuccess , if the goal is reached, 
+
+rcollision , if a collision occurs, 
+
+c1(dgt − dgt+1 ), otherwise, (3) where goal reaching is assigned a terminal reward of rsuccess , while collision is assigned a terminal penalty of rcollision . The coefficient c1 controls the magnitude of the progress reward, and the non-terminal term is proportional to the reduction in the goal distance between two consecutive steps. The transformed LiDAR vector is concatenated with the relative goal features and velocity features to form a compact navigation state for both training and deployment. In our implementation, the policy network and critic networks are four-layer multilayer perceptrons with 100 hidden units per layer and LeakyReLU activations. This formulation keeps the learning problem small and regular, which matches the vectorized simulator described next. 
+
+2.2 Vectorized Bitmap Simulator Architecture 
+
+The simulator provides the data-generation path of FlashNav. It represents all parallel environments as batched tensors over a shared occupancy bitmap and updates robot states, range observations, collision signals, rewards, and reset states through vectorized geometric operations. Robot- and sensor-specific properties, including the planar footprint, sensing field of view, velocity limits, collision thresholds, and kinematic constraints, are specified through configuration parameters. 3Figure 1: FlashNav Framework: GPU-first Off-policy Training for Robot Navigation. 
+
+2.2.1 Batched Bitmap State and Robot Presets 
+
+The environment geometry is represented as a binary occupancy bitmap, where obstacle and free-space classifications are determined by thresholding [ 15 ]. World-frame coordinates are mapped to discrete image indices according to the map size and bitmap resolution, and out-of-bounds positions are treated as obstacles. This representation converts collision checking and range sensing into coordinate transforms followed by bitmap gathers, avoiding continuous collision solving in general-purpose physics engines. Parallelism is represented along the leading tensor dimension. All environments share one bitmap in memory, while environment-specific variables, including robot states, goal positions, and episode counters, are maintained as batched tensors with shape N or N × d. Robot-specific behavior is introduced through presets rather than separate simulator branches, which keeps the data-generation path shared while supporting different footprints, sensing fields of view, velocity limits, and kinematic constraints. The simulator can therefore train navigation-layer velocity policies across multiple embodiments without duplicating the underlying environment logic. 
+
+2.2.2 Batched Range Sensing and Observation Assembly 
+
+Range sensing is the main geometric operation in the simulator. For each batched robot pose, FlashNav constructs a fixed set of range beams in the robot frame and transforms them into world-frame rays. Let αk denote the angle of the k-th beam relative to the robot heading. For the i-th environment, the sampled ray is 
+
+pi,k (τ ) = 
+
+"
+
+x(i)
+
+> t
+
+y(i)
+
+> t
+
+#
+
++ τ
+
+"
+
+cos( θ(i) 
+
+> t
+
++ αk)sin( θ(i) 
+
+> t
+
++ αk)
+
+#
+
+, k = 1 , . . . , K, (4) where τ denotes the distance along the ray. The simulator advances each ray with a fixed step size until it reaches an occupied bitmap cell, leaves the map boundary, or attains the maximum sensing range. This produces the batched range tensor 
+
+Rt ∈ [0 , r max ]N ×K , (5) where K is the number of beams and rmax is the maximum range. The range query is performed jointly over environments and beams. FlashNav flattens all environment– beam pairs into one ray set, evaluates bitmap occupancy through tensor indexing, and keeps only rays that remain active after each distance chunk. Once a ray intersects an obstacle or exits the map, it is removed from the active set and is no longer evaluated in subsequent chunks. The computation is therefore dominated by tensor arithmetic, coordinate conversion, bitmap gathering, and boolean reduction, rather than by a Python loop over independent simulated sensors. The resulting range tensor is used for collision-related geometric checks and observation construction, while the policy receives a compact pooled representation. To construct this representation, the K
+
+beams are divided into m angular sectors, and each sector is represented by its minimum range value: 
+
+l(i) 
+
+> t,j
+
+= min 
+
+> k∈B j
+
+Rt,i,k , j = 1 , . . . , m, (6) where Bj denotes the set of beams assigned to the j-th sector. The pooled range vector is concatenated with the relative goal distance, the relative goal angle, and the current velocity state, whose dimension depends on the selected motion model. 42.2.3 Vectorized Transitions and Sparse Reset 
+
+At each simulator step, the batched normalized action is converted into a physical planar velocity command according to the selected robot preset. The resulting command is integrated to update the planar robot pose and velocity state, and the same tensorized update is applied to all environments in the batch. This keeps the simulator aligned with navigation-layer velocity policies while avoiding embodiment-specific simulator branches. After the pose update and range query, the simulator evaluates collision, goal reaching, reward, and episode flags through batched geometric operations on the occupancy bitmap. At the transition level, termination is triggered by goal reaching or collision. Timeout is reported as truncation when the episode horizon is reached without a simultaneous terminal event. Reset is sparse and tensorized. Only environment slots whose episodes have ended are reinitialized. For these slots, FlashNav samples new robot poses and goals from free bitmap locations, clears the episode counters, recomputes range observations, and writes the reset observations back to the corresponding batch indices. The final observation of the terminated transition is preserved separately in the step information, so the learner can store the correct transition while the rollout batch immediately continues from the reset state. This indexed reset avoids per-environment world reloading, process restart, ROS reset services, and physics-engine state reconstruction, which are common sources of latency in simulator-based reinforcement learning. 
+
+2.2.4 Tensorized Execution Path and Scaling Argument 
+
+Combining the above components, each simulator step follows a fixed tensorized data path: 
+
+At → Xt+1 → Rt+1 → (ct+1 , r t+1 , δ t+1 ) → Ot+1 → eOt+1 , (7) where At is the batched action tensor, Xt+1 is the updated internal state, Rt+1 is the batched range tensor, and (ct+1 , r t+1 , δ t+1 ) denotes collision, reward, and termination-related signals. Here, 
+
+Ot+1 is the final observation before reset, and eOt+1 is the post-reset observation after sparse reset replacement. The main step consists of tensor arithmetic, trigonometric transforms, bitmap gathers, reductions, masking, indexed reset, and concatenation. For compatibility with reinforcement learning code, the simulator is exposed through a Gymnasium-style vector environment wrapper [ 16 ]. The wrapper returns observations, rewards, termination flags, truncation flags. This avoids unnecessary conversion into simulator-specific objects or CPU arrays before the training runtime consumes them [9, 10]. This execution path explains the scaling behavior of FlashNav. Increasing the number of environments enlarges the leading tensor dimension rather than creating additional simulator processes. The costs of map queries, range sensing, collision checking, reward computation, and observation assembly are amortized through batched execution. The learning boundary is also simple: off-policy algorithms insert compact transitions into a device-resident replay buffer, from which the learner samples large batches for repeated policy and critic-network updates. 
+
+2.3 Fast-Series Reinforcement Learning Algorithms 
+
+FlashNav evaluates three replay-based off-policy algorithms, FastTD3, FastSAC, and FastDSAC, to match the high-throughput data regime of the vectorized bitmap simulator. Since the simulator produces compact range-goal transitions at a high rate, the learner must reuse data effectively, support large replay batches, and complete enough policy and value-function updates within a short wall-clock budget. The three algorithms share the same navigation observation interface, replay storage, and bounded velocity action space; their differences lie in deterministic versus stochastic policy optimization, value-distribution parameterization, and exploration control. 
+
+FastTD3. FastTD3 [ 12 ] instantiates the deterministic replay-based branch of FlashNav. It builds on TD3 [ 17 ], using a deterministic actor μϕ(o), twin critics, delayed actor updates, and target-policy smoothing to reduce overestimation and suppress exploitation of sharp critic errors. In the standard scalar form, the critic target is 
+
+y = r + γ(1 − d) min  
+
+> i=1 ,2
+
+Q¯θi
+
+ o′, μ ¯ϕ(o′) + ϵ , ϵ ∼ clip  N (0 , σ 2), −c, c  .
+
+5Our implementation keeps this deterministic policy and twin-critic structure, using compact MLP policies, categorical distributional critics, target-policy smoothing, and multiple replay updates per collection interval. During rollout, exploration is injected as external Gaussian action noise with per-environment noise scales, while the actor itself remains deterministic. In FlashNav, FastTD3 provides a lightweight continuous-control learner that maps compact range-goal observations to bounded planar velocity commands. Its main limitation is that exploration depends on externally chosen noise and smoothing scales, which can be sensitive in cluttered bitmap navigation with sparse goal-reaching and collision events. 
+
+FastSAC. Following SAC [ 18 ] and FastSAC [ 13 ], we use FastSAC as the replay-based stochastic policy learner in FlashNav. It retains SAC’s off-policy replay, entropy-regularized actor objective, soft action-value critics, and automatic entropy-temperature tuning. For a replayed observation o and sampled action ˜a ∼ πϕ(·| o), the actor minimizes 
+
+Lπ = E
+
+
+
+α log πϕ(˜ a|o) − min  
+
+> j
+
+Qθj (o, ˜a)
+
+
+
+.
+
+Thus, exploration is produced by the stochastic policy rather than by externally tuned deterministic action noise. In FlashNav, FastSAC uses a tanh-squashed Gaussian MLP actor, twin categorical distributional critics, automatic entropy-temperature tuning, and multiple replay updates per collection interval. During deployment, the squashed mean action gives a lightweight deterministic velocity policy, while replay reuses rare goal-reaching and collision events from vectorized bitmap simulation. 
+
+FastDSAC. FastDSAC [ 14 ] extends the stochastic off-policy branch of FlashNav with Gaussian distributional critics. Compared with categorical distributional critics, the Gaussian Q heads avoid fixed support and atom-level quantization, while estimating both the Q-value mean and its uncertainty. In our implementation, the critic predicts a mean and standard deviation for each Q estimate, samples target values from the target critics, and uses the predicted uncertainty to weight the mean-Q update. This is useful for bitmap navigation, where rewards combine progress shaping, success reward, collision penalty, and timeout truncation, and where actions with similar expected progress can differ in collision risk. FastDSAC keeps the same replay-based high-throughput training pipeline as the other off-policy learners, while providing a continuous distributional value signal for robust range-goal navigation. 
+
+Algorithm comparison. FastTD3, FastSAC, and FastDSAC all use FlashNav’s replay-based producer–consumer path: vectorized bitmap collectors generate compact transitions, while learners perform large-batch off-policy replay updates. Their differences—deterministic versus stochastic actors, fixed-support versus Gaussian distributional critics, and uniform versus dimension-wise en-tropy allocation—test how major off-policy design choices interact with FlashNav’s high-throughput regime. Together, they evaluate the system’s generality across continuous-control paradigms while sharing the same range-goal observation interface and deployable velocity-policy output. 
+
+# 3 Experiments 
+
+3.1 Training experiment setup 
+
+To evaluate the computational efficiency and device adaptability of the framework, we conduct experiments on three PC hosts with distinct hardware configurations: an AMD Ryzen 9 9950X CPU paired with an NVIDIA RTX 5090 GPU with 32 GB of memory, an Intel Core i9-14900K CPU paired with an NVIDIA RTX 4090 GPU with 24 GB of memory, and an Intel Core Ultra 7 265K CPU paired with an NVIDIA RTX 5060 Ti GPU with 16 GB of memory. The navigation tasks are instantiated on simulated TurtleBot2 and Unitree Go2 embodiments, cor-responding to the physical platforms used in the real-robot experiments. For each embodiment, we evaluate FastSAC [ 13 ], FastDSAC [ 14 ], and FastTD3 [ 12 ]. Within the same embodiment, all algorithms share an identical task definition, including the observation space, action space, sensor configuration, reward design, and termination conditions. Algorithm-specific implementation details and hyperparameters follow the corresponding training framework and public configuration. There-fore, the reported performance reflects system-level wall-clock training efficiency under matched 6Table 2: Multi-platform 10-seed training results. For each success threshold, we report the best/mean wall-clock time in seconds, computed over reached seeds only. Embodiment Algorithm Platform 90% success 95% success 100% success Best Mean Best Mean Best Mean TurtleBot2 FastDSAC RTX 5090 12.9 15.4 13.1 15.6 14.9 17.2 
+
+RTX 4090 18.7 20.6 18.9 21.0 19.1 22.6 RTX 5060 Ti 22.9 26.0 23.3 26.3 25.2 30.1 FastSAC RTX 5090 19.4 23.6 19.9 24.0 20.2 25.6 
+
+RTX 4090 26.2 33.3 28.4 33.9 34.3 35.9 RTX 5060 Ti 36.4 42.4 37.0 43.4 39.8 47.2 FastTD3 RTX 5090 27.7 36.6 29.5 37.5 34.5 41.1 
+
+RTX 4090 44.5 49.3 45.2 50.1 52.2 55.3 RTX 5060 Ti 49.1 58.8 50.3 59.6 60.2 64.8 Go2 FastDSAC RTX 5090 14.6 19.6 15.0 20.4 16.2 24.4 
+
+RTX 4090 17.8 26.5 18.2 27.4 31.5 35.4 RTX 5060 Ti 31.8 41.9 32.5 43.7 49.6 54.9 FastSAC RTX 5090 22.0 30.3 23.1 30.9 29.3 31.3 
+
+RTX 4090 34.4 45.1 35.2 46.9 37.8 52.9 RTX 5060 Ti 46.9 66.0 49.2 68.9 64.5 74.9 FastTD3 RTX 5090 31.2 53.6 36.7 56.0 45.0 68.0 
+
+RTX 4090 54.9 75.5 57.1 78.9 76.3 82.5 RTX 5060 Ti 66.9 98.5 68.9 101.4 71.4 118.3 navigation settings, rather than differences introduced by task reformulation. Detailed environment settings, training commands, and hyperparameters are provided in the appendix B. 
+
+3.2 Multi-platform training validation 
+
+For each hardware platform, robot embodiment, and algorithm, we report training results over ten random seeds. The multi-seed results characterize both average training behavior and seed-to-seed variability, enabling controlled comparisons of training efficiency and robustness across hardware platforms, robot embodiments, and off-policy reinforcement learning algorithms. We summarize the results using threshold-based task-performance and training-efficiency metrics. Wall-clock efficiency is measured by the time-to-threshold, defined as the first training time at which a run reaches a specified success threshold. We report the best and mean time-to-threshold at 90%, 95%, and 100% success. Unless otherwise stated, the mean time-to-threshold is computed over the seeds that reach the corresponding threshold within the training budget. This reporting protocol focuses on practical convergence speed while retaining a consistent threshold-based comparison across algorithms and hardware platforms. Table 2 summarizes the wall-clock threshold results across the three hardware platforms. A consistent hardware trend emerges: the RTX 5090 host is generally the fastest, the RTX 5060 Ti host is the slowest, and the RTX 4090 host falls between them. This trend is observed across both TurtleBot2 and Go2, indicating that the training pipeline scales predictably with desktop GPU capability under the same task definitions. Across algorithms, FastDSAC provides the most consistently fast threshold-reaching behavior on both robot embodiments. FastSAC reaches competitive times on some settings, while FastTD3 generally requires longer wall-clock time, especially on the Go2 task. Overall, the proposed training pipeline preserves stable navigation-policy learning across different desktop hardware platforms while maintaining tens-of-seconds training times for representative TurtleBot2 and Go2 tasks. Figure 2 complements the threshold-based wall-clock summary by showing reward learning curves over environment steps. While Table 2 quantifies how quickly each configuration reaches fixed success thresholds in wall-clock time, the reward curves show whether the learning process itself 7Figure 2: Cross-platform reward learning curves on TurtleBot2 and Go2 navigation tasks. Each curve shows the mean reward over ten random seeds, and shaded regions indicate the standard error across seeds. remains consistent across hardware platforms. Since TurtleBot2 and Go2 use different training budgets, and Go2 also differs across algorithms, the x-axis is scaled independently for each subplot rather than forced onto a single global range. Detailed training parameters are provided in the appendix A. 
+
+3.3 Cycle-level runtime analysis 
+
+To further explain the wall-clock differences observed across hardware platforms, we profile the per-cycle runtime of a representative TurtleBot2 FastDSAC training run. As shown in Fig. 3, each training cycle is decomposed into the collector-side cost and the learner-side cost. Since data collection and policy learning are executed in an overlapped producer–consumer pipeline, the effective cycle time is determined by the slower side of the pipeline rather than by the serial sum of the two bars. The profiling results show that the learner and collector costs remain closely balanced across the three platforms, indicating that the training pipeline does not leave either side substantially under-utilized. The effective cycle time increases from 139.2 ms on the RTX 5090 platform to 188.3 ms on the RTX 4090 platform and 240.2 ms on the RTX 5060 Ti platform. This cycle-level trend is consistent with the end-to-end training-time results and suggests that the observed hardware gap mainly comes from per-cycle throughput differences under the same task and training protocol. 
+
+3.4 Simulation-to-Reality Validation 
+
+As illustrated in Fig. 4, the real-world evaluation was carried out on two physical robotic platforms: a TurtleBot2 wheeled robot and a Unitree Go2 legged robot. The evaluated policies were trained in FlashNav within a 20-second wall-clock budget in simulation and then directly deployed on the physical robots as velocity-control policies, without additional real-world reinforcement learning or task-specific fine-tuning. The TurtleBot2 platform was equipped with a Hokuyo UTM-30LX 2D LiDAR and an onboard computer powered by an Intel i9-12900H CPU. For the wheeled robot, the test environments were first constructed using ROS GMapping [ 19 ], while robot localization was performed with ROS AMCL [ 20 ]. The resulting map was not involved in path planning; it was only used to transform the goal location into the robot coordinate frame. The Unitree Go2 platform carried a Livox MID-360 3D LiDAR and an NVIDIA Jetson Orin NX onboard computer. During evaluation 8Figure 3: Training-cycle timing breakdown for TurtleBot2 FastDSAC on the three GPU platforms. Each pair of bars decomposes the average collector-side and learner-side runtime per training cycle. Because collection and learning are executed in an overlapped pipeline, the dashed black line marks the effective cycle end, computed as the slower side of the cycle rather than the serial sum. 
+
+Figure 4: Real-world navigation validation on different robotic platforms. The red flag marks the goal location, and the START marker marks the initial position. on the legged robot, the target position was obtained through a companion UWB module deployed at the goal location. The real-world test scenes are designed to represent cluttered daily indoor environments rather than empty laboratory corridors. In REnv1, we set two goal locations and formulate the trial as a multi-goal navigation task. In the two dynamic scenes, pedestrians suddenly appear along the robot’s nominal route and block the passage, requiring the robot to avoid them and complete the task through an alternative route. The results show that a policy trained by FlashNav in simulation within 20 seconds can transfer directly to physical TurtleBot2 and Unitree Go2 platforms, maintaining effective obstacle avoidance and goal-reaching behavior in both static and dynamic real-world scenes. This sim-to-real deployment demonstrates that FlashNav’s seconds-level training pipeline can produce deployable navigation policies rather than only simulation-level performance. 94 Conclusion 
+
+This paper presented FlashNav, a navigation-specific DRL training framework that trains range-based velocity policies within a seconds-level wall-clock budget. Robot navigation training can be accelerated by matching the simulator abstraction to the navigation MDP: FlashNav retains occupancy geometry, range sensing, goal-conditioned velocity control, collision checking, reward computation, termination, and reset, while removing rendering, full physics, and whole-body dynamics from the inner loop when they are not required by the policy. With a GPU-first vectorized bitmap simulator and an integrated off-policy training runtime, FlashNav achieves below-20-second training in representative TurtleBot2 and Unitree Go2 settings, maintains tens-of-seconds training across desktop GPU hosts, and transfers the learned policies to physical wheeled and legged robots. These results suggest that compact task-specific simulation can substantially reduce the cost of DRL-based navigation and make rapid policy iteration more practical for robot deployment. 
+
+# 5 Discussion 
+
+FlashNav should be interpreted as a specialized inner-loop training system rather than a replacement for high-fidelity robotics simulation. Its abstraction is appropriate when the navigation policy depends primarily on range observations, relative-goal information, and velocity-level actions; it does not cover vision-dominated navigation, terrain-aware locomotion, manipulation, contact-rich interaction, or whole-body control, where rendering, detailed contacts, or robot dynamics may be part of the MDP. The current deployment results also assume a reliable low-level controller that can execute the learned velocity commands. Therefore, a practical workflow is to use FlashNav for fast navigation-policy training, followed by high-fidelity simulation and real-robot tests for validation and stress evaluation in settings that require additional physical, perceptual, or social-interaction fidelity. 
+
+# References 
+
+[1] W. Zhang, Y. Zhang, N. Liu, K. Ren, and P. Wang, “IPAPRec: A promising tool for learning high-performance mapless navigation skills with deep reinforcement learning,” IEEE/ASME Transactions on Mechatronics , vol. 27, no. 6, pp. 5451–5461, 2022. [2] Z. Xie and P. Dames, “DRL-VO: Learning to navigate through crowded dynamic scenes using velocity obstacles,” IEEE Transactions on Robotics , vol. 39, no. 4, pp. 2700–2719, 2023. [3] Z. Xu, X. Han, H. Shen, H. Jin, and K. Shimada, “NavRL: Learning safe flight in dynamic environments,” IEEE Robotics and Automation Letters , vol. 10, no. 4, pp. 3668–3675, 2025. [4] S. Liu, H. Xia, F. C. Pouria, K. Hong, N. Chakraborty, Z. Hu, J. Biswas, and K. Driggs-Campbell, “HEIGHT: Heterogeneous interaction graph transformer for robot navigation in crowded and constrained environments,” IEEE Transactions on Automation Science and Engineering , 2026. [5] R. Han, S. Wang, S. Wang, Z. Zhang, J. Chen, S. Lin, C. Li, C. Xu, Y. C. Eldar, Q. Hao, and J. Pan, “NeuPAN: Direct point robot navigation with end-to-end model-based learning,” IEEE Transactions on Robotics , vol. 41, pp. 2804–2824, 2025. [6] “stage_ros - ROS Wiki.” [Online]. Available: http://wiki.ros.org/stage_ros [7] N. Koenig and A. Howard, “Design and use paradigms for Gazebo, an open-source multi-robot simulator,” in Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems , Sendai, Japan, September 2004, pp. 2149–2154. [8] E. Coumans and Y. Bai, “Pybullet, a python module for physics simulation for games, robotics and machine learning,” 2016. [9] V. Makoviychuk, L. Wawrzyniak, Y. Guo, M. Lu, K. Storey, M. Macklin, D. Hoeller, N. Rudin, A. Allshire, A. Handa, and G. State, “Isaac Gym: High performance GPU-based physics simulation for robot learning,” arXiv preprint arXiv:2108.10470 , 2021. [10] J. Weng, M. Lin, S. Huang, B. Liu, D. Makoviichuk, V. Makoviychuk, Z. Liu, Y. Song, T. Luo, Y. Jiang et al. , “EnvPool: A highly parallel reinforcement learning environment execution engine,” Advances in Neural Information Processing Systems , vol. 35, pp. 22 409–22 421, 2022. 10 [11] Y. Jia, Z. Cao, M. Yu, H. Zhang, S. Chen, D. Jiang, M. Li, X. Li, Y. Liu, J. Wu, Z. Li, X. Fang, T. Cui, S. Fu, H. Li, A. Wang, Z. Wang, D. Zhu, C. Cao, Z. Huang, Z. Zheng, J. Lu, X. Ma, Z. Wei, X. Zhao, T. Zhan, Y. He, Y. Chen, Y. Jiang, Y. Li, H. Ge, Y. Dong, F. Jia, Z. Zhang, M. Zhang, X. Deng, Z. Chen, H. Shao, C. Dong, Y. Li, Y. Chen, B. Chen, K. Zhang, H. Cui, Y. Qin, R. Huang, L. Han, T. Wang, X. Li, Y. Gao, and G. Zhou, “UniLab: A heterogeneous architecture for robot RL beyond GPU-dominant paradigms,” arXiv preprint arXiv:2605.30313 ,2026. [12] Y. Seo, C. Sferrazza, H. Geng, M. Nauman, Z.-H. Yin, and P. Abbeel, “FastTD3: Simple, fast, and capable reinforcement learning for humanoid control,” arXiv preprint arXiv:2505.22642 ,2025. [13] Y. Seo, C. Sferrazza, J. Chen, G. Shi, R. Duan, and P. Abbeel, “Learning sim-to-real humanoid locomotion in 15 minutes,” arXiv preprint arXiv:2512.01996 , 2025. [14] J. Xue, J. Wang, X. Zhang, S. Wang, Y. Chen, and W. Zhang, “FastDSAC: Unlocking the potential of maximum entropy RL in high-dimensional humanoid control,” arXiv preprint arXiv:2603.12612 , 2026. [15] A. Elfes, “Using occupancy grids for mobile robot perception and navigation,” Computer ,vol. 22, no. 6, pp. 46–57, 1989. [16] M. Towers, A. Kwiatkowski, J. Terry, J. U. Balis, G. De Cola, T. Deleu, M. Goulão, A. Kallinteris, M. Krimmel, A. KG, R. Perez-Vicente, A. Pierré, S. Schulhoff, J. J. Tai, H. Tan, and O. G. Younis, “Gymnasium: A standard interface for reinforcement learning environments,” in Advances in Neural Information Processing Systems , vol. 37, 2024. [17] S. Fujimoto, H. van Hoof, and D. Meger, “Addressing function approximation error in actor-critic methods,” in Proceedings of the 35th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 80. PMLR, 2018, pp. 1587–1596. [18] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft Actor-Critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in Proceedings of the 35th International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 80. PMLR, 2018, pp. 1861–1870. [19] “gmapping.” [Online]. Available: http://wiki.ros.org/gmapping [20] “AMCL.” [Online]. Available: http://wiki.ros.org/amcl 11 Appendix 
+
+# Table of Contents 
+
+A Algorithm Hyperparameters 12 
+
+A.1 Shared Training-Pipeline Parameters . . . . . . . . . . . . . . . . . . . . . . . . . 12 A.2 Per-Algorithm Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12 
+
+B Simulation Parameters 14 
+
+B.1 Shared Simulator Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 B.2 TurtleBot2 Platform Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 B.3 Unitree Go2 Platform Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 
+
+# A Algorithm Hyperparameters 
+
+This section reports the hyperparameters used for training the three learning algorithms evaluated in FlashNav. All values below correspond to the recommended single-seed commands documented in the codebase. Unless otherwise noted, parameters not listed here retain their code-level defaults. 
+
+A.1 Shared Training-Pipeline Parameters 
+
+Table 3 summarizes the training-pipeline parameters that are shared across the three replay-based off-policy algorithms (FastSAC, FastDSAC, and FastTD3) for the TurtleBot2 and Unitree Go2 platforms. Where a parameter differs between platforms, both values are listed. Table 3: Shared off-policy training-pipeline parameters. 
+
+Parameter TurtleBot2 Unitree Go2 
+
+Batch size 1,024 1,024 Discount factor γ 0.97 0.97 Actor learning rate 3 × 10 −4 3 × 10 −4
+
+Critic learning rate 3 × 10 −4 3 × 10 −4
+
+Optimizer AdamW AdamW Weight decay 0.001 0.001 Actor hidden sizes (100) ×4 (100) ×4
+
+Critic hidden sizes (100) ×4 (100) ×4
+
+Environment steps per sync 1 2
+
+A.2 Per-Algorithm Parameters 
+
+Tables 4–6 list the algorithm-specific hyperparameters. 12 Table 4: FastDSAC hyperparameters. 
+
+Parameter TurtleBot2 Unitree Go2 
+
+Total environment steps 200,704 401,408 Number of environments 1,024 1,024 Updates per step (UTD) 40 40 Learning start (transitions) 8,192 8,192 Soft-update rate τ 0.1 0.1 Running-std EMA rate τb 0.005 0.005 Policy frequency 2 2Reward scale 0.4 0.4 Temperature 2.0 2.0 Scale range [σmin , σ max ] [0 .5, 2.0] [0 .5, 2.0] 
+
+Clipped double-Q (CDQ) ✓ ✓
+
+log σmax / log σmin 0.0 / −5.0 0.0 / −5.0
+
+Huber δ 50.0 50.0 Critic: Gaussian distributional ✓ ✓
+
+Optimizer betas (0 .9, 0.95) (0 .9, 0.95) 
+
+Table 5: FastSAC hyperparameters. 
+
+Parameter TurtleBot2 Unitree Go2 
+
+Total environment steps 200,704 501,760 Number of environments 1,024 1,024 Updates per step (UTD) 40 40 Learning start (transitions) 8,192 8,192 Soft-update rate τ 0.1 0.1 Policy frequency 1 2
+
+α learning rate 3 × 10 −4 3 × 10 −4
+
+α init 0.001 0.001 Target entropy ratio 0.5 0.5 Critic: C51 atoms 101 101 Critic: Vmin / Vmax −20 / 20 −20 / 20 
+
+Optimizer betas (0 .9, 0.95) (0 .9, 0.95) 
+
+Table 6: FastTD3 hyperparameters. 
+
+Parameter TurtleBot2 Unitree Go2 
+
+Total environment steps 200,704 602,112 Number of environments 512 512 Updates per step (UTD) 56 56 Learning start (transitions) 16,384 16,384 Soft-update rate τ 0.01 0.01 Policy frequency 2 2Target policy noise σ 0.1 0.1 Noise clip c 0.2 0.2 Max gradient norm 10.0 10.0 Collection noise [σmin , σ max ] [0 .05 , 0.25] [0 .05 , 0.25] 
+
+Critic: C51 atoms 101 101 Critic: Vmin / Vmax −10 / 10 −10 / 10 
+
+13 B Simulation Parameters 
+
+This section documents the environment configuration used to train navigation policies in the FlashNav vectorized bitmap simulator. Section B.1 lists sensor and episode parameters shared across all platforms. Sections B.2 and B.3 then report the platform-specific geometry, kinematics, and action-space settings for the TurtleBot2 and the Unitree Go2, respectively. 
+
+B.1 Shared Simulator Parameters 
+
+Table 7 summarizes the sensor, episode, and reward parameters common to all training environments. The LiDAR model casts 1,080 evenly spaced beams, each marching through the bitmap at a fixed step of 0.03 m up to a maximum range of 20.0 m. The raw 1,080-beam scan is pooled into 30 sectors by taking the per-sector minimum across 36 beams, yielding a compact range vector that forms the dominant component of the policy observation. Table 7: Shared simulator and episode parameters. 
+
+Parameter Value 
+
+LiDAR sensing 
+
+Raw beam count 1,080 Pooled sector count (policy input) 30 Beams per sector (min-pool) 36 Maximum range 20.0 m Raycast step size 0.03 m 
+
+Episode structure 
+
+Episode horizon 200 steps Simulation time step ∆t 0.1 s Episode wall-clock duration 20 s Goal-reach threshold 0.2 m 
+
+Reward 
+
+Progress reward 2 ( dold − dnew )
+
+Goal-reach reward +10 
+
+Collision penalty −10 
+
+Action interface 
+
+Normalized action range [−1, 1] 
+
+B.2 TurtleBot2 Platform Parameters 
+
+Table 8 lists the TurtleBot2-specific environment parameters. The robot is modeled as a circular differential-drive platform. The policy outputs a two-dimensional normalized action [v, ω ].
+
+B.3 Unitree Go2 Platform Parameters 
+
+Table 9 lists the Unitree Go2-specific environment parameters. The Unitree Go2 uses a three-dimensional velocity action space [v, ω ] with explicit asymmetric bounds: vx ∈ [0 .0, 0.5] m/s, and 
+
+ω ∈ [−π/ 4, π/ 4] rad/s. 14 Table 8: TurtleBot2 simulation parameters. 
+
+Parameter Value 
+
+Map and geometry 
+
+Map size 10 .0 × 10 .0 mRobot radius 0.200 m 
+
+Kinematics 
+
+Motion model Differential-drive Max linear velocity vmax 0.5 m/s Max angular velocity ωmax π/ 2 ≈ 1.571 rad/s Action bounds (min) (0 .0, −π/ 4) 
+
+Action bounds (max) (0 .5, π/ 4) 
+
+Observation and action 
+
+LiDAR field of view 270° Observation dimension 34 Table 9: Unitree Go2 simulation parameters. 
+
+Parameter Value 
+
+Map and geometry 
+
+Map size 13 .5 × 13 .5 mRobot length 0.80 mRobot width 0.41 m
+
+Kinematics 
+
+Motion model Differential-drive Max forward velocity vx, max 0.5 m/s Max angular velocity ωmax π/ 4 ≈ 0.785 rad/s Action bounds (min) (0 .0, −π/ 4) 
+
+Action bounds (max) (0 .5, π/ 4) 
+
+Observation and action 
+
+LiDAR field of view 360° Observation dimension 35 15

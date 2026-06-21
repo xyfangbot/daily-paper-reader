@@ -1,0 +1,1071 @@
+AstraNav-World: World Model for Foresight
+Control and Consistency
+Jintao Chen1,2∗†, Junjun Hu1∗B, Haochen Bai1,∗, Minghua Luo1, Xinda Xue1,2, Botao Ren1,3,
+Chengyu Bai1,2, Shichao Xie1, Ziyi Chen1, Fei Liu1, Zedong Chu1, Xiaolong Wu1, Mu Xu1,
+Shanghang Zhang2B
+1Amap Alibaba, 2PKU, 3THU
+∗Equal Contribution, †Project Lead., BCo-corresponding authors
+Embodied navigation in open, dynamic environments demands accurate foresight of how the world will evolve
+and how actions will unfold over time. We propose AstraNav-World, an end-to-end world model that jointly
+reasons about future visual states and action sequences within a unified probabilistic framework. Our framework
+integrates a diffusion-based video generator with a vision-language policy, enabling synchronized rollouts
+where predicted scenes and planned actions are updated simultaneously. Training optimizes two complementary
+objectives: generating action-conditioned multi-step visual predictions and deriving trajectories conditioned on
+those predicted visuals. This bidirectional constraint makes visual predictions executable and keeps decisions
+grounded in physically consistent, task-relevant futures, mitigating cumulative errors common in decoupled
+"envision-then-plan" pipelines. Experiments across diverse embodied navigation benchmarks show improved
+trajectory accuracy and higher success rates. Ablations confirm the necessity of tight vision–action coupling
+and unified training, with either branch removal degrading both prediction quality and policy reliability. In
+real-world testing, AstraNav-World demonstrated exceptional zero-shot capabilities, adapting to previously
+unseen scenarios without any real-world fine-tuning. These results suggest that AstraNav-World captures
+transferable spatial understanding and planning-relevant navigation dynamics, rather than merely overfitting to
+simulation-specific data distribution. Overall, by unifying foresight vision and control within a single generative
+model, we move closer to reliable, interpretable, and general-purpose embodied agents that operate robustly in
+open-ended real-world settings.
+Date: December 25th, 2025
+Project Page: https://astra-amap.github.io/AstraNav-World.github.io/
+1
+Introduction
+Embodied navigation is a core capability of embodied intelligence, aiming to enable agents to act and make decisions
+autonomously in complex, unknown real environments Yang et al. (2025); Zhang et al. (2025a); Wang et al. (2022);
+Anderson et al. (2018a). Despite significant progress in perception and instruction understanding, a key reason for
+navigation failures remains the lack of modeling of physical laws and temporal dynamics: small prediction biases
+accumulate over time, ultimately undermining the effectiveness of global planning. To achieve highly reliable real-world
+navigation, we advocate advancing two capability pipelines in tandem—"envision the future" and "plan the future" Finn
+and Levine (2017); Wu et al. (2024). The former emphasizes generating credible future visual states given actions
+to evaluate the model’s understanding of physics and causality; the latter emphasizes task-oriented action prediction,
+imposing constraints on visual generation so that predicted states are closer to the reachable world.
+For "plan the future", a common route is to build VLA on top of a VLM by adding an action head to achieve accurate and
+fast trajectory prediction Nvidia et al. (2025); Wang et al. (2025). For "envision the future", a natural path is to build a
+world model Ali et al. (2025); Russell et al. (2025). Methods Bar et al. (2025); Zhou et al. (2025); Yao et al. (2025) like
+NWM follow an "imagine-then-act" paradigm: given past images and actions, it predicts future first-person frames and
+uses them to judge whether the action sequence is feasible. Most of these methods use a video generation model as the
+base model since video generation models possess strong visual priors. Additionally, to better exploit video-generation
+priors, some studies use large-scale video-generation pretraining to improve model generalization Lyu et al. (2025);
+Zitkovich et al. (2023); Cheang et al. (2024), adopting a unified latent space to represent vision, language, actions, and
+1
+arXiv:2512.21714v2  [cs.CV]  8 Apr 2026
+
+
+world states for cross-modal knowledge sharing, and training on multi-tasks (e.g., video prediction plus policy learning).
+Long-horizon planning is another key challenge in embodied intelligence. VLA approaches, benefiting from strong
+vision-language understanding, tend to have better long-horizon planning potential; in contrast, world model-based
+long-horizon planning has been relatively underexplored. This has led to directions that combine the two, such as
+WorldVLA Cen et al. (2025) and CoT-VLA Cen et al. (2025); Zhang et al. (2025b): a single autoregressive Transformer
+serves both as a "world model" (generating future images) and an "action model" (generating control sequences). Among
+them, CoT-VLA emphasizes explicit reasoning via "intermediate visual states" to improve decision-making for complex
+instructions; WorldVLA points out that multi-step prediction errors can easily trigger planning collapse, requiring
+physical future consistency. Overall, VLAs focus on complex instructions and long-horizon planning, while world models
+focus on environment understanding and dynamics prediction; combining them produces complementary benefits.
+However, most existing methods still follow a loosely coupled "envision-then-plan" paradigm: envisioning and planning
+are decoupled in the pipeline, which tends to amplify physical uncertainty and causal ambiguity, leading to inconsistencies
+between the two. To address this, we propose a unified generative navigation world model that tightly binds "envision the
+future" and "plan the future" within a single probabilistic framework. Building on a powerful VLM with long-horizon
+perception and instruction understanding Bai et al. (2025), we deeply couple a DiT-based video generator Wan et al.
+(2025) with an action policy Xue et al. (2025), jointly modeling multi-step future visual frames and action sequences
+conditioned on the current state and language instructions. We optimize the two complementary objectives in parallel,
+and they progress in lockstep via synchronized rollout. This bidirectional constraint both provides executable visual
+evidence to support the rationality of planning and uses policy choices to inversely constrain visual generation to stay
+aligned with task intent Xiu et al. (2025). As a result, we construct a long-horizon navigation architecture that is visually
+coherent and behaviorally effective, reducing error propagation and pipeline inconsistencies, improving robustness
+and success rates. Extensive experiments show that our joint framework significantly outperforms existing methods
+in both future trajectory prediction accuracy and overall navigation success rate. Ablation studies further validate the
+necessity of bidirectional coupling and joint training: removing either branch weakens the grasp of environmental
+physics and task constraints, causing synchronized degradation in prediction performance. This study provides three
+primary contributions:
+• A unified generative framework in which future visual frames and action sequences are modeled simultaneously,
+and through bidirectional constraints and synchronized rollout under joint optimization, physical and causal
+consistency are reinforced, leveraging executable visual evidence to support the action, and generated frames are
+constrained by the action to maintain persistent alignment with task goals.
+• A world-model-based navigation architecture (AstraNav-World) is proposed, where the vlm serves as a global
+planner and encodes the language instruction together with historical and current multi-view observations into
+vision–language embeddings, which are then used to condition (i) a diffusion-based video generator for state
+prediction and (ii) a policy head for trajectory prediction.
+• Performance, interpretability, and zero-shot transfer: AstraNav-World achieves strong gains on multiple navigation
+benchmarks, improving SR/SPL and reducing NE compared to prior methods. Importantly, without any real-world
+fine-tuning, AstraNav-World demonstrates robust zero-shot transfer on a physical robot in previously unseen real
+environments.
+In summary, we place "envision the future" and "plan the future" within a single generative model. Leveraging the
+long-horizon understanding of a strong VLM, we use physically consistent video generation and task-aligned policy
+prediction to obtain a coherent and long-horizon-appropriate navigation plan. This not only improves robustness and
+success in real environments but also makes decisions more interpretable and extensible.
+2
+Related Works
+2.1
+World Model
+World models aim to capture environment dynamics and predict future states to support perception and decision making.
+Beyond short-horizon rollouts, recent work treats them as generators that synthesize future videos to provide visual
+evidence for planning. LaDi-WM Huang et al. (2025) employs diffusion modeling to predict future states within a
+geometric-semantic latent space, enabling more consistent and generalizable state forecasting compared to pixel-based
+2
+
+
+approaches. MoWM Shang et al. (2025) enhances decision robustness by fusing latent and pixel predictions through
+feature modulation in a mixture-of-world-models architecture during planning.
+In addition, world models are increasingly employed not only for prediction but as generative, interactive environments.
+Interactive world models condition on actions, language, or goal images to generate controllable, step-by-step futures,
+showcasing strong capabilities in environment simulation. Genie series Bruce et al. (2024); Parker-Holder et al. (2024)
+show that internet-scale video plus latent-action Transformers can yield a single, prompt-controllable world model for
+2D/3D games and robotics, enabling zero-shot policy imagination without real-world rewards or labels. Yan Team
+(2025) enables real-time, infinite interactive video generation via cross-domain prompts using a dynamics–rendering
+disentanglement. World models play the same role in the navigation domain as well, are used for scene understanding
+and future-frame imagination to guide planning, which provides visual evidence for exploration Bar et al. (2025).
+In terms of architecture, for video generation, autoregressive (AR) models and diffusion models have become the two
+dominant paradigms. AR world models serialize and autoregressively model multiple modalities—video, actions,
+and language—with representative work including MineWorld Guo et al. (2025). Their advantages include natural
+suitability for sequence modeling, strong scalability, and effective cross-modal fusion. Diffusion-based world models
+(e.g., Matrix-Game 2.0 He et al. (2025) and UWM Zhu et al. (2025a)) deliver higher generation quality, and have become
+the preferred choice in world generation due to their superior performance. Given our focus on generating high-fidelity,
+physically consistent future visual evidence for navigation and on leveraging the world understanding and physical priors
+from large-scale pretraining, we adopt a diffusion-based world model as our core architecture.
+2.2
+Combining world models with VLA
+World models excel at physically consistent short-horizon rollouts for near-field planning and closed-loop control,
+while VLA models capture high-level semantics and generate coherent long-horizon actions. Recent work exploits this
+complementarity by tightly coupling the two, yielding more reliable long-horizon planning and greater interpretability.
+WorldVLA Cen et al. (2025) integrates a latent world model with a VLA and produces a visual chain of thought
+(V-CoT) during inference to aid decision-making and enhance interpretability. DreamVLA Zhang et al. (2025b) adopts a
+Dreamer-style latent world model to perform “dream-like” visual rollouts and incorporates intermediate multimodal
+representations—such as dynamic maps, depth maps, and semantic maps into the reasoning process, providing visual
+evidence for multi-step planning and manipulation. CoT-VLA Zhao et al. (2025) explicitly injects visual intermediate
+goals into VLA by first autoregressively predicting future frames as visual subgoals and then generating short action
+sequences, thereby unifying temporal planning and interpretability. GigaBrain-0 Team et al. (2025) integrates RGB-D
+sensory modeling with embodied chain-of-thought supervision to systematically enhance reasoning over spatial geometry,
+object-state estimation, and long-horizon temporal dependencies. FlowVLA Zhong et al. (2025) uses Visual CoT to
+predict optical flow before next-frame synthesis, aligning dynamics pretraining with action generation and improving
+physical plausibility and sample efficiency.
+Unlike the above works, we move away from the loosely coupled "envision-then-then" paradigm and instead deeply
+couple video generation (world modeling) and action generation (policy modeling) within a single probabilistic generative
+process with synchronized rollout. At each step, the two are mutually conditioned and cross-corrected, reducing
+cross-modal inconsistencies and long-horizon error accumulation.
+3
+Method
+3.1
+Overall Architecture
+Our AstraNav-World is a unified generative world model that tightly couples future vision prediction with action
+prediction within a single probabilistic framework. Unlike conventional "envision-then-plan" approaches that treat these
+components as separate modules, our architecture ensures bidirectional consistency between visual predictions and
+action sequences through joint modeling.
+As illustrated in Figure 1, AstraNav-World consists of three core components:
+• Vision-Language Model (VLM) Planner: Serves as the high-level reasoning module that processes instructions
+and visual history to generate semantic guidance.
+3
+
+
+Figure 1 Overview of AstraNav World architecture. Our model adapts to two different policy heads within a unified framework: (a)
+a traditional policy head with an Action Former for direct action prediction, and (b) a diffusion policy head for probabilistic action
+generation. These two policy streams share a common VLM planner (τθ), which processes instructions and visual history to generate
+high-level conditional tokens. The architecture also includes a VLM conditional video generator (υθ) for predicting and planning
+consistent future visual scenes. When using diffusion strategy flow, multimodal fusion cross attention (MMFCA) can be selectively
+used in overlapping DiTBlocks to interconnect, achieving bidirectional information flow between action and visual prediction.
+• Video Generator: Predicts future visual observations based on the VLM’s contextual understanding.
+• Action Policy Head: Generates future action sequences, implemented through dual policy methods (transformer-
+based and diffusion-based).
+The key innovation is that these components are trained end-to-end with bidirectional constraints, ensuring that:
+• VLM understands instructions and makes macro planning.
+• Action sequences are grounded in visually plausible futures.
+• Visual predictions are consistent with executable actions.
+This unified approach eliminates the error accumulation inherent in sequential prediction-planning pipelines, while
+enabling long-horizon planning with visual foresight. Our model is implemented using Qwen-2.5-VL-3B as the VLM
+backbone and Wan2.2-TI2V-5B as the foundation for the video generation and policy components.
+3.2
+VLM as Central Planner
+The VLM, denoted as τθ, serves as the high-level reasoning core of our agent. At each timestep, it takes as input the
+natural language instruction I and a sequence of historical visual observations Ohist = {oi−k, . . . , oi}.
+Output Representation
+The VLM generates a set of Vision-Language Embeddings, C ∈RL×D where L is the
+sequence length and D = 2048 is the embedding dimension. These embeddings contain two key components:
+• Goal-oriented Semantic Features: Encoded from the instruction, capturing the high-level navigation objective.
+• Spatial Context Features: Encoding the historical and current visual semantic and spatial features.
+These embeddings provide a unified high-level directive for both the action and vision prediction streams, ensuring
+cohesive planning and prediction. The key is that this representation not only enables the model to maintain a holistic
+understanding of long-horizon tasks, but also allows it to flexibly adapt to immediate changes in the environment.
+4
+
+
+3.3
+VLM-Conditioned Video Generator
+3.3.1
+Basic Architecture
+Our approach leverages Wan-2.2-TI2V-5B Wan et al. (2025), a bidirectional diffusion-based video generation system
+initially trained for short video synthesis from text or image inputs. At its core, the architecture integrates two key
+components: a spatio-temporal variational autoencoder(ST-VAE) and diffusion transformer networks (DiTs). The
+ST-VAE features a 3D causal structure that efficiently compresses high-resolution video content into a compact latent
+representation, achieving a 16× spatial compression ratio and a 4 × temporal compression ratio. The diffusion process
+is implemented through a series of diffusion transformers (DiTs) that include patchifying and unpatchifying layers along
+with 30 transformer blocks. In the original Wan architecture, input text descriptions are encoded with umT5 Chung
+et al. (2023) and integrated via cross-attention, while denoising timestep embeddings are injected through a shared
+MLP module. For I2V tasks, the model will concatenate the latent of the input image and noisy latent in the temporal
+dimension and set corresponding timestep of first frame latent to zero. In our task, we concatenate all observations in
+the batch dimension instead of the original temporal dimension to avoid temporal compression of ST-VAE and we set
+corresponding timestep of historical and current latent frames to zero.
+3.3.2
+VLM planner as Conditional Encoder.
+To ensure the predicted future observations are aligned with the VLM’s high-level plan, we replace the conventional text
+encoder of the video model with our VLM planner, τθ. The Vision-Language Embeddings from τθ are injected into the
+video diffusion model’s DiT architecture via cross-attention layers. This allows the VLM to directly steer the generation
+process, ensuring the synthesized future frames are semantically consistent with VLM’s planning.
+3.3.3
+3D-RoPE Rearrangement.
+Following the original settings, our framework employs 3D Rotary Position Embeddings Su et al. (2024) in DiT blocks.
+To handle the combined input of historical frames oi−k, . . . , oi−1 (with natural temporal indexing tj = j) and current
+multi-view observations, we introduce a 3D-RoPE rearrangement strategy. The historical frames maintain standard
+temporal ordering, the current left, front, and right views at ti are virtually arranged side-by-side along the width axis,
+preserving shared temporal and height indices while encoding their spatial-temporal relationships. For a frame with
+original width W, the coordinate transformation works as follows:
+PEfront
+ti
+7→(t′, h′, w′) = (ti, h, w)
+(1)
+PEright
+ti
+7→(t′, h′, w′) = (ti, h, w + W)
+(2)
+PEleft
+ti 7→(t′, h′, w′) = (ti, h, w + 2W)
+(3)
+3.3.4
+Optimization Objective.
+The video generator is trained using a conditional denoising objective specifically designed for navigation context
+prediction. During training, we apply a differential noise scheduling strategy to distinguish between observed and
+predicted frames. The historical front perspective frames of
+i−m, . . . , of
+i−1 and the current multi-view observations
+(of
+i , ol
+i, or
+i ) are provided with a minimal noise level (σobs ≈0.05), effectively treating them as clean conditioning inputs.
+In contrast, the future front perspective frames of
+i+1, . . . , of
+i+N are trained with noise added by Flow Matching method.
+Let zfuture = E(ofuture) (E means the encoder of ST-VAE) denote the sequence of latent representations for the ground-truth
+future frames. For each training iteration, we sample a noise level σt and a noise sample ϵ ∼N(0, I). The latent state at
+time t is constructed as zt = (1 −t) · zfuture + t · ϵ, while the conditioning frames (historical and current) remain at a
+near-zero noise level. The target velocity field is defined as ut = ϵ −zfuture.
+The optimization objective focuses exclusively on the future frames, formulated as:
+LVG = Et,zfuture,C
+hvθ(zt, t, C) −(ϵ −zfuture)
+2i
+(4)
+where vθ represents the video generation network, C = {cvlm} contains the VLM planner’s contextual embeddings, and
+the expectation is taken only over the future frames.
+5
+
+
+3.4
+Action Policy Head
+3.4.1
+Action Former Policy
+The first policy implementation employs a query-based Transformer architecture that processes the VLM’s contextual
+embeddings to generate action sequences. This approach utilizes a fixed set of Nq learnable query vectors Q ∈RNq×D
+that are initialized randomly and updated during training. These queries interact with the VLM’s output embeddings
+Evlm ∈RL×D through a multi-layer Transformer encoder, consisting of Nenc stacked blocks with multi-head self-attention
+and feed-forward networks. Then the queries can capture temporal dependencies and contextual relationships and
+produce refined query representations Q′ ∈RNq×D. These representations are then passed through a multi-layer
+perceptron (MLP) head that maps each query to a step of action in the navigation space, yielding the predicted action
+sequence A = {ai+1, . . . , ai+N}. This architecture provides an efficient mechanism for deterministic action generation
+while maintaining computational efficiency.
+The Action Former policy generates actions represented as A = (X, Y, cos(θ), sin(θ), α), where (X, Y ) denote the
+relative position displacement, (cos(θ), sin(θ)) encode the heading angle in a rotationally invariant manner, and α is a
+binary flag indicating arrival at the target.
+The loss function is composed of three distinct components that address different aspects of the navigation task:
+• Position Loss: For the (X, Y ) components, we apply L1 loss to measure the absolute error between predicted
+and ground-truth displacements:
+Lpos = 1
+N
+N
+X
+n=1
+(|Xn −X∗
+n| + |Yn −Y ∗
+n |)
+(5)
+• Angle Loss: The heading angle is optimized using cosine similarity between the predicted and ground-truth
+direction vectors:
+Langle = 1 −1
+N
+N
+X
+n=1
+(cos(θn) cos(θ∗
+n) + sin(θn) sin(θ∗
+n))
+(6)
+This formulation ensures rotational consistency and avoids the discontinuity issues that would occur with direct
+angle regression.
+• Arrival Loss: The arrival flag is optimized using binary cross-entropy with logits:
+Larrive = −1
+N
+N
+X
+n=1
+[α∗
+n log(σ(αn)) + (1 −α∗
+n) log(1 −σ(αn))]
+(7)
+where σ denotes the sigmoid function.
+The total loss for the Action Former policy is a weighted combination:
+LPH = λ1Lpos + λ2Langle + λ3Larrive
+(8)
+with λ1 = 1.0, λ2 = 1.0, and λ3 = 1.0 empirically determined to balance the contributions of each component. This
+multi-objective formulation ensures that the policy simultaneously optimizes for accurate position prediction, correct
+orientation, and appropriate termination conditions.
+3.4.2
+Diffusion Policy
+The second policy implementation adopts a diffusion-based approach that generates actions through a denoising process,
+providing probabilistic action predictions that better capture the uncertainty inherent in navigation tasks. Each block
+contains one attention and one FFN, with self-attention and cross-attention alternately. The diffusion policy operates on
+noisy action sequences At and gradually refines them to produce clean, executable trajectories. A key innovation in
+this implementation is the integration of the Multimodal Fusion Cross-Attention (MMFCA) module between the last 8
+overlapping blocks (with cross attention) of the diffusion policy and video generator streams. The MMFCA enables
+bidirectional information flow through dual cross-attention operations:
+6
+
+
+• Action-to-Video Attention: The refined action representations serve as queries (QA) that attend to the video
+latent representations (KV , VV ), ensuring actions are grounded in visually plausible futures
+• Video-to-Action Attention: The video latent representations serve as queries (QV ) that attend to the action
+representations (KA, VA), ensuring visual predictions remain causally consistent with the planned actions
+The MMFCA module is controlled by a binary switch γ ∈{0, 1}. When γ = 1 we enable bidirectional fusion between
+the video generator and the policy via MMFCA module, so that video prediction and action generation are coupled and
+can be produced synchronously within the same rollout. When γ = 0 the fusion is disabled and the two streams operate
+independently; in particular, for efficient inference, we can skip the video generator entirely and run only the policy to
+predict actions, which substantially reduces computation.
+The Diffusion Policy is trained using Flow Matching method Lipman et al. (2022); Liu et al. (2022), a continuous-time
+diffusion framework that learns to predict the velocity field that transports noise to the target distribution. Given
+a ground-truth action sequence Afuture and a noise sample ϵ ∼N(0, I), we construct a linear interpolation path
+At = (1 −t) · Afuture + t · ϵ. The target velocity field is defined as vt = ϵ −Afuture.
+The loss function for the Diffusion Policy is formulated as:
+LPH = Et,Afuture,ϵ,C
+h
+∥vϕ,θ(At, t, C) −(ϵ −Afuture)∥2i
+(9)
+where vϕ,θ denotes the velocity prediction network, and C represents the VLM planner’s contextual embeddings.
+3.5
+Speed Optimization
+The intrinsic speed of video generation, particularly with diffusion transformer models , can be a bottleneck for real-time
+navigation tasks that demand high-frequency actions. To address this, we propose Sparse Foresight Scheduling
+(SFS). Through joint modeling and joint training, the VLM possesses sufficiently strong planning and generalization
+capabilities, extending these capabilities to the policy level. So Instead of generating a future frame and action at every
+single time step, we perform this joint generation process at fixed, pre-determined intervals. This is a pragmatic decision,
+as many navigation scenarios involve prolonged periods of simple, consistent behaviors such as straight-line movement,
+which do not necessitate instantaneous updates to the world model. By generating future predictions only at these
+sampled intervals, we significantly reduce computational overhead and save valuable time.
+During inference, our system adapts its computational strategy based on the selected policy head. When utilizing the
+Action Former policy head, we completely deactivate the video generator, relying solely on the query-based Transformer
+architecture to generate action sequences without visual prediction.
+Because we disabled MMFCA for 50% of the training process, our diffusion policy has sufficient independence to allow
+us to intermittently disable joint prediction and only predict future actions. For the Diffusion Policy head, we activate the
+video generator only at fixed interval steps (every 10 steps in our implementation), while keeping it deactivated during
+intermediate steps. This selective activation approach allows our model to benefit from visual foresight when it matters
+most while significantly reducing computational overhead, achieving an optimal trade-off between predictive accuracy
+and inference speed.
+4
+Experiments
+4.1
+Data Process
+Our data resources encompass two types of navigation tasks: instruction-goal navigation and object-goal navigation.
+Instruction-goal navigation data. Under Habitat’s continuous environment configuration (VLN-CE) and Matterport3D
+indoor scenes Chang et al. (2017), we construct navigation episodes based on the public instruction–path pairs from
+R2R Anderson et al. (2018b) and RxR Ku et al. (2020). For each trajectory, we store multimodal information, including
+a panoramic sequence composed of three camera views (left, front, right), the corresponding sequences of discrete
+actions and continuous waypoints, and the paired natural-language instruction.
+Object-goal navigation data. Following the open-vocabulary object navigation setting (OVON) Yokoyama et al.
+(2024b), we randomly sample (start pose, target object category) pairs in HM3D scenes Ramakrishnan et al. (2021).
+7
+
+
+A built-in shortest-path planner guides the agent to the vicinity of the target to generate samples, and we record each
+episode in the same format as the instruction-goal data (three-view panoramic frames, discrete action and continuous
+waypoint sequences, and the associated textual description).
+Navigation data Process. Navigation comprises four discrete action types (forward, left, right, stop). Each action
+step corresponds to a continuous trajectory point composed of position and orientation: position is a 3D coordinate (X,
+Y , Z), and rotation is a quaternion (w, x, y, z). During trajectory prediction, we first convert each 6-DoF pose to a local
+coordinate frame: the current front-view frame serves as the origin and heading reference, and all other trajectory points
+are transformed relative to this reference. We then project the 3D pose onto the ground plane, retaining (X, Y ) and
+the heading angle θ, and add an "arrival" flag α at each step. Finally, each trajectory point (action) is represented as a
+quadruple (X,Y ,θ,α), namely A=(X,Y ,θ,α), which serves as the primary action optimization target.
+4.2
+Implementation Details
+For the Vision-Language Model, we utilize Qwen2.5-VL-3B and perform full-parameter supervised fine-tuning. The
+video generator is based on Wan2.2-TI2V-5B and is fine-tuned using the LoRA method with both rank and scale set to
+128. Empirical observations indicate that LoRA training offers superior stability and convergence speed for the video
+module. For the policy components, we implement two distinct variants: (i) The Action Former variant employs 5
+learnable query embeddings processed through 4 stacked Transformer blocks to predict deterministic trajectories. (ii)
+The Diffusion Policy variant utilizes a deeper architecture with 16 Transformer layers. Furthermore, we integrate the
+MMFCA module between the Diffusion Policy and the final 8 blocks (with cross attention) of the video generator to
+facilitate deep cross-modal interactions. We set the learning rate to 1 × 10−5 and adopt a cosine decay schedule. All
+experiments are conducted on a cluster equipped with 96 H20 GPUs.
+4.2.1
+VLM pretraining
+To endow our central planner with broad world knowledge and robust reasoning capabilities, we initialize the Vision-
+Language Model (VLM), τθ, from a checkpoint pretrained on a diverse mixture of large-scale, general-purpose
+vision-language datasets. These datasets cover fundamental tasks such as Visual Question Answering (VQA) and object
+grounding, which provide the model with a foundational understanding of object semantics and spatial relationships
+and instruction comprehension. In addition, the navigation dataset of R2R, RxR and Ovon as described above are also
+added to pretrain the VLM in an autoregressive way following the work of OmniNav Xue et al. (2025). This pretraining
+process ensures that the VLM is not only a knowledgeable reasoner but also an expert planner adapted to the visual
+features and action-oriented instructions.
+4.2.2
+Video-Action Prediction Training
+The training of AstraNav-World follows a two-stage training strategy designed to effectively leverage pre-trained
+components while optimizing the complex interactions between visual and action prediction.
+Total loss
+The overall training objective combines the video generator loss (LVG) and policy head loss (LPH) into a
+unified framework:
+LTotal = LVG + λLPH
+(10)
+where λ = 1.0 is the balancing coefficient empirically determined to optimize the trade-off between visual prediction
+accuracy and action prediction quality.
+Training Strategy
+Our training process consists of two carefully designed stages:
+Stage 1: Component-Specific Pretraining. The VLM planner is initialized from a checkpoint pretrained on large-
+scale vision-language datasets and kept frozen during this entire stage. We first train the video generator independently
+using LVG, with the Flow Matching objective focusing exclusively on future frame prediction. Subsequently, we train the
+policy head independently using LPH, optimizing for both position accuracy and action semantics. This stage provides
+strong initializations for both components while avoiding early optimization conflicts and ensuring each module develops
+its core capabilities before integration.
+8
+
+
+Table 1 Main comparison with prior methods on the Val-Unseen split of R2R-CE and RxR-CE (vg indicates video-generator,
+* indicates methods using the waypoint predictor).
+Method
+Observation
+R2R-CE Val-Unseen
+RxR-CE Val-Unseen
+S.RGB Pano. Depth Odo. NE↓OS↑SR↑SPL↑NE↓
+SR↑
+SPL↑
+HPN+DN* (Krantz et al., 2021)
+✓
+✓
+✓
+6.31 40.0 36.0
+34.0
+-
+-
+-
+CMA* (Hong et al., 2022)
+✓
+✓
+✓
+6.20 52.0 41.0
+36.0
+8.76
+26.5
+22.1
+Sim2Sim* (Krantz and Lee, 2022)
+✓
+✓
+✓
+6.07 52.0 43.0
+36.0
+-
+-
+-
+GridMM* (Wang et al., 2023b)
+✓
+✓
+✓
+5.11 61.0 49.0
+41.0
+-
+-
+-
+DreamWalker* (Wang et al., 2023a)
+✓
+✓
+✓
+5.53 59.0 49.0
+44.0
+-
+-
+-
+Reborn* (An et al., 2022)
+✓
+✓
+✓
+5.40 57.0 50.0
+46.0
+5.98
+48.6
+42.0
+ETPNav* (An et al., 2024)
+✓
+✓
+✓
+4.71 65.0 57.0
+49.0
+5.64
+54.7
+44.8
+HNR* (Wang et al., 2024)
+✓
+✓
+✓
+4.42 67.0 61.0
+51.0
+5.50
+56.3
+46.7
+AG-CMTP (Chen et al., 2021)
+✓
+✓
+✓
+7.90 39.0 23.0
+19.0
+-
+-
+-
+R2R-CMTP (Chen et al., 2021)
+✓
+✓
+✓
+7.90 38.0 26.0
+22.0
+-
+-
+-
+InstructNav (Long et al., 2024)
+✓
+✓
+✓
+6.89
+-
+31.0
+24.0
+-
+-
+-
+LAW (Raychaudhuri et al., 2021)
+✓
+✓
+✓
+6.83 44.0 35.0
+31.0
+10.90
+8.0
+8.0
+CM2 (Georgakis et al., 2022)
+✓
+✓
+✓
+7.02 41.0 34.0
+27.0
+-
+-
+-
+WS-MGMap (Chen et al., 2022)
+✓
+✓
+✓
+6.28 47.0 38.0
+34.0
+-
+-
+-
+AO-Planner (Chen et al., 2025)
+✓
+✓
+5.55 59.0 47.0
+33.0
+7.06
+43.3
+30.5
+Seq2Seq (Krantz et al., 2020)
+✓
+✓
+7.77 37.0 25.0
+22.0
+12.10 13.9
+11.9
+CMA (Krantz et al., 2020)
+✓
+✓
+7.37 40.0 32.0
+30.0
+-
+-
+-
+NaVid (Zhang et al., 2024b)
+✓
+5.47 49.0 37.0
+35.0
+-
+-
+-
+Uni-NaVid (Zhang et al., 2024a)
+✓
+5.58 53.5 47.0
+42.7
+6.24
+48.7
+40.9
+NaVILA (Cheng et al., 2024)
+✓
+5.22 62.5 54.0
+49.0
+6.77
+49.3
+44.0
+StreamVLN (Wei et al., 2025)
+✓
+4.98 64.2 56.9
+51.9
+6.22
+52.9
+46.0
+CorrectNav (Yu et al., 2025)
+✓
+4.24 67.5 65.1
+62.3
+4.09
+69.3
+63.3
+AstraNav-World w/ Action Former
+✓
+3.93 73.1 67.2
+64.2
+3.93
+70.4
+59.6
+AstraNav-World w/ Diffusion Policy
+✓
+3.86 73.9 67.9 65.4
+3.82 72.9
+61.5
+Stage 2: Joint Fine-tuning. In this stage, we unfreeze all components and jointly optimize the entire model with
+LTotal. For models using the Diffusion Policy head, we randomly enable the MMFCA module with 50% probability
+during training, which ensures the policy develops robust standalone capabilities while maintaining the ability to
+leverage visual guidance when available. This selective activation strategy prevents over-reliance on visual feedback
+and guarantees the diffusion policy can operate effectively even when visual information is limited or when the video
+generator is deactivated during inference for computational efficiency.
+Table 2 Evaluation of object-goal navigation on HM3D-OVON.
+Method
+Val-Unseen
+SR↑
+SPL↑
+VLFM (Yokoyama et al., 2024a)
+35.2
+19.6
+DAgRL+OD (Yokoyama et al., 2024b)
+37.1
+19.8
+Uni-NaVid (Zhang et al., 2024a)
+39.5
+19.8
+MTU3D (Zhu et al., 2025b)
+40.8
+12.1
+AstraNav-World w/ Action Former
+45.1
+28.3
+AstraNav-World w/ Diffusion Policy
+45.7
+28.7
+9
+
+
+(-0.008, 0.253)
+(-0.022, 0.500)
+(-0.017, 0.960)
+(-0.027, 0.695)
+(-0.026, 0.851)
+(-0.009, 0.177)
+(-0.012, 0.244)
+(0.0590, 0.314)
+(0.170, 0.376)
+(0.291, 0.435)
+1
+2
+3
+4
+5
+1
+2
+3
+4
+5
+1
+2
+3
+4
+5
+1
+2
+3
+4
+5
+1
+2
+3
+4
+5
+1
+2
+3
+4
+5
+0
+0
+0
+0
+0
+0
+0
+0
+0
+1
+2
+3
+4
+5
+1
+2
+3
+4
+5
+(0.001, 0.255)
+(0.061, 0.421)
+(0.151, 0.562)
+(0.269, 0.687)
+(0.414, 0.804)
+0
+0
+0
+1
+2
+3
+4
+5
+1
+2
+3
+4
+5
+0
+1
+3
+2
+4
+5
+5
+3
+2
+1
+0
+4
+4
+3
+2
+1
+0
+5
+1
+0
+2
+3
+4
+5
+Current
+Predicted
+Rendered
+left
+front 
+right
+left
+front 
+right
+left
+front 
+right
+Current
+Predicted
+Rendered
+(-0.006, 1.226)
+(-0.011, 0.253)
+(-0.009, 0.5)
+(-0.006, 0.75)
+(-0.004, 0.992)
+(a) Qualitative results in R2R-CE 
+(b) Qualitative results in RxR CE 
+(c) Qualitative results in R2R-CE 
+(d) Qualitative results in HM3D-OVON
+Figure 2 Qualitative results. Our model predict the next five visual frames while simultaneously outputting the corresponding 5-step
+waypoint sequence. The generated frames are in strong agreement with the scenes rendered from the predicted waypoints and also the
+predicted trajectory marked with red arrows, showing strong consistency.
+4.3
+Main Results
+4.3.1
+Metric Comparison
+We assess navigation performance using four standard metrics: success rate (SR), oracle success (OS), success weighted
+by path length (SPL), and navigation error (NE). Our evaluation setup mirrors established practice in the literature
+and follows the protocols used in prior work Zhang et al. (2024a); Zhu et al. (2025b). Across instruction-following
+benchmarks R2R-CE and RxR-CE, AstraNav-World demonstrates significant improvements with both policy variants.
+The Action Former policy achieves a 2.1% absolute improvement in success rate over prior methods on R2R-CE and
+1.1% on RxR-CE. The Diffusion Policy with MMFCA further enhances performance, delivering an additional 0.7% gain
+on R2R-CE and 2.5% on RxR-CE compared to the Action Former variant (see Tables 1). For open-vocabulary object
+navigation on HM3D-OVON, the Diffusion Policy variant shows the strongest results with a 4.9% absolute improvement
+over previous state-of-the-art, while the Action Former policy achieves a 4.3% improvement (see Table 2).
+4.3.2
+Ablation Study
+Impact of the Video Generator (VG). As shown in Fig. 3(a), disabling the VG branch in the diffusion policy variant
+causes a consistent SR drop across R2R, RxR, and OVON datasets. This confirms that explicitly predicting future
+observations provides critical guidance for planning and improves accuracy.
+Efficiency of SFS. Finally, we ablate the Sparse Foresight Scheduling (SFS) on 100 random R2R episodes (Fig. 3(b)).
+By increasing the fixed skipping interval, inference accelerates by up to an order of magnitude while maintaining a
+nearly identical SR. This validates SFS as a pragmatic solution to the generation latency bottleneck.
+Scaling vs. World Modeling. Does the performance gain stem simply from an increased parameter capacity? Table 3
+compares our VLA-only baseline (without VG) using 3B vs. 7B VLM backbones on R2R-CE. Scaling the VLM to 7B
+yields negligible improvement (66.5% →66.6%), hitting a performance ceiling. In contrast, our joint 3B model with the
+10
+
+
+Figure 3 Ablation study results. (a) Impact of the video generator (VG): Comparing the Success Rate (SR) with and
+without VG across R2R, RxR, and OVON datasets shows that predicting future observations consistently improves navigation
+performance. (b) Efficiency of SFS: Evaluation of the proposed SFS strategy on R2R with different skipping intervals k. The
+results demonstrate that increasing k significantly reduces inference time (up to 6.7× speedup) while maintaining robust performance.
+VG branch pushes the SR to 67.9% via critical LV G regularization. Compared to recent state-of-the-art methods using
+7B/8B LLMs, our framework maintains significant superiority, proving that the world model’s bidirectional constraints
+yield a qualitative leap beyond pure parameter scaling.
+Table 3 Navigation Performance (SR) vs. Parameter Scale on R2R-CE Val-Unseen. UN, SN, CN, and NA denote Uni-NaVid Zhang
+et al. (2024a), StreamVLN Wei et al. (2025), CorrectNav Yu et al. (2025), and NaVILA Cheng et al. (2024).
+Method
+UN/SN/CN
+NA
+Ours-3B(w/o VG)
+Ours-7B(w/o VG)
+Ours-3B(w/ VG)
+LM Scale
+7B
+8B
+3B
+7B
+3B
+SR (%)
+47.0∼65.1
+54.0
+66.5
+66.6
+67.9
+4.3.3
+Consistency Analysis
+As visually demonstrated in Figure 2, the generated future views exhibit strong qualitative consistency with the
+waypoint-rendered scenes. The visual appearance and motion trends are deeply coupled with the planned trajectory
+during both straight and turning maneuvers, with macro-geometric cues (e.g., object contours and orientations) accurately
+reflecting the intended camera translation and rotation.
+To quantitatively validate this alignment, we go beyond standard image fidelity metrics (i.e., PSNR and FVD) to explicitly
+measure spatial and geometric consistency. Specifically, we employ the open-source VGGT model to estimate the
+relative camera pose changes across the generated image sequence, and compare them against the ground-truth relative
+poses extracted from the simulator-rendered frames. We compute the angular difference δa ∈[0◦, 360◦] between these
+two pose variations. As presented in Fig. 3(c), We randomly selected 100 cases and statistically analyzed the proportion
+of various angular differences. The results show that our future visual predictions and actions have a very high degree of
+consistency.
+4.3.4
+Real World Testing
+To evaluate the real-world applicability of our approach, we conducted testing of AstraNav-World on a physical robot
+platform without any retraining or fine-tuning on real-world data. The testing involved several navigation tasks across
+real-world environment, where the robot was tasked with following natural language instructions to reach specific
+locations or interact with objects. Despite the significant domain gap between simulation and reality, AstraNav-World
+achieved good results on these real-world tasks, substantially outperforming prior methods that typically require domain
+adaptation (refer to the project page).
+Qualitative analysis revealed that the model’s ability to generate future visual predictions enabled it to anticipate
+challenging transitions such as doorway passages and corner turns, significantly improving navigation robustness. This
+remarkable zero-shot transfer capability validates the fundamental advantage of world modeling approaches: by learning
+the underlying physical and navigational principles rather than simply fitting data distributions in simulation environment,
+our model captures essential spatial relationships and dynamics that generalize across domains. These results establish
+11
+
+
+AstraNav-World as one of the first navigation models to achieve competitive real-world performance without any
+real-world training data, demonstrating the true potential of generative world models for embodied navigation.
+5
+Conclusion
+This paper addresses core issues in embodied navigation caused by the loosely coupled "envision-then-plan" paradigm,
+including physical and causal inconsistency and error accumulation, by proposing a unified generative world model for
+navigation, AstraNav-World. It tightly binds "envision the future" and "plan the future" within a single probabilistic
+framework. Centered on a VLM with long-horizon understanding as the planner, the framework integrates future visual
+prediction with action planning through two different approaches: an Action Former policy for deterministic action
+generation and a diffusion policy with MMFCA for probabilistic action prediction. To handle multi-view inputs, we
+introduce a 3D-RoPE rearrangement method that maintains precise spatial-temporal alignment for current frames from
+different camera perspectives. The model is trained through a two-stage process that first develops strong individual
+capabilities through staged pretraining, followed by end-to-end joint optimization to enhance both executability and
+robustness.
+Experiments show that AstraNav-World leads on the R2R-CE, RxR-CE, and HM3D-OVON navigation benchmarks
+with both policy variants; removing the video generation branch results in metric degradation for both implementations.
+Notably, our framework demonstrates exceptional generalization capabilities, with models trained exclusively in
+simulation achieving strong performance in real-world environments, validating the world model’s ability to capture
+fundamental physical and navigational principles. Qualitative analysis indicates that the generated future viewpoints
+are highly consistent with the pose changes along the planned trajectory, markedly improving decision interpretability.
+To balance real-time performance, we adopt time-sliced inference so that video generation and the diffusion policy
+collaborate at fixed intervals, maintaining accuracy while reducing computational overhead.
+AstraNav-World uses a strong VLM, physics-consistent video generation, and task-aligned policy prediction to produce
+coherent, executable long-horizon navigation plans. Challenges include generation latency and compute limits in
+complex scenes. Future work will scale to longer horizons and harder tasks, strengthen physical and causal world
+modeling, improve closed-loop consistency and real-time reasoning/planning, and make embodied agents more reliable
+and interpretable in the real world.
+12
+
+
+References
+Arslan Ali, Junjie Bai, Maciej Bala, Yogesh Balaji, Aaron Blakeman, Tiffany Cai, Jiaxin Cao, Tianshi Cao, Elizabeth Cha, Yu-Wei
+Chao, et al. World simulation with video foundation models for physical ai. arXiv preprint arXiv:2511.00062, 2025.
+Dong An, Zun Wang, Yangguang Li, Yi Wang, Yicong Hong, Yan Huang, Liang Wang, and Jing Shao. 1st place solutions for
+rxr-habitat vision-and-language navigation competition (cvpr 2022). arXiv preprint arXiv:2206.11610, 2022.
+Dong An, Hanqing Wang, Wenguan Wang, Zun Wang, Yan Huang, Keji He, and Liang Wang. Etpnav: Evolving topological planning
+for vision-language navigation in continuous environments. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2024.
+Peter Anderson, Angel Chang, Devendra Singh Chaplot, Alexey Dosovitskiy, Saurabh Gupta, Vladlen Koltun, Jana Kosecka, Jitendra
+Malik, Roozbeh Mottaghi, Manolis Savva, et al. On evaluation of embodied navigation agents. arXiv preprint arXiv:1807.06757,
+2018a.
+Peter Anderson, Qi Wu, Damien Teney, Jake Bruce, Mark Johnson, Niko Sünderhauf, Ian Reid, Stephen Gould, and Anton Van
+Den Hengel. Vision-and-language navigation: Interpreting visually-grounded navigation instructions in real environments. In
+Proceedings of the IEEE conference on computer vision and pattern recognition, pages 3674–3683, 2018b.
+Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al.
+Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923, 2025.
+Amir Bar, Gaoyue Zhou, Danny Tran, Trevor Darrell, and Yann LeCun. Navigation world models. In Proceedings of the Computer
+Vision and Pattern Recognition Conference, pages 15791–15801, 2025.
+Jake Bruce, Michael D Dennis, Ashley Edwards, Jack Parker-Holder, Yuge Shi, Edward Hughes, Matthew Lai, Aditi Mavalankar,
+Richie Steigerwald, Chris Apps, et al. Genie: Generative interactive environments. In Forty-first International Conference on
+Machine Learning, 2024.
+Jun Cen, Chaohui Yu, Hangjie Yuan, Yuming Jiang, Siteng Huang, Jiayan Guo, Xin Li, Yibing Song, Hao Luo, Fan Wang, et al.
+Worldvla: Towards autoregressive action world model. arXiv preprint arXiv:2506.21539, 2025.
+Angel Chang, Angela Dai, Thomas Funkhouser, Maciej Halber, Matthias Niessner, Manolis Savva, Shuran Song, Andy Zeng, and
+Yinda Zhang. Matterport3d: Learning from rgb-d data in indoor environments. arXiv preprint arXiv:1709.06158, 2017.
+Chi-Lam Cheang, Guangzeng Chen, Ya Jing, Tao Kong, Hang Li, Yifeng Li, Yuxiao Liu, Hongtao Wu, Jiafeng Xu, Yichu Yang,
+et al. Gr-2: A generative video-language-action model with web-scale knowledge for robot manipulation. arXiv preprint
+arXiv:2410.06158, 2024.
+Jiaqi Chen, Bingqian Lin, Xinmin Liu, Lin Ma, Xiaodan Liang, and Kwan-Yee K Wong. Affordances-oriented planning using
+foundation models for continuous vision-language navigation. In Proceedings of the AAAI Conference on Artificial Intelligence,
+volume 39, pages 23568–23576, 2025.
+Kevin Chen, Junshen K Chen, Jo Chuang, Marynel Vázquez, and Silvio Savarese. Topological planning with transformers for
+vision-and-language navigation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages
+11276–11286, 2021.
+Peihao Chen, Dongyu Ji, Kunyang Lin, Runhao Zeng, Thomas Li, Mingkui Tan, and Chuang Gan. Weakly-supervised multi-granularity
+map learning for vision-and-language navigation. Advances in Neural Information Processing Systems, 35:38149–38161, 2022.
+An-Chieh Cheng, Yandong Ji, Zhaojing Yang, Zaitian Gongye, Xueyan Zou, Jan Kautz, Erdem Bıyık, Hongxu Yin, Sifei Liu, and
+Xiaolong Wang. Navila: Legged robot vision-language-action model for navigation. arXiv preprint arXiv:2412.04453, 2024.
+Hyung Won Chung, Noah Constant, Xavier Garcia, Adam Roberts, Yi Tay, Sharan Narang, and Orhan Firat. Unimax: Fairer and
+more effective language sampling for large-scale multilingual pretraining. arXiv preprint arXiv:2304.09151, 2023.
+Chelsea Finn and Sergey Levine. Deep visual foresight for planning robot motion. In 2017 IEEE international conference on robotics
+and automation (ICRA), pages 2786–2793. IEEE, 2017.
+Georgios Georgakis, Karl Schmeckpeper, Karan Wanchoo, Soham Dan, Eleni Miltsakaki, Dan Roth, and Kostas Daniilidis. Cross-
+modal map learning for vision and language navigation. In Proceedings of the IEEE/CVF conference on computer vision and
+pattern recognition, pages 15460–15470, 2022.
+Junliang Guo, Yang Ye, Tianyu He, Haoyu Wu, Yushu Jiang, Tim Pearce, and Jiang Bian. Mineworld: a real-time and open-source
+interactive world model on minecraft. arXiv preprint arXiv:2504.08388, 2025.
+Xianglong He, Chunli Peng, Zexiang Liu, Boyang Wang, Yifan Zhang, Qi Cui, Fei Kang, Biao Jiang, Mengyin An, Yangyang Ren,
+et al. Matrix-game 2.0: An open-source, real-time, and streaming interactive world model. arXiv preprint arXiv:2508.13009, 2025.
+13
+
+
+Yicong Hong, Zun Wang, Qi Wu, and Stephen Gould. Bridging the gap between learning in discrete and continuous environments for
+vision-and-language navigation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages
+15439–15449, 2022.
+Yuhang Huang, JIazhao Zhang, Shilong Zou, XInwang Liu, Ruizhen Hu, and Kai Xu. Ladi-wm: A latent diffusion-based world
+model for predictive manipulation. arXiv preprint arXiv:2505.11528, 2025.
+Jacob Krantz and Stefan Lee. Sim-2-sim transfer for vision-and-language navigation in continuous environments. In European
+conference on computer vision, pages 588–603. Springer, 2022.
+Jacob Krantz, Erik Wijmans, Arjun Majumdar, Dhruv Batra, and Stefan Lee. Beyond the nav-graph: Vision-and-language navigation
+in continuous environments. In European Conference on Computer Vision, pages 104–120. Springer, 2020.
+Jacob Krantz, Aaron Gokaslan, Dhruv Batra, Stefan Lee, and Oleksandr Maksymets. Waypoint models for instruction-guided
+navigation in continuous environments. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages
+15162–15171, 2021.
+Alexander Ku, Peter Anderson, Roma Patel, Eugene Ie, and Jason Baldridge. Room-across-room: Multilingual vision-and-language
+navigation with dense spatiotemporal grounding. arXiv preprint arXiv:2010.07954, 2020.
+Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv
+preprint arXiv:2210.02747, 2022.
+Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flow.
+arXiv preprint arXiv:2209.03003, 2022.
+Yuxing Long, Wenzhe Cai, Hongcheng Wang, Guanqi Zhan, and Hao Dong. Instructnav: Zero-shot system for generic instruction
+navigation in unexplored environment. arXiv preprint arXiv:2406.04882, 2024.
+Jiangran Lyu, Ziming Li, Xuesong Shi, Chaoyi Xu, Yizhou Wang, and He Wang. Dywa: Dynamics-adaptive world action model for
+generalizable non-prehensile manipulation. arXiv preprint arXiv:2503.16806, 2025.
+J Bjorck Nvidia, Fernando Castaneda, N Cherniadev, X Da, R Ding, L Fan, Y Fang, D Fox, F Hu, S Huang, et al. Gr00t n1: An open
+foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734, 2025.
+J Parker-Holder, P Ball, J Bruce, V Dasagi, K Holsheimer, C Kaplanis, A Moufarek, G Scully, J Shar, J Shi, et al. Genie 2: A
+large-scale foundation world model. URL: https://deepmind. google/discover/blog/genie-2-a-large-scale-foundation-world-model,
+2024.
+Santhosh K Ramakrishnan, Aaron Gokaslan, Erik Wijmans, Oleksandr Maksymets, Alex Clegg, John Turner, Eric Undersander,
+Wojciech Galuba, Andrew Westbury, Angel X Chang, et al. Habitat-matterport 3d dataset (hm3d): 1000 large-scale 3d environments
+for embodied ai. arXiv preprint arXiv:2109.08238, 2021.
+Sonia Raychaudhuri, Saim Wani, Shivansh Patel, Unnat Jain, and Angel X Chang. Language-aligned waypoint (law) supervision for
+vision-and-language navigation in continuous environments. arXiv preprint arXiv:2109.15207, 2021.
+Lloyd Russell, Anthony Hu, Lorenzo Bertoni, George Fedoseev, Jamie Shotton, Elahe Arani, and Gianluca Corrado. Gaia-2: A
+controllable multi-view generative world model for autonomous driving. arXiv preprint arXiv:2503.20523, 2025.
+Yu Shang, Yangcheng Yu, Xin Zhang, Xin Jin, Haisheng Su, Wei Wu, and Yong Li. Mowm: Mixture-of-world-models for embodied
+planning via latent-to-pixel feature modulation. arXiv preprint arXiv:2509.21797, 2025.
+Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. Roformer: Enhanced transformer with rotary
+position embedding. Neurocomputing, 568:127063, 2024.
+GigaBrain Team, Angen Ye, Boyuan Wang, Chaojun Ni, Guan Huang, Guosheng Zhao, Haoyun Li, Jie Li, Jiagang Zhu, Lv Feng,
+et al. Gigabrain-0: A world model-powered vision-language-action model. arXiv preprint arXiv:2510.19430, 2025.
+Yan Team. Yan: Foundational interactive video generation. arXiv preprint arXiv:2508.08601, 2025.
+Team Wan, Ang Wang, Baole Ai, Bin Wen, Chaojie Mao, Chen-Wei Xie, Di Chen, Feiwu Yu, Haiming Zhao, Jianxiao Yang, et al.
+Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314, 2025.
+Hanqing Wang, Wei Liang, Luc V Gool, and Wenguan Wang. Towards versatile embodied navigation. Advances in neural information
+processing systems, 35:36858–36874, 2022.
+Hanqing Wang, Wei Liang, Luc Van Gool, and Wenguan Wang. Dreamwalker: Mental planning for continuous vision-language
+navigation. In Proceedings of the IEEE/CVF international conference on computer vision, pages 10873–10883, 2023a.
+14
+
+
+Shaoan Wang, Jiazhao Zhang, Minghan Li, Jiahang Liu, Anqi Li, Kui Wu, Fangwei Zhong, Junzhi Yu, Zhizheng Zhang, and He Wang.
+Trackvla: Embodied visual tracking in the wild. arXiv preprint arXiv:2505.23189, 2025.
+Zihan Wang, Xiangyang Li, Jiahao Yang, Yeqi Liu, and Shuqiang Jiang. Gridmm: Grid memory map for vision-and-language
+navigation. In Proceedings of the IEEE/CVF International conference on computer vision, pages 15625–15636, 2023b.
+Zihan Wang, Xiangyang Li, Jiahao Yang, Yeqi Liu, Junjie Hu, Ming Jiang, and Shuqiang Jiang. Lookahead exploration with neural
+radiance representation for continuous vision-language navigation. In Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition, pages 13753–13762, 2024.
+Meng Wei, Chenyang Wan, Xiqian Yu, Tai Wang, Yuqiang Yang, Xiaohan Mao, Chenming Zhu, Wenzhe Cai, Hanqing Wang, Yilun
+Chen, et al. Streamvln: Streaming vision-and-language navigation via slowfast context modeling. arXiv preprint arXiv:2507.05240,
+2025.
+Yuchen Wu, Pengcheng Zhang, Meiying Gu, Jin Zheng, and Xiao Bai. Embodied navigation with multi-modal information: A survey
+from tasks to methodology. Information Fusion, 112:102532, 2024.
+Jingqiao Xiu, Fangzhou Hong, Yicong Li, Mengze Li, Wentao Wang, Sirui Han, Liang Pan, and Ziwei Liu. Egotwin: Dreaming body
+and view in first person. arXiv preprint arXiv:2508.13013, 2025.
+Xinda Xue, Junjun Hu, Minghua Luo, Xie Shichao, Jintao Chen, Zixun Xie, Quan Kuichen, Guo Wei, Mu Xu, and Zedong Chu.
+Omninav: A unified framework for prospective exploration and visual-language navigation. arXiv preprint arXiv:2509.25687,
+2025.
+Kai Yang, Tianlin Zhang, Zhengbo Wang, Zedong Chu, Xiaolong Wu, Yang Cai, and Mu Xu. Ce-nav: Flow-guided reinforcement
+refinement for cross-embodiment local navigation, 2025. https://arxiv.org/abs/2509.23203.
+Xuan Yao, Junyu Gao, and Changsheng Xu. Navmorph: A self-evolving world model for vision-and-language navigation in continuous
+environments. arXiv preprint arXiv:2506.23468, 2025.
+Naoki Yokoyama, Sehoon Ha, Dhruv Batra, Jiuguang Wang, and Bernadette Bucher. Vlfm: Vision-language frontier maps for
+zero-shot semantic navigation. In 2024 IEEE International Conference on Robotics and Automation (ICRA), pages 42–48. IEEE,
+2024a.
+Naoki Yokoyama, Ram Ramrakhya, Abhishek Das, Dhruv Batra, and Sehoon Ha. Hm3d-ovon: A dataset and benchmark for
+open-vocabulary object goal navigation. In 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS),
+pages 5543–5550. IEEE, 2024b.
+Zhuoyuan Yu, Yuxing Long, Zihan Yang, Chengyan Zeng, Hongwei Fan, Jiyao Zhang, and Hao Dong. Correctnav: Self-correction
+flywheel empowers vision-language-action navigation model. arXiv preprint arXiv:2508.10416, 2025.
+Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li, Haoran Liu, Songlin Wei, Zhongyuan Wang, Zhizheng Zhang, and He Wang.
+Uni-navid: A video-based vision-language-action model for unifying embodied navigation tasks. arXiv preprint arXiv:2412.06224,
+2024a.
+Jiazhao Zhang, Kunyu Wang, Rongtao Xu, Gengze Zhou, Yicong Hong, Xiaomeng Fang, Qi Wu, Zhizheng Zhang, and He Wang.
+Navid: Video-based vlm plans the next step for vision-and-language navigation. arXiv preprint arXiv:2402.15852, 2024b.
+Lingfeng Zhang, Yuecheng Liu, Zhanguang Zhang, Matin Aghaei, Yaochen Hu, Hongjian Gu, Mohammad Ali Alomrani, David
+Gamaliel Arcos Bravo, Raika Karimi, Atia Hamidizadeh, et al. Mem2ego: Empowering vision-language models with global-to-ego
+memory for long-horizon embodied navigation. arXiv preprint arXiv:2502.14254, 2025a.
+Wenyao Zhang, Hongsi Liu, Zekun Qi, Yunnan Wang, Xinqiang Yu, Jiazhao Zhang, Runpei Dong, Jiawei He, Fan Lu, He Wang, et al.
+Dreamvla: a vision-language-action model dreamed with comprehensive world knowledge. arXiv preprint arXiv:2507.04447,
+2025b.
+Qingqing Zhao, Yao Lu, Moo Jin Kim, Zipeng Fu, Zhuoyang Zhang, Yecheng Wu, Zhaoshuo Li, Qianli Ma, Song Han, Chelsea Finn,
+et al. Cot-vla: Visual chain-of-thought reasoning for vision-language-action models. In Proceedings of the Computer Vision and
+Pattern Recognition Conference, pages 1702–1713, 2025.
+Zhide Zhong, Haodong Yan, Junfeng Li, Xiangchen Liu, Xin Gong, Tianran Zhang, Wenxuan Song, Jiayi Chen, Xinhu Zheng,
+Hesheng Wang, et al. Flowvla: Visual chain of thought-based motion reasoning for vision-language-action models. arXiv preprint
+arXiv:2508.18269, 2025.
+Siyuan Zhou, Yilun Du, Yuncong Yang, Lei Han, Peihao Chen, Dit-Yan Yeung, and Chuang Gan. Learning 3d persistent embodied
+world models. arXiv preprint arXiv:2505.05495, 2025.
+15
+
+
+Chuning Zhu, Raymond Yu, Siyuan Feng, Benjamin Burchfiel, Paarth Shah, and Abhishek Gupta. Unified world models: Coupling
+video and action diffusion for pretraining on large robotic datasets. arXiv preprint arXiv:2504.02792, 2025a.
+Ziyu Zhu, Xilin Wang, Yixuan Li, Zhuofan Zhang, Xiaojian Ma, Yixin Chen, Baoxiong Jia, Wei Liang, Qian Yu, Zhidong Deng, et al.
+Move to understand a 3d scene: Bridging visual grounding and exploration for efficient and versatile embodied navigation. arXiv
+preprint arXiv:2507.04047, 2025b.
+Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart, Stefan Welker, Ayzaan Wahid,
+et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In Conference on Robot Learning, pages
+2165–2183. PMLR, 2023.
+16

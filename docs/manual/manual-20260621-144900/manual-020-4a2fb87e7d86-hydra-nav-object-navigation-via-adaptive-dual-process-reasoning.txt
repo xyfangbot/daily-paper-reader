@@ -1,0 +1,1762 @@
+Hydra-Nav: Object Navigation via Adaptive
+Dual-Process Reasoning
+Zixuan Wang1,2,∗, Huang Fang1, Shaoan Wang1,3,∗, Yuanfei Luo1, Heng Dong1,
+Wei Li1,†, Yiming Gan4,†
+1ByteDance Seed, 2Institute of Automation, Chinese Academy of Sciences, 3Peking University,
+4Institute of Computing Technology, Chinese Academy of Sciences
+∗Work done at ByteDance Seed, †Corresponding authors
+Abstract
+While large vision-language models (VLMs) show promise for object goal navigation, current
+methods still struggle with low success rates and inefficient localization of unseen objects—failures
+primarily attributed to weak temporal-spatial reasoning. Meanwhile, recent attempts to inject
+reasoning into VLM-based agents improve success rates but incur substantial computational
+overhead. To address both the ineffectiveness and inefficiency of existing approaches, we introduce
+Hydra-Nav, a unified VLM architecture that adaptively switches between a deliberative “slow
+system” for analyzing exploration history and formulating high-level plans, and a reactive “fast
+system” for efficient execution. We train Hydra-Nav through a three-stage curriculum: (i) spatial-
+action alignment to strengthen trajectory planning, (ii) memory-reasoning integration to enhance
+temporal-spatial reasoning over long-horizon exploration, and (iii) iterative rejection fine-tuning
+to enable selective reasoning at critical decision points. Extensive experiments demonstrate that
+Hydra-Nav achieves state-of-the-art performance on the HM3D, MP3D, and OVON benchmarks,
+outperforming the second-best methods by 11.1%, 17.4%, and 21.2%, respectively. Furthermore,
+we introduce SOT (Success weighted by Operation Time), a new metric to measure search efficiency
+across VLMs with varying reasoning intensity. Results show that adaptive reasoning significantly
+enhances search efficiency over fixed-frequency baselines.
+Date: February 11, 2026
+Correspondence: liwei.85@bytedance.com, ganyiming@ict.ac.cn
+Project Page: https://zixuan-wang99.github.io/Hydra-Nav/
+1
+Introduction
+Object goal navigation is an emerging embodied task that requires a robot to actively explore the physical
+world and locate target objects using only egocentric perception [7, 31]. Object navigation has attracted
+considerable attention from both academia and industry, as the ability to search for objects is essential for
+deploying robots in home environments. This task demands a combination of multiple core capabilities:
+(i) strong spatial reasoning to understand the spatial structure of the environment; (ii) effective long-term
+memory to retain information about explored scenes; (iii) robust long-horizon trajectory planning to explore
+the environment [17, 21].
+1
+arXiv:2602.09972v1  [cs.RO]  10 Feb 2026
+
+
+The rise of large vision-language models (VLMs) has significantly advanced object navigation. Recent works
+[14, 26, 49, 51, 58, 62] leverage VLMs to improve navigation success rates, benefiting from their strong
+generalization capabilities. Despite these advances, current methods still fall short of human-level performance.
+This gap primarily stems from the limited temporal-spatial understanding ability of the underlying VLMs.
+For instance, the model often fails to maintain a coherent memory of visited regions, leading to redundant
+exploration of the same areas. To narrow the gap, recent works incorporate memory mechanisms [46, 56, 57]
+and explicit reasoning capabilities [3, 4, 19, 20, 27, 29, 42, 67] at each inference step. However, their reasoning
+process tends to focus on current observations, overlooking the analysis of historical trajectory and progress
+of exploration. Furthermore, while frequent reasoning improves success rates, it leads to unnecessary inference
+costs during routine tasks. For instance, walking down a long, unobstructed hallway yields highly consistent
+visual inputs, which are best handled by simple reactive control.
+We introduce Hydra-Nav, a VLM tailored for object navigation. To improve the temporal-spatial reasoning
+ability of the base VLM, we develop a data synthesis pipeline and collect 500K trajectories with high-quality
+reasoning from simulated environments. We carefully design the reasoning synthesis prompt to include three
+components: reviewing historical memory, analyzing current observation, and planning future trajectory
+based on both. The base VLM (Qwen2.5-VL-7B) trained on our data demonstrates strong temporal-spatial
+reasoning ability and achieves state-of-the-art performance on widely-used object navigation benchmarks. To
+reduce the overhead of frequent reasoning, we design Hydra-Nav as a slow-fast system that allows triggering
+reasoning at arbitrary frequency. Meanwhile, we use iterative rejection-sampling finetuning (IRFT) to teach
+Hydra-Nav to adaptively switch between the slow and fast modes. IRFT not only increases search efficiency
+but also boosts the success rate across all settings. Our contributions are summarized as follows:
+• We propose Hydra-Nav, a navigation agent that supports adaptive temporal-spatial reasoning within
+a single VLM architecture. Unlike prior approaches that trigger reasoning at a fixed frequency, Hydra-
+Nav learns to adaptively switch between a strategic slow system and a reactive fast system, reducing
+reasoning overhead while maintaining a high success rate.
+• We design a curriculum training pipeline to progressively enhance Hydra-Nav’s spatial-action alignment
+(Section 3.3), temporal-spatial reasoning (Section 3.4), and adaptive reasoning ability (Section 3.5).
+• We conduct extensive experiments on widely-used object navigation benchmarks (HM3D, MP3D, and
+OVON). Hydra-Nav-SFT with fixed reasoning frequency achieves a 50.9% success rate on the OVON
+Val-Unseen benchmark, 5.7% higher than the previous state-of-the-art. Hydra-Nav-IRFT achieves
+state-of-the-art success rate on HM3D, MP3D, and OVON, outperforming the second-best method
+by 11.1%, 17.4%, and 22.3% respectively. Furthermore, we introduce a new metric, SOT (Success
+weighted by Operation Time), to evaluate the search efficiency of navigation agents with different
+reasoning intensity. We show that Hydra-Nav-IRFT achieves better SOT than Hydra-Nav-SFT,
+demonstrating the effectiveness of IRFT.
+2
+Related Work
+2.1
+Vision Language Models for Object Navigation
+Incorporating vision language models (VLMs) into object navigation has shifted the field from traditional
+methods—ranging from end-to-end reinforcement learning policies [12, 24, 38, 45, 66] to modular map-
+based planning [6–8, 30, 32]—toward leveraging pre-trained knowledge. VLMs-based methods enable agents
+to interpret high-level instructions and perform common sense reasoning, facilitating robust open-world
+understanding and generalization.
+VLM-based navigation agent generally follows three paradigms. First, modular agent system approaches
+[14, 26, 34, 46, 49, 51, 65] adopt a hierarchical framework where the VLM acts as a global policy to select
+waypoints, leaving execution to a deterministic local planner. Recent works [4, 19, 22, 27, 60, 67] further
+enhance this by using Chain-of-Thought (CoT) for deeper scene analysis and planning. Second, end-to-end
+methods [13, 20, 42, 56–58, 62] fine-tune VLMs to directly predict low-level control actions from visual inputs.
+Third, dual-system architectures [37, 43] employ a “slow-fast” paradigm, where a VLM generates periodic
+2
+
+
+......
+...
+…
+Low-level action
+Hydra-Nav
+Reasoning
+Instruction
+Find a TV.
+Long-term memory
+...
+Current view
+I have explored ... Analyze the memory ... I should 
+move toward the living room area ... 
+Reasoning
+...
+Current view
+......
+MoveAhead 0.25m 
+Obs
+TurnLeft 30o
+...
+Current view
+......
+Fast system
+Add new landmark
+Full context
+...
+...
+Long-term memory
+At landmark 1, you see <image>;
+Executed TurnLeft 30  ,  ... , 
+MoveAhead 0.25m from landmark 1 
+to landmark 2; At landmark 2, you
+see <image> ...
+Panoramic scan
+Add image
+Slow system
+Update long-term memory
+Switch & Clear context
+Figure 1 The architecture of Hydra-Nav. Hydra-Nav receives user instruction, long-term memory, and previous
+image-action pairs, then outputs reasoning (optionally) and meta-actions. Hydra-Nav adaptively switches between
+the fast and slow systems by outputting the special transition token obs. Specifically, the panoramic scan triggered by
+obs is extracted as a new landmark and inserted into the existing long-term memory.
+sub-goals to guide a lightweight, high-frequency controller.
+However, a critical trade-off between reasoning depth, inference efficiency, and system unity persists across
+these paradigms. Modular agent system and end-to-end approaches incur prohibitive latency by applying
+CoT reasoning at every control step. While dual system architectures mitigate this via hierarchical “slow-fast”
+paradigm, they suffer from architectural fragmentation and rigid, heuristic switching, lacking the flexibility
+to adaptively reasoning. In contrast, Hydra-Nav unifies the dual-process mechanism within a single VLM,
+enabling adaptive switching between direct low-level execution and CoT reasoning.
+2.2
+Adaptive Reasoning
+Adaptive thinking dynamically selects between direct response and step-by-step CoT thinking [9, 10, 35, 39,
+41, 52, 54, 55]. Existing methods [23, 28] typically rely on rule-based heuristics to categorize scene complexity,
+employing supervised fine-tuning or reinforcement learning to learn when to think. Besides, Game-tars [36]
+utilizes rejection fine-tuning on extensive human-annotated datasets to mimic human-like adaptive reasoning.
+However, in the domain of object navigation, manually demarcating simple versus challenging scenarios is
+non-trivial, and large-scale human demonstrations of adaptive reasoning are scarce. Crucially, unlike recent
+dual-process approaches that rely on modular pipelines [53, 61, 64], Hydra-Nav pioneers the unification
+of adaptive slow-fast reasoning within a single VLM architecture for object navigation. To address this,
+we introduce iterative rejection fine-tuning (IRFT). Instead of relying on external supervision, we leverage
+on-policy rollouts to autonomously finding “stagnation points”—moments where reactive low-level action
+policies fail. By injecting reasoning retrospectively at these points, we train the model to trigger CoT
+adaptively when necessary.
+3
+Method
+3.1
+Problem Formulation
+We formulate object goal navigation as a partially observable markov decision process (POMDP). At each
+time step t, the agent receives an egocentric observation ot and a natural language instruction Igoal specifying
+the target object. Based on the history Ht, the agent generates an output yt from a hybrid action space
+A = Amotor ∪Areason.
+The motor action space Amotor comprises discrete locomotion primitives (e.g.,
+MoveAhead 0.25m) and a specialized system transition token obs to decide if switch to the slow system. The
+reasoning space Areason consists of natural language tokens used by the slow system to generate the reasoning
+text. This unified formulation allows a VLM to flexibly alternate between executing low-level control and
+3
+
+
+Instruction
+Memory
+Vision Tokens
+Reasoning Tokens
+Action Tokens
+Transition Tokens
+t=0
+0
+0
+0
+0
+t=1
+0
+0
+0
+0
+1
+t=2
+t=35
+0
+0
+0
+0
+1
+2
+1
+t=33
+0
+0
+0
+0
+1
+1
+2
+32
+32
+...
+33
+0
+33
+34
+35
+t=34
+0
+33
+34
+35
+36
+...     
+Update memory
+...     
+... 
+... 
+ 
+Slow system
+ 
+Fast system
+ 
+Slow system
+ 
+Fast system
+Figure 2 Illustration of the context organization of Hydra-Nav during inference. The context starts with a
+system prompt containing the user instruction and long-term memory. Short-term memory is organized as interleaved
+image-action pairs. When a transition token is encountered, we update the memory and clear the image-action pairs.
+Note that each token block in the figure represents a sequence of multiple tokens.
+generating high-level strategic guidance.
+3.2
+The Dual-process System
+As illustrated in Figure 1, Hydra-Nav unifies high-level planning and low-level meta actions within a single
+VLM architecture. Unlike prior hierarchical approaches that rely on separate models [11, 27], Hydra-Nav
+operates as an end-to-end dual-process system. Below, we detail a full cycle of the dual process; see Figure 2
+for an illustration.
+Slow system.
+The cycle initiates with the slow system, responsible for global localization and high-level
+temporal-spatial reasoning. The input consists of the goal instruction (e.g., “Find a TV.”), the current
+panoramic observation comprising 4 RGB images obtained by rotating the head camera at 90◦intervals
+(0◦, 90◦, 180◦, 270◦), and a structured long-term memory. We construct the memory as a serialized graph
+of text-image interleaved landmark nodes connected by action edges (see Section D). The model generates
+a reasoning text to analyze exploration progress followed by an immediate subsequent meta action (e.g.,
+<think_start> . . . move toward the living room area . . . <think_end>MoveAhead 0.25m).
+Fast system.
+Upon generating the high-level plan, the model transitions to the fast system. This phase
+operates as a multi-turn dialogue with long-term memory and reasoning text from the previous slow system
+as the system prompt. For subsequent steps, the model takes the dialogue history and the current observation
+frame as input. Utilizing KV-caching, the model encodes only the latest egocentric frame and autoregressively
+decodes low-level atomic actions (e.g., MoveAhead 0.25m). This design avoids reprocessing the full history
+context, thereby saving computation.
+Adaptive switching mechanism.
+The transition from the fast system back to the slow system is self-triggered.
+When the agent completes a sub-goal in the high-level plan, or when the current observation invalidates
+the existing plan, the model outputs a special token obs. This token initiates a panoramic scan (four 90◦
+rotations) to capture new observations and construct a new landmark node. The node is then connected
+to the previous landmark through the executed action sequence and added to the long-term memory. To
+keep the context length manageable, the memory is dynamically pruned: the start and end nodes are always
+preserved, while intermediate landmarks are uniformly sampled, with a maximum of 10 landmarks retained.
+With the updated memory, the agent re-enters the slow system to revise its high-level plan.
+Next, we describe our curriculum training pipeline that progressively enhance the spatial-action alignment,
+temporal-spatial reasoning and adaptive reasoning of Hydra-Nav.
+4
+
+
+Current View
+Future View
+1) Path Data Generation
+Qwen3-VL
+235B
+Thinking 
+2) COT Data Synthesis
+Synthesized 
+reasoning
+<think_start>
+1. Memory summary：
+reviewing past views, 
+I have explored ....
+2. High-level plan:
+Based on the memory 
+summary above, I 
+have... Analyzing the 
+current view: images 
+1 confirm the blind 
+alley nature of the 
+room ...I will proceed 
+through the doorway 
+shown in image 3 to 
+access the hallway ...
+<think_end>
+History 
+View
+...
+Visual input
+System prompt
+You are a navigation agent. First, generate a summary 
+from memory... Second, based on your summarization, 
+your current view and your future view, formulate a 
+high-level plan.... Pretend you have never seen the 
+future view.
+Format requirement 
+Output format: <think_start> ... <think_end>                                     
+                              
+Figure 3
+An illustration of the data synthesis pipeline used in stage 2. The left side shows our trajectory
+generation strategy, where the robot visits Point 1 and Point 2 before reaching the goal. The right side illustrates how
+we prompt Qwen3-VL-235B-Thinking to produce high-quality reasoning traces.
+3.3
+Stage 1: Spatial-action Alignment
+The goal of this stage is to collect a large number of trajectories to train the base VLM into a navigation
+agent. Following recent works [20, 56], we use annotated data from the training sets of HM3D [44], MP3D
+[5], and OVON [50] to generate 500K trajectories using the A∗planner. Each trajectory is formatted as a
+multi-turn conversation:
+τ :=
+n
+I(1)
+sys, (v1, a1), (v2, a2), . . . , (vT , aT )
+o
+,
+where I(1)
+sys represents the system instruction used in this stage, vt denotes the egocentric RGB observation
+at time step t, at ∈{MoveAhead 0.25m, TurnLeft 30◦, TurnRight 30◦, End} is the meta action executed at
+time t. To reduce computational cost, we compute the loss over all turns in a single forward-backward pass,
+allowing each trajectory to be processed in one operation. The training parameters used by this stage is
+shown in Table 1.
+3.4
+Stage 2: Reasoning-memory Integration
+After Stage 1, the base VLM is able to generate reasonable, collision-free trajectories in the simulated
+environment, but lacks the ability to explore the scene when its initial attempt fails. Stage 2 equips the model
+with the ability to (i) explore the environment while recovering from failures, and (ii) reason on the long-term
+memory and plan for future exploration accordingly. Next, we describe how we enable the model to acquire
+these two capabilities.
+Trajectory generation.
+Unlike Stage 1, which uses A∗to generate trajectories, here we construct trajectories
+using a heuristic waypoint selection algorithm. Specifically, for each scene, we define a score function S(p; pinit)
+over all reachable points p ∈R3, conditioned on the robot’s initial position pinit (see Section A for details).
+For each initial position, we select the two highest-scoring points: p1, p2 = top-2p∈R3S(p; pinit). The trajectory
+is then constructed as pinit →p1 →p2 →ptarget or pinit →p2 →p1 →ptarget, depending on the total length
+of the path, where pinit denotes the starting position and ptarget represents the location of the target object.
+As shown in Figure 3, the robot first visits these two high-scoring exploration points (Point 1 and Point 2)
+before finally reaching the target (e.g., a television).
+Temporal-spatial reasoning synthesis.
+After generating trajectories with exploration described above, we
+partition each trajectory into a set of segments with fixed length (we set the length to be 16). Then we insert
+memory and reasoning text at the beginning of each segment, we also insert the transition token obs at the
+5
+
+
+end of each segment. Each segment is formatted as a multi-turn conversation:
+s1 := {I(2)
+sys, (m1, v1, r1, a1), (v2, a2), . . . , (v16, obs)}
+s2 := {I(2)
+sys, (m2, v17, r2, a17), (v18, a18), . . . , (v32, obs)}
+. . .
+where si denote the i-th segment of the trajectory, mi is the long-term memory (a compression of previous
+segments, see Section D for the details), ri is the reasoning text of the i-th segment.
+We synthesize reasoning text with the following procedure: at time t that triggers the slow system, we first
+prompt Qwen3-VL-235B Thinking [1] to review historical images and summarize the search progress so far.
+Then, we feed the summary, together with the current view and the future view (the panoramic scan at the
+beginning of the next segment) to the model. We ask it to produce reasoning text that serves to guide the
+future search plan for the target object. To prevent information leakage, we explicitly prompt the model to
+treat the future view only as a hidden guide, ensuring it is not mentioned in the output. Furthermore, we use
+a LLM to verify and filter out any reasoning text that inadvertently reveal future information. The prompt
+used to synthesize reasoning is shown in Section E. See the right side of Figure 3 for an illustration of the
+reasoning synthesis workflow.
+After reasoning synthesis, we can no longer process a full trajectory within one forward-backward pass, because
+different segments from the same trajectory do not share the same context. As a result, we train the model
+at the segment level, and the training efficiency of stage 2 is lower than that of stage 1. In addition to the
+navigation data, we also mix some visual question answering data into stage 2 training to maintain the general
+capability of the base VLM.
+3.5
+Stage 3: Adaptive Reasoning via Iterative Rejection Fine-tuning
+While stage 2 establishes the fundamental mechanics of the dual-system architecture, it switches between the
+slow and fast systems at a fixed frequency. This static switching policy can incur unnecessary computational
+overhead in trivial scenarios and often fails to trigger the slow system at critical “stagnation points” where
+navigation collapses.
+We first define “stagnation points” as moments where the agent fails to produce effective exploration progress.
+We identify two specific types of “stagnation point”:
+1. Repetitive exploration: The agent exhibits repetitive exploration at time t if it revisits a position from
+at least Tstag steps earlier, i.e., ∃k ∈[0, t −Tstag] such that ∥pt −pk∥≤δstag.
+2. Lack of progress: The agent lacks progress at time t if dist(pt, G) > dist(pt−∆t, G), where ∆t ∼U(20, 35).
+We choose the distribution U(20, 35) for two reasons: (i) uniform sampling increases data diversity and
+mitigates overfitting risk; (ii) the range [20, 35] is large enough to avoid false positives when the agent
+navigates around obstacles.
+We set Tstag = 20 and δstag = 0.5m. These conditions determine when the reactive fast system requires
+intervention from the reasoning (slow) system.
+To collect training data, we conduct on-policy rollouts where the agent operates primarily in the fast system
+and triggers the slow system at the defined “stagnation points”, see Algorithm 1 for details. We retain
+trajectories where the agent successfully reaches the goal. Otherwise, we repair failed trajectories using
+different strategies based on their failure modes.
+We observe that failed trajectories fall into one of two categories: (i) Timeout: The episode length exceeds the
+maximum step limit (T > 200); or (ii) Target misidentification: The agent misidentifies the target at time t
+if at = End and dist(pt, G) > δsuccess, where dist(pt, G) denotes the minimum distance between pt and the
+target object set G.
+For each failure mode, we first determine the intervention timestamp t∗: for target misidentification, we set t∗
+to the final step; for timeout, we scan the trajectory for stagnation points and select the point where the
+agent was spatially closest to the target.
+6
+
+
+Table 1 Hyperparameters for the three stage training pipeline.
+Configuration
+Stage 1
+Stage 2
+Stage 3
+Dataset size
+500k trajectories
+565k mixed samples
+∼60k trajectories (per round)
+Token count
+20.1B
+8.3B
+4.5B
+Base model
+Qwen2.5-VL-7B
+Stage 1 model
+Stage 2 model
+Hardware
+128 GPUs
+96 GPUs
+64 GPUs
+Global batch size
+1024
+768
+512
+Epochs
+2
+2
+3
+Training Cost
+140 hours
+100 hours
+50 hours
+Peak learning rate
+1 × 10−5
+1 × 10−6
+Min learning rate
+1 × 10−6
+1 × 10−7
+Once the intervention timestamp t∗is identified, we use the following procedure to repair the trajectory:
+• We substitute the erroneous action at∗with the transition token obs, thereby switching the model to
+the slow system at t∗.
+• We construct a new trajectory by concatenating the history p1:t∗with the optimal path (generated via
+an A∗planner) from pt∗to the target ptarget.
+• We keep the reasoning of the historical path p1:t∗and synthesize a new reasoning text for the corrective
+path pt∗→ptarget following the similar procedure described in stage 2.
+• If the length of the new trajectory exceeds 400, we simply drop this trajectory.
+The detailed data collection procedure is described in Algorithm 2. The trajectories produced by this
+procedure do not trigger reasoning at a fixed frequency, allowing the model trained on them to adaptively
+switch to the slow system. We iteratively apply this “reject-and-repair” data synthesis strategy using the
+latest checkpoint, progressively refining the model’s adaptive reasoning capability. This pipeline is analogous
+to the rejection fine-tuning methods used in LLM training [16, 33], and we refer to the model at this stage as
+Hydra-Nav-IRFT.
+3.6
+Training Configurations
+We use the AdamW optimizer (β1 = 0.9, β2 = 0.95) with bfloat16 precision and the cross-entropy loss for all
+three stages. A cosine learning rate scheduler is used with a warmup ratio of 0.1. We set the weight decay to
+0.1 and gradient clipping to 1.0 for stability. The image inputs are fixed at 640 × 480 resolution with a max
+sequence length of 32k. Other training details are shown in Table 1.
+4
+Experiments
+To evaluate the performance of Hydra-Nav, we carry out extensive experiments on commonly used bench-
+marks. Specifically, we aim to address the following three research questions:
+• Does Hydra-Nav outperform existing methods in terms of success rate and search efficiency on unseen
+objects and scenes? How does Hydra-Nav behave at different training stages?
+• How do different training strategies (e.g., with/without reasoning and memory modules) and data
+collection strategies affect the final performance of Hydra-Nav?
+• How does IRFT influence the final success rate and task completion time—which includes both robot
+execution time and model reasoning time?
+7
+
+
+Table 2 Comparison with state-of-the-art methods on HM3D, MP3D, and OVON benchmarks. The attributes
+denote: Low: low-level action output, High: high-level planning/action output, Dual: dual-system architecture. RGB:
+uses RGB observations. Depth: uses Depth observations. The best and the second best results are denoted by bold
+and underline.
+Method
+Observation
+Action
+Dual
+HM3D
+MP3D
+OVON
+RGB
+Depth
+Low
+High
+Val
+Val
+Val-Seen
+Val-Synonyms
+Val-Unseen
+SR
+SPL
+SR
+SPL
+SR
+SPL
+SR
+SPL
+SR
+SPL
+VoroNav [40]
+√
+√
+√
+42.0
+26.0
+-
+-
+-
+-
+-
+-
+-
+-
+InstructNav [22]
+√
+√
+√
+50.0
+20.9
+-
+-
+-
+-
+-
+-
+-
+-
+VLMnav [14]
+√
+√
+√
+50.4
+21.0
+-
+-
+-
+-
+-
+-
+-
+-
+L3MVN [51]
+√
+√
+√
+50.4
+23.1
+34.9
+14.5
+-
+-
+-
+-
+-
+-
+VLFM [49]
+√
+√
+√
+52.5
+30.4
+36.4
+17.5
+35.2
+18.6
+32.4
+17.3
+35.2
+19.6
+GAMap [18]
+√
+√
+√
+53.1
+26.0
+-
+-
+-
+-
+-
+-
+-
+-
+SG-Nav [47]
+√
+√
+√
+54.0
+24.9
+40.2
+16.0
+-
+-
+-
+-
+-
+-
+UniGoal [48]
+√
+√
+√
+54.5
+25.1
+41.0
+16.4
+-
+-
+-
+-
+-
+-
+CompassNav [19]
+√
+√
+√
+56.6
+27.6
+42.0
+17.5
+-
+-
+-
+-
+43.5
+21.6
+BeliefMapNav [65]
+√
+√
+√
+61.4
+30.4
+37.3
+17.6
+-
+-
+-
+-
+-
+-
+TriHelper [59]
+√
+√
+√
+62.0
+25.3
+-
+-
+-
+-
+-
+-
+-
+-
+MTU3D [67]
+√
+√
+√
+-
+-
+-
+-
+55.0
+23.6
+45.0
+14.7
+40.8
+12.1
+WMNav [27]
+√
+√
+√
+72.2
+33.3
+45.2
+17.2
+-
+-
+-
+-
+-
+-
+CogNav [4]
+√
+√
+√
+72.5
+26.2
+46.6
+16.1
+-
+-
+-
+-
+-
+-
+NavFoM [58]
+√
+√
+-
+-
+-
+-
+40.1
+27.1
+45.4
+32.6
+45.2
+31.9
+Nav-R2 [42]
+√
+√
+-
+-
+-
+-
+45.6
+21.0
+45.9
+21.1
+44.0
+18.0
+Nav-R1 [20]
+√
+√
+√
+√
+√
+-
+-
+-
+-
+58.4
+26.3
+48.1
+23.1
+42.2
+20.1
+zson [25]
+√
+√
+25.5
+12.6
+15.3
+4.8
+-
+-
+-
+-
+-
+-
+Navid [57]
+√
+√
+32.5
+21.6
+-
+-
+-
+-
+-
+-
+-
+-
+PixNav [2]
+√
+√
+√
+√
+37.9
+20.5
+-
+-
+-
+-
+-
+-
+-
+-
+ESC [63]
+√
+√
+√
+√
+39.2
+22.3
+28.7
+11.2
+-
+-
+-
+-
+-
+-
+Uni-Navid [56]
+√
+√
+73.7
+37.1
+-
+-
+41.3
+21.1
+43.9
+21.8
+39.5
+19.8
+Hydra-Nav-Base (Stage 1)
+√
+√
+√
+√
+39.8
+26.0
+30.9
+14.6
+31.9
+25.8
+32.2
+24.4
+32.3
+21.9
+Hydra-Nav-SFT (Stage 2)
+√
+√
+√
+√
+72.9
+27.7
+49.0
+16.5
+57.2
+28.3
+56.9
+27.2
+50.9
+23.1
+Hydra-Nav-IRFT (Stage 3)
+√
+√
+√
+√
+84.8
+41.1
+64.0
+29.6
+65.0
+34.4
+63.9
+35.1
+66.3
+37.4
+4.1
+Experimental Setup
+Benchmarks.
+We evaluate Hydra-Nav on the HM3D [44], MP3D [5] for object goal navigation, and OVON
+[50] for open-vocabulary object navigation.
+Evaluation metrics.
+We report two widely-used metrics: success rate (SR) and success weighted by path
+length (SPL). SR measures the proportion of successful episodes, while SPL further penalizes successful
+episodes by the ratio of the optimal path length to the actual path length. Our evaluation protocol is consistent
+with prior work [56, 67] and follows standard practice.
+While SPL is a standard metric for measuring path efficiency, it overlooks the computational cost incurred by
+reasoning models. To address this limitation, we introduce Success weighted by Operation Time (SOT), a
+metric that penalizes successful episodes by the ratio of optimal search time to actual search time:
+SOT := 1
+N
+N
+X
+i=1
+Si
+Toptimal
+Tactual
+.
+Here, Si ∈{0, 1} is the success indicator, Toptimal is the theoretical minimum physical time required to reach
+the target, while Tactual represents the total operating time, comprising two components: (i) robot execution
+time, computed based on execution time of meta actions (e.g., 1.0s for MoveAhead); (ii) model inference latency,
+the time required for the VLM to generate reasoning and action tokens. See Section B for more details.
+4.2
+The overall performance of Hydra-Nav
+The final performance of Hydra-Nav-IRFT. Table 2 presents a comprehensive comparison between Hydra-Nav
+and existing approaches. Hydra-Nav-IRFT achieves new state-of-the-art (SOTA) results in SR and SPL
+across all settings, compared with methods that either output meta actions directly or rely on external tools
+8
+
+
+Table 3 Model performance with different training recipes. We analyze the effectiveness of different data strategies,
+progressive training pipeline, and memory configurations on HM3D and OVON Val-Unseen benchmark. The best and
+the second best results are denoted by bold and underline. Memory(L = k) represents the memory with a maximum
+number of k landmarks.
+Ablation group
+Exp #
+Module configuration
+HM3D Val
+OVON Val-Unseen
+Memory
+Co-training
+Stage 1
+Expl.
+S.P.
+SR
+SPL
+SR
+SPL
+Memory
+1
+w/o Memory
+✓
+✓
+✓
+61.9
+13.9
+49.7
+13.3
+2
+Memory (L = 5)
+✓
+✓
+✓
+74.6
+28.8
+50.0
+22.3
+3
+Memory (L = 15)
+✓
+✓
+✓
+70.8
+28.1
+47.5
+22.4
+Co-training
+4
+Memory (L = 10)
+✓
+✓
+69.1
+25.9
+48.2
+22.3
+Training Stage
+5
+Memory (L = 10)
+✓
+✓
+68.0
+24.6
+41.8
+14.1
+Data Collection Strategy
+6
+Memory (L = 10)
+✓
+✓
+✓
+47.5
+28.7
+40.4
+28.1
+Hydra-Nav stage 2
+7
+Memory (L = 10)
+✓
+✓
+✓
+72.9
+27.7
+50.9
+23.1
+for navigation. On the HM3D validation set, Hydra-Nav-IRFT achieves an SR of 84.8%, outperforming the
+previous SOTA Uni-Navid [56] by +11.1%. On the MP3D benchmark, which features larger scenes and more
+diverse object categories, Hydra-Nav-IRFT improves over the previous SOTA CogNav [4] by nearly +17.4%.
+The advantages of Hydra-Nav-IRFT are most evident on the challenging OVON benchmark, designed
+to test the agent’s generalization ability to synonyms and unseen object categories. On the Val-Synonyms
+split, Hydra-Nav-IRFT shows a +15.8% improvement over the previous SOTA Nav-R1 [20]. On the Val-
+Unseen split, which strictly evaluates zero-shot generalization, Hydra-Nav-IRFT achieves an SR of 66.3%,
+significantly outperforming the previous SOTA NavFoM [58] (45.2%) by +21.1%.
+Effectiveness of the curriculum training pipeline.
+From Table 2, we can observe that Hydra-Nav achieves
+higher SR and SPL with more training stages. In particular, Hydra-Nav-Base at stage 1 is inferior to previous
+SOTA, while Hydra-Nav-SFT, after equipped Hydra-Nav with reasoning and memory, shows significant
+improvement (33.1% on the SR of HM3D) across all benchmarks. The performance of Hydra-Nav-SFT
+is close to the previous SOTA on HM3D and achieves new SOTA on the MP3D and OVON-Val-Unseen.
+Furthermore, IRFT not only increases the search efficiency of Hydra-Nav but also boosts the final success
+rate. Combining the efforts from all three stages, Hydra-Nav-IRFT establishes highest SR and SPL across
+all settings, outperforming the second-best by a visible margin (+21.1% on the SR of OVON-Val-Unseen).
+4.3
+Ablation Studies
+We perform an ablation study to analyze the contribution of different training strategies used in Hydra-Nav.
+The results on HM3D Val and OVON Val-Unseen with different training setups are shown in Table 3.
+Effectiveness of memory.
+Comparing Exp 1, 2, 3, and 7, we observe that the model without memory (Exp 1)
+achieves reasonable SR but suffers from low SPL compared to the other three. This gap in SPL indicates that
+the memory module is crucial for search efficiency. Among Exp 2, 3, and 7, models with different number
+of landmarks in memory do not show significant differences in SR or SPL. We ultimately set the maximum
+number of landmarks to 10 for stage 2 due to its superior performance on the OVON Val-Unseen.
+Impact of data collection strategy.
+In Section 3.4, we introduced a “heuristic waypoint selection” strategy
+to generate exploration trajectories (Expl.), rather than relying solely on the shortest path strategy (S.P.).
+Comparing Exp 6 with Exp 7, the model trained only on shortest paths (Exp 6) suffers significant degradation
+in SR, with a 25.4% drop on HM3D and a 10.5% drop on OVON Val-Unseen, compared to the model trained
+on trajectories with exploration (Exp 7). This indicates that exploration is a key capability for achieving high
+success rates. Interestingly, the model trained with shortest paths (Exp 6) achieves higher SPL compared to
+Exp 7. We attribute this to the fact that the model trained on shortest paths bypasses exploratory behavior,
+thereby achieving greater efficiency in straightforward scenarios where the target is in close proximity.
+Importance of the progressive training pipeline.
+Our curriculum training pipeline consists of three distinct
+stages. Skipping stage 1 results in a noticeable performance drop in both SR and SPL (Exp 5 vs. Exp
+9
+
+
+HM3D
+MP3D
+OVON Val Unseen
+I
+I
+I
+I
+I
+I
+I
+I
+I
+Figure 4 Performance analysis of multi-turn IRFT across different benchmarks.
+7). Specifically, SR decreases by 4.9% on HM3D and 9.1% on OVON. Without the alignment between
+visual observations and meta-actions learned in stage 1, we observe the model sometimes fails to generate
+collision-free actions, causing it to get stuck more frequently, particularly in the unseen OVON environment.
+Co-training improves performance Comparing Exp 4 with Exp 7, removing co-training (Exp 4) leads to a
+slight drop in SR and SPL (e.g., 69.1% vs. 72.9% on HM3D). This suggests that co-training with general
+VQA data helps the VLM maintain its general image understanding capabilities, avoid overfitting to the
+specific navigation data distribution, and strengthen its ability to identify objects.
+4.4
+Effectiveness of Multi-turn IRFT
+The evolution of SR and SOT across different training stages is presented in Figure 4. We observe that
+Hydra-Nav achieves higher SR and SOT as training progresses. In particular, Hydra-Nav-Base (stage 1)
+shows limited performance, while stage 2 yields a significant improvement in SR across all benchmarks (e.g.,
+↑33.1% on HM3D). This substantial gain confirms that the base VLM benefits from the temporal-spatial
+reasoning introduced in Section 3.4, which enables the agent to handle long-horizon exploration and memory.
+However, during stage 2, we notice that the improvement in SOT is marginal compared to that in SR. This is
+because Hydra-Nav-SFT (stage 2) operates with a fixed reasoning frequency and therefore suffers from high
+inference costs in simple scenarios where reactive control suffices. Following stage 2, IRFT not only boosts
+the final success rate but also dramatically increases search efficiency in the first two turns. As we carry out
+more iterations of RFT, Hydra-Nav achieves new state-of-the-art results across all settings. In particular,
+on OVON Val-Unseen, Hydra-Nav-IRFT improves SOT from 12.3% (stage 2) to 22.2% (RFT turn 3). This
+demonstrates that the adaptive switching mechanism is effective: by learning from the “reject-and-repair”
+strategy, the agent learns to trigger the slow system only at critical “stagnation points” (e.g., lack of progress
+or repetitive exploration). This reduces unnecessary inference costs during the search process, resulting in a
+system that achieves both high SR and computational efficiency. We terminate IRFT at the third turn as we
+observe performance plateauing beyond this point. As detailed in Section C, compared to dense reasoning
+methods like VLMnav [14] and Nav-R2 [42], Hydra-Nav-IRFT achieves significantly higher SOT scores and
+SR by reducing the reasoning ratio to just 3.0%.
+4.5
+Real-world Deployment
+We deploy Hydra-Nav directly on a physical robot without real-world fine-tuning. The model demonstrates
+robust zero-shot transfer, successfully locating target objects within complex environments. Our robot
+platform is shown in Figure 5. The system is based on a Unitree Go2 quadruped, equipped with an Intel
+RealSense D457 camera (capturing 1280×800 RGB frames with a 90◦HFOV) and a portable Wi-Fi module for
+communication with a remote server. During deployment, the robot transmits compressed images (640 × 480)
+to the server for next-action prediction. The robot executes the predicted action using a nonlinear model
+predictive control (NMPC) module [15], which computes optimal velocities based on a kinematic unicycle
+10
+
+
+Figure 5 Real-world robot platform.
+Figure 6 Qualitative performance of Hydra-Nav in real-world deployments.
+model. Figure 6 illustrates real-world navigation episodes where the robot starts from an initial position and
+successfully locates a box, trash can, and oven.
+5
+Limitations
+A key limitation of this work is that we evaluate our model exclusively in the Habitat simulator. This is
+primarily due to the lack of high-quality evaluation sets in more realistic simulators such as IsaacSim. Future
+work could develop new benchmarks in more realistic simulations and investigate navigation models that
+generalize across different simulators and embodiments.
+6
+Conclusion
+In this paper, we present Hydra-Nav, a navigation agent that balances success rate with execution efficiency
+by unifying reactive control and deliberate reasoning within a single VLM. Our dual-process architecture
+enhances spatio-temporal reasoning and long-term memory, enabling the agent to switch adaptively between
+fast execution and deliberate reasoning. To optimize this trade-off, we employ iterative rejection fine-tuning
+(IRFT), teaching the agent to trigger reasoning only at critical stagnation points. Extensive experiments
+on standard benchmarks demonstrate that Hydra-Nav achieves state-of-the-art performance with superior
+efficiency.
+11
+
+
+7
+Future Works
+This work aims to advance the development of adaptive reasoning, vision-language model-based embodied
+agents for object navigation. While Hydra-Nav achieves promising performance on existing object navigation
+benchmarks, several challenges remain. We outline three promising directions for future research:
+• Generalization to realistic environments: A key limitation of this work is that evaluations are conducted
+exclusively in the Habitat simulator due to the lack of high-quality benchmarks in more realistic
+environments like Isaac Sim. Future research should focus on developing high-fidelity benchmarks and
+investigating how well navigation models generalize across different simulators and, crucially, to the
+physical real world.
+• Optimizing adaptive switching mechanisms: While iterative rejection fine-tuning (IRFT) successfully
+teaches agents to reason at “stagnation points”, future work could leverage online reinforcement learn-
+ing. This would allow agents to autonomously learn the optimal timing for triggering reasoning and
+simultaneously improve the quality of the generated reasoning chains.
+• Expanding embodiment and task scope: Currently, Hydra-Nav is tailored for object navigation. Future
+research could extend this dual-process architecture to a broader range of embodied tasks and robot
+types. This includes exploring how the “slow-fast” paradigm applies to more complex scenarios, such as
+mobile manipulation or autonomous game agents.
+12
+
+
+References
+[1] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang
+Gao, Chunjiang Ge, Wenbin Ge, Zhifang Guo, Qidong Huang, Jie Huang, Fei Huang, Binyuan Hui, Shutong Jiang,
+Zhaohai Li, Mingsheng Li, Mei Li, Kaixin Li, Zicheng Lin, Junyang Lin, Xuejing Liu, Jiawei Liu, Chenglong Liu,
+Yang Liu, Dayiheng Liu, Shixuan Liu, Dunjie Lu, Ruilin Luo, Chenxu Lv, Rui Men, Lingchen Meng, Xuancheng
+Ren, Xingzhang Ren, Sibo Song, Yuchong Sun, Jun Tang, Jianhong Tu, Jianqiang Wan, Peng Wang, Pengfei
+Wang, Qiuyue Wang, Yuxuan Wang, Tianbao Xie, Yiheng Xu, Haiyang Xu, Jin Xu, Zhibo Yang, Mingkun Yang,
+Jianxin Yang, An Yang, Bowen Yu, Fei Zhang, Hang Zhang, Xi Zhang, Bo Zheng, Humen Zhong, Jingren Zhou,
+Fan Zhou, Jing Zhou, Yuanzhi Zhu, and Ke Zhu. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631,
+2025.
+[2] Wenzhe Cai, Siyuan Huang, Guangran Cheng, Yuxing Long, Peng Gao, Changyin Sun, and Hao Dong. Bridg-
+ing zero-shot object navigation and foundation models through pixel-guided navigation skill. In 2024 IEEE
+International Conference on Robotics and Automation (ICRA), pages 5228–5234. IEEE, 2024.
+[3] Yuxin Cai, Xiangkun He, Maonan Wang, Hongliang Guo, Wei-Yun Yau, and Chen Lv. Cl-cotnav: Closed-loop
+hierarchical chain-of-thought for zero-shot object-goal navigation with vision-language models. arXiv preprint
+arXiv:2504.09000, 2025.
+[4] Yihan Cao, Jiazhao Zhang, Zhinan Yu, Shuzhen Liu, Zheng Qin, Qin Zou, Bo Du, and Kai Xu. Cognav: Cognitive
+process modeling for object goal navigation with llms. In Proceedings of the IEEE/CVF International Conference
+on Computer Vision, pages 9550–9560, 2025.
+[5] Angel Chang, Angela Dai, Thomas Funkhouser, Maciej Halber, Matthias Niessner, Manolis Savva, Shuran Song,
+Andy Zeng, and Yinda Zhang. Matterport3d: Learning from rgb-d data in indoor environments. arXiv preprint
+arXiv:1709.06158, 2017.
+[6] Devendra Singh Chaplot, Dhiraj Gandhi, Saurabh Gupta, Abhinav Gupta, and Ruslan Salakhutdinov. Learning
+to explore using active neural slam. arXiv preprint arXiv:2004.05155, 2020.
+[7] Devendra Singh Chaplot, Dhiraj Prakashchand Gandhi, Abhinav Gupta, and Russ R Salakhutdinov. Object
+goal navigation using goal-oriented semantic exploration. Advances in Neural Information Processing Systems,
+33:4247–4258, 2020.
+[8] Devendra Singh Chaplot, Ruslan Salakhutdinov, Abhinav Gupta, and Saurabh Gupta. Neural topological slam
+for visual navigation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition,
+pages 12875–12884, 2020.
+[9] Sijia Chen and Baochun Li. Toward adaptive reasoning in large language models with thought rollback. arXiv
+preprint arXiv:2412.19707, 2024.
+[10] Stephen Chung, Wenyu Du, and Jie Fu. Thinker: Learning to think fast and slow. arXiv preprint arXiv:2505.21097,
+2025.
+[11] Xin Ding, Jianyu Wei, Yifan Yang, Shiqi Jiang, Qianxi Zhang, Hao Wu, Fucheng Jia, Liang Mi, Yuxuan Yan,
+Weijun Wang, et al. Adanav: Adaptive reasoning with uncertainty for vision-language navigation. arXiv preprint
+arXiv:2509.24387, 2025.
+[12] Raphael Druon, Yusuke Yoshiyasu, Asako Kanezaki, and Alassane Watt. Visual object search by learning spatial
+context. IEEE Robotics and Automation Letters, 5(2):1279–1286, 2020.
+[13] Chen Gao, Liankai Jin, Xingyu Peng, Jiazhao Zhang, Yue Deng, Annan Li, He Wang, and Si Liu. Octonav:
+Towards generalist embodied navigation. arXiv preprint arXiv:2506.09839, 2025.
+[14] Dylan Goetting, Himanshu Gaurav Singh, and Antonio Loquercio. End-to-end navigation with vision language
+models: Transforming spatial reasoning into question-answering. arXiv preprint arXiv:2411.05755, 2024.
+[15] Ruben Grandia, Fabian Jenelten, Shaohui Yang, Farbod Farshidian, and Marco Hutter. Perceptive locomotion
+through nonlinear model-predictive control. IEEE Transactions on Robotics, 39(5):3402–3421, 2023.
+[16] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi
+Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv
+preprint arXiv:2501.12948, 2025.
+13
+
+
+[17] Mobin Habibpour and Fatemeh Afghah. History-augmented vision-language models for frontier-based zero-shot
+object navigation. arXiv preprint arXiv:2506.16623, 2025.
+[18] Hao Huang, Yu Hao, Congcong Wen, Anthony Tzes, Yi Fang, et al. Gamap: Zero-shot object goal navigation with
+multi-scale geometric-affordance guidance. Advances in Neural Information Processing Systems, 37:39386–39408,
+2024.
+[19] LinFeng Li, Jian Zhao, Yuan Xie, Xin Tan, and Xuelong Li. Compassnav: Steering from path imitation to decision
+understanding in navigation. arXiv preprint arXiv:2510.10154, 2025.
+[20] Qingxiang Liu, Ting Huang, Zeyu Zhang, and Hao Tang. Nav-r1: Reasoning and navigation in embodied scenes.
+arXiv preprint arXiv:2509.10884, 2025.
+[21] Yang Liu, Weixing Chen, Yongjie Bai, Xiaodan Liang, Guanbin Li, Wen Gao, and Liang Lin. Aligning cyber space
+with physical world: A comprehensive survey on embodied ai. IEEE/ASME Transactions on Mechatronics, 2025.
+[22] Yuxing Long, Wenzhe Cai, Hongcheng Wang, Guanqi Zhan, and Hao Dong. Instructnav: Zero-shot system for
+generic instruction navigation in unexplored environment. arXiv preprint arXiv:2406.04882, 2024.
+[23] Yuechen Luo, Fang Li, Shaoqing Xu, Zhiyi Lai, Lei Yang, Qimao Chen, Ziang Luo, Zixun Xie, Shengyin Jiang,
+Jiaxin Liu, et al. Adathinkdrive: Adaptive thinking via reinforcement learning for autonomous driving. arXiv
+preprint arXiv:2509.13769, 2025.
+[24] Yunlian Lyu, Yimin Shi, and Xianggang Zhang. Improving target-driven visual navigation with attention on 3d
+spatial relationships. Neural Processing Letters, 54(5):3979–3998, 2022.
+[25] Arjun Majumdar, Gunjan Aggarwal, Bhavika Devnani, Judy Hoffman, and Dhruv Batra. Zson: Zero-shot
+object-goal navigation using multimodal goal embeddings. Advances in Neural Information Processing Systems,
+35:32340–32352, 2022.
+[26] Soroush Nasiriany, Fei Xia, Wenhao Yu, Ted Xiao, Jacky Liang, Ishita Dasgupta, Annie Xie, Danny Driess,
+Ayzaan Wahid, Zhuo Xu, et al. Pivot: Iterative visual prompting elicits actionable knowledge for vlms. arXiv
+preprint arXiv:2402.07872, 2024.
+[27] Dujun Nie, Xianda Guo, Yiqun Duan, Ruijun Zhang, and Long Chen. Wmnav: Integrating vision-language
+models into world models for object goal navigation. arXiv preprint arXiv:2503.02247, 2025.
+[28] Zhenghao Peng, Wenhao Ding, Yurong You, Yuxiao Chen, Wenjie Luo, Thomas Tian, Yulong Cao, Apoorva
+Sharma, Danfei Xu, Boris Ivanovic, et al. Counterfactual vla: Self-reflective vision-language-action model with
+adaptive reasoning. arXiv preprint arXiv:2512.24426, 2025.
+[29] Yanyuan Qiao, Wenqi Lyu, Hui Wang, Zixu Wang, Zerui Li, Yuan Zhang, Mingkui Tan, and Qi Wu. Open-nav:
+Exploring zero-shot vision-and-language navigation in continuous environment with open-source llms. In 2025
+IEEE International Conference on Robotics and Automation (ICRA), pages 6710–6717. IEEE, 2025.
+[30] Santhosh Kumar Ramakrishnan, Devendra Singh Chaplot, Ziad Al-Halah, Jitendra Malik, and Kristen Grauman.
+Poni: Potential functions for objectgoal navigation with interaction-free learning. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, pages 18890–18900, 2022.
+[31] Jingwen Sun, Jing Wu, Ze Ji, and Yu-Kun Lai. A survey of object goal navigation. IEEE Transactions on
+Automation Science and Engineering, 22:2292–2308, 2024.
+[32] Wenhao Sun, Sai Hou, Zixuan Wang, Bo Yu, Shaoshan Liu, Xu Yang, Shuai Liang, Yiming Gan, and Yinhe Han.
+Dadu-e: Rethinking the role of large language model in robotic computing pipelines. Journal of Field Robotics,
+2025.
+[33] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov,
+Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al. Llama 2: Open foundation and fine-tuned chat models.
+arXiv preprint arXiv:2307.09288, 2023.
+[34] Shaoan Wang, Yuanfei Luo, Xingyu Chen, Aocheng Luo, Dongyue Li, Chang Liu, Sheng Chen, Yangang Zhang,
+and Junzhi Yu. Vlingnav: Embodied navigation with adaptive reasoning and visual-assisted linguistic memory.
+arXiv preprint arXiv:2601.08665, 2026.
+[35] Xiangqi Wang, Yue Huang, Yanbo Wang, Xiaonan Luo, Kehan Guo, Yujun Zhou, and Xiangliang Zhang.
+Adareasoner: Adaptive reasoning enables more flexible thinking in large language models. Preprint, 2025.
+14
+
+
+[36] Zihao Wang, Xujing Li, Yining Ye, Junjie Fang, Haoming Wang, Longxiang Liu, Shihao Liang, Junting Lu,
+Zhiyong Wu, Jiazhan Feng, et al. Game-tars: Pretrained foundation models for scalable generalist multimodal
+game agents. arXiv preprint arXiv:2510.23691, 2025.
+[37] Meng Wei, Chenyang Wan, Jiaqi Peng, Xiqian Yu, Yuqiang Yang, Delin Feng, Wenzhe Cai, Chenming Zhu,
+Tai Wang, Jiangmiao Pang, et al. Ground slow, move fast: A dual-system foundation model for generalizable
+vision-and-language navigation. arXiv preprint arXiv:2512.08186, 2025.
+[38] Erik Wijmans, Abhishek Kadian, Ari Morcos, Stefan Lee, Irfan Essa, Devi Parikh, Manolis Savva, and Dhruv Batra.
+Dd-ppo: Learning near-perfect pointgoal navigators from 2.5 billion frames. arXiv preprint arXiv:1911.00357,
+2019.
+[39] Chao Wu, Baoheng Li, Mingchen Gao, and Zhenyi Wang. From efficiency to adaptivity: A deeper look at adaptive
+reasoning in large language models. arXiv preprint arXiv:2511.10788, 2025.
+[40] Pengying Wu, Yao Mu, Bingxian Wu, Yi Hou, Ji Ma, Shanghang Zhang, and Chang Liu. Voronav: Voronoi-based
+zero-shot object navigation with large language model. arXiv preprint arXiv:2401.02695, 2024.
+[41] Siye Wu, Jian Xie, Yikai Zhang, Aili Chen, Kai Zhang, Yu Su, and Yanghua Xiao. Arm: Adaptive reasoning
+model. arXiv preprint arXiv:2505.20258, 2025.
+[42] Wentao Xiang, Haokang Zhang, Tianhang Yang, Zedong Chu, Ruihang Chu, Shichao Xie, Yujian Yuan, Jian Sun,
+Zhining Gu, Junjie Wang, et al. Nav-R2 dual-relation reasoning for generalizable open-vocabulary object-goal
+navigation. arXiv preprint arXiv:2512.02400, 2025.
+[43] Xinda Xue, Junjun Hu, Minghua Luo, Xie Shichao, Jintao Chen, Zixun Xie, Quan Kuichen, Guo Wei, Mu Xu,
+and Zedong Chu. Omninav: A unified framework for prospective exploration and visual-language navigation.
+arXiv preprint arXiv:2509.25687, 2025.
+[44] Karmesh Yadav, Ram Ramrakhya, Santhosh Kumar Ramakrishnan, Theo Gervet, John Turner, Aaron Gokaslan,
+Noah Maestre, Angel Xuan Chang, Dhruv Batra, Manolis Savva, et al. Habitat-matterport 3d semantics dataset.
+In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 4927–4936,
+2023.
+[45] Wei Yang, Xiaolong Wang, Ali Farhadi, Abhinav Gupta, and Roozbeh Mottaghi. Visual semantic navigation
+using scene priors. arXiv preprint arXiv:1810.06543, 2018.
+[46] Yuncong Yang, Han Yang, Jiachen Zhou, Peihao Chen, Hongxin Zhang, Yilun Du, and Chuang Gan. 3d-mem:
+3d scene memory for embodied exploration and reasoning. In Proceedings of the Computer Vision and Pattern
+Recognition Conference, pages 17294–17303, 2025.
+[47] Hang Yin, Xiuwei Xu, Zhenyu Wu, Jie Zhou, and Jiwen Lu. Sg-nav: Online 3d scene graph prompting for
+llm-based zero-shot object navigation. Advances in neural information processing systems, 37:5285–5307, 2024.
+[48] Hang Yin, Xiuwei Xu, Linqing Zhao, Ziwei Wang, Jie Zhou, and Jiwen Lu. Unigoal: Towards universal zero-shot
+goal-oriented navigation. In Proceedings of the Computer Vision and Pattern Recognition Conference, pages
+19057–19066, 2025.
+[49] Naoki Yokoyama, Sehoon Ha, Dhruv Batra, Jiuguang Wang, and Bernadette Bucher. Vlfm: Vision-language frontier
+maps for zero-shot semantic navigation. In 2024 IEEE International Conference on Robotics and Automation
+(ICRA), pages 42–48. IEEE, 2024.
+[50] Naoki Yokoyama, Ram Ramrakhya, Abhishek Das, Dhruv Batra, and Sehoon Ha. Hm3d-ovon: A dataset and
+benchmark for open-vocabulary object goal navigation. In 2024 IEEE/RSJ International Conference on Intelligent
+Robots and Systems (IROS), pages 5543–5550. IEEE, 2024.
+[51] Bangguo Yu, Hamidreza Kasaei, and Ming Cao. L3mvn: Leveraging large language models for visual target
+navigation. In 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), pages 3554–
+3560. IEEE, 2023.
+[52] Zishun Yu, Tengyu Xu, Di Jin, Karthik Abinav Sankararaman, Yun He, Wenxuan Zhou, Zhouhao Zeng, Eryk
+Helenowski, Chen Zhu, Sinong Wang, et al. Think smarter not harder: Adaptive reasoning with inference aware
+optimization. arXiv preprint arXiv:2501.17974, 2025.
+15
+
+
+[53] Junrong Yue, Yifan Zhang, Chuan Qin, Bo Li, Xiaomin Lie, Xinlei Yu, Wenxin Zhang, and Zhendong Zhao.
+Think hierarchically, act dynamically: Hierarchical multi-modal fusion and reasoning for vision-and-language
+navigation. arXiv preprint arXiv:2504.16516, 2025.
+[54] Zizheng Zhan, Ken Deng, Huaixi Tang, Wen Xiang, Kun Wu, Weihao Li, Wenqiang Zhu, Jingxuan Xu, Lecheng
+Huang, Zongxian Feng, et al. Kat-v1: Kwai-autothink technical report. arXiv preprint arXiv:2507.08297, 2025.
+[55] Jiajie Zhang, Nianyi Lin, Lei Hou, Ling Feng, and Juanzi Li. Adaptthink: Reasoning models can learn when to
+think. arXiv preprint arXiv:2505.13417, 2025.
+[56] Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li, Haoran Liu, Songlin Wei, Zhongyuan Wang, Zhizheng
+Zhang, and He Wang. Uni-navid: A video-based vision-language-action model for unifying embodied navigation
+tasks. arXiv preprint arXiv:2412.06224, 2024.
+[57] Jiazhao Zhang, Kunyu Wang, Rongtao Xu, Gengze Zhou, Yicong Hong, Xiaomeng Fang, Qi Wu, Zhizheng Zhang,
+and He Wang. Navid: Video-based vlm plans the next step for vision-and-language navigation. arXiv preprint
+arXiv:2402.15852, 2024.
+[58] Jiazhao Zhang, Anqi Li, Yunpeng Qi, Minghan Li, Jiahang Liu, Shaoan Wang, Haoran Liu, Gengze Zhou, Yuze
+Wu, Xingxing Li, et al. Embodied navigation foundation model. arXiv preprint arXiv:2509.12129, 2025.
+[59] Lingfeng Zhang, Qiang Zhang, Hao Wang, Erjia Xiao, Zixuan Jiang, Honglei Chen, and Renjing Xu. Trihelper:
+Zero-shot object navigation with dynamic assistance. In 2024 IEEE/RSJ International Conference on Intelligent
+Robots and Systems (IROS), pages 10035–10042. IEEE, 2024.
+[60] Lingfeng Zhang, Xiaoshuai Hao, Yingbo Tang, Haoxiang Fu, Xinyu Zheng, Pengwei Wang, Zhongyuan Wang,
+Wenbo Ding, and Shanghang Zhang. NavA3: Understanding any instruction, navigating anywhere, finding
+anything. arXiv preprint arXiv:2508.04598, 2025.
+[61] Yu Zhong, Zihao Zhang, Rui Zhang, Lingdong Huang, Haihan Gao, Shuo Wang, Da Li, Ruijian Han, Jiaming
+Guo, Shaohui Peng, et al. Run, ruminate, and regulate: A dual-process thinking system for vision-and-language
+navigation. arXiv preprint arXiv:2511.14131, 2025.
+[62] Yufeng Zhong, Chengjian Feng, Feng Yan, Fanfan Liu, Liming Zheng, and Lin Ma. P3nav: A unified framework
+for embodied navigation integrating perception, planning, and prediction. arXiv preprint arXiv:2503.18525, 2025.
+[63] Kaiwen Zhou, Kaizhi Zheng, Connor Pryor, Yilin Shen, Hongxia Jin, Lise Getoor, and Xin Eric Wang. Esc:
+Exploration with soft commonsense constraints for zero-shot object navigation. In International Conference on
+Machine Learning, pages 42829–42842. PMLR, 2023.
+[64] Xiaolin Zhou, Tingyang Xiao, Liu Liu, Yucheng Wang, Maiyue Chen, Xinrui Meng, Xinjie Wang, Wei Feng,
+Wei Sui, and Zhizhong Su. Fsr-vln: Fast and slow reasoning for vision-language navigation with hierarchical
+multi-modal scene graph. arXiv preprint arXiv:2509.13733, 2025.
+[65] Zibo Zhou, Yue Hu, Lingkai Zhang, Zonglin Li, and Siheng Chen. Beliefmapnav: 3d voxel-based belief map for
+zero-shot object navigation. arXiv preprint arXiv:2506.06487, 2025.
+[66] Yuke Zhu, Roozbeh Mottaghi, Eric Kolve, Joseph J Lim, Abhinav Gupta, Li Fei-Fei, and Ali Farhadi. Target-driven
+visual navigation in indoor scenes using deep reinforcement learning. In 2017 IEEE international conference on
+robotics and automation (ICRA), pages 3357–3364. IEEE, 2017.
+[67] Ziyu Zhu, Xilin Wang, Yixuan Li, Zhuofan Zhang, Xiaojian Ma, Yixin Chen, Baoxiong Jia, Wei Liang, Qian Yu,
+Zhidong Deng, et al. Move to understand a 3d scene: Bridging visual grounding and exploration for efficient and
+versatile embodied navigation. In Proceedings of the IEEE/CVF International Conference on Computer Vision,
+pages 8120–8132, 2025.
+16
+
+
+Appendix
+A
+The definition of the score function
+Below is the score function used in Section 3.4
+S(pinit, p) := minq∈U ∥p −q∥2
+maxq∈U ∥p −q∥2
+|
+{z
+}
+spaciousness of p
++λ ·
+
+1 −
+||p −ptarget||2
+maxq∈G(||pinit −q||2)
+
+|
+{z
+}
+closeness to the target
+,
+where p represents the candidate point and ptarget is the location of goal. U denotes the set of obstacle
+boundaries (e.g., walls). G represents the set of all targets in the scene. The first term calculates the spatial
+openness by measuring the distance from p to the nearest obstacle. The second term evaluates the proximity
+to the specific target, normalized by the distance from the start point pinit to the farthest target in G. The
+weight λ = 0.7 balances exploration against goal efficiency.
+B
+The computation of operation time
+In this section, we provide the specific parameter settings and calculation method used for the Success weighted
+by Operation Time (SOT) metric. The total operating time Tactual consists of robot execution time and model
+inference latency, defined as follows:
+Tactual = Tphys + Tinf
+Physical Execution Estimation (Tphys).
+We calculate robot execution time by summing meta action durations.
+To ensure realism, these durations represent the average values obtained from extensive real-world testing on
+the physical robot, as listed in Table 3.
+Table 4 Time cost parameters for robot physical actions.
+Action Type
+Time Cost (s)
+Description
+MoveAhead
+1.0
+Forward movement (approx. 0.25m)
+RotateLeft/Right
+0.6
+In-place rotation (approx. 30◦)
+Obs
+4.0
+Panoramic observation
+Stop
+0.1
+Signal to terminate the episode
+Inference Latency Estimation (Tinf).
+The inference time is modeled as
+Tinf = τ × (NCoT + Naction),
+where NCoT and Naction represent the token counts for reasoning and actions. We set τ = 0.015s based on
+real-time inference logs collected during navigation on a single NVIDIA H20 GPU.
+Theoretical minimum physical time (Toptimal).
+Toptimal represents the physical execution time required for the
+robot to traverse the shortest path in the scene.
+B.1
+Sensitivity Analysis of SOT to Inference Latency τ
+To address concerns regarding the dependency of SOT on hardware configurations, we conduct a rigorous
+sensitivity analysis of the SOT score with respect to the per-token inference latency τ. We varied τ over a
+wide range, from 0.0075s (simulating GPUs like H100) to 0.48s (simulating high-latency edge scenarios). The
+results, summarized in Figure 7, demonstrate the robustness of our adaptive reasoning model through three
+key observations:
+• Consistent Superiority in Realistic Settings: Across the realistic range of inference latencies (τ ∈
+[0.0075, 0.12]), Hydra-Nav-IRFT (Turn 3) consistently achieves the highest SOT score. This indicates
+that our efficiency gains are not the result of a specific τ value but are intrinsic to the improved policy.
+17
+
+
+Figure 7 Performance visualization of Hydra-Nav.
+• Resilience to High Latency via Adaptive Reasoning: For models equipped with reasoning capability,
+IRFT proves highly resilient to hardware constraints. Comparing the adaptive reasoning model (IRFT)
+against the fixed-frequency reasoning model (stage 2), we observe that IRFT maintains a consistent
+upward trend in SOT across all latency conditions. Notably, as hardware becomes slower (increasing τ),
+the performance gap widens in favor of IRFT. This confirms that by learning to trigger reasoning only
+at critical “stagnation points”, IRFT maximizes the utility of compute, ensuring a net positive gain in
+efficiency even when inference costs are prohibitive.
+• Boundary Analysis: The stage 1 model (which lacks reasoning) only begins to show competitive SOT at
+extremely high latencies (τ ≥0.24), solely due to its minimal inference overhead. However, within the
+practical operating range of modern VLMs, the navigational benefits of reasoning vastly outweigh the
+time cost, provided that the reasoning is triggered adaptively as done in Hydra-Nav.
+C
+Comparison with SOTA baselines on SOT metric
+C.1
+Comparative SOT Results with SOTA Baselines
+To evaluate the trade-off between success rate and computational overhead, we compare Hydra-Nav with
+three representative open-source, reproducible baselines: VLMnav [14], Nav-R2 [42], and WMNav [27]. As
+shown in Table 5, we report the SR, SOT, and the reasoning ratio—defined as the percentage of steps where
+the reasoning is triggered.
+Existing VLM-based methods typically rely on dense reasoning, where the reasoning is triggered at every step,
+resulting in a 100% reasoning ratio. Nav-R2, an end-to-end method that directly outputs low-level actions,
+achieves a competitive SR of 65.0% on HM3D. However, its SOT drops to just 1.9, primarily because triggering
+reasoning for every meta action causes significant time delays. This highlights that high success rates are
+insufficient for practical deployment if search efficiency is low. VLMnav and WMNav adopt a hierarchical
+framework approach to mitigate this, achieving better SOT scores (13.8 and 17.9 on HM3D). However, these
+hierarchical methods rely on the VLM acting as a brain to guide an ideal low-level executor. This dependency
+makes them difficult to deploy in the real world, where execution is imperfect.
+In contrast, Hydra-Nav-IRFT demonstrates that frequent reasoning is often unnecessary. By learning to
+trigger the reasoning only at critical “stagnation points” via IRFT, our model maintains an extremely low
+reasoning Ratio of 3.0% on HM3D and 3.5% on OVON Val-Unseen. Despite this sparse reasoning, Hydra-Nav
+outperforms the second-best method (WMNav) by substantial margins: +12.1% SR on HM3D and +22.3%
+SR on OVON Val-Unseen. Consequently, Hydra-Nav achieves the highest SOT scores across all benchmarks.
+18
+
+
+Table 5 Comparison with open-source, reproducible methods on HM3D and OVON Val-unseen benchmarks. The
+attributes denote: Low: low-level action output, High: high-level planning/action output.
+The best and the
+second best results are denoted by bold and underline.
+Method
+Action Level
+HM3D Val
+OVON Val-Unseen
+Reasoning Ratio (%)
+High
+Low
+SR↑
+SOT↑
+SR↑
+SOT↑
+HM3D
+OVON Val-Unseen
+VLMnav [14]
+✓
+50.4
+13.8
+25.5
+14.0
+100.0
+100.0
+Nav-R2 [42]
+✓
+65.0
+1.9
+44.0
+1.2
+100.0
+100.0
+WMNav [27]
+✓
+72.2
+17.9
+33.4
+16.9
+100.0
+100.0
+Hydra-Nav-IRFT Turn3
+✓
+84.3
+24.0
+66.3
+20.3
+3.0
+3.5
+This empirically validates that unifying reactive low-level control with adaptive, low-frequency reasoning is
+key to balancing high success rates with search efficiency, while its unified nature facilitates direct deployment
+in the real world.
+Figure 8 Reasoning Frequency analysis of multi-turn IRFT across different.
+C.2
+Analysis of Reasoning Frequency
+Figure 8 shows the evolution of SR and reasoning frequency. Unlike stage 2, which relies on fixed, frequent
+reasoning (e.g., every 15.9 steps on OVON Val-Unseen), IRFT reduces the reasoning frequency while boosting
+performance. By Turn 3, the reasoning interval on OVON Val-Unseen doubles alongside a significant increase
+in SR by +16.0%. This confirms that the model learns to trigger the slow reasoning system only at critical
+“stagnation points”. We attribute the slight fluctuations in reasoning frequency to the fact that as the agent
+improves and survives longer, it encounters harder scenarios that require occasional reasoning. We terminate
+IRFT at turn 3 as the SR stabilizes.
+D
+Example of the long-term memory
+The long-term memory consists the following information:
+• Landmark nodes: Represented by the panoramic observations (e.g., “At landmark1...”), where <image>
+tokens correspond to the 4 RGB images obtained by rotating the head camera at 90◦intervals
+(0◦, 90◦, 180◦, 270◦).
+• Action edges: Represented by the execution meta actions connecting two consecutive landmarks.
+19
+
+
+Memory Example
+At landmark1, you see <image><image><image><image>;
+Executed RotateRight 30.0, MoveAhead 0.25, RotateRight 30.0, RotateRight 30.0, MoveAhead
+0.25, RotateLeft 30.0, MoveAhead 0.25, MoveAhead 0.25, MoveAhead 0.25, RotateLeft 30.0,
+MoveAhead 0.25, RotateLeft 30.0, MoveAhead 0.25, MoveAhead 0.25, MoveAhead 0.25, MoveAhead
+0.25,
+MoveAhead 0.25,
+MoveAhead 0.25,
+MoveAhead 0.25,
+MoveAhead 0.25,
+MoveAhead 0.25,
+MoveAhead 0.25,
+MoveAhead 0.25,
+RotateLeft 30.0,
+RotateLeft 30.0,
+RotateLeft 30.0,
+RotateLeft 30.0, RotateLeft 30.0 from landmark 1 to landmark 2;
+At landmark2, you see <image><image><image><image>;
+Your current view is <image>.
+E
+Prompt for reasoning synthesis
+We adopt the following two steps to generate reasoning text.
+• Step 1: We prompt Qwen3-VL-235B-Thinking to summarize past visual observation along with the
+long-term memory.
+• Step 2: Then we feed the summary from step 1, the current view, and the “future correct view” into the
+model. The model then generates reasoning text that serves to guide the future search plan.
+The memory summary created in stage 1 is used as a key input for stage 2 to ensure the planning is based on
+history.
+Step 1: Summarize History
+### 1. Task Definition
+• You are an autonomous navigation agent.
+• Your task is to analyze your visual history and raw memory log to consolidate your exploration history into
+a concise summary. You must verify which areas you have already explored.
+### 2. Inputs
+• Visual Stream: [History_Img_1], ..., [History_Img_N]
+(A full sequence of panoramic views from all previously visited landmarks).
+• Context: You are provided with {number of images} images representing these views.
+• Raw Memory Log: “{action edges}”
+### 3. Output Format
+• Output only the summary paragraph.
+• Do not include introductory phrases like “Here is the summary”.
+Step 2: Visual Hindsight Planning
+### 1. Task Definition
+• Role: Navigation Agent.
+• Goal: {goal}
+• Objective: Identify actionable visual cues (e.g., doorways, corridors, objects) in the current view that
+logically lead to the scene shown in the future view. Formulate a high-level plan based on these cues and
+your memory.
+### 2. Inputs
+• Current View (Images 1-4): [Img_1], [Img_2], [Img_3], [Img_4]
+(A 360-degree panoramic observation of your current location).
+20
+
+
+• Future View (Image 5): [Image_5]
+(The Ground Truth observation of the next step / Implicit Guide).
+• Memory Context: “{memory_summary}”
+(Consolidated history from Step 1).
+### 3. Output Format
+• Output the planning analysis and decision strictly in the following structure:
+• Visual Analysis: “Analyzing the current view, I see...”
+• High-level Plan: “Given that I have finished exploring [Area from Memory], and seeing [Feature] in the
+current view which likely leads to [Oracle Direction], I will proceed to...”
+### 4. Rules & Constraints
+• Hindsight Mechanism: Image 5 reveals the correct future path.
+• Critical Constraint: You must pretend you have never seen Image 5. You must rationalize your decision
+based only on the Current View (Images 1-4) and your memory, using Image 5 only as a hidden ground-truth
+guide.
+• Sequential Dependency: You must explicitly reference the provided memory context to justify why you are
+choosing a new direction versus backtracking (e.g., confirming previous areas are fully explored).
+F
+System prompts
+We present the system prompts used for inference.
+System prompt for Hydra-Nav-IRFT (stage 3)
+## ROLE & MISSION
+You are an expert autonomous navigation agent. You operate as a dual-process “fast and slow” thinking
+system to reach a user-specified goal.
+“Slow System” (Planning): Activated at the start of the episode or following a self-initiated obs action.
+You will receive your full memory, the goal, and the current_view. You must analyze this information to
+create a high-level plan.
+“Fast System” (Execution): You execute your plan by generating low-level navigation actions based solely
+on your current_view. You must remain in this mode until you reach the goal, determine a need for
+re-planning, OR reach the maximum execution limit (30 steps) since the last observation.
+## ACTION SPACE
+You must choose only one action from this list per turn. Do not output any text other than the single
+chosen action.
+• RotateLeft 30.0: Rotate 30 degrees to the left.
+• RotateRight 30.0: Rotate 30 degrees to the right.
+• MoveAhead 0.25: Move forward 0.25 meters.
+• obs: Stop and perform a 360-degree observation. This action reactivates the “Slow System” to
+update your memory and formulate a new plan.
+• end: Terminate the mission when you are confident that you are within 1.0 meter of the goal.
+## CONVERSATION FLOW & BEHAVIOR
+1. THE “SLOW” SYSTEM (Planning Mode)
+• Input: Goal, Memory, and Panoramic View.
+• Output Format:
+<think_start>
+Summarize memory...
+21
+
+
+Analyze panoramic view...
+Formulate plan...
+<think_end>
+[Action]
+2. THE “FAST” SYSTEM (Execution Mode)
+• Input: only the current_view.
+• Output Format:
+[Action]
+## CRITICAL INSTRUCTIONS
+• Task Completion: You must output end exclusively when you are confident you are within 1.0 meter
+of the goal.
+• Adaptive Observation: You should output obs if your path is blocked, the environment is ambiguous,
+or you are lost.
+• Forced Observation: You must output obs if you have executed 30 consecutive actions in the “Fast
+System” without observing. The maximum interval between obs actions is strictly 35 steps.
+G
+Examples of trajectory
+Step 1
+Step 3
+Step 11
+Step 16
+Step 21
+Step 35
+Step 42
+Step 50
+Step 56
+Step 60
+Instruction: Find a Sofa
+Figure 9 Performance visualization of Hydra-Nav-Base.
+22
+
+
+Figure 10 Performance visualization of Hydra-Nav-SFT.
+23
+
+
+Figure 11 Performance visualization of Hydra-Nav-IRFT.
+24
+
+
+H
+Data collection for Stage 3
+Algorithm 1 Rollouts with Stagnation Point Detec-
+tion
+1: Input: Goal object set G, Initial state p1, Max
+steps Tmax = 200, Tstag = 20, δstag = 0.5m
+2: Output: Trajectory τ
+3: Initialize τ ←∅, t ←1
+4: ForceSlow ←True // Start with slow system
+5: while t ≤Tmax AND (not at = End) do
+6:
+// 1.
+Check for stagnation point if in fast
+system
+7:
+if ForceSlow = False then
+8:
+Condition 1 (Repetitive exploration): Check
+if ∃k ∈[0, t −Tstag] s.t. ∥pt −pk∥≤δstag
+9:
+Condition 2 (Lack of progress):
+Sample
+∆t ∼U(20, 35).
+Check if dist(pt, G) >
+dist(pt−∆t, G)
+10:
+if Condition 1 is Met OR Condition 2 is Met
+then
+11:
+ForceSlow ←True // Trigger reasoning
+(slow) system intervention
+12:
+end if
+13:
+end if
+14:
+15:
+// 2. Execute policy based on system mode
+16:
+if ForceSlow = True then
+17:
+// Slow system: reasoning + action
+18:
+Input “obs” token to trigger reasoning
+19:
+Generate reasoning
+20:
+Sample action at based on reasoning
+21:
+ForceSlow ←False // Switch back to fast
+system immediately
+22:
+else
+23:
+// Fast system: reactive meta action
+24:
+Sample action at directly from policy
+25:
+end if
+26:
+27:
+// 3. Environment step
+28:
+Execute at, observe pt+1
+29:
+τ ←τ ∪{(pt, at)}
+30:
+t ←t + 1
+31: end while
+32: Return τ
+Algorithm 2 IRFT Data Generation (Collection &
+Repair)
+Input: Number of rollouts N, Goal object set G,
+Max steps Tmax = 200, δsuccess = 1.0m
+2: Output: Training Dataset D
+// Phase 1: collect raw trajectories
+4: Initialize raw dataset Traw ←∅
+for i = 1 to N do
+6:
+Run Algorithm 1 to collect trajectory τ
+Traw ←Traw ∪{τ}
+8: end for
+10: // Phase 2: process and repair
+Initialize final training dataset D ←∅
+12: while Traw ̸= ∅do
+Pop a trajectory τ from Traw
+14:
+// Check if the raw trajectory is successful
+if aT = End ∧dist(pT , G) ≤δsuccess then
+16:
+D ←D ∪{τ}
+else
+18:
+// Trajectory failed: identify intervention
+time t∗
+if aT = End ∧dist(pT , G) > δsuccess then
+20:
+// Case 1: target misidentification
+t∗←T
+22:
+else
+// Case 2: timeout
+24:
+Identify stagnation points S ⊂[1, T]
+t∗←argmint∈S dist(pt, G)
+26:
+end if
+28:
+// Perform repair strategy from t∗
+Set action at∗←obs
+30:
+Generate oracle path τoracle from pt∗to G
+via A∗
+Synthesize reasoning for τoracle
+32:
+τnew ←Concat(τ[1 : t∗], τoracle)
+// Check if repaired trajectory is successful
+34:
+if |τnew| ≤400 AND dist(pT , G) ≤δsuccess
+then
+D ←D ∪{τnew}
+36:
+end if
+end if
+38: end while
+Return D
+25

@@ -1,0 +1,1900 @@
+SocialNav: Training Human-Inspired Foundation Model
+for Socially-Aware Embodied Navigation
+Ziyi Chen1*
+Yingnan Guo1,2*
+Zedong Chu1†
+Minghua Luo1
+Yanfen Shen1
+Mingchao Sun1
+Junjun Hu1
+Shichao Xie1
+Kuan Yang1
+Pei Shi1
+Zhining Gu1
+Lu Liu1
+Honglin Han1
+Xiaolong Wu1
+Mu Xu1
+Yu Zhang2
+Ning Guo1
+1Amap, Alibaba Group, China
+2Zhejiang University, China
+Abstract
+Embodied navigation that adheres to social norms remains
+an open research challenge. Our SocialNav is a founda-
+tional model for socially-aware navigation with a hierar-
+chical ”brain-action” architecture, capable of understand-
+ing high-level social norms and generating low-level, so-
+cially compliant trajectories. To enable such dual capabili-
+ties, we construct the SocNav Dataset, a large-scale collec-
+tion of 7 million samples, comprising (1) a Cognitive Ac-
+tivation Dataset providing social reasoning signals such as
+chain-of-thought explanations and social traversability pre-
+diction, and (2) an Expert Trajectories Pyramid aggregat-
+ing diverse navigation demonstrations from internet videos,
+simulated environments, and real-world robots. A multi-
+stage training pipeline is proposed to gradually inject and
+refine navigation intelligence: we first inject general navi-
+gation skills and social norms understanding into the model
+via imitation learning, and then refine such skills through
+a deliberately designed Socially-Aware Flow Exploration
+GRPO (SAFE-GRPO), the first flow-based reinforcement
+learning framework for embodied navigation that explicitly
+rewards socially compliant behaviors. SocialNav achieves
++38% success rate and +46% social compliance rate com-
+pared to the state-of-the-art method, demonstrating strong
+gains in both navigation performance and social compli-
+ance. Our project page: https://amap-eai.github.
+io/SocialNav/
+1. Introduction
+As embodied agents become increasingly integrated into
+everyday social environments, robotic navigation must pri-
+oritize not only operational efficiency but also social aware-
+ness to ensure safety and compliance with established social
+*Equal contribution.
+†Corresponding author(chuzedong.czd@alibaba-inc.com)
+Figure 1.
+Socially-Aware Navigation in Real-World Environ-
+ments. SocialNav combines high-level semantic reasoning with
+low-level trajectory generation. It identifies socially traversable
+zones and generates CoT explanations, planning routes that re-
+spect social norms.
+norms. However, most existing approaches [24, 34, 35, 38,
+40] focus primarily on shortest-path planning and collision
+avoidance, while overlooking the social compliance essen-
+tial to real-world deployment (e.g., a robotic guide dog).
+Consequently, trajectories that appear optimal from a ge-
+ometric or efficiency perspective may still lead to socially
+disruptive or inappropriate behaviors, such as jaywalking
+and traversing restricted zones (e.g., landscaped lawns).
+To bridge this gap, we propose SocialNav, a hierarchi-
+cal foundation model for socially aware navigation that in-
+tegrates the understanding of social norms with the gen-
+eration of socially compliant trajectories. SocialNav con-
+sists of two core components: (1) the Brain Module, built
+upon a vision-language model (VLM), which encodes rich
+social navigation priors and is capable of generating inter-
+pretable chain-of-thought (CoT) explanations or explicitly
+predicting socially traversable regions; and (2) the Action
+Expert, based on conditional flow matching [21], which
+1
+arXiv:2511.21135v2  [cs.RO]  27 Feb 2026
+
+
+translates the semantic priors provided by the Brain Mod-
+ule into robot-executable trajectories that adhere to social
+norms.
+Developing such a model requires rich, multimodal data
+that encodes both cognitive knowledge and action-oriented
+intuition that are currently scarce in existing embodied
+navigation corpora.
+To this end, we construct the Soc-
+Nav Dataset, a large-scale heterogeneous corpus of 7 mil-
+lion samples that integrates two complementary modalities:
+(1) the Cognitive Activation Dataset (CAD), which encap-
+sulates navigational knowledge through chain-of-thought
+(CoT) reasoning, social traversability prediction, and em-
+bodied question answering; and (2) the Expert Trajectories
+Pyramid (ETP), which aggregates trajectories from inter-
+net videos, simulated environments, and real-world robot
+deployments to distill rich, context-aware action priors tai-
+lored for complex social navigation scenarios.
+As is widely recognized, aligning agent behavior with
+social norms goes beyond the representational and rea-
+soning capabilities of standard imitation learning.
+Even
+when social priors are implicitly embedded in demonstra-
+tion data, behavior cloning fails to capture the causal struc-
+ture underlying normative conduct. To address this limita-
+tion, we propose Socially-Aware Flow Exploration GRPO
+(SAFE-GRPO), the first flow-based reinforcement learn-
+ing framework for embodied navigation that explicitly pro-
+motes socially compliant behavior through norm-aware re-
+ward mechanisms. This approach enables agents to inter-
+nalize the underlying principles governing social conven-
+tions, rather than merely mimicking surface-level actions.
+Finally, we introduce the SocNav Benchmark, a high-
+fidelity evaluation platform blending physics simulation
+(Isaac Sim [27]) and photorealistic rendering (3DGS [18])
+in 9 newly captured large-scale social scenes. Our bench-
+mark enables comprehensive comparisons of both funda-
+mental navigation capabilities and social compliance. Our
+contributions are summarized as follows:
+• SocialNav
+Foundation
+Model:
+a
+hierarchical
+brain–action architecture that unifies high-level social
+norm understanding with the generation of norm-
+compliant trajectories.
+• SAFE-GRPO RL Framework: the first flow-based RL
+framework for embodied navigation designed to enforce
+social compliance through norm-aware reward shaping.
+• SocNav Dataset & Benchmark: an integrated system
+featuring a large-scale cognition–action dataset and a
+high-fidelity evaluation platform built on Isaac Sim and
+3DGS, providing comprehensive support for training and
+evaluating socially intelligent navigation models.
+Extensive experiments on different benchmarks show
+that SocialNav significantly outperforms state-of-the-art
+baselines in open-loop, closed-loop, and real-world evalua-
+tion. Crucially, it demonstrates superior social compliance,
+taking a meaningful stride towards true embodied social in-
+telligence.
+2. Related Work
+2.1. Visual Navigation
+Visual navigation [3] has evolved from classical SLAM-
+based methods [4, 17, 41, 42] to end-to-end learning ap-
+proaches such as GNM [34], ViNT [35], and NoMaD [40].
+To improve generalization, a line of work has expanded
+training corpora beyond expert demonstrations.
+Some
+methods, such as CityWalker [24] and MBRA [14], lever-
+age massive internet-sourced video collections to capture
+diverse action priors, while others [8, 12] employ simulation
+platforms [32, 48] to generate controlled, rule-compliant
+trajectories at scale. Concurrently, VLMs are used to en-
+hance semantic understanding [9, 29, 46, 49, 51]. However,
+these directions still struggle with high-level reasoning and
+alignment with human values in socially complex scenarios.
+2.2. Social Navigation and Human Preference
+Alignment
+Social navigation requires adherence to social conventions,
+moving beyond early handcrafted costs [7, 31] to VLM-
+based reasoning [19, 25, 45]. However, VLM reasoning is
+often disconnected from low-level action generation. Re-
+cently, flow matching (FM) [21] has been widely adopted
+in vision-and-language-action (VLA) models [15, 50] for
+its ability to model multimodal action distributions, but
+these models are typically limited to behavior cloning. In
+the navigation domain, pure imitation learning often lacks
+the causal understanding needed to robustly adapt to novel
+or dynamic social situations.
+Therefore, there is an in-
+herent need for models that can not only generate actions
+but also align with complex human preferences and social
+norms. Foundational work, such as GRPO [10, 37] and
+Flow-GRPO [23], demonstrates combining generative mod-
+els with online RL for human preference alignment, inspir-
+ing our approach.
+3. SocNav Dataset and Benchmark
+To enable the development and evaluation of socially-aware
+embodied navigation systems, we introduce the SocNav
+Dataset and the SocNav Bench. Together, they form a com-
+prehensive ecosystem for training, validating, and bench-
+marking embodied agents.
+3.1. SocNav Dataset
+We present the SocNav Dataset, a large-scale, multi-source
+heterogeneous dataset to support robust, generalizable, and
+socially-aware navigation. Comprising over 7 million train-
+ing samples, the SocNav Dataset consists of two core com-
+ponents: the Expert Trajectories Pyramid (ETP) for learn-
+2
+
+
+Figure 2. Overview of the SocNav Dataset and Benchmark. The SocNav Dataset (left) illustrates the hierarchical structure and data
+construction pipeline, composed of the Expert Trajectories Pyramid (ETP) and Cognitive Activation Dataset (CAD). The SocNav Bench-
+mark (right) is a high-fidelity evaluation platform featuring large-scale, diverse social environments and offering comprehensive metrics to
+assess socially-aware navigation performance.
+ing motion priors and the Cognitive Activation Dataset
+(CAD) for developing high-level reasoning.
+Expert Trajectories Pyramid (ETP).
+The ETP is orga-
+nized as a three-layer hierarchical data pyramid, covering
+trajectories from diverse indoor spaces (e.g., homes, offices,
+malls) and outdoor urban scenes (e.g., streets, parks, open
+areas). We define a training trajectory sample as a point-
+goal navigation instance. As illustrated in Figure 2, ETP
+consists of:
+• Trajectories from internet video (Dvideo).
+Dvideo,
+the foundational layer, comprises 2.0 million pseudo-
+trajectories, meticulously curated from extensive public
+urban exploration videos to ensure vast visual diversity
+across global cities, weather conditions, and architectural
+styles.
+These raw video streams are transformed into
+pseudo-trajectories via a scalable pipeline, involving: (1)
+Dense 3D reconstruction using π3 [47], (2) Metric scale
+alignment through MoGe [44], and (3) Pseudo-trajectory
+synthesis by sampling diverse point-goal episodes along
+the reconstructed paths.
+• Trajectories from High-Fidelity Simulated Scenes
+(Dsim).
+This middle data layer provides 1.7 million di-
+verse trajectories. It comprises over 4,490 high-fidelity
+3D scenes and a large-scale dynamic city.
+Our pri-
+mary contributions to this layer are: (1) SocialGS, a
+new dataset of 3,400 real-world scenes (4.5 km²) recon-
+structed via 3DGS. It diversifies beyond existing residen-
+tial datasets (e.g., Matterport3D [30], InteriorGS [39]) by
+covering social environments like shopping malls, streets,
+and offices. (2) SocCity, a 3.37 km² dynamic urban scene
+with simulated vehicles and pedestrians in Isaac Sim.
+Across all scenes, trajectories are generated on manually
+annotated traversable road networks. These trajectories
+encompass not only standard on-road navigation but also
+challenging recovery scenarios, such as near-collisions.
+This rich dataset enables the model to learn both efficient
+navigation and robust recovery behaviors.
+• Trajectories from real-world robot data (Dreal). This
+layer provides 340K high-quality trajectories collected
+from autonomous robots deployed in real-world envi-
+ronments (from public datasets including SCAND [16],
+Huron [13], Recon [33], and CityWalker teleoperation
+data [24]). These trajectories provide ground-truth metric
+accuracy, physical realism, and sensor consistency, cap-
+turing true physical dynamics, sensor noise, and environ-
+mental interactions. They are ideal for supervised fine-
+tuning (SFT) and closing the sim-to-real gap.
+Cognitive Activation Dataset (CAD).
+To cultivate ad-
+vanced spatial cognition beyond geometric path planning,
+we introduce the Cognitive Activation Dataset (Dcog). It
+integrates a suite of non-trajectory auxiliary tasks designed
+to instill a semantically grounded understanding of environ-
+mental rules and human-centric norms.
+• Social Traversability Recognition: We created a dataset
+of 1.2 million samples by manually annotating polygons
+over socially traversable regions (e.g., sidewalks, cross-
+walks, park trails) in first-person images from internet
+video. This directly trains the model to distinguish be-
+tween physically and socially acceptable paths.
+• Navigation Chain-of-Thought (CoT): Leveraging first-
+3
+
+
+Figure 3. SocialNav Architecture and Training Pipeline. SocialNav adopts a hierarchical architecture, with a VLM-based Brain for
+high-level semantic reasoning and an action expert for generating socially compliant trajectories. We adopt a three-stage training strategy:
+Pre-training, Fine-tuning, and SAFE-GRPO.
+person images and curated prompt templates,
+we
+prompted Qwen2.5VL-72B [1] to generate 825K Chain-
+of-Thought (CoT) samples. These samples, comprising
+step-by-step textual rationales for navigation decisions,
+were designed to teach the agent explicit reasoning.
+• General Visual Question Answering (VQA): To ensure
+the model maintains general-world knowledge, we cu-
+rated 1 million general VQA samples from [5, 6, 11, 20,
+22, 36]. This task trains the agent to reason about spatial
+relationships and object properties in the environment.
+Together, the ETP and CAD establish the SocNav
+Dataset as a comprehensive foundation for training founda-
+tional navigation agents—unifying scale, realism, and cog-
+nition within a single, coherent data framework.
+3.2. SocNav Benchmark
+We introduce the SocNav Bench, a unified, high-fidelity
+evaluation platform for socially-aware navigation.
+It
+achieves a unique blend of realism by combining the
+physics simulation of Isaac Sim with the photorealistic ren-
+dering of 3DGS. The benchmark is built upon 9 new large-
+scale social scenes we captured and reconstructed using
+3DGS, covering a total area of 73K m2. These new scenes
+include diverse, human-centric environments: three parks,
+three street-level roads, two offices, and one campus. All
+evaluations employ a standardized setup: a unified Unitree
+Go2 robot model and a consistent locomotion policy. To en-
+able realistic physical interaction, each 3DGS scene is con-
+verted into a mesh and imported into Isaac Sim for accurate
+collision feedback. Additionally, to simulate potential dy-
+namic collisions, digital humans are randomly introduced
+into the scenes. For rigorous benchmarking, we sample 10
+start-goal pairs at distances of 20m and 100m within each
+scene, creating 20 evaluation cases per scene.
+4. SocialNav Foundation Model
+4.1. Problem Formulation
+We formulate the foundational navigation task as a vision-
+based, history-conditioned point-goal navigation problem
+in diverse environments, similar to the setup in City-
+Walker [24].
+At each time step t,
+the agent re-
+ceives a sequence of recent monocular visual observations
+Ot−n:t = {ot−n, . . . , ot}, where o ∈RH×W ×3, along
+with their associated 2D positional information Pt−n:t =
+{pt−n, . . . , pt} with p ∈R2. Given a specified 2D target
+location g ∈R2, the objective is to learn a policy πθ that
+maps the historical observations and positions to a sequence
+of future actions:
+At+1:t+m = πθ(Ot−n:t, Pt−n:t, g),
+(1)
+Unless otherwise specified, we set n = 5 and m = 5.
+4.2. Model Overview
+Our complete model architecture, illustrated in Fig. 3,
+adopts a hierarchical ”brain-action” design for robust and
+socially aware embodied navigation.
+It consists of two
+tightly coupled branches with complementary roles: one for
+4
+
+
+high-level semantic understanding and the other for low-
+level action generation.
+The Brain Module.
+The Brain Module serves as the
+cognitive core of the system, implemented as a Vi-
+sion–Language Model (VLM) denoted by πVLM.
+It per-
+forms generative, autoregressive textual reasoning to infer
+critical environmental semantics and can produce 3 types
+of interpretable outputs:
+• Socially traversable regions: Represented as polygons,
+these delineate areas such as sidewalks, crosswalks, and
+stairs.
+• CoT reasoning: Step-by-step textual explanations for
+navigational decisions.
+• VQA: Responses to free-form questions that enhance
+scene understanding.
+By explicitly generating textual outputs, the VLM provides
+interpretable insights essential for safe and socially respon-
+sible navigation. This design enables the agent not only to
+see but also to reason about its surroundings, forming the
+cognitive foundation for socially aware navigation.
+The Action Expert.
+This action expert specializes in end-
+to-end trajectory generation. Inspired by recent advance-
+ments [2, 15] in action prediction, we leverage conditional
+flow matching [21] to model a distribution of actions. The
+module is conditioned on latent semantic features extracted
+from the last-layer features of the VLM:
+At+1:t+m = πflow(xt, t; ZVLM)
+(2)
+ZVLM = πVLM(Ot−n:t, Pt−n:t, g)
+(3)
+This mechanism enables the action expert to produce ef-
+ficient and socially compliant trajectories in complex en-
+vironments by decoupling high-level reasoning from low-
+level control while preserving a strong semantic connection
+between them.
+4.3. Training Methodology
+Our training pipeline follows a multi-stage strategy de-
+signed to progressively instill both general navigation priors
+and social compliance into SocialNav.
+Stage 1: Pre-training for General Navigation Ability.
+In the first stage, we aim to activate the VLM’s naviga-
+tion capability and train the flow model to predict low-level
+waypoints. This is achieved through pretraining on the ETP
+datasets (Dvideo and Dsim) together with the cognitive acti-
+vation dataset Dcog. Dvideo provides diverse real-world nav-
+igation scenarios with implicit expert behaviors, while Dsim
+introduces challenging synthetic cases to enhance robust-
+ness in rare and complex situations. The Dcog further im-
+proves the VLM’s reasoning and decision-making through
+CoT and VQA tasks, and equips it with the ability to pre-
+dict traversable regions—laying a solid foundation for sub-
+sequent social-norm alignment.
+Stage2:
+Fine-tuning with High-Quality Real-World
+Data.
+In the second stage, we fine-tune the model on
+high-quality expert trajectories collected from real-world
+robots (Dreal) to reduce the sim-to-real gap. During this
+phase, the VLM is frozen, and only the action expert is op-
+timized. This approach preserves the VLM’s semantic and
+social reasoning capabilities while allowing the flow model
+to adapt to real-world dynamics and spatial scales.
+Stage3: Reinforcement Learning for Social Rule Align-
+ment.
+Although the previous stages equip the model with
+strong navigation priors and real-world adaptability, imi-
+tation learning still lacks causal reasoning in social envi-
+ronments. We therefore introduce SAFE-GRPO (Socially-
+Aware Flow Exploration GRPO), a reinforcement learning
+stage that explicitly aligns the policy with human social
+conventions. The model is trained using expert trajectories
+from the SocCity within Dsim, which provides accurate and
+rich pathway annotations crucial for precise reward feed-
+back.
+To encourage diverse yet meaningful exploration, we
+draw inspiration from the flow-based formulation of Flow-
+GRPO [23, 43], converting the deterministic ordinary dif-
+ferential equation (ODE) of the flow policy into a stochastic
+differential equation (SDE):
+dxt = vflow(xt, t; ZVLM)dt + σtdwt,
+(4)
+where σt controls the exploration magnitude. Here, vflow
+represents the velocity field of the flow policy, which is con-
+ditioned on both the current state xt and time t, as well as
+additional context ZVLM provided by the VLM.
+Unlike unstructured stochastic exploration, our approach
+is controlled and semantically grounded: randomness is in-
+troduced only during flow integration, while the seman-
+tic conditioning signal derived from the VLM ”Brain” re-
+mains fixed throughout. This latent prior encodes high-level
+spatial and social cues.
+Without explicit comprehension
+of scene semantics and walkable areas, conventional RL
+agents struggle to formulate or discover socially-compliant
+behaviors solely from inefficient exploration and sparse re-
+wards.
+Trajectories that are collision-free and socially valid re-
+ceive higher rewards, reinforcing alignment between action
+generation and human expectations. The overall reward bal-
+ances social compliance and navigational efficiency:
+R = Rsocial+λexpertRexpert+λsmoothRsmooth+λeffReff, (5)
+where Rsocial is the primary reward, derived from a seman-
+tic occupancy map Mocc that encourages the agent to main-
+tain safe clearance from all non-traversable areas, Rexpert
+promotes consistency with expert trajectories, Rsmooth en-
+forces natural motion continuity, and Reff rewards efficient
+progress toward the goal.
+Together, these terms ensure
+5
+
+
+Table 1. Open-Loop Evaluation on CityWalker Benchmark [24]. We evaluate MAOE metric in each critical scenario for all methods.
+Percentages under scenarios indicate their data proportions. The ”Mean” column shows scenario means averaged over six scenarios; ”All”
+shows sample means over all data samples.
+Method
+Mean
+Turn
+Crossing
+Detour
+Proximity
+Crowd
+Other
+All
+8%
+12%
+12%
+6%
+7%
+55%
+100%
+GNM [34]
+16.2
+31.1
+14.8
+12.5
+14.7
+12.8
+11.0
+12.1
+ViNT [35]
+16.5
+31.1
+15.4
+12.9
+14.8
+13.3
+11.6
+12.6
+NoMaD [40]
+19.1
+35.1
+18.5
+15.6
+18.1
+14.3
+12.8
+12.1
+CityWalker [24]
+15.2
+26.6
+14.1
+13.9
+14.3
+12.0
+10.4
+11.5
+SocialNav (Full)
+10.2
+20.1
+8.8
+8.4
+8.9
+7.6
+7.2
+7.8
+Table 2. Performance Comparison on the Closed-Loop SocNav Benchmark.
+Navigation Performance
+Social Compliance
+Methods
+SR↑
+RC↑
+SPL↑
+DCR↑
+TCR↑
+GNM* [34]
+43.3
+62.4
+37.0
+26.5
+28.7
+ViNT* [35]
+45.6
+66.2
+39.5
+31.4
+33.8
+NoMaD* [40]
+41.1
+60.5
+35.4
+29.5
+31.6
+CityWalker [24]
+47.8
+64.7
+44.7
+36.1
+36.6
+SocialNav*
+65.0
+78.4
+62.3
+58.0
+56.7
+SocialNav (Full)
+86.1
+91.2
+77.4
+82.5
+82.9
+that the agent navigates effectively while remaining socially
+compliant and human-aligned. Detailed formulations are
+provided in the Appendix.
+5. Experiment
+To ensure a fair comparison, we evaluate SocialNav in three
+distinct settings: (1) open-loop benchmark proposed by
+CityWalker [24], (2) closed-loop evaluation on our SocNav
+Benchmark, and (3) real-world robotic deployments.
+5.1. Setup
+Metrics.
+For open-loop evaluation, we use Maximum
+Average
+Orientation
+Error
+(MAOE)
+following
+City-
+Walker [24]. Closed-loop performance is measured by suc-
+cess rate (SR; defined as reaching within 3 meters of the
+goal with fewer than three collisions), route completion
+(RC), and success weighted by path length (SPL). To assess
+social compliance, we introduce the Distance Compliance
+Rate (DCR) and Time Compliance Rate (TCR):
+DCR =
+
+
+
+
+
+dcompliant
+dactual
+,
+if s = 1
+0,
+otherwise
+(6)
+where s is a binary indicator (1 for success, 0 for failure),
+dcompliant denotes the distance traveled within socially com-
+pliant regions, and dactual represents the total actual distance
+traveled. The TCR is formulated similarly.
+Model Details.
+We employ Qwen2.5-VL (3B) as the
+brain module. The action expert is designed as a Diffusion
+Transformer [28] with L = 12 layers, H = 12 attention
+heads per layer, and hidden dimension D = 1536. During
+inference, the trajectory denoising is performed iteratively
+for K = 5 steps.
+Training Details.
+Pre-training Stage: The full model is
+trained end-to-end using AdamW [26] (3 epochs, 96 H20
+GPUs) with a batch size of 192 and a learning rate of
+5 × 10−5. Finetuning Stage: Only the action expert is fine-
+tuned on 32 H20 GPUs with a batch size of 256 and a learn-
+ing rate of 1×10−5. SAFE-GRPO: We further optimize the
+action expert on 16 H20 GPUs, using a rollout batch size of
+128 and a learning rate of 5 × 10−7.
+5.2. Baselines
+We compare SocialNav against state-of-the-art (SOTA)
+open-source point-based navigation methods. The selected
+baselines include CityWalker [24], ViNT [35], GNM [34],
+and NoMaD [40].
+While ViNT, GNM, and NoMaD
+were originally designed for image-goal navigation, we re-
+trained them for point-goal tasks to ensure a fair compari-
+son. In Tab. 2 and Tab. 3, an asterisk (*) denotes the models
+that were exclusively trained on the Dreal dataset.
+5.3. Results on CityWalker Benchmark
+We evaluate on the open-loop benchmark introduced by
+CityWalker [24]. As shown in Tab. 1, our approach con-
+6
+
+
+Figure 4. Qualitative comparison on the SocNav Benchmark. We visualize representative trajectories in three scenes (Crossing, Park,
+Campus). The left column shows top-down path views with our method (green) and the CityWalker baseline (red), where warning signs
+mark unsafe or socially improper behaviors. The right columns depict corresponding egocentric views: SocialNav remains on sidewalks
+and walkways, while the baseline often takes shorter but socially risky routes through restricted regions (such as driveways, dry streambeds,
+lawns, and green belts) or crashes into obstacles like glass walls and trees.
+sistently outperforms prior methods across key scenar-
+ios, demonstrating improved generalization and robustness.
+Since ground truth trajectories are human-operated, these
+results indicate that our method more closely aligns with
+human social walking norms.
+5.4. Results on our SocNav Benchmark
+We conduct closed-loop evaluation on our SocNav Bench-
+mark, with all environments unseen during training.
+Quantitative results are shown in Tab. 2 and qualitative vi-
+sualizations in Fig. 4.
+Navigation Performance.
+SocialNav achieves state-of-
+the-art results across all navigation metrics. Specifically, it
+significantly outperforms CityWalker [24], the second-best
+method, with the concurrent increase of +38.3 in SR, +26.5
+in RC and +32.7 in SPL.
+Social Compliance.
+SocialNav achieves remarkable im-
+provements in social compliance, attaining a DCR of 82.5
+and a TCR of 82.9, both more than double those of City-
+Walker (DCR: 36.1, TCR: 36.6), and significantly better
+than other baselines. Representative qualitative visualiza-
+tions in Fig. 4 further highlight these advantages: Social-
+Nav consistently selects paths that adhere to sidewalks and
+designated walkways, whereas the baseline frequently opts
+for shorter but socially inappropriate routes traversing re-
+stricted areas. This substantial improvement validates our
+model’s ability to internalize complex social norms. Impor-
+tantly, these gains in social compliance are attained without
+sacrificing navigation performance.
+Effect of Our Model design.
+The SocialNav* and base-
+lines (including NoMaD*, GNM*, ViNT*) are trained with
+Imitation Learning (IL) solely on Dreal. As shown in Tab. 2,
+SocialNav* significantly outperforms the baselines, clearly
+demonstrating the effectiveness and superior generalization
+capability of our model architecture.
+Table 3. Real-world Results. Comparison of success rates across
+different real-world environments.
+Method
+Street
+Office
+Shopping
+Average SR
+Crossing
+Park
+Mall
+GNM* [34]
+9/20
+10/20
+8/20
+45.0
+ViNT* [35]
+7/20
+12/20
+8/20
+45.0
+NoMaD* [40]
+9/20
+11/20
+10/20
+50.0
+CityWalker [24]
+12/20
+13/20
+12/20
+62.5
+SocialNav (Full)
+18/20
+16/20
+17/20
+85.0
+7
+
+
+Table 4. Ablation Study on Data Composition and Training Stages. IL: Imitation Learning (Stages 1–2); RL: SAFE-GRPO (Stage 3).
+SocialNav* is trained with IL only on Dreal.
+No.
+Model
+Dreal
+Dvideo
+Dsim
+Dcog
+IL
+RL
+SR↑
+RC↑
+SPL↑
+DCR↑
+TCR↑
+1
+SocialNav*
+✓
+✓
+65.0
+78.4
+62.3
+58.0
+56.7
+2
++ Dvideo
+✓
+✓
+✓
+76.7
+84.8
+70.1
+62.9
+64.6
+3
++ Dsim
+✓
+✓
+✓
+✓
+82.2
+86.0
+77.8
+69.8
+68.2
+4
++ Dcog
+✓
+✓
+✓
+✓
+✓
+84.4
+88.1
+79.4
+78.2
+78.4
+5
++ RL (no Dcog)
+✓
+✓
+✓
+✓
+✓
+80.0
+89.1
+78.9
+68.1
+66.9
+6
++ RL (full data)
+✓
+✓
+✓
+✓
+✓
+✓
+86.1
+91.2
+77.4
+82.5
+82.9
+5.5. Results on the Real-World Deployments
+We deploy different methods on a cloud server with an
+NVIDIA A10 GPU to guide a Unitree Go2 robot’s naviga-
+tion. We evaluate their performance on a set of point-goal
+navigation tasks across three distinct environments: (1) a
+street crossing, (2) an office park, and (3) a shopping mall.
+To ensure a fair comparison, we conduct 20 trials in each en-
+vironment, using the same starting and ending points for all
+methods. As shown in Tab. 3, SocialNav achieves a SR of
+85, significantly outperforming both NoMaD [40] (50) and
+CityWalker [24] (62.5). Notably, SocialNav attains 18/20
+successful trials in the street crossing environment, reflect-
+ing robust behavior in challenging, socially constrained set-
+tings. Additionally, SocialNav operates at over 5 Hz during
+deployment, enabling real-time navigation.
+5.6. Ablation Studies
+Effect of Data Composition.
+To dissect the impact of
+various data components on SocialNav’s performance, we
+conduct an ablation study by progressively adding Dvideo,
+Dsim, and Dcog into the IL pipeline(No. 1–4 in Tab. 4).
+• Effect of Dvideo (No.2 vs. No.1): Large-scale Internet
+trajectories provide diverse human motion patterns, yield-
+ing clear gains in navigation performance (SR +11.7, RC
++6.4, SPL +7.8) and improvements in social compliance
+(DCR +4.9, TCR +7.9).
+• Effect of Dsim (No.3 vs. No.2): Expert recovery trajecto-
+ries from simulation considerably strengthen robustness,
+leading to further improvements in SR (+5.5), RC (+1.2)
+and SPL (+7.7), along with moderate gains in social com-
+pliance.
+• Effect of Dcog (No.4 vs. No.3): Incorporating Dcog yields
+a significant increase in social compliance rates (DCR
++8.4, TCR +10.2), along with gains in overall navigation
+metrics. This confirms that social cognitive knowledge,
+by enabling CoT reasoning and traversable area predic-
+tion, is critical for the model to internalize social rules.
+Effect of RL training.
+• Effect of SAFE-GRPO (No.6 vs. No.4): Building on IL,
+SAFE-GRPO significantly improves social compliance,
+improving DCR from 78.2 to 82.5 and TCR from 78.4 to
+82.9. It also enhances navigation performance, achieving
+the highest SR 86.1 and RC 91.2. This demonstrates that
+flow-based RL with norm-aware rewards is effective for
+refining socially acceptable behaviors.
+• The Crucial Role of Dcog in RL (No.5 vs. No.3 & No.6):
+Applying SAFE-GRPO without cognitive priors (No.5)
+worsens social metrics than IL-only training (with DCR
+-1.7 and TCR -1.3). This reveals a crucial insight: with-
+out the high-level social understanding encoded in Dcog,
+the RL agent lacks the foundational ”brain” knowledge
+necessary to properly align its policy optimization with
+human social norms. Conversely, combining Dcog with
+SAFE-GRPO (No.6) yields the best social compliance
+across all settings, confirming that cognitive activations
+serve as essential high-level guidance for aligning RL pol-
+icy improvement with human social expectations.
+• Trade-offs in Path Efficiency (No.6 vs. No.4): We ob-
+serve a minor drop in SPL (79.4→77.4) after RL. This
+reflects a fundamental trade-off: socially compliant be-
+haviors (e.g., following walkways, avoiding restricted re-
+gions) are often less geometrically direct. SAFE-GRPO
+prioritizes human-like behaviors over shortest-path effi-
+ciency, aligning with real-world navigation norms.
+6. Conclusion
+In this work, we presented SocialNav, a hierarchical foun-
+dation model capable of socially aware embodied naviga-
+tion. While SocialNav provides a scalable and generaliz-
+able framework for socially intelligent navigation, several
+directions remain for future exploration.
+First, our rein-
+forcement learning paradigm could be extended beyond se-
+mantic traversability to capture a broader range of context-
+dependent human conventions. Second, the current reward
+formulation relies on hand-crafted rules; integrating vision-
+language models to deliver richer, more adaptive reward
+signals represents a promising step toward stronger human
+alignment. We believe this work marks an important mile-
+stone toward embodied agents that can navigate complex,
+dynamic social environments with genuine social aware-
+ness.
+8
+
+
+References
+[1] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin
+Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun
+Tang, et al. Qwen2. 5-vl technical report. arXiv preprint
+arXiv:2502.13923, 2025. 4
+[2] Kevin Black, Noah Brown, Danny Driess, Adnan Es-
+mail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy
+Groom, Karol Hausman, Brian Ichter, et al.
+π0:
+A
+vision-language-action flow model for general robot control.
+corr, abs/2410.24164, 2024. doi: 10.48550. arXiv preprint
+ARXIV.2410.24164, 2024. 5
+[3] Francisco Bonin-Font, Alberto Ortiz, and Gabriel Oliver. Vi-
+sual navigation for mobile robots: A survey. Journal of in-
+telligent and robotic systems, 53(3):263–296, 2008. 2
+[4] Cesar Cadena, Luca Carlone, Henry Carrillo, Yasir Latif,
+Davide Scaramuzza, Jos´e Neira, Ian Reid, and John J
+Leonard. Past, present, and future of simultaneous localiza-
+tion and mapping: Toward the robust-perception age. IEEE
+Transactions on robotics, 32(6):1309–1332, 2017. 2
+[5] Jierun Chen, Fangyun Wei, Jinjing Zhao, Sizhe Song, Bo-
+huai Wu, Zhuoxuan Peng, S-H Gary Chan, and Hongyang
+Zhang. Revisiting referring expression comprehension eval-
+uation in the era of large multimodal models. In Proceedings
+of the Computer Vision and Pattern Recognition Conference,
+pages 513–524, 2025. 4
+[6] Jiuhai Chen, Le Xue, Zhiyang Xu, Xichen Pan, Shusheng
+Yang, Can Qin, An Yan, Honglu Zhou, Zeyuan Chen, Lifu
+Huang, et al.
+Blip3o-next: Next frontier of native image
+generation. arXiv preprint arXiv:2510.15857, 2025. 4
+[7] Yu Fan Chen, Michael Everett, Miao Liu, and Jonathan P.
+How. Socially aware motion planning with deep reinforce-
+ment learning. In Proceedings of the IEEE/RSJ International
+Conference on Intelligent Robots and Systems (IROS), 2017.
+2
+[8] An-Chieh Cheng, Yandong Ji, Zhaojing Yang, Zaitian
+Gongye, Xueyan Zou, Jan Kautz, Erdem Bıyık, Hongxu
+Yin, Sifei Liu, and Xiaolong Wang. Navila: Legged robot
+vision-language-action model for navigation. arXiv preprint
+arXiv:2412.04453, 2024. 2
+[9] An-Chieh Cheng, Yandong Ji, Zhaojing Yang, Zaitian
+Gongye, Xueyan Zou, Jan Kautz, Erdem Bıyık, Hongxu Yin,
+Sifei Liu, and Xiaolong Wang. Navila: Legged robot vision-
+language-action model for navigation. In RSS, 2025. 2
+[10] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song,
+Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi
+Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning
+capability in llms via reinforcement learning. arXiv preprint
+arXiv:2501.12948, 2025. 2
+[11] Jiawei Guo, Tianyu Zheng, Yizhi Li, Yuelin Bai, Bo Li, Yubo
+Wang, King Zhu, Graham Neubig, Wenhu Chen, and Xiang
+Yue. Mammoth-vl: Eliciting multimodal reasoning with in-
+struction tuning at scale.
+In Proceedings of the 63rd An-
+nual Meeting of the Association for Computational Linguis-
+tics (Volume 1: Long Papers), pages 13869–13920, 2025. 4
+[12] Honglin He, Yukai Ma, Wayne Wu, and Bolei Zhou. From
+seeing to experiencing: Scaling navigation foundation mod-
+els with reinforcement learning, 2025. 2
+[13] Noriaki Hirose, Dhruv Shah, Ajay Sridhar, and Sergey
+Levine. Sacson: Scalable autonomous control for social nav-
+igation. IEEE Robotics and Automation Letters, 9(1):49–56,
+2023. 3
+[14] Noriaki Hirose, Lydia Ignatova, Kyle Stachowicz, Catherine
+Glossop, Sergey Levine, and Dhruv Shah. Learning to drive
+anywhere with model-based reannotation, 2025. 2
+[15] Physical Intelligence, Kevin Black, Noah Brown, James
+Darpinian, Karan Dhabalia, Danny Driess, Adnan Esmail,
+Michael Equi, Chelsea Finn, Niccolo Fusai, Manuel Y. Gal-
+liker, Dibya Ghosh, Lachy Groom, Karol Hausman, Brian
+Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Devin
+LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri,
+Suraj Nair, Karl Pertsch, Allen Z. Ren, Lucy Xiaoyang Shi,
+Laura Smith, Jost Tobias Springenberg, Kyle Stachowicz,
+James Tanner, Quan Vuong, Homer Walke, Anna Walling,
+Haohuan Wang, Lili Yu, and Ury Zhilinsky.
+π0.5:
+a
+vision-language-action model with open-world generaliza-
+tion, 2025. 2, 5
+[16] Haresh Karnan, Anirudh Nair, Xuesu Xiao, Garrett War-
+nell, S¨oren Pirk, Alexander Toshev, Justin Hart, Joydeep
+Biswas, and Peter Stone.
+Socially compliant navigation
+dataset (scand): A large-scale dataset of demonstrations for
+social navigation. IEEE Robotics and Automation Letters, 7
+(4):11807–11814, 2022. 3
+[17] Iman Abaspur Kazerouni, Luke Fitzgerald, Gerard Dooly,
+and Daniel Toal. A survey of state-of-the-art on visual slam.
+Expert Systems with Applications, 205:117734, 2022. 2
+[18] Bernhard Kerbl, Georgios Kopanas, Thomas Leimk¨uhler,
+and George Drettakis.
+3d gaussian splatting for real-time
+radiance field rendering. ACM Trans. Graph., 42(4):139–1,
+2023. 2
+[19] Bingqian Lin, Yunshuang Nie, Ziming Wei, Jiaqi Chen,
+Shikui Ma, Jianhua Han, Hang Xu, Xiaojun Chang, and
+Xiaodan Liang.
+Navcot: Boosting llm-based vision-and-
+language navigation via learning disentangled reasoning.
+IEEE Transactions on Pattern Analysis and Machine Intel-
+ligence, 2025. 2
+[20] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays,
+Pietro Perona, Deva Ramanan, Piotr Doll´ar, and C Lawrence
+Zitnick. Microsoft coco: Common objects in context. In
+European conference on computer vision, pages 740–755.
+Springer, 2014. 4
+[21] Yaron Lipman, Ricky TQ Chen, Heli Ben-Hamu, Maximil-
+ian Nickel, and Matt Le. Flow matching for generative mod-
+eling. arXiv preprint arXiv:2210.02747, 2022. 1, 2, 5
+[22] Chang Liu, Henghui Ding, and Xudong Jiang. Gres: Gen-
+eralized referring expression segmentation. In Proceedings
+of the IEEE/CVF conference on computer vision and pattern
+recognition, pages 23592–23601, 2023. 4
+[23] Jie Liu, Gongye Liu, Jiajun Liang, Yangguang Li, Jiaheng
+Liu, Xintao Wang, Pengfei Wan, Di Zhang, and Wanli
+Ouyang. Flow-grpo: Training flow matching models via on-
+line rl, 2025. URL https://arxiv. org/abs/2505.05470, 2025.
+2, 5
+[24] Xinhao Liu, Jintong Li, Yicheng Jiang, Niranjan Sujay,
+Zhicheng Yang, Juexiao Zhang, John Abanes, Jing Zhang,
+9
+
+
+and Chen Feng.
+Citywalker: Learning embodied urban
+navigation from web-scale videos.
+In Proceedings of the
+Computer Vision and Pattern Recognition Conference, pages
+6875–6885, 2025. 1, 2, 3, 4, 6, 7, 8, 5
+[25] Yuxing Long, Xiaoqi Li, Wenzhe Cai, and Hao Dong. Dis-
+cuss before moving: Visual language navigation via multi-
+expert discussions. In 2024 IEEE International Conference
+on Robotics and Automation (ICRA), pages 17380–17387.
+IEEE, 2024. 2
+[26] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+regularization. arXiv preprint arXiv:1711.05101, 2017. 6
+[27] NVIDIA. Isaac Sim. https://github.com/isaac-
+sim/IsaacSim, 2025. Version 5.1.0, Apache License 2.0.
+2
+[28] William Peebles and Saining Xie. Scalable diffusion models
+with transformers. In Proceedings of the IEEE/CVF inter-
+national conference on computer vision, pages 4195–4205,
+2023. 6
+[29] Abhinav Rajvanshi, Karan Sikka, Xiao Lin, Bhoram Lee,
+Han-Pang Chiu, and Alvaro Velasquez. Saynav: Grounding
+large language models for dynamic planning to navigation
+in new environments. In Proceedings of the International
+Conference on Automated Planning and Scheduling, pages
+464–474, 2024. 2
+[30] Santhosh K Ramakrishnan, Aaron Gokaslan, Erik Wijmans,
+Oleksandr Maksymets, Alex Clegg, John Turner, Eric Un-
+dersander, Wojciech Galuba, Andrew Westbury, Angel X
+Chang, et al. Habitat-matterport 3d dataset (hm3d): 1000
+large-scale 3d environments for embodied ai. arXiv preprint
+arXiv:2109.08238, 2021. 3
+[31] Pascal Roth, Julian Nubert, Fan Yang, Mayank Mittal, and
+Marco Hutter. Viplanner: Visual semantic imperative learn-
+ing for local navigation. In 2024 IEEE International Confer-
+ence on Robotics and Automation (ICRA), pages 5243–5249.
+IEEE, 2024. 2
+[32] Manolis Savva, Abhishek Kadian, Oleksandr Maksymets,
+Yili Zhao, Erik Wijmans, Bhavana Jain, Julian Straub, Jia
+Liu, Vladlen Koltun, Jitendra Malik, et al.
+Habitat: A
+platform for embodied ai research.
+In Proceedings of
+the IEEE/CVF international conference on computer vision,
+pages 9339–9347, 2019. 2
+[33] Dhruv Shah, Benjamin Eysenbach, Nicholas Rhinehart, and
+Sergey Levine. Rapid exploration for open-world navigation
+with latent goal models. In Conference on Robot Learning,
+pages 674–684. PMLR, 2022. 3
+[34] Dhruv Shah, Ajay Sridhar, Arjun Bhorkar, Noriaki Hirose,
+and Sergey Levine. Gnm: A general navigation model to
+drive any robot. In ICRA, pages 7226–7233. IEEE, 2023. 1,
+2, 6, 7
+[35] Dhruv Shah, Ajay Sridhar, Nitish Dashora, Kyle Stachowicz,
+Kevin Black, Noriaki Hirose, and Sergey Levine. ViNT: A
+foundation model for visual navigation. In CoRL, 2023. 1,
+2, 6, 7
+[36] Shuai Shao, Zeming Li, Tianyuan Zhang, Chao Peng, Gang
+Yu, Xiangyu Zhang, Jing Li, and Jian Sun. Objects365: A
+large-scale, high-quality dataset for object detection. In Pro-
+ceedings of the IEEE/CVF international conference on com-
+puter vision, pages 8430–8439, 2019. 4
+[37] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao
+Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Yuankai
+Li, Yifeng Wu, and Daya Guo. Deepseekmath: Pushing the
+limits of mathematical reasoning in open language models.
+CoRR, abs/2402.03300, 2024. 2
+[38] Phani Teja Singamaneni, Pilar Bachiller-Burgos, Luis J
+Manso, Ana´ıs Garrell, Alberto Sanfeliu, Anne Spalanzani,
+and Rachid Alami. A survey on socially aware robot navi-
+gation: Taxonomy and future challenges. The International
+Journal of Robotics Research, 43(10):1533–1572, 2024. 1
+[39] Manycore Tech Inc. SpatialVerse Research Team.
+Interi-
+orgs: A 3d gaussian splatting dataset of semantically la-
+beled indoor scenes.
+https://huggingface.co/
+datasets/spatialverse/InteriorGS, 2025. 3
+[40] Ajay Sridhar, Dhruv Shah, Catherine Glossop, and Sergey
+Levine. Nomad: Goal masked diffusion policies for nav-
+igation and exploration. In 2024 IEEE International Con-
+ference on Robotics and Automation (ICRA), pages 63–70.
+IEEE, 2024. 1, 2, 6, 7, 8
+[41] Takafumi Taketomi, Hideaki Uchiyama, and Sei Ikeda. Vi-
+sual slam algorithms: A survey from 2010 to 2016. IPSJ
+transactions on computer vision and applications, 9(1):16,
+2017. 2
+[42] Emmanouil G Tsardoulias, A Iliakopoulou, Andreas Kar-
+gakos, and Loukas Petrou. A review of global path planning
+methods for occupancy grid maps regardless of obstacle den-
+sity. Journal of intelligent & robotic systems, 84(1):829–858,
+2016. 2
+[43] Feng Wang and Zihao Yu. Coefficients-preserving sampling
+for reinforcement learning with flow matching, 2025. 5
+[44] Ruicheng Wang, Sicheng Xu, Cassie Dai, Jianfeng Xiang,
+Yu Deng, Xin Tong, and Jiaolong Yang. Moge: Unlocking
+accurate monocular geometry estimation for open-domain
+images with optimal training supervision. In Proceedings
+of the Computer Vision and Pattern Recognition Conference,
+pages 5261–5271, 2025. 3
+[45] Shuo Wang, Yongcai Wang, Wanting Li, Xudong Cai,
+Yucheng Wang, Maiyue Chen, Kaihui Wang, Zhizhong Su,
+Deying Li, and Zhaoxin Fan. Aux-think: Exploring reason-
+ing strategies for data-efficient vision-language navigation.
+arXiv preprint arXiv:2505.11886, 2025. 2
+[46] Shaoan Wang, Jiazhao Zhang, Minghan Li, Jiahang Liu,
+Anqi Li, Kui Wu, Fangwei Zhong, Junzhi Yu, Zhizheng
+Zhang, and He Wang. Trackvla: Embodied visual tracking
+in the wild. arXiv preprint arXiv:2505.23189, 2025. 2
+[47] Yifan Wang, Jianjun Zhou, Haoyi Zhu, Wenzheng Chang,
+Yang Zhou, Zizun Li, Junyi Chen, Jiangmiao Pang, Chunhua
+Shen, and Tong He. π3: Scalable permutation-equivariant
+visual geometry learning. arXiv e-prints, pages arXiv–2507,
+2025. 3
+[48] Wayne Wu, Honglin He, Chaoyuan Zhang, Jack He, Seth Z
+Zhao, Ran Gong, Quanyi Li, and Bolei Zhou. Towards au-
+tonomous micromobility through scalable urban simulation.
+In Proceedings of the Computer Vision and Pattern Recogni-
+tion Conference, pages 27553–27563, 2025. 2
+[49] Xinda Xue, Junjun Hu, Minghua Luo, Xie Shichao, Jintao
+Chen, Zixun Xie, Quan Kuichen, Guo Wei, Mu Xu, and Ze-
+dong Chu. Omninav: A unified framework for prospective
+10
+
+
+exploration and visual-language navigation. arXiv preprint
+arXiv:2509.25687, 2025. 2
+[50] Kai Yang, Tianlin Zhang, Zhengbo Wang, Zedong Chu, Xi-
+aolong Wu, Yang Cai, and Mu Xu. Ce-nav: Flow-guided
+reinforcement refinement for cross-embodiment local navi-
+gation. arXiv preprint arXiv:2509.23203, 2025. 2
+[51] Jiazhao Zhang, Kunyu Wang, Rongtao Xu, Gengze Zhou,
+Yicong Hong, Xiaomeng Fang, Qi Wu, Zhizheng Zhang,
+and He Wang.
+Navid: Video-based vlm plans the next
+step for vision-and-language navigation.
+arXiv preprint
+arXiv:2402.15852, 2024. 2
+11
+
+
+SocialNav: Training Human-Inspired Foundation Model
+for Socially-Aware Embodied Navigation
+Supplementary Material
+Content
+A. Supplementary Materials for the SocNav Dataset
+and Benchmark
+1
+A.1. Construction of Trajectories in Dsim . . . . .
+1
+A.1.1. Standard Trajectory Generation . . .
+1
+A.1.2. Recovery Trajectory Generation . . .
+1
+A.1.3. Visualization of Standard and Re-
+covery Trajectories . . . . . . . . .
+2
+A.2. Annotation of Socially Traversable Regions .
+2
+A.2.1. Annotation Pipeline . . . . . . . . .
+2
+A.2.2. Annotation Guidelines . . . . . . . .
+2
+A.2.3.
+Qualitative
+Analysis
+of
+Social
+Traversability Prediction . . . . . .
+2
+A.3. Navigation Chain-of-Thought Construction .
+3
+A.3.1. Prompt Design . . . . . . . . . . . .
+3
+A.3.2. Qualitative Example of Navigation
+CoT . . . . . . . . . . . . . . . . .
+3
+A.4. Details of the SocNav Benchmark . . . . . .
+5
+A.4.1. Metric Definitions . . . . . . . . . .
+5
+A.4.2. Pedestrian Placement and Behavior
+Model . . . . . . . . . . . . . . . .
+5
+B. Supplementary Materials for the SocialNav Foun-
+dation Model
+5
+B.1. Model Architecture and Parameters . . . . .
+5
+B.2. Training Details
+. . . . . . . . . . . . . . .
+5
+B.3. SAFE-GRPO Reward Design
+. . . . . . . .
+6
+B.4. Ablation on SAFE-GRPO Reward Funtions .
+6
+C. Additional Experimental Results
+6
+C.1. Extended Open-Loop Results on the City-
+Walker Benchmark . . . . . . . . . . . . .
+6
+C.2. Additional Real-World Deployment Visual-
+izations
+. . . . . . . . . . . . . . . . . . .
+7
+A. Supplementary Materials for the SocNav
+Dataset and Benchmark
+A.1. Construction of Trajectories in Dsim
+The simulated subset Dsim in the SocNav Dataset is de-
+signed to provide both standard trajectories and recovery
+trajectories in structured social scenes. This section details
+the construction pipeline and provides schematic visualiza-
+tions.
+A.1.1. Standard Trajectory Generation
+For each scene, we first construct a navigation graph over
+the legal road network (sidewalks, crosswalks, plazas, etc.):
+1. Road network annotation. For SocCity, we derive the
+traversable occupancy map Mocc by mapping the seman-
+tic ground annotations inherent to the 3D city assets.
+For other 3D scenes (SocialGS, MatterPort3D, Interi-
+orGS), we manually annotate Mocc. We ensure a uni-
+fied definition of traversability across all datasets (refer
+to Sec.A.2.2 for details). Subsequently, guided by the
+Mocc of each scene, we manually annotate the road net-
+work along the centerlines of the traversable paths.
+2. Trajectory Generation. We randomly sample a start
+position s and a goal position g on the traversable road
+network, ensuring that the geodesic distance d(s, g)
+along the network exceeds a minimum threshold ℓmin =
+50 m. We then employ an A* planner to compute the
+shortest path, which serves as the standard trajectory
+τ ⋆. These trajectories represent ideal navigation behav-
+ior that consistently maintains a safe distance from un-
+traversable areas.
+A.1.2. Recovery Trajectory Generation
+While standard trajectories provide an ideal reference, train-
+ing a policy exclusively on such expert data can lead to brit-
+tleness. The agent may fail to recover from even small de-
+viations, a classic problem of covariate shift in imitation
+learning. To address this and equip the agent with robust re-
+covery capabilities, we augment the standard expert demon-
+strations with a set of recovery trajectories. These are de-
+signed to simulate scenarios where the agent starts in a sub-
+optimal or dangerous state and must execute a corrective
+maneuver to rejoin the ideal path.
+The generation process for these recovery trajectories is
+as follows:
+1. Define Convergence Point. For each standard trajectory
+τ ⋆starting at s, we first identify a convergence point
+pconv on τ ⋆, located 5 meters ahead of the start point s.
+2. Sample Recovery Start.
+We then generate a corre-
+sponding recovery start point srec by applying a random
+lateral offset (either left or right) to the standard start
+point s. To construct a challenging recovery task, the
+initial orientation at srec is deliberately misaligned:
+• If srec is offset to the left, the initial heading is set to a
+random angle within [−90◦, −45◦] relative to the for-
+ward direction of the standard path.
+• If srec is offset to the right, the initial heading is set to
+1
+
+
+Figure 5. Standard and recovery trajectories in Dsim. Visual
+examples from SocCity scenes. Green curves denote standard ex-
+pert trajectories obtained by A* planning on the navigation graph,
+while the other curves depict locally sampled recovery trajectories
+originating from intermediate points. The background shows the
+semantic occupancy map Mocc with walkable regions (white) and
+non-traversable regions (black).
+an angle within [45◦, 90◦].
+This forces the agent to start by facing away from the
+correct path, requiring an immediate and decisive turn.
+3. Generate Recovery Trajectory. A dense recovery path
+τ rec is generated by linearly interpolating between the
+recovery start state srec and the convergence point pconv
+with a fixed spatial step of approximately 5 cm. To sim-
+ulate natural human micro-corrections and avoid trivial
+straight-line paths, we perturb each interpolated point qt
+with small, zero-mean Gaussian noise:
+q′
+t = qt + ϵt,
+ϵt ∼N(0, (0.01 m)2I).
+(7)
+The final perturbed path τ rec′ is formed by concatenating
+τ rec with the path from pconv to g. It is kept only if all its
+points remain in cells of Mocc with sufficient clearance
+from obstacles.
+These systematically constructed recovery trajectories
+mimic plausible failure scenarios, such as starting from the
+wrong orientation or position, and provide explicit super-
+vision on how to execute safe and efficient corrective ac-
+tions. This enriches the training data far more effectively
+than simple random noise, significantly improving the pol-
+icy’s robustness in challenging situations.
+A.1.3. Visualization of Standard and Recovery Trajecto-
+ries
+Figure 5 illustrates typical standard and recovery trajecto-
+ries on Mocc , highlighting the diversity introduced by local
+recovery paths.
+A.2. Annotation of Socially Traversable Regions
+Socially traversable regions provide the supervision signal
+for training the SocialNav Brain to predict socially compli-
+ant polygons. We describe the annotation pipeline and the
+corresponding guidelines.
+A.2.1. Annotation Pipeline
+1. Internet-scale data collection. We gather first-person
+Internet videos and images depicting pedestrians moving
+in outdoor scenes such as streets, campuses, and parks.
+2. Automatic filtering. A vision-language model is used
+to filter out frames with unsuitable viewpoints (e.g.,
+too close to walls, heavily occluded, or dominated by
+sky/ground) and to discard low-quality images.
+3. Manual polygon annotation. Human annotators draw
+coarse polygons on the remaining frames to delineate so-
+cially traversable regions. We create one or more poly-
+gons to cover all regions that is legally and socially al-
+lowed to walk.
+A.2.2. Annotation Guidelines
+• Socially Traversable Regions. These are defined as out-
+door areas where pedestrians are permitted to walk by
+both legal regulations and common social norms. An-
+notators were instructed to label surfaces such as side-
+walks, pedestrian-only streets, marked crosswalks, pub-
+lic plazas, and accessible outdoor staircases. For indoor
+scenes, all non-obstacle areas are considered traversable.
+• Non-Traversable Regions. This category encompasses
+all areas that are unsafe, illegal, or socially unacceptable
+for pedestrian traffic. Key examples include motor vehi-
+cle lanes, bike lanes, bus lanes, green belts, ornamental
+lawns, flower beds, water bodies, etc.
+• Annotation Protocol and Polygon Standards. Annota-
+tors draw coarse, low-vertex polygons to cover the full
+extent of the walkable surface; pixel-perfect alignment
+with curbs or markings is not required. Annotation fo-
+cuses on the walkable region directly connected to the
+camera’s viewpoint. A single polygon can span multiple
+connected surfaces (e.g., a sidewalk leading into a plaza).
+Isolated regions that cannot be reached without crossing
+non-traversable areas are ignored, except for pedestrian
+safety islands that are visibly reachable via crosswalks.
+A.2.3. Qualitative Analysis of Social Traversability Pre-
+diction
+Figure 6 presents qualitative comparisons of predicted so-
+cially traversable regions across six unseen test scenes.
+Each column corresponds to a different scene, while the
+four rows show: (1) Qwen2.5-VL predictions in SocCity,
+(2) SocialNav predictions in SocCity, (3) Qwen2.5-VL pre-
+dictions in the real world, and (4) SocialNav predictions in
+the real world. Green polygons denote model-predicted so-
+cially traversable regions.
+Across both simulated and real scenes,
+the base
+Qwen2.5-VL-3B model often produces polygons that are
+coarse, spatially misaligned, or leak into socially invalid
+2
+
+
+Figure 6. Predicted socially traversable regions on unseen scenes. Green polygons denote predicted socially traversable regions, and
+red arrows highlight areas incorrectly classified as traversable. SocialNav yields more semantically aligned polygons in both domains.
+areas such as curb edges, grass, or vehicle lanes. In con-
+trast, the SocialNav Brain, trained with our large-scale
+traversability annotations, provides predictions that are
+more structured and socially consistent: polygons more
+tightly follow sidewalks, pedestrian paths, and crosswalks,
+and avoid visually similar but non-walkable regions. The
+improvements hold across all six diverse unseen scenes,
+indicating that fine-tuning not only enhances accuracy but
+also significantly strengthens cross-domain generalization.
+A.3. Navigation Chain-of-Thought Construction
+To construct the Cognitive Activation Dataset (CAD) for
+navigation, we elicit chain-of-thought (CoT) style explana-
+tions using a instruction prompt. The goal is to obtain, for
+each navigation step, (i) a structured reasoning trace that
+explains the agent’s decision in terms of scene layout, so-
+cial norms, and future consequences, and (ii) a final dis-
+crete action selected from a predefined action space. This
+subsection details the prompt design and the corresponding
+input–output specification.
+A.3.1. Prompt Design
+Task and Role Description.
+We explicitly cast the brain
+model as the Thinking Module of a professional navigation
+system. Its responsibility is to produce a logically coherent
+CoT and a final movement decision.
+Then the prompt enforces a strict three-stage reasoning
+protocol:
+1. Global situation analysis: jointly parse all input infor-
+mation, including the robot state, the target location, and
+visual observations.
+2. Chain-of-thought generation: A CoT segment, en-
+closed between [CoT] and [\CoT], containing the full
+reasoning process which includes structured, logically
+tight reasoning process that evaluates the consequences
+of different candidate actions under social and geometric
+constraints.
+3. Final decision: A Decision segment, enclosed between
+[Decision] and [\Decision], containing exactly
+one chosen action from the predefined action space.
+Prompt Template.
+Figure 7 presents the complete
+English-language prompt template used to generate the nav-
+igation CoTs for our CAD. The resulting CoT and Deci-
+sion segments are stored alongside the visual observations
+and trajectory states, forming rich supervision for the Brain
+Module to acquire socially aware navigation reasoning.
+A.3.2. Qualitative Example of Navigation CoT
+Figure 8 provides a qualitative example of the chain-of-
+thought (CoT) generated by our Brain Module for a navi-
+gation decision in an unseen urban intersection. The CoT
+showcases the model’s ability to perform complex, multi-
+stage reasoning by integrating its state, goal, and rich per-
+ceptual understanding.
+In this example, the model correctly identifies a conflict
+between the long-term goal vector (to the forward-right) and
+the immediate safety and social constraints. Instead of pur-
+suing a direct path, the model decomposes the problem, rec-
+ognizing that the sanctioned crosswalk directly ahead, aided
+by a green pedestrian signal, is the necessary intermediate
+step. It explicitly evaluates actions against a learned hier-
+archy of navigational rules—1) Safety, 2) Social Compli-
+ance, and 3) Task Efficiency—to invalidate unsafe actions
+3
+
+
+Role and task description:
+You are now the Thinking Module of a professional navigation AI system.
+Your single core task is
+to generate, for every movement of a quadruped robot dog, a comprehensive, in-depth, and logically
+rigorous Chain of Thought (CoT), and then output a clear movement decision.
+This CoT must integrate
+all available environmental information and explain why the final decision is the optimal choice under
+the current situation.
+Workflow (you must strictly follow these three steps, without omission or reordering):
+1. Comprehensive analysis:
+parse all input information, including the robot’s own state, the goal
+position, and environmental perception.
+2. CoT generation:
+based on your analysis, build a structured, logically sound reasoning process and
+evaluate all plausible alternatives.
+3. Final decision:
+select one and only one action from the candidate action space, and output it in
+the specified format.
+Input information:
+1. Scene information:
+a. Format:
+[[history coord 1], [history coord 2], [history coord 3], [history coord 4], [current coord],
+[goal coord]] together with the corresponding observation images in the same order.
+b. Interpretation:
+this sequence represents the robot dog’s past and current coordinates, followed by
+the target coordinate.
+c. Coordinate system:
+the positive Y
+direction corresponds to forward, and the positive X direction
+corresponds to right.
+2. Candidate action space:
+-- Go Straight
+-- Stay Still
+-- Move Backward
+-- Move Forward-Left
+-- Move Forward-Right
+-- Move Left
+-- Move Right
+Output requirements:
+You must generate a single, continuous block of text (no meaningless spaces, blank lines, or extra
+line breaks).
+Absolutely no additional explanations, headings, greetings, or apologies are allowed.
+You must strictly follow the format below:
+[CoT]... [\CoT][Decision]... [\Decision]
+Figure 7. Navigation Chain-of-Thought Prompt Template. The full prompt used to construct the Cognitive Activation Dataset.
+Figure 8. Example of a navigation chain-of-thought (CoT) in an unseen crossing scenario. Given the historical observations (left) and
+a goal in the forward-right direction, the Brain Module generates a structured CoT (right). The CoT demonstrates hierarchical decision-
+making, prioritizing Safety (no jaywalking) and Social Compliance (using the crosswalk) over direct path efficiency.
+(e.g., Move Forward-Right) and inefficient ones (e.g.,
+Stay Still). The final decision to Go Straight is
+thus not a simple reactive choice but the output of a deliber-
+ate plan to safely and compliantly progress toward the goal.
+4
+
+
+A.4. Details of the SocNav Benchmark
+The SocNav Benchmark provides a closed-loop evaluation
+platform for jointly assessing navigation performance and
+social compliance.
+A.4.1. Metric Definitions
+Standard point-goal Navigation metrics.
+• MAOE. Following CityWalker [24], we compute the Av-
+erage Orientation Error (AOE) at each prediction step k as
+the mean angular difference between the predicted action
+ˆaik and the ground-truth action aik over all samples:
+AOE(k) = 1
+n
+n
+X
+i=1
+θik,
+θik = arccos
+
+⟨ˆaik, aik⟩
+∥ˆaik∥2 ∥aik∥2
+
+.
+(8)
+The Maximum Average Orientation Error (MAOE) ag-
+gregates over predicted horizons:
+MAOE = 1
+n
+n
+X
+i=1
+max
+k
+θik,
+(9)
+which emphasizes the worst-case orientation mismatch
+along future steps.
+• Success Rate (SR). The fraction of episodes in which the
+agent reaches within 3 m of the target with fewer than
+three collisions.
+• Route Completion (RC). The ratio between the geodesic
+distance from start to the final position and the geodesic
+distance from start to goal.
+• Success weighted by Path Length (SPL). The SPL met-
+ric, as in prior navigation work, jointly captures success
+and path efficiency.
+Social compliance metrics: DCR and TCR.
+The Dis-
+tance Compliance Rate (DCR) measures the proportion of
+distance spent in socially traversable regions:
+DCR =
+
+
+
+dcompliant
+dactual
+,
+if s = 1,
+0,
+otherwise,
+(10)
+where s ∈{0, 1} indicates success, dcompliant is the distance
+traveled in regions labeled as socially traversable, and dactual
+is the total traveled distance.
+The Time Compliance Rate (TCR) is defined analo-
+gously by replacing distance with duration spent in compli-
+ant regions. Both metrics are computed only for successful
+episodes and are averaged over all tasks.
+A.4.2. Pedestrian Placement and Behavior Model
+To simulate realistic social environments, we populate the
+evaluated scenes with dynamic pedestrians:
+Table 5. Model Architecture and Parameters.
+Brain Module (Qwen2.5-VL-3B)
+Layers / Hidden / MLP
+36 / 2048 / 11008
+Attention heads (KV)
+16 (2)
+Activation / Norm
+SiLU / RMSNorm
+Max context
+128k (SW: 32k)
+RoPE scaling
+multi-segment (16/24/24)
+Vocab size
+151,673
+Action Expert (Diffusion Transformer)
+Action dim / Chunk size
+2 / 5
+Flow-matching steps
+5
+• Placement and Density.
+To ensure realistic position-
+ing, pedestrians are spawned within a specific margin,
+between 50 cm and 100 cm from the inner boundary of
+the socially traversable regions. We maintain a pedestrian
+density of not exceeding 6 individuals per 100 meters of
+walkable path.
+• Behavior model.
+The behavior of each pedestrian is
+governed by a skeletal animation system, which supports
+both walking and running actions. Each pedestrian selects
+a random goal on the road network and moves along the
+shortest path at a speed sampled from a truncated normal
+distribution (mean 1.0 m/s, standard deviation 0.2 m/s).
+• Interaction with the robot. Pedestrians do not explicitly
+cooperate with the robot; they follow their own routes.
+Consequently, the robot must proactively adapt its trajec-
+tory to maintain social distances and avoid intruding into
+non-traversable regions.
+B. Supplementary Materials for the SocialNav
+Foundation Model
+The SocialNav foundation model adopts the hierarchical
+Brain–Action design described in the main paper. Here we
+summarize key architectural details.
+B.1. Model Architecture and Parameters
+Table 5 summarizes the architectural parameters of the
+Brain Module (Qwen2.5-VL-3B) and the Action Expert
+(Diffusion Transformer). The table includes structural de-
+tails necessary for reproducibility.
+B.2. Training Details
+This section provides concise supplementary training infor-
+mation for the three-stage pipeline introduced in the main
+paper. Table 6 summarizes both the trainable components
+and the datasets used in each stage, while some shared
+optimization settings remain unchanged across the entire
+pipeline.
+5
+
+
+Table 6. Trainable Components and Datasets Across Stage 1–
+3. Checkmarks indicate modules updated during each stage.
+Stage
+Datasets
+Trainable Modules
+VLM
+Brain
+Vision
+Encoder
+Waypoint
+Encoder
+Action
+Expert
+Pre-training
+Dvideo, Dsim, Dcog
+✓
+✓
+✓
+✓
+Fine-tuning
+Dreal
+×
+×
+×
+✓
+SAFE-GRPO
+Dsim (SocCity)
+×
+×
+×
+✓
+Table 7. Hyperparameter Settings.
+Settings
+Value
+Optimizer
+AdamW
+Adam betas (β1, β2)
+(0.9, 0.95)
+Weight decay
+0.1
+LR scheduler
+Cosine decay
+Precision
+BF16
+Flash Attention 2
+Enabled
+Gradient accumulation
+1
+Gradient checkpointing
+Enabled
+Hyperparameter settings are summarized in Table 7.
+B.3. SAFE-GRPO Reward Design
+Social Compliance Reward Rsocial: This is the primary in-
+centive for respecting both physical safety and social norms.
+From Mocc ∈{0, 1}H×W , we compute a Distance Trans-
+form (DT) map D(x), which assigns each traversable loca-
+tion x its Euclidean distance to the nearest non-traversable
+cell. This DT map encodes both collision avoidance and
+social distancing principles—higher values indicate safer,
+more normatively acceptable regions.
+Let {xt}T
+t=1 be the predicted trajectory in world coordi-
+nates, and let ¯dpred =
+1
+T
+PT
+t=1 D(xt) denotes the average
+obstacle-free clearance along the path. Similarly, we com-
+pute ¯dgt for the expert trajectory. The social reward is then
+formulated as:
+Rsocial = β · σ
+ ¯dpred −¯dgt
+α
+
+,
+(11)
+where σ(·) denotes the sigmoid function, and hyperparam-
+eters α = 0.5, β = 2.0 control sensitivity and scaling. This
+formulation rewards trajectories that maintain comparable
+or greater clearance than the expert.
+Expert Trajectory Similarity Reward (Rexpert): We mea-
+sure similarity in both spatial proximity and directional con-
+sistency. Given predicted trajectory p and expert g in world
+coordinates:
+Rexpert = wd · rdist + wθ · rdir,
+(12)
+where:
+rdist = exp
+ 
+−1
+T
+T
+X
+t=1
+∥pt −gt∥
+.
+τd
+!
+,
+(13)
+rdir = 1
+2 (cos(∆θavg) + 1) ∈[0, 1],
+(14)
+with wd = 0.7, wθ = 0.3, τd = 1.0 m. Here, ∆θavg is the
+average angular difference between consecutive displace-
+ment vectors.
+Trajectory Smoothness Reward (Rsmooth): We encourage
+consistent step lengths by penalizing high variance in inter-
+step distances:
+Rsmooth = exp
+
+−std({∥∆xt∥}T
+t=2)
+αs
+
+,
+(15)
+where αs = 0.8, and std(·) computes the standard deviation
+of step magnitudes. A lower variance yields higher reward,
+promoting natural gait-like movement.
+Path Efficiency Reward (Refficiency): To encourage for-
+ward progress without excessive detours, we compare the
+agent’s net advancement to that of the expert:
+Refficiency = βl · σ
+ 
+∥xT −x0∥2 −∥xgt
+T −xgt
+0 ∥2
+αl
+!
+,
+(16)
+where αl = 5.0, βl = 2.0. By combining these reward
+components, our design ensures that the agent learns to nav-
+igate not only effectively, but also in a manner that is pre-
+dictable, respectful, and aligned with human expectations
+within shared environments.
+B.4. Ablation on SAFE-GRPO Reward Funtions
+We ablate the Rsocial defined in Eq. (4) of the main paper.
+For the variant, we set the weight of the Rsocial to zero while
+keeping all other training configurations unchanged.
+The results in Table 8 show that Rsocial is crucial for high
+DCR and TCR; without it, the agent tends to take shorter
+but socially risky shortcuts.
+C. Additional Experimental Results
+C.1. Extended Open-Loop Results on the City-
+Walker Benchmark
+We provide an extended comparison on the CityWalker
+open-loop benchmark. The model variants marked with as-
+terisk (*) denotes the models that were exclusively trained
+on the Dreal dataset.
+Compared to the official CityWalker model, the retrained
+CityWalker* shows consistent improvements across all sce-
+narios, confirming that our Dreal provides a more com-
+prehensive navigation motion priors.
+Similarly, GNM*,
+ViNT*, and NoMaD* benefit from retraining.
+6
+
+
+Table 8. Ablation on SAFE-GRPO reward components on the SocNav Benchmark. We deactivate each reward term in turn by setting
+its weight to zero. Checkmarks indicate that the reward is used.
+Variant
+Reward terms
+SocNav Benchmark
+Rsocial
+Rexpert
+Rsmooth
+Reffciency
+SR↑
+RC↑
+SPL↑
+DCR↑
+TCR↑
+w/o Rsocial
+–
+✓
+✓
+✓
+84.7
+90.3
+78.5
+61.4
+62.1
+Full SAFE-GRPO
+✓
+✓
+✓
+✓
+86.1
+91.2
+77.4
+82.5
+82.9
+Table 9. Open-Loop Evaluation on CityWalker Benchmark [24]. We evaluate MAOE metric in each critical scenario for all methods.
+Percentages under scenarios indicate their data proportions. The ”Mean” column shows scenario means averaged over six scenarios; ”All”
+shows sample means over all data samples.
+Method
+Mean
+Turn
+Crossing
+Detour
+Proximity
+Crowd
+Other
+All
+8%
+12%
+12%
+6%
+7%
+55%
+100%
+GNM* [34]
+15.2
+29.5
+13.6
+11.9
+13.6
+12.3
+10.4
+11.5
+ViNT* [35]
+15.8
+30.0
+14.6
+12.3
+14.0
+12.7
+11.0
+12.2
+NoMaD* [40]
+17.8
+33.4
+16.5
+14.8
+16.2
+13.6
+12.2
+12.3
+CityWalker* [24]
+14.2
+25.0
+12.8
+12.5
+13.2
+11.5
+10.0
+11.2
+SocialNav*
+11.7
+21.5
+10.9
+10.4
+9.8
+8.9
+8.7
+9.4
+SocialNav (Full)
+10.2
+20.1
+8.8
+8.4
+8.9
+7.6
+7.2
+7.8
+SocialNav (Full) achieves the lowest MAOE in every
+scenario and in the overall mean. The largest relative gains
+are observed in the Turn and Crossing categories, where
+understanding of social layout and high-level semantics is
+particularly important. This trend supports our claim that
+integrating the Brain Module with the flow-based Action
+Expert leads to trajectories that more closely match human-
+operated behaviors.
+C.2. Additional Real-World Deployment Visualiza-
+tions
+To further illustrate the real-world performance of Social-
+Nav, we visualize third-person view from the Unitree Go2
+deployments described in Table 3.
+The visualizations highlight that SocialNav can be exe-
+cuted in real-time on a cloud server with an NVIDIA A10
+GPU, maintaining over 5 Hz control frequency while pre-
+ferring socially acceptable walkways even when shorter but
+socially inappropriate shortcuts exist.
+7
+
+
+Figure 9. Real-world deployment visualizations. Third-person views of the Unitree Go2 robot navigating in street, park, and campus
+environments. SocialNav successfully follows sidewalks, avoids stepping onto lawns or driveways, respects pedestrian flows.
+8

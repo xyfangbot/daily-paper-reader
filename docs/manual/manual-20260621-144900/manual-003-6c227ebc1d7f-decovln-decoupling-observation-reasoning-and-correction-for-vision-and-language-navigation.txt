@@ -1,0 +1,1805 @@
+DecoVLN: Decoupling Observation, Reasoning, and Correction
+for Vision-and-Language Navigation
+Zihao Xin1*, Wentong Li1∗,†, Yixuan Jiang1, Bin Wang2, Runmin Cong2, Jie Qin1‡, Shengjun Huang1‡
+1Nanjing University of Aeronautics and Astronautics
+2Shandong University
+Project Page
+Code
+Abstract
+Vision-and-Language Navigation (VLN) requires agents to
+follow long-horizon instructions and navigate complex 3D
+environments. However, existing approaches face two ma-
+jor challenges: constructing an effective long-term mem-
+ory bank and overcoming the compounding errors problem.
+To address these issues, we propose DecoVLN, an effective
+framework designed for robust streaming perception and
+closed-loop control in long-horizon navigation. First, we
+formulate long-term memory construction as an optimiza-
+tion problem and introduce adaptive refinement mechanism
+that selects frames from a historical candidate pool by iter-
+atively optimizing a unified scoring function. This function
+jointly balances three key criteria: semantic relevance to
+the instruction, visual diversity from the selected memory,
+and temporal coverage of the historical trajectory.
+Sec-
+ond, to alleviate compounding errors, we introduce a state-
+action pair-level corrective finetuning strategy. By leverag-
+ing geodesic distance between states to precisely quantify
+deviation from the expert trajectory, the agent collects high-
+quality state-action pairs in the trusted region while filter-
+ing out the polluted data with low relevance. This improves
+both the efficiency and stability of error correction. Exten-
+sive experiments demonstrate the effectiveness of DecoVLN,
+and we have deployed it in real-world environments.
+1. Introduction
+Vision-and-Language Navigation (VLN) has emerged as a
+fundamental task in Embodied AI, requiring an autonomous
+agent to interpret natural language instructions and navigate
+through complex, previously unseen environments based
+solely on egocentric visual observations [9, 43, 56, 57].
+Achieving success requires not only high-level language un-
+*Equal contribution
+†Project lead
+‡Corresponding author
+derstanding and precise visual grounding, but also the abil-
+ity to perform robust spatial and temporal reasoning over
+long-horizon decision-making.
+Existing approaches can be broadly categorized into
+two paradigms: (i) Stop-and-Think, where the agent ex-
+ecutes an action and then pauses to perceive and reason
+before proceeding [9, 56]. This low-frequency, discontin-
+uous perception mode often leads to perceptual blindness,
+missing critical visual cues during movement.
+(ii) Full-
+History Streaming, which continuously appends all ob-
+served frames to the history sequence, with contextual re-
+trieved via fixed sampling or heuristic strategies [30, 43].
+However, this often dilutes the density of contextual obser-
+vations, thereby impairing long-horizon reasoning. More-
+over, as a sequential decision-making task, VLN is highly
+susceptible to compounding errors [9, 30, 57]. Even minor
+early-stage action errors can accumulate over time, leading
+the agent to deviate significantly from the intended path.
+To mitigate this, most methods [9, 43, 57] focus on mul-
+timodal trajectory augmentation to improve open-loop ac-
+tion prediction. However, they often lack effective closed-
+loop reflection and online correction, leaving agents poorly
+equipped to recover once off-course.
+To address these challenges, we propose DecoVLN, an
+effective VLN framework for robust streaming perception
+and closed-loop control. DecoVLN tackles long-horizon
+navigation by explicitly decoupling observation, reasoning
+and correction. We begin by formulating VLN as a Par-
+tially Observable Markov Decision Process (POMDP) [33],
+where the agent lacks access to a global map and must in-
+fers a belief state based on observation history Ht and in-
+struction I to learn a policy π(Ht, I) that maximizes ex-
+pected cumulative reward. This formulation poses three
+core challenges: managing the dynamic memory, perform-
+ing efficient action reasoning, and enabling timely policy
+correction. To this end, we introduce two key designs: an
+adaptive memory refinement mechanism and a state–action
+pair-based corrective fine-tuning strategy.
+Specifically, we first disentangle the agent’s observation
+arXiv:2603.13133v3  [cs.RO]  26 Mar 2026
+
+
+stream from its reasoning stream, allowing continuous per-
+ception in parallel with action execution.
+The proposed
+adaptive memory refinement mechanism dynamically as-
+sesses each incoming observation based on its semantic rel-
+evance, visual diversity, and temporal coverage with respect
+to the current navigation sub-goal. By filtering out redun-
+dant or low-value frames, the agent maintains a compact,
+high-information-density memory representation, thereby
+mitigating context interference and enhancing long-horizon
+reasoning. Beyond visual perception, we further introduce
+a corrective fine-tuning strategy that actively collects high-
+quality state–action pairs for policy refinement. This strat-
+egy empowers the agent to reflect on and correct its devi-
+ations, significantly reducing compounding errors and im-
+proving both policy robustness and data efficiency.
+Extensive experiments on classic VLN benchmarks
+demonstrate that DecoVLN consistently outperforms prior
+state-of-the-art methods, validating its effectiveness in both
+perception and control. Furthermore, we deploy DecoVLN
+in real-world scenarios, where it exhibits strong robust-
+ness and generalization when following complex instruc-
+tions across diverse environments. In summary, our main
+contributions are threefold:
+• We propose DecoVLN, an effective VLN framework
+that decouples observation, reasoning and correction, en-
+abling robust long-horizon navigation.
+Our approach
+achieves superior results on classic benchmarks.
+• We introduce an adaptive memory refinement mecha-
+nism, which effectively selects frames from a historical
+candidate pool and substantially improving the effective
+information density of navigation context.
+• We design a state–action pair-based corrective fine-tuning
+strategy, which enhances the model’s multi-modal rea-
+soning robustness and proactive error-correction capabil-
+ity in complex environments.
+2. Related Work
+2.1. Vision-Language Model
+In recent years, significant breakthroughs in text un-
+derstanding and generation by Large Language Models
+(LLMs) have prompted researchers to explore their exten-
+sion into the visual domain, giving rise to Vision–Language
+Large Models (VLMs) [19–21, 24, 32, 39, 51, 53, 54].
+Early work, such as BLIP-2 [19], utilize a lightweight
+Query Transformer to align pre-trained visual encoders with
+frozen LLMs, enabling efficient cross-modal representa-
+tion learning with minimal supervision. The LLaVA se-
+ries [23–25] is the first to systematically propose visual in-
+struction tuning paradigm, which unifies visual perception
+capabilities and natural language reasoning abilities. Build-
+ing upon this, Video-LLaVA [22] extends the framework to
+the video domain by incorporating frame-wise visual en-
+coding and temporal attention mechanisms. The Qwen-VL
+series [38, 44, 45] propose dynamic frame sampling and
+visual token compression, offering a generalizable frame-
+work for both video and multi-image understanding. De-
+spite these advancements, existing studies [11, 29, 48, 52]
+have revealed that current VLMs exhibit limited 3D spatial
+understanding. This is primarily due to the model’s inabil-
+ity in establishing correspondence between local egocentric
+observations with a coherent global spatial structure [37], a
+capability that is crucial for navigation tasks.
+2.2. Vision-and-Language Navigation
+The VLN task requires an autonomous agent to navi-
+gate 3D environments based on natural language instruc-
+tions [42, 43, 46, 49, 50, 56]. Early methods [8, 12, 15]
+primarily employ a Seq2Seq [34] architecture, mapping lan-
+guage instructions to action sequences via imitation learn-
+ing. With the emergence of LLMs exhibiting strong gen-
+eral reasoning capabilities, methods such as NavGPT [60]
+and InstructNav [26] leverage LLMs for path planning in a
+zero-shot manner. However, these approaches typically re-
+quire additional perception modules to convert raw visual
+inputs into textual descriptions.
+In contrast, NaVid [56]
+is the first to directly fine-tune a VLM for action predic-
+tion, enabling end-to-end navigation. Recent efforts have
+focused on two major challenges. The first is the lack of
+3D spatial understanding, which is often mitigated through
+large-scale multi-modal dataset augmentation to implicitly
+enhance spatial reasoning. The second is the context length
+bottleneck in long-horizon navigation, where uniform sam-
+pling strategies are commonly employed to capture global
+observations [9, 30, 43, 56].
+However, such approaches
+discard critical navigation node cues and disrupt temporal
+coherence. StreamVLN [43] introduces a Slow-Fast mem-
+ory mechanism that combines sliding temporal windows
+and voxel-based memory compression to mitigate this issue,
+though it depends on depth sensors for voxel construction.
+3. Method
+In this section, we present DecoVLN, a framework that
+decouples observation, reasoning and correction for long-
+horizon navigation. We first formulate the VLN problem as
+a long-horizon optimization task. To address its core chal-
+lenges: efficient memory construction and robust closed-
+loop control, we introduce two key components: an adap-
+tive memory refinement mechanism and a state–action pair-
+based corrective fine-tuning strategy. The overall frame-
+work of our method is illustrated in Fig. 1.
+3.1. Problem Formulation
+VLN can be formulated as a Partially Observable Markov
+Decision Process (POMDP), which evaluates an embod-
+ied agent’s ability to ground a language instruction I
+
+
+Figure 1. The framework of DecoVLN. DecoVLN decouples the agent’s observation and reasoning processes. The agent can perceive
+the environment continuously while in motion and, based on the Adaptive Memory Refinement (AMR) mechanism, it filters and stores
+high-information-density state representations into a memory bank. During the generation phase, the LLM outputs the action chunk
+which is comprising multiple consecutive actions-based on the input instruction, the current frame, and the memory bank. Subsequently,
+we construct an error-correction strategy based on state-action pairs. The model autonomously explores according to the instruction and
+collects State-Action Pairs within a trusted region for error-correction fine-tuning. This process not only enhances data utilization efficiency
+but also equips the model with introspective and self-correction capabilities.
+within its egocentric visual observations to achieve long-
+horizon navigation goals. A POMDP is defined as a tuple
+M = (S, A, T, R, Ω, O), where S represents the set of all
+possible true states s, which are not directly observable.
+A denotes the discrete action space, typically including
+{MOVE FORWARD, TURN LEFT, TURN RIGHT, STOP} in
+continuous environments.
+T defines the state transition
+function, R is the reward function, Ωrepresents the ob-
+servation space of egocentric RGB images ft, where the
+subscript t denotes the time step, and O is the observation
+function. The reward R is general sparse, granting a large
+positive reward when the agent executes the ‘STOP’ action
+within the target area, and small negative penalties at each
+step to encourage efficiency. Since the true state s is unob-
+servable, the agent must learn a policy π conditioned on its
+observation history Ht = (O1, a1, O2, a2, ..., Ot) and the
+instruction I. The policy π(Ht, I) aims to maximize the ex-
+pected cumulative reward E[PT
+t=0 γtRt]. Here, γ ∈[0, 1]
+serves as the discount factor for time preference. This im-
+plies that in the VLN task, higher weight is assigned to im-
+mediate rewards compared to distant future rewards, which
+helps to balance the value of short-term rewards against the
+ultimate goal.
+3.2. Observation and Reasoning
+To mitigate issues such as perceptual blindness, we first de-
+couple the processes of observation and reasoning. Dur-
+ing navigation, the agent continuously perceives the en-
+vironment and evaluates each new observation frame on-
+line through the Adaptive Memory Refinement module.
+This module actively filters out redundant or weakly rel-
+evant frames based on feature novelty and semantic rel-
+evance.
+The resulting memory stream exhibits a higher
+signal-to-noise ratio, enabling a fixed-length memory win-
+dow to retain semantically richer and temporally broader
+context. This prevents information overload and enhances
+the agent’s capacity for long-horizon reasoning.
+Unlike existing methods that rely on fixed sampling or
+spatial redundancy pruning, we argue that an ideal memory
+buffer M should simultaneously satisfy three key proper-
+ties: semantic relevance, visual diversity, and temporal cov-
+erage. We formulate the construction of long-term memory
+as an optimization problem. During navigation, the agent
+continuously collects egocentric visual frames.
+At each
+timestep t, it iteratively selects K frames from a candidate
+pool C to form a refined memory M, maximizing an overall
+scoring objective:
+f ∗= arg max
+f∈C\M[λR · SimSem(f, I) −(1 −λR)·
+(wV · SimVis(f, M) + wT · SimTemp(f, M))],
+(1)
+where M is the current set of selected memory frames,
+f ∗denotes the optimal frame to be added.
+The scalar
+λR ∈[0, 1] controls the trade-off between instruction rel-
+evance and redundancy, while wV and wT are weighting
+coefficients that balance visual and temporal redundancy,
+respectively, subject to the constraint wV + wT = 1.
+Semantic Relevance.
+We employ an efficient Instruc-
+tion–Image Feature Alignment mechanism. The language
+instruction I is encoded into a global embedding vector
+
+
+eI ∈Rd using the text encoder of a VLM. For each can-
+didate frame f in C, a visual embedding ef ∈Rd is ob-
+tained via a visual encoder followed by multimodal projec-
+tion layer. The semantic relevance score SimSem(f, I) is de-
+fined as the cosine similarity between the two embeddings:
+SimSem(f, I) = sim(ef, eI) =
+ef · eI
+∥ef∥∥eI∥.
+(2)
+While focusing solely on relevance may cause the memory
+to concentrate on a few key scenes, we additionally incorpo-
+rate visual diversity and temporal coverage to ensure a more
+comprehensive and balanced historical representation.
+Visual Diversity. To promote diversity, we penalize can-
+didate frames that are visually too similar to those already
+in memory buffer M. Leveraging the feature embeddings
+extracted by the visual encoder, we define the visual simi-
+larity penalty as the maximum cosine similarity between a
+candidate frame f and any memory frame m ∈M:
+SimVis(f, M) = max
+m∈M
+
+embed(f) · embed(m)
+∥embed(f)∥∥embed(m)∥
+
+.
+(3)
+Temporal Coverage. To ensure temporal coverage, we pe-
+nalize candidate frames that are temporally close to those
+already stored in the memory buffer M. The temporal sim-
+ilarity term is defined as:
+SimTemp(f, M) =
+1
+minm∈M |tf −tm| + ϵ,
+(4)
+where tf and tm denote the timestamps of the candidate
+frame f and memory frame m, respectively, and ϵ is a small
+constant to avoid division by zero. This formulation encour-
+ages the selection of frames that are temporally distant from
+those already in memory, thereby ensuring broader tempo-
+ral coverage along the navigation trajectory.
+In our DecoVLN framework, the agent maintains con-
+tinuous observation of the environment while effectively
+addressing the data deluge caused by high-frequency per-
+ception, significantly increasing the contextual information
+density.
+As a result, the model achieves stronger long-
+horizon reasoning and memory capabilities.
+3.3. Corrective Fine-tuning
+In conventional VLN models, imitation learning (IL)
+is commonly used to improve robustness in sequential
+decision-making [43]. During rollout, the model collects
+deviated states and queries an expert policy to obtain cor-
+rective actions, thereby iteratively augmenting the dataset.
+However, since navigation follows a Markov decision pro-
+cess, the agent is highly susceptible to compounding errors.
+Naively collected correction samples may diverge signifi-
+cantly from the intended instruction, contaminating the data
+distribution and impeding convergence.
+Algorithm 1 Correction Data Collection
+Require: Initial policy πθ, expert policy π∗, dataset D =
+{(P i
+exp, Ii)}M
+i=1, deviation threshold τ
+Ensure: Correction dataset Dc
+1: Dc ←∅
+▷Initialize correction dataset
+2: for all episode (Pexp, I) ∈D do
+3:
+Pexp ←{s∗
+0, s∗
+1, . . . , s∗
+N}
+▷Expert reference
+trajectory
+4:
+H ←∅
+▷Initialize memory state
+5:
+for t = 0 to Tmax do
+6:
+DM ←mins∗∈Pexp dg(st, s∗)
+▷Compute
+deviation from expert trajectory
+7:
+if 0 < DM(st) ≤τ then
+8:
+aexp
+t
+←π∗(st, Pexp)
+9:
+Dc ←Dc ∪{(st, aexp
+t
+, ft)}
+▷Store expert
+correction
+10:
+else if DM(st) > τ then
+11:
+break
+▷Abort episode due to large deviation
+12:
+end if
+13:
+at ∼πθ(ft, I, H)
+▷Roll out current policy
+14:
+st+1 ←Env.Step(at)
+▷Environment state
+update
+15:
+ft+1 ←Env.Observe(st+1)
+▷Acquire next
+observation
+16:
+H ←AMR(H, ft+1)
+▷Adaptive memory
+refinement
+17:
+if target reached or episode failure then
+18:
+break
+▷Terminate episode
+19:
+end if
+20:
+end for
+21: end for
+22: return Dc
+To overcome this, we propose a corrective fine-tuning
+strategy based on state–action pair. The key idea is to per-
+form correction at the step level rather than the episode
+level, and quantify state deviations via the geometric con-
+straints imposed by the environment, thereby maximizing
+both data utilization and semantic relevance. Let the expert
+trajectory be Pexp = {s∗
+0, s∗
+1, ..., s∗
+N}. For each agent state
+st during rollout, its deviation metric is defined as:
+DM(st) =
+min
+s∗∈Pexp dg(st, s∗),
+(5)
+where dg(·, ·) denotes the geodesic distance between two
+states. The fine-tuned policy πθ executes from the initial
+state s0 and computes DM(st) at each step. A deviation
+threshold τ is introduced to determine whether the current
+state lies within a trustworthy region. If the deviation ex-
+ists but remains within this region, the expert policy π∗is
+queried to obtain the corrective action at = π∗(st). The re-
+sulting state–action pair (sstu
+t
+, aexp
+t
+, f), where f is the cor-
+responding egocentric observation, is then stored in the cor-
+
+
+rective dataset Dc, as detailed in the Algorithm 1.
+4. Experiment
+4.1. Datasets and Evaluation Metrics
+The navigation-action training dataset is collected from the
+Matterport3D [4] environment. The instruction and path
+dataset primarily consists of three subsets: R2R-CE [3],
+R2R-Envdrop [35], and RxR-CE [18]. Each oracle trajec-
+tory contains a navigation instruction, step-wise ego-centric
+images, and the corresponding navigation actions. In total,
+we collected about 360K samples for training and employed
+random action execution and image augmentation strategies
+to enhance the model’s generalization performance.
+During the corrective fine-tuning stage, we introduce two
+additional datasets to address the problems of compound-
+ing errors in navigation and catastrophic forgetting in the
+VLM. We employ Habitat’s shortest-path follower as the
+expert policy π∗to obtain corrective actions for the current
+states, resulting in approximately 180K corrective samples.
+To mitigate catastrophic forgetting and preserve the VLM’s
+multimodal reasoning ability acquired during pretraining,
+we further integrate the LLaVA-Video-178K dataset [59]
+during corrective fine-tuning.
+This dataset contains di-
+verse video–language question–answer pairs, ensuring that
+the model improves its navigation-specific expertise with-
+out sacrificing its foundational visual–language understand-
+ing. We adopt five widely used metrics to comprehensively
+evaluate the agent’s navigation performance: Success Rate
+(SR), Success weighted by Path Length (SPL), Navigation
+Error (NE), Oracle Success Rate (OS), and Normalized Dy-
+namic Time Warping (nDTW).
+4.2. Implementation Details
+For a fair comparison, our model follows previous VLN
+setups and is built upon the LLaVA-Video-7B[58] model,
+which uses SigLIP [55] as the vision tower and Qwen2-
+7B[47] as the language model. We adopt the AdamW op-
+timizer [27], with a peak learning rate of 2 × 10−5 for the
+language model and 5 × 10−6 for the vision encoder. The
+batch size is set to 128, and the memory bank size K = 8,
+while the trust-region threshold is τ = 3. The model is
+trained on eight Nvidia A800 GPUs, with a total of approx-
+imately 600 GPU-hours. During inference, the model takes
+the instruction, memory bank, and the most recent four vi-
+sual frames as input, and predicts an autoregressive action
+chunk consisting of four consecutive actions. Additional
+implementation details are provided in the Appendix.
+4.3. Navigation Experiments
+Tab. 1 summarizes our method’s performance on the R2R-
+CE and RxR-CE Val-Unseen benchmark datasets.
+The
+baseline models include both waypoint prediction models
+leveraging multi-sensor inputs and VLN models.
+Our method relies solely on ego-centric RGB inputs
+and surpasses all existing models on both benchmarks,
+achieving success rates of 56.3% and 54.2%, respectively.
+Compared to the state-of-the-art StreamVLN, our approach
+achieves 3.5% and 2.8% improvements in SR and SPL on
+R2R, and 5.6% and 3.8% improvements on RxR. These
+significant gains strongly validate the superiority of our pro-
+posed adaptive memory refinement mechanism in han-
+dling long-horizon navigation tasks, effectively mitigating
+the information dilution problem commonly observed in
+traditional uniform sampling strategies.
+It is also noteworthy that our model achieves these re-
+sults without any large-scale pretraining on datasets such
+as ScaleVLN [40], yet still outperforms most existing
+waypoint-based models that depend on multi-sensor fusion
+or global map priors. This demonstrates both the data ef-
+ficiency and strong generalization capability of our frame-
+work. The results highlight that through carefully designed
+memory management mechanisms, the model can learn ro-
+bust navigation policies from limited exposure, rather than
+relying purely on large-scale data accumulation.
+4.4. Ablation Studies
+To investigate the contribution of each module to the over-
+all model performance, Tab. 2 presents the results of the ab-
+lation experiments under different module configurations.
+The results demonstrate that each component yields a sig-
+nificant performance gain compared to the baseline model
+with uniform historical sampling. Introducing the adaptive
+memory refinement mechanism leads to a substantial im-
+provement of +3.6% in SR and +2.2% in SPL, indicating
+that a higher contextual density effectively enhances the ac-
+curacy of action decision-making. Moreover, the corrective
+fine-tuning stage enables the model to perform semantic-
+aware error correction based on relevant historical observa-
+tions, alleviating the issue of compounding errors in long-
+horizon navigation. As a result, SR improves by +9.0%,
+while NE drops by 0.88% compared to the baseline.
+Adaptive Memory Refinement (AMR). To further an-
+alyze the effectiveness of the adaptive memory refinement
+mechanism, Fig. 2 and Tab. 3 illustrate the effects of dif-
+ferent memory weights and memory sequence lengths K
+on model performance without corrective fine-tuning. The
+results show that when λR →1, the selected memory se-
+quence tends to focus on semantically similar consecutive
+frames with rich scene information. In this case, model
+performance is inversely correlated with sequence length
+and may even fall below that of uniform sampling, suggest-
+ing that redundant contextual semantics can harm long-term
+reasoning capability. Conversely, when λR →0, the model
+gradually degenerates into a uniform historical sampling
+strategy. The parameters wT and wV only have a minor
+
+
+Method
+Observation
+R2R
+RXR
+RGB
+Pano.
+Depth
+Odo.
+NE ↓
+OS↑
+SR↑
+SPL↑
+NE ↓
+SR↑
+SPL↑
+nDTW↑
+HPN+DN [17]
+✓
+✓
+✓
+6.31
+40.0
+36.0
+34.0
+-
+-
+-
+-
+VLN BERT [13]
+✓
+✓
+✓
+5.74
+53.0
+44.0
+39.0
+8.98
+27.0
+22.6
+46.7
+CMA [13]
+✓
+✓
+✓
+6.20
+52.0
+41.0
+36.0
+8.76
+26.5
+22.1
+47.0
+Reborn [1]
+✓
+✓
+✓
+5.40
+57.0
+50.0
+46.0
+5.98
+48.6
+42.0
+63.3
+Ego2-Map [14]
+✓
+✓
+✓
+5.54
+56.0
+47.0
+41.0
+-
+-
+-
+-
+DreamWalker [36]
+✓
+✓
+✓
+5.53
+59.0
+49.0
+44.0
+-
+-
+-
+-
+HAMT+ScaleVLN [40]
+✓
+✓
+✓
+4.80
+-
+55.0
+51.0
+-
+-
+-
+-
+ETPNav [2]
+✓
+✓
+✓
+4.71
+65.0
+57.0
+49.0
+5.64
+54.7
+44.8
+61.9
+Seq2Seq [16]
+✓
+✓
+7.77
+37.0
+25.0
+22.0
+12.10
+13.9
+11.9
+30.8
+RGB-CMA [16]
+✓
+9.55
+10.0
+5.0
+4.0
+-
+-
+-
+-
+AG-CMTP [6]
+✓
+✓
+✓
+7.90
+39.0
+23.0
+19.0
+-
+-
+-
+-
+R2R-CMTP [6]
+✓
+✓
+✓
+7.90
+38.0
+26.0
+22.0
+-
+-
+-
+-
+LAW [31]
+✓
+✓
+✓
+6.83
+44.0
+35.0
+31.0
+10.90
+8.0
+8.0
+38.0
+CM2 [10]
+✓
+✓
+✓
+7.02
+41.0
+34.0
+27.0
+-
+-
+-
+-
+WS-MGMap [7]
+✓
+✓
+✓
+6.28
+47.0
+38.0
+34.0
+-
+-
+-
+-
+ETPNav+FF [41]
+✓
+✓
+✓
+5.95
+55.8
+44.9
+30.4
+8.79
+25.5
+18.1
+-
+AO-Planner [5]
+✓
+✓
+5.55
+59.0
+47.0
+33.0
+7.06
+43.3
+30.5
+50.1
+NaVid [56]
+✓
+5.47
+49.0
+37.0
+35.0
+-
+-
+-
+-
+VLN-R1 [30]
+✓
+7.90
+41.2
+30.2
+21.8
+9.1
+22.7
+17.6
+-
+Uni-NaVid* [57]
+✓
+5.58
+53.3
+47.0
+42.7
+6.24
+48.7
+40.9
+-
+NaVILA* [9]
+✓
+5.22
+62.5
+54.0
+49.0
+6.77
+49.3
+44.0
+58.8
+StreamVLN [43]
+✓
+5.43
+62.5
+52.8
+47.2
+6.72
+48.6
+42.5
+60.2
+DecoVLN (Ours)
+✓
+5.01
+63.5
+56.3
+50.5
+5.73
+54.2
+46.3
+63.5
+Table 1. Experimental results on the Val-Unseen dataset of R2R-CE and RxR-CE. * indicates training with additional large-scale datasets.
+Our method outperforms all approaches on the same benchmarks, even surpassing certain VLN models that were trained with additional
+large-scale datasets, without using global priors or multi-sensor inputs.
+AMR
+CF
+NE ↓
+OS↑
+SR↑
+SPL↑
+5.89
+51.7
+47.3
+43.9
+✓
+5.50
+57.9
+50.9
+46.1
+✓
+✓
+5.01
+63.5
+56.3
+50.5
+Table 2. Ablation study of different modules on R2R Val-Unseen.
+AMR denotes Adaptive Memory Refinement, and CF denotes Cor-
+rective Fine-tuning.
+K
+R2R
+RxR
+NE ↓
+SR↑
+SPL↑
+NE ↓
+SR↑
+SPL↑
+2
+6.01
+41.9
+39.8
+7.09
+38.7
+36.5
+4
+5.92
+45.5
+42.2
+6.92
+43.8
+41.5
+8
+5.50
+50.9
+46.1
+6.53
+49.2
+45.2
+12
+5.56
+50.7
+45.8
+6.50
+49.5
+45.1
+Table 3. Ablation study of different historical memory lengths.
+impact on the final performance, though slightly increas-
+ing wV can improve navigation in complex environments
+requiring frequent turns, as it emphasizes visual diversity.
+Experimental results show that when the historical mem-
+ory length does not exceed K = 8, richer historical in-
+formation can significantly improve navigation efficiency.
+2
+4
+8
+12
+K
+35.0
+37.5
+40.0
+42.5
+45.0
+47.5
+50.0
+52.5
+Success Rate (SR, %)
+47.3
+46.9
+40.6
+50.9
+51.0
+Uniform sampling
+R =0.0,wV =0.5
+R =1.0
+R =0.5,wV =0.5
+R =0.5,wV =0.7
+8
+12
+46
+48
+50
+52
+Figure 2. Evaluate success rates for various K values and hyper-
+parameters on R2R Val-Unseen.
+However, as the memory capacity continues to increase,
+the uniformly sampled historical sequence tends to con-
+tain a large amount of redundant semantics, preventing the
+VLN model from effectively extracting key information for
+scene reasoning and causing a noticeable drop in perfor-
+mance. In contrast, after introducing the Adaptive Memory
+Refinement module, the model can more effectively utilize
+
+
+Figure 3. Comparison of Uniform Sampling strategy and Adap-
+tive Memory Refinement mechanism. The history obtained via the
+uniform sampling strategy captures a large number of instruction-
+irrelevant images, such as walls and corners. This irrelevant se-
+mantic information severely impacts the model’s reasoning perfor-
+mance. In contrast, the Adaptive Memory Refinement mechanism
+can effectively extract the key navigation points (indicated in red)
+from the instruction to achieve efficient and accurate navigation.
+high-information-density state representations for decision-
+making, while alleviating the issue of contextual contami-
+nation caused by long memory sequences.
+Although longer histories can in principle provide more
+comprehensive contextual cues for navigation planning,
+they also introduce greater inference latency and GPU
+memory consumption. Since navigation trajectories in the
+R2R and RxR benchmark datasets are typically between
+10 and 15 meters in length, setting the memory size to
+K = 8 achieves a favorable balance between navigation
+performance and computational efficiency. We visualized
+the two sampling methods in Fig. 3.
+Corrective Fine-tuning. To further investigate the in-
+fluence of the trusted region size on the effectiveness of
+corrective fine-tuning, we conducted an ablation study, as
+summarized in Table 4. When the trusted region is set too
+small, the agent’s navigation policy becomes overly conser-
+vative. The model exhibits excessive sensitivity to minor
+deviations, often terminating navigation prematurely before
+substantial drift from the expert trajectory occurs, thereby
+limiting its exploration capacity. Conversely, if the trusted
+region is overly expanded, the agent may accumulate de-
+viations that exceed its intrinsic corrective capacity dur-
+ing exploration. This not only introduces a considerable
+amount of low-quality corrective data and increases train-
+ing cost but may also negatively impact the final learning
+efficiency. Empirical results indicate that a moderate trust-
+region threshold of τ = 3 achieves the best balance between
+exploration robustness and corrective accuracy. Meanwhile,
+we compare our algorithm with the traditional DAgger al-
+gorithm in Table 5, demonstrating its effectiveness.
+τ
+R2R
+RxR
+NE ↓
+SR↑
+SPL↑
+NE ↓
+SR↑
+SPL↑
+1
+5.32
+53.7
+48.1
+5.98
+52.3
+45.5
+3
+5.01
+56.1
+50.5
+5.73
+54.2
+46.3
+6
+5.12
+55.9
+50.2
+5.71
+54.3
+46.2
+Table 4. Ablation study of different trusted region sizes.
+Method
+Data
+NE ↓
+OS ↑
+SR ↑
+SPL ↑
+Baseline
+-
+5.50
+57.9
+50.9
+46.1
+DAgger
+240K
+5.11
+63.8
+56.0
+50.3
+DAgger
+180K
+5.32
+62.1
+54.8
+49.6
+Ours
+180K
+5.01
+63.5
+56.3
+50.5
+Table 5. Comparison with vanilla DAgger at different data scales.
+4.5. Long Planning Horizon
+To rigorously evaluate the model’s robustness in long-
+horizon scenarios, we construct a dedicated Long-horizon
+Navigation Validation Set based on the R2R and RxR
+benchmarks.
+The construction procedure is as follows:
+First, we filter trajectories exceeding 18 m in length from
+the original validation sets. Second, within the same en-
+vironment, we select two independent trajectories whose
+endpoint and starting point are spatially proximate, and
+concatenated them using Trajectory Stitching to synthesize
+longer navigation paths. Finally, we utilize Qwen3 [45] to
+semantically fuse and rewrite the two original text instruc-
+tions, generating a single, coherent long-text instruction.
+This validation set comprises a total of 536 long-horizon
+trajectories, with an average path length of 23 m.
+The experimental results are presented in Fig. 5. The
+long planning horizon poses severe challenges to the
+VLN model’s spatial memory retention and online error-
+correction capabilities. Quantitative analysis indicates that
+our adaptive memory refinement mechanism and Error-
+Correction Fine-tuning strategy effectively mitigate the
+problems of Catastrophic Forgetting and Compounding Er-
+rors, which are common in long-sequence decision-making.
+Notably, despite being trained only on standard short-
+horizon datasets, the model demonstrated exceptional navi-
+gation performance on the long-horizon validation set. This
+strongly proves the model’s excellent generalization capa-
+bility for long-horizon navigation tasks.
+4.6. Real-World Experiments
+We employ the Unitree GO2 as our quadruped robot
+platform, which transmits the real-time ego-centric video
+stream to a server equipped with a single RTX4090 GPU
+via a video transmission protocol. The robot utilizes a Jet-
+son Orin as its core control unit, where a deployed Au-
+tomatic Speech Recognition (ASR) model [28] translates
+voice commands into text instructions and uploads them
+to the server.
+Subsequently, the server generates action
+
+
+Figure 4. The robot accurately follows complex natural language instructions involving spatial reasoning and object grounding, demon-
+strating robust performance and strong sim-to-real generalization under challenging conditions.
+NE ( )
+OS ( )
+SR ( )
+0
+10
+20
+30
+40
+50
+Metric Value
+6.62
+37.20
+32.80
+6.28
+42.50
+36.90
+StreamVLN
+Ours
+Improvement (Ours vs StreamVLN)
+-5.0%
+0.0%
+5.0%
+10.0%
+15.0%
+Improvement vs StreamVLN (%)
+ 5.1%
+ 14.2%
+ 12.5%
+Figure 5. Performance comparison on long-horizon navigation
+validation set.
+chunks, each containing four distinct actions, and transmits
+them back to the control unit. The onboard controller parses
+these chunks into smooth motion trajectories and converts
+them into precise motor control signals via low-level motion
+APIs. All model training was conducted exclusively within
+the Habitat simulator, with no fine-tuning performed using
+real-world data. As illustrated in the Fig. 4, we evaluated
+the model’s performance in a real-world office environment
+characterized by complex layouts.
+Experimental results
+demonstrate that despite the significant domain gap between
+the simulator and the real world—regarding textures, light-
+ing, and physical dynamics—our agent successfully com-
+prehends instructions and plans reasonable paths within un-
+known physical spaces. Even when facing challenges diffi-
+cult to model in simulations, such as floor reflections preva-
+lent in real-world scenarios, the model consistently main-
+tained the correct navigation direction. Additionally, we
+observed a significant emergent behavior: while moving to-
+ward the target point, the quadruped robot performs con-
+tinuous lateral micro-adjustments and pose corrections to
+actively ensure that critical navigation waypoints or the fi-
+nal goal remain constantly within its field of view. This
+behavior demonstrates that the model is not merely execut-
+ing pre-determined actions in an open-loop manner; rather,
+it possesses a degree of closed-loop feedback and anti-
+interference capabilities, thereby exhibiting strong robust-
+ness amidst complex real-world dynamics.
+5. Conclusion
+We present DecoVLN, a VLN framework whose core inno-
+vation lies in decoupling the agent’s observation, reasoning,
+and correction processes.
+This design allows the agent
+to gather observations continuously while simultaneously
+executing actions and reasoning, effectively circumventing
+the high-latency bottlenecks inherent in the auto-regressive
+generation of VLMs. Without relying on any global prior
+information or depth sensors, DecoVLN achieves robust
+navigation in unknown environments using only ego-
+centric RGB inputs. To address the challenges prevalent in
+long-sequence navigation tasks, such as sparse semantic
+information, context pollution, and compounding errors,
+we propose an adaptive memory refinement mechanism
+and a state-action pair-based error-correction fine-tuning
+strategy.
+Our approach achieves superior performance
+on both the R2R and RxR benchmarks. Crucially, these
+results are achieved without relying on the additional large-
+scale ScaleVLN dataset, fully demonstrating DecoVLN’s
+exceptional data efficiency and generalization potential.
+
+
+References
+[1] Dong An, Zun Wang, Yangguang Li, Yi Wang, Yicong
+Hong, Yan Huang, Liang Wang, and Jing Shao. 1st place so-
+lutions for rxr-habitat vision-and-language navigation com-
+petition. In CVPRW, 2022. 6
+[2] Dong An, Hanqing Wang, Wenguan Wang, Zun Wang, Yan
+Huang, Keji He, and Liang Wang. Etpnav: Evolving topo-
+logical planning for vision-language navigation in continu-
+ous environments. arXiv preprint arXiv:2304.03047, 2023.
+6
+[3] Peter Anderson, Qi Wu, Damien Teney, Jake Bruce, Mark
+Johnson, Niko S´underhauf, Ian Reid, Stephen Gould, and
+Anton Van Den Hengel. Vision-and-language navigation: In-
+terpreting visually-grounded navigation instructions in real
+environments.
+In Proceedings of the IEEE conference on
+computer vision and pattern recognition, 2018. 5, 12
+[4] Angel Chang, Angela Dai, Thomas Funkhouser, Maciej
+Halber, Matthias Niessner, Manolis Savva, Shuran Song,
+Andy Zeng, and Yinda Zhang.
+Matterport3d: Learning
+from rgb-d data in indoor environments.
+arXiv preprint
+arXiv:1709.06158, 2017. 5
+[5] Jiaqi Chen, Bingqian Lin, Xinmin Liu, Xiaodan Liang, and
+Kwan-Yee K Wong.
+Affordances-oriented planning using
+foundation models for continuous vision-language naviga-
+tion. arXiv preprint, 2024. 6
+[6] Kevin Chen, Junshen K Chen, Jo Chuang, Marynel V´azquez,
+and Silvio Savarese. Topological planning with transform-
+ers for vision-and-language navigation. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 2021. 6
+[7] Peihao Chen, Dongyu Ji, Kunyang Lin, Runhao Zeng,
+Thomas H Li, Mingkui Tan, and Chuang Gan.
+Weakly-
+supervised multi-granularity map learning for vision-and-
+language navigation.
+arXiv preprint arXiv:2210.07506,
+2022. 6
+[8] Peihao Chen, Xinyu Sun, Hongyan Zhi, Runhao Zeng,
+Thomas H Li, Gaowen Liu, Mingkui Tan, and Chuang Gan.
+Aˆ2 nav: Action-aware zero-shot robot navigation by ex-
+ploiting vision-and-language ability of foundation models.
+arXiv preprint arXiv:2308.07997, 2023. 2
+[9] An-Chieh Cheng, Yandong Ji, Zhaojing Yang, Zaitian
+Gongye, Xueyan Zou, Jan Kautz, Erdem Bıyık, Hongxu Yin,
+Sifei Liu, and Xiaolong Wang. Navila: Legged robot vision-
+language-action model for navigation.
+Robotics: Science
+and Systems, 2025. 1, 2, 6
+[10] Georgios Georgakis, Karl Schmeckpeper, Karan Wanchoo,
+Soham Dan, Eleni Miltsakaki, Dan Roth, and Kostas Dani-
+ilidis. Cross-modal map learning for vision and language
+navigation. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, 2022. 6
+[11] Mohsen Gholami, Ahmad Rezaei, Zhou Weimin, Sitong
+Mao, Shunbo Zhou, Yong Zhang, and Mohammad Akbari.
+Spatial reasoning with vision-language models in ego-centric
+multi-view scenes. arXiv preprint arXiv:2509.06266, 2025.
+2
+[12] Pierre-Louis Guhur, Makarand Tapaswi, Shizhe Chen, Ivan
+Laptev, and Cordelia Schmid. Airbert: In-domain pretrain-
+ing for vision-and-language navigation. In Proceedings of
+the IEEE/CVF international conference on computer vision,
+pages 1634–1643, 2021. 2
+[13] Yicong Hong, Zun Wang, Qi Wu, and Stephen Gould. Bridg-
+ing the gap between learning in discrete and continuous en-
+vironments for vision-and-language navigation. In Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2022. 6
+[14] Yicong Hong, Yang Zhou, Ruiyi Zhang, Franck Dernon-
+court, Trung Bui, Stephen Gould, and Hao Tan. Learning
+navigational visual representations with semantic map super-
+vision. In ICCV, 2023. 6
+[15] Muhammad Zubair Irshad, Niluthpol Chowdhury Mithun,
+Zachary Seymour, Han-Pang Chiu, Supun Samarasekera,
+and Rakesh Kumar. Semantically-aware spatio-temporal rea-
+soning agent for vision-and-language navigation in continu-
+ous environments. In 2022 26th International conference on
+pattern recognition (ICPR), pages 4065–4071. IEEE, 2022.
+2
+[16] Jacob Krantz, Erik Wijmans, Arjun Majundar, Dhruv Batra,
+and Stefan Lee. Beyond the nav-graph: Vision and language
+navigation in continuous environments. In ECCV, 2020. 6
+[17] Jacob Krantz, Aaron Gokaslan, Dhruv Batra, Stefan Lee, and
+Oleksandr Maksymets.
+Waypoint models for instruction-
+guided navigation in continuous environments. In Proceed-
+ings of the IEEE/CVF International Conference on Com-
+puter Vision, 2021. 6
+[18] Alexander Ku, Peter Anderson, Roma Patel, Eugene Ie, and
+Jason Baldridge. Room-across-room: Multilingual vision-
+and-language navigation with dense spatiotemporal ground-
+ing. arXiv preprint arXiv:2010.07954, 2020. 5, 12
+[19] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi.
+Blip-2:
+Bootstrapping language-image pre-training with
+frozen image encoders and large language models. In In-
+ternational conference on machine learning, pages 19730–
+19742. PMLR, 2023. 2
+[20] Wentong Li, Yuqian Yuan, Jian Liu, Dongqi Tang, Song
+Wang, Jie Qin, Jianke Zhu, and Lei Zhang. Tokenpacker:
+Efficient visual projector for multimodal llm. International
+Journal of Computer Vision, 133(10):6794–6812, 2025. 12
+[21] Zhiqi Li, Guo Chen, Shilong Liu, Shihao Wang, Vibashan
+VS, Yishen Ji, Shiyi Lan, Hao Zhang, Yilin Zhao, Sub-
+hashree Radhakrishnan, et al.
+Eagle 2:
+Building post-
+training data strategies from scratch for frontier vision-
+language models. arXiv preprint arXiv:2501.14818, 2025.
+2, 12
+[22] Bin Lin, Yang Ye, Bin Zhu, Jiaxi Cui, Munan Ning, Peng
+Jin, and Li Yuan. Video-llava: Learning united visual repre-
+sentation by alignment before projection. In Proceedings of
+the 2024 Conference on Empirical Methods in Natural Lan-
+guage Processing, pages 5971–5984, 2024. 2
+[23] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee.
+Improved baselines with visual instruction tuning, 2023. 2
+[24] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee.
+Visual instruction tuning, 2023. 2, 12
+
+
+[25] Haotian Liu, Chunyuan Li, Yuheng Li, Bo Li, Yuanhan
+Zhang, Sheng Shen, and Yong Jae Lee.
+Llava-next: Im-
+proved reasoning, ocr, and world knowledge, 2024. 2
+[26] Yuxing Long, Wenzhe Cai, Hongcheng Wang, Guanqi Zhan,
+and Hao Dong. Instructnav: Zero-shot system for generic
+instruction navigation in unexplored environment.
+arXiv
+preprint arXiv:2406.04882, 2024. 2
+[27] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+regularization. arXiv preprint arXiv:1711.05101, 2017. 5
+[28] Dusty NV. Jetson voice: Asr/nlp/tts deep learning inference
+library for jetson, 2021. 7
+[29] Zhangyang Qi, Zhixiong Zhang, Ye Fang, Jiaqi Wang,
+and Hengshuang Zhao. Gpt4scene: Understand 3d scenes
+from videos with vision-language models.
+arXiv preprint
+arXiv:2501.01428, 2025. 2
+[30] Zhangyang Qi, Zhixiong Zhang, Yizhou Yu, Jiaqi Wang, and
+Hengshuang Zhao. Vln-r1: Vision-language navigation via
+reinforcement fine-tuning. arXiv preprint arXiv:2506.17221,
+2025. 1, 2, 6, 12
+[31] Sonia Raychaudhuri, Saim Wani, Shivansh Patel, Unnat Jain,
+and Angel X Chang. Language-aligned waypoint (law) su-
+pervision for vision-and-language navigation in continuous
+environments. arXiv preprint arXiv:2109.15207, 2021. 6
+[32] Min Shi, Fuxiao Liu, Shihao Wang, Shijia Liao, Subhashree
+Radhakrishnan, Yilin Zhao, De-An Huang, Hongxu Yin,
+Karan Sapra, Yaser Yacoob, et al.
+Eagle: Exploring the
+design space for multimodal llms with mixture of encoders.
+arXiv preprint arXiv:2408.15998, 2024. 2, 12
+[33] Matthijs TJ Spaan. Partially observable markov decision pro-
+cesses. In Reinforcement learning: State-of-the-art, pages
+387–414. Springer, 2012. 1, 13
+[34] Ilya Sutskever, Oriol Vinyals, and Quoc V Le. Sequence to
+sequence learning with neural networks. Advances in neural
+information processing systems, 27, 2014. 2
+[35] Hao Tan, Licheng Yu, and Mohit Bansal. Learning to nav-
+igate unseen environments: Back translation with environ-
+mental dropout. arXiv preprint arXiv:1904.04195, 2019. 5,
+12
+[36] Hanqing Wang, Wei Liang, Luc Van Gool, and Wenguan
+Wang.
+Dreamwalker:
+Mental planning for continuous
+vision-language navigation. In ICCV, 2023. 6
+[37] Jinhong Wang, Jian Liu, Dongqi Tang, Weiqiang Wang,
+Wentong Li, Danny Chen, Jintai Chen, and Jian Wu. Scal-
+able autoregressive monocular depth estimation. In Proceed-
+ings of the Computer Vision and Pattern Recognition Confer-
+ence, pages 6262–6272, 2025. 2
+[38] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan,
+Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin
+Ge, et al. Qwen2-vl: Enhancing vision-language model’s
+perception of the world at any resolution.
+arXiv preprint
+arXiv:2409.12191, 2024. 2, 12
+[39] Shihao Wang, Guo Chen, De-an Huang, Zhiqi Li, Minghan
+Li, Guilin Li, Jose M Alvarez, Lei Zhang, and Zhiding Yu.
+Videoitg: Multimodal video understanding with instructed
+temporal grounding.
+arXiv preprint arXiv:2507.13353,
+2025. 2, 12
+[40] Zun Wang, Jialu Li, Yicong Hong, Yi Wang, Qi Wu, Mo-
+hit Bansal, Stephen Gould, Hao Tan, and Yu Qiao. Scal-
+ing data generation in vision-and-language navigation.
+In
+Proceedings of the IEEE/CVF International Conference on
+Computer Vision, 2023. 5, 6, 14
+[41] Zihan Wang, Xiangyang Li, Jiahao Yang, Yeqi Liu, and
+Shuqiang Jiang.
+Sim-to-real transfer via 3d feature
+fields for vision-and-language navigation.
+arXiv preprint
+arXiv:2406.09798, 2024. 6
+[42] Meng Wei, Chenyang Wan, Jiaqi Peng, Xiqian Yu, Yuqiang
+Yang, Delin Feng, Wenzhe Cai, Chenming Zhu, Tai Wang,
+Jiangmiao Pang, et al.
+Ground slow, move fast:
+A
+dual-system foundation model for generalizable vision-and-
+language navigation.
+arXiv preprint arXiv:2512.08186,
+2025. 2
+[43] Meng Wei, Chenyang Wan, Xiqian Yu, Tai Wang, Yuqiang
+Yang, Xiaohan Mao, Chenming Zhu, Wenzhe Cai, Hanqing
+Wang, Yilun Chen, et al. Streamvln: Streaming vision-and-
+language navigation via slowfast context modeling. arXiv
+preprint arXiv:2507.05240, 2025. 1, 2, 4, 6, 12, 13, 14
+[44] Chenfei Wu, Jiahao Li, Jingren Zhou, Junyang Lin, Kaiyuan
+Gao, Kun Yan, Sheng-ming Yin, Shuai Bai, Xiao Xu, Yilei
+Chen, et al. Qwen-image technical report. arXiv preprint
+arXiv:2508.02324, 2025. 2
+[45] Jin Xu, Zhifang Guo, Hangrui Hu, Yunfei Chu, Xiong Wang,
+Jinzheng He, Yuxuan Wang, Xian Shi, Ting He, Xinfa
+Zhu, et al.
+Qwen3-omni technical report.
+arXiv preprint
+arXiv:2509.17765, 2025. 2, 7, 13
+[46] Xinda Xue, Junjun Hu, Minghua Luo, Shichao Xie, Jintao
+Chen, Zixun Xie, Kuichen Quan, Wei Guo, Mu Xu, and Ze-
+dong Chu. Omninav: A unified framework for prospective
+exploration and visual-language navigation. arXiv preprint
+arXiv:2509.25687, 2025. 2
+[47] An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo
+Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang,
+Haoran Wei, et al. Qwen2. 5 technical report. arXiv preprint
+arXiv:2412.15115, 2024. 5
+[48] Hanxun Yu, Wentong Li, Song Wang, Junbo Chen, and
+Jianke Zhu.
+Inst3d-lmm: Instance-aware 3d scene under-
+standing with multi-modal instruction tuning. In Proceed-
+ings of the Computer Vision and Pattern Recognition Con-
+ference, pages 14147–14157, 2025. 2, 12
+[49] Zhuoyuan Yu, Yuxing Long, Zihan Yang, Chengyan Zeng,
+Hongwei Fan, Jiyao Zhang, and Hao Dong.
+Correctnav:
+Self-correction flywheel empowers vision-language-action
+navigation model. arXiv preprint arXiv:2508.10416, 2025.
+2
+[50] Hui Yuan, Yan Huang, Naigong Yu, Dongbo Zhang, Zetao
+Du, Ziqi Liu, and Kun Zhang. Multimodal pretrained knowl-
+edge for real-world object navigation. Machine Intelligence
+Research, 22(4):713–729, 2025. 2
+[51] Yuqian Yuan, Wentong Li, Jian Liu, Dongqi Tang, Xinjie
+Luo, Chi Qin, Lei Zhang, and Jianke Zhu. Osprey: Pixel un-
+derstanding with visual instruction tuning. In Proceedings of
+the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 28202–28211, 2024. 2, 12
+[52] Yuqian Yuan, Ronghao Dang, Long Li, Wentong Li, Dian
+Jiao, Xin Li, Deli Zhao, Fan Wang, Wenqiao Zhang, Jun
+
+
+Xiao, et al.
+Eoc-bench: Can mllms identify, recall, and
+forecast objects in an egocentric world?
+arXiv preprint
+arXiv:2506.05287, 2025. 2
+[53] Yuqian Yuan, Hang Zhang, Wentong Li, Zesen Cheng, Bo-
+qiang Zhang, Long Li, Xin Li, Deli Zhao, Wenqiao Zhang,
+Yueting Zhuang, et al. Videorefer suite: Advancing spatial-
+temporal object understanding with video llm. In Proceed-
+ings of the Computer Vision and Pattern Recognition Con-
+ference, pages 18970–18980, 2025. 2, 12
+[54] Yuqian Yuan, Wenqiao Zhang, Xin Li, Shihao Wang, Ke-
+han Li, Wentong Li, Jun Xiao, Lei Zhang, and Beng Chin
+Ooi. Pixelrefer: A unified framework for spatio-temporal
+object referring with arbitrary granularity.
+arXiv preprint
+arXiv:2510.23603, 2025. 2, 12
+[55] Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and
+Lucas Beyer. Sigmoid loss for language image pre-training.
+In Proceedings of the IEEE/CVF international conference on
+computer vision, pages 11975–11986, 2023. 5
+[56] Jiazhao Zhang, Kunyu Wang, Rongtao Xu, Gengze Zhou,
+Yicong Hong, Xiaomeng Fang, Qi Wu, Zhizheng Zhang, and
+He Wang. Navid: Video-based vlm plans the next step for
+vision-and-language navigation. Robotics: Science and Sys-
+tems, 2024. 1, 2, 6
+[57] Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li,
+Haoran Liu, Songlin Wei, Zhongyuan Wang, Zhizheng
+Zhang, and He Wang.
+Uni-navid: A video-based vision-
+language-action model for unifying embodied navigation
+tasks. Robotics: Science and Systems, 2025. 1, 6, 12
+[58] Yuanhan Zhang, Jinming Wu, Wei Li, Bo Li, Zejun Ma, Zi-
+wei Liu, and Chunyuan Li. Video instruction tuning with
+synthetic data. arXiv preprint arXiv:2410.02713, 2024. 5
+[59] Yuanhan Zhang, Jinming Wu, Wei Li, Bo Li, Zejun Ma, Zi-
+wei Liu, and Chunyuan Li. Video instruction tuning with
+synthetic data, 2024. 5
+[60] Gengze Zhou, Yicong Hong, and Qi Wu. Navgpt: Explicit
+reasoning in vision-and-language navigation with large lan-
+guage models. In Proceedings of the AAAI Conference on
+Artificial Intelligence, pages 7641–7649, 2024. 2
+
+
+Appendix
+A. More Analysis on Observation-Reasoning
+Decoupling
+A.1. Limitations of Existing Streaming Paradigms
+While existing Streaming VLN paradigms [30, 43] achieve
+continuous environmental observation, their history man-
+agement strategies exhibit critical efficiency limitations.
+These methods typically store all received observation
+frames into an exhaustive memory buffer, from which a
+fixed number of frames are uniformly sampled to construct
+the VLM’s input context during autoregressive action pre-
+diction. This store-first, sample-later pattern leads to three
+key problems: (1) Context Pollution: Uniform sampling is
+a task-agnostic strategy that completely ignores the seman-
+tic relevance between observation frames and the navigation
+task. Consequently, a large number of task-irrelevant, re-
+dundant frames are erroneously introduced into the context,
+severely interfering with the model’s high-level reasoning
+and decision-making. (2) Storage Overhead: Indiscrimi-
+nately caching all historical frames in memory causes stor-
+age occupancy to grow linearly with the number of navi-
+gation steps, rendering it inefficient and unsustainable for
+long-horizon navigation. (3) I/O Bottleneck: Before each
+autoregressive inference step, all frames must be re-sampled
+and transferred from memory (RAM) to GPU memory
+(VRAM), incurring additional data transfer latency. This
+undermines the supposed decoupling between perception
+and reasoning, as the model is forced to reprocess the en-
+tire observation stream during each inference step.
+A.2. Comparative Advantages of DecoVLN
+Fig. 6 highlights the key differences between conventional
+Streaming VLN paradigms [43, 57] and our proposed De-
+coVLN framework.
+DecoVLN achieves efficient decou-
+pling of observation and reasoning. Firstly, the model di-
+rectly calculates the relevance between frames and the in-
+struction, storing only those frames strongly correlated with
+the navigation task as history. To further promote diver-
+sity and temporal coverage, a visual similarity penalty and
+a temporal dispersion factor are introduced, preventing the
+memory from being dominated by redundant or consecu-
+tive frames. The model’s history queue is dynamically up-
+dated, and the entire queue remains resident in GPU mem-
+ory (VRAM), significantly reducing both storage overhead
+and I/O latency. Since most latency in VLN models stems
+from token-by-token autoregressive generation, DecoVLN
+enables the model to directly access a compact, high-utility
+memory queue during inference, substantially improving
+reasoning efficiency without reprocessing the entire obser-
+vation history.
+(a) Streaming VLN Paradigm
+(b) DecoVLN
+Figure 6. Comparison between the pipelines of Streaming VLN
+and DecoVLN. (a) Streaming VLN paradigm requires storing all
+historical observation sequences, sampling them during inference,
+and repeatedly transferring the selected frames between RAM and
+VRAM. This tight coupling of observation and reasoning leads to
+high storage overhead and inefficient data transfer. (b) Our De-
+coVLN, in contrast, introduces an adaptive memory-refinement
+mechanism during the observation phase. This design selectively
+preserves high-value semantic information in a VRAM-resident
+memory bank, which is directly consumed by the VLN model
+during inference. Our approach significantly reduces storage over-
+head and improves data transfer efficiency.
+B. Additional Implementation Details
+B.1. Dataset and Training Details
+To train a navigation model capable of handling the com-
+plexities of the physical world, we construct a simulation-
+based training dataset incorporating diverse challenges. The
+dataset generation is organized into two stages: Super-
+vised Fine-Tuning (SFT) and Error-Correction Fine-Tuning
+(ECF).
+As in mainstream VLMs [20, 21, 24, 32, 38, 39, 48,
+51, 53, 54], we leverage the SFT stage to establish strong
+cross-modal alignment between navigation instructions and
+expert trajectories. We collect training data in the Habi-
+tat simulator from three datasets:
+R2R-CE [3], R2R-
+EnvDrop [35], and RxR-CE [18]. To bridge the gap be-
+tween ideal simulator motion and the inherent uncertainty
+of real-world actuators, we employ a stochastic step strategy
+during data collection. In real-world scenarios, factors such
+as wheel slip and limited motor precision introduce small
+deviations at every movement step, causing gradual trajec-
+tory drift. To mimic this phenomenon, we introduce slight
+
+
+Augmentation Strategy
+Parameters
+Random Brightness
+factor = 0.2, prob = 0.5
+Random Saturation
+factor = 0.2, prob = 0.5
+Posterization
+bits = 4, prob = 0.5
+Random Sharpness
+factor = 0.2, prob = 0.5
+AutoContrast
+prob = 0.3
+Gaussian Blur
+prob = 0.2
+Random Masking
+prob = 0.2
+Table 6. Image augmentation strategies and their corresponding
+parameters used in the SFT stage.
+random offsets into motion actions during data collection,
+improving policy’s robustness to real-world noise and drift.
+To further enhance visual diversity, we apply several image
+augmentation strategies such as Gaussian blur and random
+masking, with parameters listed in Tab. 6. Additionally, we
+employ a reverse augmentation strategy to expand the navi-
+gation paths. Specifically, we utilize the Qwen3 LLM [45]
+to rewrite each original instruction I into a reverse naviga-
+tion instruction Irev representing the same path in the op-
+posite direction.
+During the ECF stage, the SFT-trained model πSF T per-
+forms autonomous rollouts in the simulator environment.
+When the model deviates from the expert trajectory, we in-
+troduce a ShortestPathFollower (SPF) as an expert policy to
+provide corrective actions that guide the agent back toward
+the optimal path. By collecting these high-quality state-
+action pairs, the model learns to recover effectively from
+errors. Notably, during this phase, we retain only visual-
+domain randomization and remove the action-level stochas-
+tic offsets to ensure the accuracy and stability of the expert
+correction signals.
+B.2. Navigation Instructions
+To help the VLM to effectively understand its role within
+the POMDP [33] and differentiate between information
+modalities, we adopted a structured prompt format, explic-
+itly categorizing the input information into three types: Sys-
+tem Message, Task Instruction, and Visual Context. First,
+the System Message is used to define the agent’s role, with
+the relevant prompt being,“You are a robot designed for
+navigation tasks,” which activates reasoning capabilities re-
+lated to embodied tasks. Next, the Task Instruction includes
+the dataset’s natural language instruction I along with pre-
+defined action space, following standard VLN conventions:
+{Move Forward 25cm, Turn Left 15 degrees, Turn Right 15
+degrees, Stop}. Finally, the Visual Context is divided into
+two parts: historical memory and current observation. The
+historical memory consists of the refined sequence of his-
+torical frames obtained by the adaptive memory refinement
+strategy, while the current observation is the current ego-
+centric view. This explicit separation is designed to guide
+the model to prioritize anchoring its decisions on the cur-
+rent visual state, while treating the “historical memory” as
+a queryable memory bank to assist with long-horizon rea-
+soning and resolve perceptual aliasing issues.
+C. More Discussions and Comparisons with
+Voxel-based Pruning
+C.1. Detailed Discussions
+StreamVLN [43] proposes a voxel-based spatial pruning
+strategy called the slow-updating memory context.
+This
+method relies on depth maps computed from stereo cameras
+to project a uniformly sampled historical frame sequence
+into 3D space. It achieves semantic information compres-
+sion by pruning redundant visual features in this 3D space,
+thereby improving navigation efficiency. However, this pro-
+cess not only introduces an additional dependency on depth
+sensors but also involves epipolar constraint calculations
+and 3D reconstruction, which significantly increases infer-
+ence latency and limits navigation efficiency. In contrast,
+our adaptive memory refinement strategy only requires ego-
+centric RGB images.
+More fundamentally, StreamVLN’s voxel pruning is a
+post-hoc process: it operates on a task-agnostic, uniformly
+sampled historical sequence.
+This “sample-first, prune-
+later” design cannot evaluate the semantic relevance of an
+observation frame to the navigation task at the source of
+information acquisition. Consequently, even highly redun-
+dant or instruction-irrelevant observations, such as blank
+walls, can be uniformly sampled and retained in the con-
+text. This prevents the model from improving the contex-
+tual signal-to-noise ratio at its root. In contrast, our adaptive
+memory refinement strategy is a task-aware, pre-hoc filter-
+ing mechanism. It assesses the relevance of an observation
+before it enters the memory queue, fundamentally guaran-
+teeing a high information density in the context.
+C.2. Performance Comparisons
+A comprehensive comparison with different versions of
+StreamVLN [43] is shown in Tab. 7. Our method com-
+prehensively surpasses StreamVLN on the same bench-
+marks, and it even outperforms the depth-enabled version of
+StreamVLN on the RxR dataset. Furthermore, our model’s
+dataset size and training time are significantly smaller than
+those of StreamVLN. This is because although the voxel-
+based pruning strategy increases semantic information den-
+sity, the underlying uniform sampling strategy ignores the
+relevance of the images to the navigation task and may cap-
+ture irrelevant images such as walls, failing to improve the
+contextual signal-to-noise ratio from the source. Extensive
+experiments are conducted across a wide range of diverse
+scenarios, as illustrated in Fig. 8. The adaptive memory
+refinement module can reconstruct an effective historical
+
+
+Method
+Inputs
+R2R
+RxR
+NE↓
+OS↑
+SR↑
+SPL↑
+NE↓
+SR↑
+SPL↑
+nDTW↑
+StreamVLN [43]
+RGB + Depth
+4.98
+64.2
+56.9
+51.9
+6.22
+52.9
+46.0
+61.9
+StreamVLN [43]
+RGB
+5.10
+64.0
+55.7
+50.9
+6.16
+51.8
+45.0
+62.1
+Ours
+RGB
+5.01
+63.5
+56.1
+50.5
+5.73
+54.2
+46.3
+63.5
+Table 7. Comparison with StreamVLN [43] on the R2R and RxR benchmarks. Our method achieves competitive performance on R2R and
+significantly outperforms both RGB and RGB+Depth variants of StreamVLN on RxR, despite using only RGB inputs.
+Figure 7. Visual comparison between uniform sampling and adaptive memory refinement. Frames selected by the proposed method
+exhibit higher information density and stronger semantic alignment with the navigation instructions, while effectively filtering redundant
+observations.
+trajectory using only sparse keyframes, enabling efficient
+long-horizon compression while significantly reducing in-
+ference overhead, thereby validating the decoupled obser-
+vation–reasoning design.
+Crucially, our model achieves
+the aforementioned results without utilizing the large-scale
+ScaleVLN [40] dataset, while requiring significantly less
+training time compared to StreamVLN. This strongly cor-
+roborates the efficiency of DecoVLN in extracting effective
+features.
+D. Real-World Deployment
+D.1. Platform Setup
+DecoVLN outputs symbolic text commands rather than pre-
+cise, low-level control signals (e.g., joint torques). This de-
+sign theoretically achieves platform-agnosticism, wherein
+the high-level VLM navigation logic is decoupled from
+the low-level, embodiment-specific motor control.
+Con-
+sequently, DecoVLN’s high-level policy has the potential
+to be migrated to diverse hardware platforms, including
+quadruped, wheeled, and even humanoid robots.
+In our real-world experiments, we deploy DecoVLN on a
+Unitree GO2 quadruped robot. The system adopts a device-
+server collaboration architecture.
+The robot is equipped
+
+
+Figure 8. Real-world navigation results of DecoVLN across diverse scenarios. The robot accurately follows complex natural language
+instructions involving spatial reasoning and object grounding, demonstrating robust performance and strong sim-to-real generalization
+under challenging conditions.
+with a Jetson Orin, which serves as the onboard compu-
+tational core. It is responsible for running a lightweight
+Automatic Speech Recognition (ASR) model and the low-
+level motion control APIs. A remote server with a single
+NVIDIA RTX 4090 GPU runs the computationally inten-
+sive DecoVLN model.
+The system’s asynchronous data
+loop operates as follows: the onboard ASR model converts
+the user’s voice commands into text instructions I in real-
+time. These instructions and the current ego-centric video
+stream ot, are transmitted (uplinked) to the server via a
+wireless video transmission protocol. Upon receiving this
+data, the server performs VLM inference and returns (down-
+linked) the resulting symbolic action chunk, containing four
+discrete navigation actions, which is then executed by the
+onboard controller.
+D.2. Sim-to-Real Transfer
+D.2.1. Bridging the Execution Gap
+To address the Execution Gap between the simulation and
+real-world environments, and to enhance motion stability
+and efficiency, we avoid the naive strategy of executing
+discrete actions sequentially.
+On a dynamic quadruped
+
+
+platform, this approach leads to discontinuous motion and
+is highly prone to compounding errors. Instead, the on-
+board controller is designed to interpret the action chunk
+received from the server as a holistic short-horizon goal.
+Specifically, rather than executing these four actions se-
+rially, the controller directly computes the final relative
+pose (∆x, ∆y, ∆θ) that corresponds to the entire action se-
+quence. For example, an action chunk [forward 25cm, for-
+ward 25cm, turn left 15 degree, stop] is parsed into a target
+state of (∆x = 0.5m, ∆y = 0, ∆θ = 15). Subsequently,
+the onboard controller invokes the low-level motion APIs
+to compute and execute a smooth and dynamically feasible
+trajectory to approximate this target. This conversion from
+discrete symbolic output to continuous motion substantially
+improves real-world navigation robustness and efficiency.
+D.2.2. Qualitative Real-world Results
+To validate the model’s performance in bridging the sim-
+to-real gap, we deployed the model in a zero-shot manner
+within diverse complex real-world scenarios, with the test
+results shown in the Fig. 8. These qualitative examples
+highlight the model’s capabilities in fine-grained instruction
+understanding and semantic reasoning. The model not only
+precisely executes basic motion instructions but also, when
+observing open-vocabulary objects that never appeared in
+the navigation training set, remains capable of correct iden-
+tification and localization based on context. Furthermore,
+the model exhibits robustness against environmental distur-
+bances. Real physical environments often encompass com-
+plex factors difficult to precisely model in simulators, such
+as dynamic lighting, specular reflections, and unstructured
+obstacles; yet, the model maintains stable perception and
+decision-making, planning paths that are both geometrically
+reasonable and semantically correct.
+E. Limitations and Future Work
+Our current VLN framework is is built upon LLaVA-Video-
+7B, whose computational cost prevents fully onboard in-
+ference on devices such as the Jetson Orin. Current real-
+time operation relies on a device–server collaborative ar-
+chitecture, where heavy VLM inference is offloaded to a
+remote GPU server via wireless communication. This setup
+introduces additional network latency and limits deploy-
+ment in environments with poor connectivity. Future work
+will explore model distillation and parameter-efficient tun-
+ing to transfer the high-level navigation capabilities of the
+7B model to more lightweight models ranging from 0.5B to
+2B parameters, enabling fully onboard real-time inference.
+In challenging real-world scenes, the agent may still lose
+orientation when visual landmarks disappear or perceptual
+aliasing occurs.
+The current system lacks a deep intro-
+spective mechanism to address such scenarios of total de-
+viation. To solve this problem, we plan to incorporate a
+Chain-of-Thought (CoT)–based error-recovery module that
+leverages historical memory to backtrack, identify a reliable
+waypoint, and replan a corrected trajectory, improving ro-
+bustness in long-horizon navigation.

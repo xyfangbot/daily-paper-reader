@@ -1,0 +1,1095 @@
+LiveVLN: Breaking the Stop-and-Go Loop in
+Vision-Language Navigation
+Xiangchen Wang1,*, Weiye Zhu1,*, Teng Wang1, TianTian Geng1,
+Zekai Zhang1, Zhiyuan Qi1, Jinyu Yang2,†, Feng Zheng1,3,†
+* Equal contribution. † Corresponding author.
+1 Southern University of Science and Technology
+2 Harbin Institute of Technology, Shenzhen
+3 Spatialtemporal AI
+Abstract—Recent navigation systems achieve strong bench-
+mark results, yet real-world deployment often remains visibly
+stop-and-go. This bottleneck arises because the sense-inference-
+execution loop is still blocking: after each new observation, the
+controller must wait for sensing, transmission, and inference
+before motion can continue. Reducing action-generation cost
+alone therefore does not remove redundant waiting. To address
+this issue, we present LiveVLN, a training-free framework for
+more continuous embodied navigation by augmenting pretrained
+VLM navigators with multi-step action continuation. Instead of
+pausing for each full sense-and-inference round, LiveVLN over-
+laps execution with the processing of newly arrived observations,
+allowing refreshed future actions to be handed off before the
+current executable prefix is exhausted. This design keeps actions
+continuously available during motion, reducing idle waiting and
+enabling smoother online execution. The framework operates at
+runtime and can be integrated with compatible pretrained VLM
+navigators. Across R2R and RxR, LiveVLN preserves benchmark
+performance while reducing waiting time and improving action
+availability. In real-world deployments, it cuts average episode
+waiting time by up to 77.7% and shortens wall-clock episode
+time by 12.6% on StreamVLN and 19.6% on NaVIDA, yielding
+more coherent execution during deployment. Code is available
+at https://github.com/NIneeeeeem/LiveVLN.
+Index Terms—Vision-Language Navigation, Continuous con-
+trol, Streaming inference
+I. INTRODUCTION
+Vision-Language Navigation (VLN) studies how embod-
+ied agents follow language instructions from egocentric vi-
+sual observations [1]–[4]. Classical VLN systems built on
+stronger cross-modal pretraining and Transformer-based rea-
+soning, such as VLN-BERT [3] and DUET [4], have achieved
+strong benchmark performance on tasks such as R2R and RxR.
+More recent deployment-oriented work adopts video-VLM or
+VLA-style architectures and brings VLN closer to continuous
+embodied execution [5]–[7]. Although these advances improve
+policy capability, they do not by themselves resolve the
+runtime challenge of continuous execution. As a result, even
+policies with strong benchmark performance may still exhibit
+stop-and-go motion in streaming deployment.
+The bottleneck is structural rather than purely computa-
+tional. Most VLN systems still rely on a blocking three-
+stage interface consisting of sense, inference, and execution, in
+which the controller receives the next continuation only after
+sensing, transmission, preprocessing, and action generation on
+the latest observation are complete. If a continuation contains
+k actions executed at frequency f, it supports only about k/f
+Fig. 1. Blocking VLN serializes sense(S), inference(I), and execution(E). After
+each action continuation, the robot pauses until the next sense-and-inference
+round finishes. LiveVLN instead keeps the execution thread running on a short
+guard buffer while the next sense-and-inference pass refreshes the following
+continuation in the background.
+seconds of motion, further reduced by controller-side execu-
+tion overhead and communication jitter. Continuous execution
+therefore depends on whether the next continuation arrives
+before the current one is exhausted, exposing a direct trade-
+off between action freshness and motion continuity. Real-
+robot measurements show that this overhead is substantial. For
+example, in a native NaVIDA [7] deployment, the controller
+waits for 10.64 s per episode on average, which accounts for
+a 30.5% waiting ratio, and the system exhibits a pause count
+of 9.25.
+To address this issue, we introduce LiveVLN, a training-
+free runtime framework for continuous Vision-Language Nav-
+igation. The key idea is to decouple the current execution
+stage from the next sense and inference stages through a
+short-horizon action state with three roles: executed actions,
+a released guard buffer whose execution covers the next
+hidden sense-and-inference pass, and a revisable tail that
+remains unreleased until handoff. One thread keeps executing
+the current guard buffer while the other thread refreshes
+the next continuation from the newest observation. LiveVLN
+combines two mechanisms: guarded handoff, which switches
+to a refreshed continuation before the current guard buffer
+arXiv:2604.19536v1  [cs.RO]  21 Apr 2026
+
+
+is depleted, and real-time adaptation, under which the guard
+budget is determined by recent sense-and-inference latency
+(Fig. 1). In this way, only the minimal prefix necessary to
+sustain continuous motion is committed, leaving later actions
+open to revision based on newer observations. Operating
+at runtime, the framework applies to compatible pretrained
+VLM navigators that autoregressively decode multi-step action
+continuations [5]–[9].
+We evaluate this runtime framework in Vision-Language
+Navigation in Continuous Environments (VLN-CE) bench-
+marks and native streaming deployment across multiple com-
+patible pretrained VLM navigators. Beyond task success,
+we report continuity-oriented deployment metrics, including
+waiting time, waiting ratio, visible gap, pause count, and
+wall-clock episode duration, to examine whether the runtime
+hides sense-and-inference latency in practice. Under matched
+checkpoints, LiveVLN cuts waiting time by more than 70%
+on both StreamVLN [6] and NaVIDA [7], shortens wall-clock
+episode time by 12.6–19.6%, and markedly reduces pause
+count, while preserving task performance in both simulation
+and real-robot trials.
+Our contributions are as follows:
+1) We analyze why blocking VLN deployment leads to
+stop-and-go motion, and we show through a real-robot
+NaVIDA diagnosis that the waiting ratio still reaches
+30.5% under the native runtime.
+2) We introduce LiveVLN, a training-free runtime frame-
+work for compatible pretrained VLM navigators that or-
+ganizes execution into executed actions, a guard buffer,
+and a revisable tail, enabling uninterrupted control
+through guarded handoff and real-time adaptation.
+3) Across VLN-CE and native streaming deployment with
+StreamVLN and NaVIDA, LiveVLN reduces average
+waiting time by 77.7% and 72.8% and shortens wall-
+clock episode time by 12.6% and 19.6%, respectively,
+while preserving benchmark performance.
+II. PROBLEM FORMULATION
+Blocking VLN deployment follows a serialized three-stage
+cycle of sense, inference, and execution; real-robot measure-
+ments confirm that this interface induces stop-and-go behavior.
+A. Temporal Analysis of Blocking Deployment
+Given a language instruction x and an online observation
+stream {or}, blocking deployment repeats three serialized
+stages in inference round r: sense captures the newest ob-
+servation, inference maps it to the next action continuation,
+and execution consumes the released actions on the controller.
+Let
+br = [a(1)
+r , a(2)
+r , . . . , a(Hr)
+r
+],
+(1)
+denote the continuation released after the round-r sense-and-
+inference pass, where Hr is its length and a(i)
+r
+is its i-th action
+unit. If the controller has already issued or executed the first pr
+actions, with pr ∈{0, . . . , Hr}, then the remaining executable
+suffix is
+brem
+r
+= [a(pr+1)
+r
+, . . . , a(Hr)
+r
+].
+(2)
+Waiting Times
+Ratio: 30.5%
+Stop-and-go
+Ratio: 94.9%
+ 
+ 
+Fig. 2.
+Native blocking NaVIDA diagnosis on Unitree G1. The waiting
+ratio reaches 30.5%, while 94.9% of inference rounds exhibit stop-and-go
+behavior.
+During the next round’s sense-and-inference stage, this suffix
+is the controller’s only executable buffer. Continuous motion
+requires the next continuation to arrive before the current
+execution buffer is exhausted; otherwise, the controller idles.
+Stop-and-go behavior reflects a timing mismatch between
+serialized sense-and-inference latency and the remaining exe-
+cution budget.
+For each episode, the wall-clock duration is decomposed as
+Tepisode = Texecution + Twait,
+ηwait =
+Twait
+Tepisode
+,
+(3)
+where Texecution is the cumulative execution time and Twait
+is the exposed sense and inference time during which no
+executable action is available. Each round is timestamped on
+the robot client at five events: sending the newest sensed
+observation (tsend), receiving the server response (trecv),
+exhausting the current execution queue (tempty), issuing the
+first action from the refreshed queue (tissue), and finishing that
+control step (tdone). These timestamps define the continuity
+metrics: inference latency ℓinfer = trecv −tsend, visible gap
+ℓgap = tissue −tempty, first resumed execution-step duration
+ℓexecution = tdone −tissue, and interrupted-round duration
+ℓtotal = tdone −tempty = ℓgap + ℓexecution. Npause counts
+rounds with ℓgap > 0.5 s. Applying these definitions to the
+diagnostic study reveals a 30.5% waiting ratio and frequent
+stop-and-go interruptions.
+B. Real-Robot Diagnostic Study
+The diagnostic study uses a controlled NaVIDA deployment
+on a Unitree G1 robot with a front-facing Intel RealSense
+D455f camera and monocular RGB input. The robot performs
+sense and low-level execution, while a remote server with an
+NVIDIA RTX 5090 GPU performs high-level inference and
+returns the next action continuation through the motion-control
+API. Episode-level waiting and per-round discontinuity are
+measured on this system.
+
+
+Thread A
+Short-horizon Action State
+Executed
+Actions
+Guard
+Buffer
+Revisable
+Tail
+Committed
+Revisable
+Thread B
+Forward
+50 cm
+Left
+30 degree
+Forward
+25 cm
+Left
+30 degree
+Forward
+50 cm
+Right
+30 degree
+Navigation Route
+Suffix
+Generation
+Cross thread prefix 
+Thread B
+Thread A
+Thread B
+Action Execution
+Fig. 3. Overview of LiveVLN when the next update arrives before the current guard buffer is exhausted. The short-horizon action state contains executed
+actions, a guard buffer, and a revisable tail. Thread A keeps the current guard buffer in execution, while Thread B uses the newest sensed observation to run
+inference for the next continuation. At handoff, the current guard buffer becomes executed actions, the refreshed prefix becomes the next guard buffer, and
+the trailing tail remains revisable for correction after the next observation arrives.
+a) Episode-Level Evidence: Average waiting is 10.64 s
+per episode, corresponding to a 30.5% waiting ratio. The
+controller experiences 9.25 pauses over 9.75 inference rounds
+on average, so 94.9% of rounds are stop-and-go. Native
+blocking NaVIDA spends nearly one third of a typical episode
+in waiting time instead of continuous execution.
+b) Per-Round Discontinuity Evidence: After the current
+queue is exhausted, the controller waits 1.09 s on average
+before motion resumes. This visible gap is close to the 0.97 s
+inference round trip, so most of the sense-and-inference pass
+remains visible to the robot. Once the refreshed action arrives,
+the first resumed execution step lasts 2.49 s on average. Native
+blocking deployment therefore produces frequent, roughly
+one-second stalls. StreamVLN exhibits the same qualitative
+pattern under the same deployment protocol (Table II).
+These results motivate a dual-thread runtime that overlaps
+sense and inference with execution while preserving a short-
+horizon action state composed of executed actions, a guard
+buffer, and a revisable tail for online revision.
+III. METHOD
+LiveVLN mitigates stop-and-go deployment without chang-
+ing the pretrained VLN policy. It replaces the serialized sense-
+inference-execution interface with a dual-thread runtime that
+lets execution continue during the next sense-and-inference
+pass. At each round, the controller keeps executing the current
+guard buffer while a background inference thread refreshes
+a new continuation in parallel; if the refresh finishes be-
+fore the guard is exhausted, handoff moves that guard into
+executed actions, promotes the refreshed prefix to the next
+guard buffer, and leaves the remaining tail revisable. Given
+an autoregressive navigator B that emits multi-step executable
+continuations, the runtime uses two coupled mechanisms.
+Guarded handoff with a revisable tail organizes each short-
+horizon action state into executed actions, a guard buffer, and
+a revisable tail, while real-time adaptation sizes that guard
+buffer against deployment latency across compatible pretrained
+VLM navigators. LiveVLN treats B as a continuation gener-
+ator conditioned on the current guard buffer and defines the
+corresponding handoff and release rules.
+At inference round t, sense provides the newest observa-
+tion, inference predicts the next continuation, and execution
+consumes the current guard buffer on the controller. Relative
+to Sec. II, the continuation br is now written as ut and split
+into executed actions et, guard buffer gt, and revisable tail
+rt. Let ct denote the full conditioning context at inference
+round t (instruction, current observation, and any model-
+specific history input), and let ut = [a(1)
+t , . . . , a(Ht)
+t
+] denote
+the continuation predicted by B. The runtime never exposes
+all of ut at once: it releases only the committed prefix needed
+for continuity and keeps the remaining tail revisable until
+the next handoff. The next refresh is therefore conditioned
+on the already committed guard buffer gt = [a(1)
+t , . . . , a(k)
+t
+]
+rather than on the still-revisable tail. The backbone’s native
+autoregressive factorization is unchanged; only the runtime
+handoff boundary exposed to the controller moves.
+A. Guarded Handoff with a Revisable Tail
+LiveVLN targets compatible pretrained VLM navigators
+that infer multi-step action continuations autoregressively dur-
+ing online execution. The navigator must (i) take the latest
+sensed observation and the already committed guard buffer as
+inference inputs, and (ii) emit an ordered multi-step sequence
+of executable action units, where each unit may be a primitive
+action or a controller-accepted macro-action. Recent VLM-
+style VLN systems satisfy these assumptions and already
+use multi-step action continuations [5]–[9]. The handoff rule
+depends only on the emitted continuation, not on backbone-
+specific architectural design or retraining.
+In streaming deployment, the instruction remains fixed
+throughout the episode and visual observations arrive sequen-
+
+
+tially during motion. The runtime controller maintains the
+following short-horizon interface state
+qt = [et | gt | rt],
+(4)
+which decomposes the current short-horizon state into three
+runtime roles: executed actions, a guard buffer, and a revisable
+tail.
+Equivalently, the same continuation is viewed as already
+executed actions, a currently executable guard buffer, and a
+still-hidden revisable tail.
+a) Executed Actions: et records the actions that have
+been executed in the current short-horizon state. It excludes
+earlier episode history and tracks only what has been con-
+sumed since the latest handoff.
+b) Guard Buffer: gt is the released guard buffer cur-
+rently held by the controller. It provides the continuity budget
+that keeps motion ongoing while the next hidden sense-and-
+inference pass runs in the background.
+c) Revisable Tail: rt is the unreleased tail still held by the
+background inference thread. Because it has not been released
+to the controller, it can be replaced by a refreshed inference
+result from newer observations. The boundary between gt and
+rt separates committed actions from revisable actions.
+At round t, Thread A keeps executing the released guard
+buffer gt without interruption, while Thread B uses the newest
+sensed observation ot+1 to refresh the continuation for the
+next handoff. The next handoff succeeds only if this Thread-
+B sense-and-inference pass finishes before the current guard
+buffer is exhausted. Thread B computes the refreshed contin-
+uation as
+ˆut+1 = DB(ot+1, gt; rt),
+(5)
+where DB denotes the backbone-specific continuation genera-
+tor. The length Ht+1 may be fixed or round-dependent. Here
+gt is the committed context that must survive the handoff,
+whereas rt is the revisable tail and may be overwritten by
+the refresh. The released guard buffer gt keeps the controller
+in execution while the background inference thread completes
+the next sense-and-inference pass.
+At handoff, the current guard buffer is fully executed, so
+et+1 = gt and the refreshed continuation is split into qt+1 =
+[et+1 | gt+1 | rt+1]. The guard buffer in round t becomes
+executed actions in round t + 1, the refreshed prefix becomes
+the next guard buffer, and the remaining tail stays revisable
+until the following refresh.
+B. Real-Time Adaptation and Transferability
+The controller must retain executable actions while the
+next sense-and-inference pass runs in the background. Because
+primitive actions and macro-actions can occupy the controller
+for very different durations, the guard is sized in wall-clock
+time rather than in action counts. The scheduler therefore
+seeks the shortest released prefix whose predicted execution
+can cover the next hidden refresh.
+Algorithm 1 Core pipeline of LiveVLN
+Require: qt = [et | gt | rt], ot+1, ˜ℓt,SI, α, δ, and T guard
+t
+Ensure: candidate split ˆut+1 = [ˆgt+1 | ˆrt+1]
+▷[Sec. III-A] Background refresh
+1: Keep executing gt while running ˆut+1 ←DB(ot+1, gt; rt)
+2: Measure the resulting sense-and-inference latency ℓt,SI
+▷[Sec. III-B] Real-time adaptation
+3: ˜ℓt+1,SI ←(1 −α)˜ℓt,SI + αℓt,SI
+4: ψt+1 ←˜ℓt+1,SI + δ
+5: Choose k⋆
+t+1 = min{k : T (k)
+t+1 ≥ψt+1}
+6: Split ˆut+1 into ˆgt+1 and ˆrt+1 = ˆu
+(>k⋆
+t+1)
+t+1
+▷[Sec. III-B] Release and backup action
+7: Check whether ℓt,SI ≤T guard
+t
+8: If true, release ˆgt+1 and keep ˆrt+1 revisable; otherwise trigger a
+backup action or STOP
+Given the refreshed continuation ˆut+1, each action unit
+a has an estimated controller-side execution time τ(a). The
+predicted total execution time for the first k actions in ˆut+1 is
+T (k)
+t+1 =
+k
+X
+i=1
+τ(ˆa(i)
+t+1).
+(6)
+If the next hidden sense-and-inference pass is expected to
+require a time budget ψt+1, the next guard is the shortest prefix
+whose cumulative execution time can cover that budget:
+k⋆
+t+1 = min
+n
+k ∈{1, . . . , Ht+1} | T (k)
+t+1 ≥ψt+1
+o
+,
+(7)
+with k⋆
+t+1 = Ht+1 if no shorter prefix satisfies the condition.
+The resulting split is ˆut+1 = [ˆgt+1 | ˆrt+1], where ˆgt+1 is
+the next guard buffer and ˆrt+1 is the revisable tail. Only the
+shortest future prefix needed to preserve continuity is exposed,
+while the remaining tail stays available for correction from
+newer observations.
+Real-time adaptation comes from updating ψt+1 according
+to recent sense-and-inference latency. After round t, we update
+a running latency estimate and the next guard budget as
+˜ℓt+1,SI = (1 −α)˜ℓt,SI + αℓt,SI,
+ψt+1 = ˜ℓt+1,SI + δ, (8)
+where α ∈(0, 1] is the update factor and δ ≥0 is a safety
+margin. The exponential average follows latency drift while
+smoothing single-round noise.
+The adaptive scheduler sizes the round-(t + 1) guard buffer
+for the next hidden sense-and-inference pass. For the current
+round, continuity depends on whether the ongoing background
+inference finishes before the already released guard buffer is
+exhausted. Let ℓt,SI be the latency of the current background
+sense-and-inference pass and let T guard
+t
+be the predicted
+execution time of the currently released guard buffer. Seamless
+handoff requires
+ℓt,SI ≤T guard
+t
+.
+(9)
+When the condition holds, the system releases ˆgt+1 and
+retains ˆrt+1 as the revisable tail. If the background pass
+misses the guard deadline but a previously validated one-step
+backup action still covers the overrun, the controller emits
+
+
+TABLE I
+RGB-ONLY VLN-CE RESULTS ON R2R AND RXR V A L_U N S E E N. METRICS INCLUDE NAVIGATION ERROR (NE), ORACLE SUCCESS (OS), SUCCESS RATE
+(SR), SUCCESS WEIGHTED BY PATH LENGTH (SPL), AND NORMALIZED DYNAMIC TIME WARPING (NDTW). ROWS MARKED “+ LIVEVLN” USE THE
+SAME PRETRAINED CHECKPOINT WITH OUR TRAINING-FREE RUNTIME. † DENOTES EXTRA NAVIGATION DATA, AND - MEANS UNREPORTED.
+Method
+R2R val_unseen
+RxR val_unseen
+NE ↓OS ↑SR ↑SPL ↑NE ↓SR ↑SPL ↑nDTW ↑
+NaVid [5]
+5.47
+49.1
+37.4
+35.9
+–
+–
+–
+–
+MapNav [10]
+4.93
+53.0
+39.7
+37.2
+–
+–
+–
+–
+NaViLA [8]
+5.37
+57.6
+49.7
+45.5
+–
+–
+–
+–
+NaViLA† [8]
+5.22
+62.5
+54.0
+49.0
+6.77
+49.3
+44.0
+58.8
+UniNaVid† [9]
+5.58
+53.3
+47.0
+42.7
+6.24
+48.7
+40.9
+–
+StreamVLN [6]
+5.43
+62.5
+52.8
+47.2
+6.72
+48.6
+42.5
+60.2
+StreamVLN† [6]
+4.90
+63.6
+56.4
+50.2
+5.65
+54.4
+45.4
+63.7
++ LiveVLN† (training-free)
+4.84
+64.4
+57.2
+50.0
+5.48
+53.7
+44.5
+63.0
+NaVIDA [7]
+4.32
+69.5
+61.4
+54.7
+5.23
+57.4
+49.6
+67.0
++ LiveVLN (training-free)
+4.51
+67.8
+59.9
+53.9
+5.22
+56.7
+49.2
+67.3
+that backup action; otherwise it emits STOP. Continuity is
+therefore adjusted online rather than by a fixed offline horizon.
+The same rule transfers across compatible pretrained VLM
+navigators and robot platforms. The runtime estimates the
+next sense-and-inference latency, releases the shortest prefix
+as the next guard buffer whose execution time covers that
+delay, and keeps the remainder as the revisable tail using only
+continuation output and action-timing estimates. No backbone-
+specific retraining, architectural change, or fixed action horizon
+is required beyond the interface in Sec. III-A. Moving to
+another compatible navigator or embodiment mainly requires
+re-estimating τ(·) and measuring the local sense-and-inference
+latency; the guarded-handoff and adaptive-release logic re-
+mains unchanged.
+IV. EXPERIMENTS
+We evaluate LiveVLN from three perspectives: simulation
+task performance, deployment continuity under native real-
+robot streaming, and ablations. Simulation results are re-
+ported on R2R and RxR val_unseen. Real-robot results
+are measured with a shared client-side timing protocol and
+cover continuity, wall-clock efficiency, and whether the final
+stopping position falls within 2 m of the ground-truth goal.
+A. Experimental Setup
+We evaluate VLN-CE on R2R and RxR val_unseen
+under the same streaming interface. For StreamVLN and
+NaVIDA [6], [7], all comparisons use the same checkpoints
+and deployment settings as their native runtimes. Table I
+reports the standard R2R/RxR metrics [1], [2]: navigation error
+(NE), oracle success (OS), success rate (SR), success weighted
+by path length (SPL), and normalized dynamic time warp-
+ing (nDTW), which respectively measure endpoint accuracy,
+whether the path ever reaches the goal region, final success,
+success under path-efficiency weighting, and trajectory-path
+fidelity. For StreamVLN, both the offline and real-robot results
+use the stronger extra-navigation-data checkpoint.
+For the real-robot study, both navigators are deployed on the
+same Unitree G1 client-server platform in a shared scene, with
+Wi-Fi jitter remaining within 50 ms during collection. Each
+navigator is evaluated for 40 runs (8 instructions × 5 rep-
+etitions). Table II reports episode- and round-level continuity
+metrics together with wall-clock episode time and whether the
+robot’s final stopping position falls within 2 m of the ground-
+truth goal.
+Because the two navigators expose different native action
+primitives and sense-and-inference cadences, we keep each
+method in its intended runtime configuration. For StreamVLN
+[6], the native runtime decodes and executes a 4-action con-
+tinuation per round, whereas LiveVLN releases only a short
+guard buffer and updates the revisable tail online; τ(a) is there-
+fore the fixed action duration implied by the control frequency.
+On the real robot, considering this inference-execution timing
+pattern and StreamVLN’s reuse of KV-cache states across
+multi-turn decoding, we fix the guard buffer to two actions and
+place those two actions in the execution buffer at each handoff.
+For NaVIDA, each action unit is a native controller chunk
+rather than a fixed-duration primitive, so LiveVLN commits
+the shortest prefix whose predicted execution covers the next
+hidden sense-and-inference budget, with τ(a) estimated from
+empirical controller-side durations.
+B. Main Results
+Table I shows that LiveVLN preserves benchmark navi-
+gation quality while changing only the runtime framework.
+Across both StreamVLN and NaVIDA, the wrapped runtime
+stays close to the native checkpoint, with only small and mixed
+fluctuations on R2R and RxR. This pattern indicates that the
+gains below come from the runtime framework rather than
+from retraining or stronger benchmark scores.
+Table II shows a much larger effect in real-robot streaming.
+Across both navigators, LiveVLN reduces waiting time by
+more than 70%, markedly reduces pause count, and shortens
+wall-clock episode time from 41.98 s to 36.71 s on StreamVLN
+and from 34.90 s to 28.06 s on NaVIDA. Meanwhile, success
+under the “stop within 2 m of the ground-truth goal” criterion
+remains comparable, indicating that the main gain comes from
+
+
+TABLE II
+REAL-ROBOT CONTINUITY AND EFFICIENCY FOR NATIVE STREAMVLN AND NAVIDA VERSUS THEIR LIVEVLN WRAPPERS UNDER MATCHED ROBOT,
+SCENE, AND CHECKPOINTS. UP ARROWS INDICATE HIGHER-IS-BETTER METRICS, AND DOWN ARROWS INDICATE LOWER-IS-BETTER METRICS.
+Method
+Episode-level
+Per-round timing
+¯
+Nround
+¯Texecution
+¯Twait ↓
+¯Tepisode ↓
+¯ηwait ↓
+¯
+Npause ↓
+Stop within 2 m ↑
+¯ℓinfer ↓
+¯ℓgap ↓
+¯ℓexecution
+¯ℓtotal ↓
+StreamVLN
+7.60
+34.66
+7.32
+41.98
+17.4%
+6.75
+15/40
+0.81
+0.96
+4.56
+5.52
+StreamVLN + LiveVLN
+14.80
+35.08
+1.63
+36.71
+4.4%
+0.80
+16/40
+0.52
+0.11
+2.37
+2.48
+NaVIDA
+9.75
+24.26
+10.64
+34.90
+30.5%
+9.25
+12/40
+0.97
+1.09
+2.49
+3.58
+NaVIDA + LiveVLN
+18.25
+25.17
+2.89
+28.06
+10.3%
+1.20
+12/40
+0.61
+0.16
+1.38
+1.54
+TABLE III
+NAVIDA ABLATION ON SIMULATION AND REAL-ROBOT CONTINUITY.
+¯
+Nround DENOTES AVERAGE INFERENCE ROUNDS PER EPISODE.
+Variant
+R2R SR ↑¯
+Nround ¯ηwait ↓¯
+Npause ↓
+Native blocking reference
+61.4
+9.75
+30.5%
+9.25
+Blocking w/ more rounds
+61.0
+18.50
+52.2%
+17.75
+Full LiveVLN
+59.9
+18.25
+10.3%
+1.20
+LiveVLN w/o revisable tail
+57.6
+16.50
+15.6%
+2.25
+LiveVLN w/o real-time adaptation
+60.3
+19.75
+18.4%
+3.00
+the runtime framework rather than from a change in endpoint
+capability.
+The per-round timing statistics support the same interpreta-
+tion. With LiveVLN, the visible gap drops from about one
+second to about one tenth of a second, while the number
+of inference rounds increases substantially. For StreamVLN,
+the real-robot numbers also explain why the fixed two-action
+guard is the right operating point: one atomic action lasts about
+1.14 s on average, so a two-action guard covers about 2.28 s of
+controller time, whereas the hidden inference round takes only
+0.52 s on average. A single-action guard would leave much
+less slack once sensing, communication jitter, and handoff
+overhead are included, while a longer fixed guard would
+unnecessarily shrink the revisable tail and weaken online
+correction. In other words, more frequent refresh becomes
+useful only when it is hidden behind committed execution
+instead of being exposed as repeated blocking stalls.
+Figure 4 qualitatively corroborates Table II. Under the
+same instruction and wall-clock budget, LiveVLN maintains
+sustained motion and reaches the goal region, whereas the
+native blocking StreamVLN runtime still exhibits stop-and-go
+behavior and remains visibly farther from the target.
+C. Ablation Study
+Table III focuses on inference rounds, waiting ratio, and
+pause count, with R2R val_unseen SR included as a
+stability reference. The first comparison shows that increasing
+refresh frequency alone does not solve the deployment prob-
+lem. Relative to the native blocking reference, Blocking w/
+more rounds nearly doubles the average inference frequency
+from 9.75 to 18.50, yet the waiting ratio rises from 30.5%
+to 52.2%. By contrast, full LiveVLN runs at a similarly high
+inference frequency while reducing the waiting ratio to 10.3%
+and the pause count to 1.20. The key difference is therefore
+not how often the system refreshes, but whether refresh is
+overlapped with execution so that the updated prefix is handed
+off before the committed actions are exhausted.
+The component ablations further clarify which part of the
+design provides which benefit. Removing the revisable tail
+weakens both task stability and continuity, indicating that the
+hidden tail remains important after part of the continuation
+has already been committed. Removing real-time adaptation
+shows a different pattern: SR remains comparable, but the
+waiting ratio rises to 18.4% and the pause count to 3.00. Taken
+together, these results suggest that the revisable tail primarily
+preserves adaptability, whereas real-time adaptation primarily
+preserves continuity by matching the released guard budget to
+the latency of the next hidden refresh. This is also why the
+fixed StreamVLN setting keeps exactly two guard actions: it
+is the smallest practical committed prefix that safely exceeds
+the measured hidden refresh budget on the robot, whereas
+NaVIDA uses the same rule in wall-clock form by selecting
+the shortest controller chunk prefix whose predicted execution
+covers the next inference pass.
+D. Discussion
+a) Real-Robot Continuity Depends Strongly on How Run-
+time Latency Is Exposed: The main difference between the
+native runtime and LiveVLN is not policy quality but how
+sense-and-inference latency is presented to the controller.
+When that latency is exposed directly, the robot experiences
+visible stop-and-go motion; when it is hidden behind commit-
+ted execution, motion becomes substantially more continuous
+without materially changing benchmark performance.
+b) Asynchronous Overlap Alone Is Not Enough: The
+ablation study shows that the gain does not come from issuing
+more refreshes by itself. Full LiveVLN achieves the best
+continuity, whereas removing either the revisable tail or real-
+time adaptation weakens performance. The two components
+also play different roles: the revisable tail contributes more to
+preserving task success, while real-time adaptation contributes
+more directly to hiding latency. Continuity therefore improves
+only when refresh is paired with a revisable tail and a real-
+time guard budget, so that new evidence can still update the
+tail without re-exposing the controller to a blocking stall.
+c) Efficiency Gains Remain Bounded By Physical Execu-
+tion: Reducing waiting time also shortens episode time, but
+the effect is limited since physical execution still dominates.
+This bounded episode-time gain is expected from the decom-
+position above: LiveVLN reduces Twait without speeding up
+
+
+2s
+2s
+6s
+6s
+10s
+10s
+14s
+14s
+Fig. 4. Real-robot deployment in the shared office scene for the instruction
+“turn left until you see the green chair, walk to the green chair, and stop
+beside it.” Top: native blocking StreamVLN. Bottom: LiveVLN under the
+same setup. LiveVLN moves more continuously and completes the task in
+14 s, while native StreamVLN remains visibly farther from the goal under the
+same wall-clock budget overall.
+the physical execution component Texecution. This explains
+why the continuity gain is large while the episode-time gain
+is more moderate.
+d) Implication For Deployment-Oriented VLN Evalua-
+tion: Taken together, deployment-oriented VLN should evalu-
+ate not only endpoint success but also whether actions remain
+continuously available at execution time. Two systems with
+similar benchmark SR can produce noticeably different robot
+behavior if one exhibits a higher pause count. Our findings
+therefore support treating continuity-related timing measures
+as first-class deployment metrics alongside standard navigation
+benchmarks such as SR and SPL.
+V. RELATED WORK
+A. Vision-Language Navigation
+VLN began with instruction-following benchmarks such
+as R2R and RxR [1], [2], and early progress focused on
+improving next-action prediction through stronger ground-
+ing, large-scale pretraining, and richer history modeling [3],
+[11]–[13]. Subsequent work introduced more explicit spatial
+structure and longer-horizon reasoning, for example through
+topological planning, dual-scale graph reasoning, and map-
+centric representations [4], [14]–[16]. As VLN evolved from
+discrete viewpoints to continuous environments, the problem
+also became more operational: low-level embodiment exposes
+control drift, recovery difficulty, and timing effects that are
+only weakly reflected in stepwise evaluation [17], [18]. More
+recent scaling and LLM-assisted approaches further expanded
+the design space by increasing training diversity and explicit
+reasoning capacity [19], [20].
+Recent work has moved VLN closer to online embodied
+deployment. NaVid uses a video-based VLM for continuous
+instruction following [5], while StreamVLN improves online
+action prediction through streaming context management, in-
+cluding a multi-rate context design and KV-cache reuse [6].
+NaVILA further couples a navigation-oriented VLA with a
+real-time locomotion policy for legged robots [8]. NaVIDA
+strengthens action-grounded visual dynamics with inverse-
+dynamics augmentation and adaptive action-continuation ex-
+ecution [7], and JanusVLN improves RGB-only VLN with a
+decoupled semantic-spatial design that supports efficient incre-
+mental updates [21]. On the training side, ActiveVLN studies
+active exploration through multi-turn reinforcement learning
+for VLN post-training [22], and SACA introduces step-aware
+dense supervision to improve credit assignment in VLN-CE
+optimization [23]. These efforts move VLN closer to online
+deployment, but they mainly strengthen policy capability,
+representation quality, or training signals. A separate question
+is how such policies should be executed under latency, stream-
+ing observations, and controller-side safety constraints. Our
+work targets that runtime level through a training-free runtime
+framework rather than proposing another policy architecture
+or post-training method.
+B. Streaming VLMs and Live Video Understanding
+Broader multimodal modeling has recently shifted from
+offline video understanding toward streaming and live interac-
+tion. Recent work spans long-video modeling for preserving
+temporal context over pre-collected videos [24], [25], native
+streaming systems that update context and respond continu-
+ously as frames arrive [26]–[28], and training or evaluation
+efforts that better expose live multimodal behavior, such as
+large-scale streaming supervision in LiveCC and streaming-
+video benchmarks such as StreamingBench [29], [30]. Parallel
+real-time inference has also been identified as a core re-
+quirement for genuine live understanding rather than post-hoc
+response generation [31]. Together, these studies suggest that
+live multimodal systems require persistent state, incremental
+updates, and non-blocking inference.
+Embodied navigation shares these requirements, but adds a
+control constraint: actions must remain executable while exe-
+cution itself changes future observations. The setting therefore
+lies between streaming multimodal inference and receding-
+horizon control, where partial action continuations can be
+exposed early and refreshed as observations evolve [32], [33].
+From this perspective, LiveVLN is closer to a receding-
+horizon execution interface than to live video captioning,
+because it commits a short safe prefix, refreshes the remainder
+asynchronously, and replans as observations evolve.
+VI. CONCLUSION
+We presented LiveVLN, a training-free runtime framework
+that keeps executable actions available while refreshing fu-
+ture continuations online. After integration with compatible
+pretrained VLM navigators, benchmark performance on R2R
+and RxR remains close to the native runtime, while real-robot
+deployment improves substantially: waiting time drops by
+more than 70%, pause count is greatly reduced, and wall-clock
+episode time is shortened. Taken together, these results suggest
+that stop-and-go VLN behavior is not only a policy-quality
+issue but also a runtime issue. They also motivate treating
+
+
+continuity and navigation efficiency as first-class deployment
+objectives alongside standard navigation benchmarks such as
+SR and SPL, rather than as secondary runtime details.
+REFERENCES
+[1] P. Anderson, Q. Wu, D. Teney, J. Bruce, M. Johnson, N. Sünderhauf,
+I. Reid, S. Gould, and A. van den Hengel, “Vision-and-language
+navigation: Interpreting visually-grounded navigation instructions in real
+environments,” in Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition, 2018, pp. 3674–3683.
+[2] A. Ku, P. Anderson, R. Patel, E. Ie, and J. Baldridge, “Room-
+across-room: Multilingual vision-and-language navigation with dense
+spatiotemporal grounding,” in Proceedings of the 2020 Conference on
+Empirical Methods in Natural Language Processing, 2020, pp. 4392–
+4412.
+[3] Y. Hong, Q. Wu, Y. Qi, C. Rodriguez-Opazo, and S. Gould, “VLN
+BERT: A recurrent vision-and-language BERT for navigation,” in Pro-
+ceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, 2021, pp. 1643–1653.
+[4] S. Chen, P.-L. Guhur, M. Tapaswi, C. Schmid, and I. Laptev, “Think
+global, act local: Dual-scale graph transformer for vision-and-language
+navigation,” in Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, 2022, pp. 16 537–16 547.
+[5] J. Zhang, K. Wang, R. Xu, G. Zhou, Y. Hong, X. Fang, Q. Wu, Z. Zhang,
+and H. Wang, “NaVid: Video-based VLM plans the next step for vision-
+and-language navigation,” in Robotics: Science and Systems, 2024.
+[6] M. Wei, C. Wan, X. Yu, T. Wang, Y. Yang, X. Mao, C. Zhu, W. Cai,
+H. Wang, Y. Chen, X. Liu, and J. Pang, “StreamVLN: Streaming
+vision-and-language navigation via slowfast context modeling,” arXiv
+preprint arXiv:2507.05240, 2025. [Online]. Available: https://arxiv.org/
+abs/2507.05240
+[7] W. Zhu, Z. Zhang, X. Wang, H. Pan, T. Wang, T. Geng, R. Xu,
+and F. Zheng, “NaVIDA: Vision-language navigation with inverse
+dynamics
+augmentation,”
+arXiv
+preprint
+arXiv:2601.18188,
+2026.
+[Online]. Available: https://arxiv.org/abs/2601.18188
+[8] A.-C. Cheng, Y. Ji, Z. Yang, Z. Gongye, X. Zou, J. Kautz, E. Biyik,
+H. Yin, S. Liu, and X. Wang, “NaVILA: Legged robot vision-language-
+action model for navigation,” in Proceedings of Robotics: Science and
+Systems, Los Angeles, CA, USA, June 2025.
+[9] J. Zhang, K. Wang, S. Wang, M. Li, H. Liu, S. Wei, Z. Wang, Z. Zhang,
+and H. Wang, “Uni-NaVid: A video-based vision-language-action model
+for unifying embodied navigation tasks,” in Proceedings of Robotics:
+Science and Systems, Los Angeles, CA, USA, June 2025. [Online].
+Available: https://roboticsconference.org/program/papers/13/
+[10] L.
+Zhang,
+X.
+Hao,
+Q.
+Xu,
+Q.
+Zhang,
+X.
+Zhang,
+P.
+Wang,
+J. Zhang, Z. Wang, S. Zhang, and R. Xu, “MapNav: A novel
+memory representation via annotated semantic maps for VLM-based
+vision-and-language navigation,” in Proceedings of the 63rd Annual
+Meeting of the Association for Computational Linguistics (Volume
+1: Long Papers).
+Vienna, Austria: Association for Computational
+Linguistics,
+2025,
+pp.
+13 032–13 056.
+[Online].
+Available:
+https:
+//aclanthology.org/2025.acl-long.638/
+[11] X. Wang, Q. Huang, A. Celikyilmaz, J. Gao, D. Shen, Y.-F. Wang,
+W. Y. Wang, and L. Zhang, “Reinforced cross-modal matching and
+self-supervised imitation learning for vision-language navigation,” in
+Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2019, pp. 6629–6638.
+[12] W. Hao, C. Li, X. Li, L. Carin, and J. Gao, “Towards learning a
+generic agent for vision-and-language navigation via pre-training,” in
+Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2020, pp. 13 137–13 146.
+[13] S. Chen, P.-L. Guhur, C. Schmid, and I. Laptev, “History aware multi-
+modal transformer for vision-and-language navigation,” in Advances in
+Neural Information Processing Systems, 2021.
+[14] K. Chen, J. K. Chen, J. Chuang, M. Vazquez, and S. Savarese, “Topo-
+logical planning with transformers for vision-and-language navigation,”
+in Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2021, pp. 11 276–11 286.
+[15] C. Huang, O. Mees, A. Zeng, and W. Burgard, “Visual language maps
+for robot navigation,” arXiv preprint arXiv:2210.05714, 2023. [Online].
+Available: https://arxiv.org/abs/2210.05714
+[16] D. An, H. Wang, W. Wang, Z. Wang, Y. Huang, K. He, and L. Wang,
+“ETPNav: Evolving topological planning for vision-language navigation
+in continuous environments,” IEEE Transactions on Pattern Analysis and
+Machine Intelligence, vol. 47, no. 7, pp. 5130–5145, 2025.
+[17] J. Krantz, E. Wijmans, A. Majumdar, D. Batra, and S. Lee, “Beyond the
+nav-graph: Vision-and-language navigation in continuous environments,”
+in Computer Vision – ECCV 2020, 2020, pp. 104–120.
+[18] Y. Hong, Z. Wang, Q. Wu, and S. Gould, “Bridging the gap be-
+tween learning in discrete and continuous environments for vision-and-
+language navigation,” in Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, 2022, pp. 15 439–15 449.
+[19] Z. Wang, J. Li, Y. Hong, Y. Wang, Q. Wu, M. Bansal, S. Gould,
+H. Tan, and Y. Qiao, “Scaling data generation in vision-and-language
+navigation,” in Proceedings of the IEEE/CVF International Conference
+on Computer Vision (ICCV), October 2023, pp. 12 009–12 020.
+[20] G. Zhou, Y. Hong, and Q. Wu, “NavGPT: Explicit reasoning in vision-
+and-language navigation with large language models,” in Proceedings
+of the AAAI Conference on Artificial Intelligence, 2024.
+[21] S. Zeng, D. Qi, X. Chang, F. Xiong, S. Xie, X. Wu, S. Liang,
+M. Xu, X. Wei, and N. Guo, “JanusVLN: Decoupling semantics
+and
+spatiality
+with
+dual
+implicit
+memory
+for
+vision-language
+navigation,” arXiv preprint arXiv:2509.22548, 2025. [Online]. Available:
+https://arxiv.org/abs/2509.22548
+[22] Z.
+Zhang,
+W.
+Zhu,
+H.
+Pan,
+X.
+Wang,
+R.
+Xu,
+X.
+Sun,
+and
+F. Zheng, “ActiveVLN: Towards active exploration via multi-turn rl
+in vision-and-language navigation,” arXiv preprint arXiv:2509.12618,
+2025. [Online]. Available: https://arxiv.org/abs/2509.12618
+[23] H. Li, R. Liu, H. Fan, and Y. Yang, “Let’s reward step-by-step:
+Step-aware contrastive alignment for vision-language navigation in
+continuous environments,” arXiv preprint arXiv:2603.09740, 2026.
+[Online]. Available: https://arxiv.org/abs/2603.09740
+[24] Y. Zhang, J. Wu, W. Li, B. Li, Z. Ma, Z. Liu, and C. Li, “LLaVA-Video:
+Video instruction tuning with synthetic data,” Transactions on Machine
+Learning Research, 2025.
+[25] R. Qian, X. Dong, P. Zhang, Y. Zang, S. Ding, D. Lin, and J. Wang,
+“Streaming long video understanding with large language models,” in
+Advances in Neural Information Processing Systems, 2024.
+[26] J. Chen, Z. Lv, S. Wu, K. Q. Lin, C. Song, D. Gao, J.-W. Liu,
+Z. Gao, D. Mao, and M. Z. Shou, “VideoLLM-online: Online video large
+language model for streaming video,” in Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition (CVPR), June
+2024, pp. 18 407–18 418.
+[27] J. Liu, Z. Yu, S. Lan, S. Wang, R. Fang, J. Kautz, H. Li,
+and J. M. Alvarez, “StreamChat: Chatting with streaming video,”
+arXiv preprint arXiv:2412.08646, 2025. [Online]. Available: https:
+//arxiv.org/abs/2412.08646
+[28] H. Wang, B. Feng, Z. Lai, M. Xu, S. Li, W. Ge, A. Dehghan,
+M.
+Cao,
+and
+P.
+Huang,
+“StreamBridge:
+Turning
+your
+offline
+video large language model into a proactive streaming assistant,”
+arXiv preprint arXiv:2505.05467, 2025. [Online]. Available: https:
+//arxiv.org/abs/2505.05467
+[29] J. Chen, Z. Zeng, Y. Lin, W. Li, Z. Ma, and M. Z. Shou, “LiveCC:
+Learning video llm with streaming speech transcription at scale,” in
+Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, 2025, pp. 29 083–29 095.
+[30] J. Lin, Z. Fang, C. Chen, Z. Wan, F. Luo, P. Li, Y. Liu, and M. Sun,
+“StreamingBench: Assessing the gap for MLLMs to achieve streaming
+video understanding,” arXiv preprint arXiv:2411.03628, 2024. [Online].
+Available: https://arxiv.org/abs/2411.03628
+[31] J. Lin, J. Tong, H. Wu, J. Zhang, J. Liu, X. Jin, and X. Shen,
+“Speak While Watching: Unleashing true real-time video understanding
+capability of multimodal large language models,” arXiv preprint
+arXiv:2601.06843, 2026. [Online]. Available: https://arxiv.org/abs/2601.
+06843
+[32] Y. Leviathan, M. Kalman, and Y. Matias, “Fast inference from transform-
+ers via speculative decoding,” in Proceedings of the 40th International
+Conference on Machine Learning, 2023, pp. 19 274–19 286.
+[33] D. Q. Mayne, J. B. Rawlings, C. V. Rao, and P. O. M. Scokaert, “Con-
+strained model predictive control: Stability and optimality,” Automatica,
+vol. 36, no. 6, pp. 789–814, 2000.

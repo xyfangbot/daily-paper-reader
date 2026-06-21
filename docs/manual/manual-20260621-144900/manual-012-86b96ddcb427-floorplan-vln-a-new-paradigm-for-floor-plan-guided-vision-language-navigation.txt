@@ -1,0 +1,2281 @@
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+1
+FloorPlan-VLN: A New Paradigm for Floor Plan
+Guided Vision-Language Navigation
+Kehan Chen, Yan Huang†, Dong An, Jiawei He, Yifei Su, Jing Liu, Nianfeng Liu, Liang Wang†
+Abstract—Existing Vision-Language Navigation (VLN) task
+requires agents to follow verbose instructions, ignoring some
+potentially useful global spatial priors, limiting their capability to
+reason about spatial structures. Although human-readable spatial
+schematics (e.g., floor plans) are ubiquitous in real-world build-
+ings, current agents lack the cognitive ability to comprehend and
+utilize them. To bridge this gap, we introduce FloorPlan-VLN,
+a new paradigm that leverages structured semantic floor plans
+as global spatial priors to enable navigation with only concise
+instructions. We first construct the FloorPlan-VLN dataset, which
+comprises over 10k episodes across 72 scenes. It pairs more than
+100 semantically annotated floor plans with Matterport3D-based
+navigation trajectories and concise instructions that omit step-by-
+step guidance. Then, we propose a simple yet effective method
+FP-Nav that uses a dual-view, spatio-temporally aligned video
+sequence, and auxiliary reasoning tasks to align observations,
+floor plans, and instructions. When evaluated under this new
+benchmark, our method significantly outperforms adapted state-
+of-the-art VLN baselines, achieving more than a 60% relative
+improvement in navigation success rate. Furthermore, compre-
+hensive noise modeling and real-world deployments demonstrate
+the feasibility and robustness of FP-Nav to actuation drift and
+floor plan distortions. These results validate the effectiveness of
+floor plan guided navigation and highlight FloorPlan-VLN as a
+promising step toward more spatially intelligent navigation1.
+Index Terms—Vision-Language Navigation, Floor Plan, Spatial
+Intelligence, Multimodal Large Language Models.
+I. INTRODUCTION
+V
+ISION-Language Navigation (VLN) [1] has long been
+a core challenge in embodied AI, requiring agents to
+navigate unseen environments following linguistic instruc-
+tions. Despite significant progress, the existing VLN paradigm
+heavily relies on verbose, step-by-step instructions, which
+imposes a high cognitive burden on human-robot interaction.
+This reliance stems from a critical limitation: the absence
+of global spatial priors. In our daily lives, human-readable
+global schematics, such as floor plans in shopping malls and
+hospitals, are widely available. Humans exhibit remarkable
+spatial intelligence by intuitively interpreting such diagrams,
+enabling them to rapidly plan routes and produce concise
+instructions that specify only the start region, target region
+† Liang Wang and Yan Huang are the corresponding authors.
+Kehan Chen, Yan Huang, and Liang Wang are with New Laboratory of
+Pattern Recognition (NLPR), Institute of Automation, Chinese Academy of
+Sciences and School of Artificial Intelligence, University of Chinese Academy
+of Sciences, China. Email: kehan.chen@cripac.ia.ac.cn, yhuang@nlpr.ia.ac.cn,
+wangliang@nlpr.ia.ac.cn. Dong An is with AMap, Alibaba Group. Email: an-
+dong979797@gmail.com. Jiawei He is with BAAI. Email: jwhe@baai.ac.cn.
+Yifei Su is with Xiaomi Robotics Lab. Email: suyifei@xiaomi.com. Jing Liu
+and Nianfeng Liu are with FiveAges. Email: liujing0@mail.ustc.edu.cn and
+liunianfeng@five-ages.com.
+1Project page: FloorPlan-VLN
+and stopping conditions. In contrast, existing VLN agents pay
+little attention to these readily available resources.
+Inspired by this, we argue that robots should learn to exploit
+floor plans when available. Unlike dense metric maps that
+require extensive SLAM [2] or 3D reconstruction [3], floor
+plans are lightweight, highly accessible and remain invariant to
+object placements. Motivated by this, we introduce FloorPlan-
+VLN, a novel paradigm that offloads spatial complexity from
+textual instructions onto global floor plan priors, as shown
+in Figure 1. This shift enables a more natural human-robot
+interaction via concise instructions which solely refer to the
+start and target regions of the floor plans, as well as the
+stop conditions derived from human intentions. In this setting,
+agents must bridge the semantic gap between an abstract
+floor plan and egocentric observations to execute concise
+instructions. Crucially, we define the floor plan as a Unified
+Spatial Interface that can be derived from various sources,
+ranging from precise architectural blueprints to informal, hand-
+drawn sketches provided by users. This flexibility ensures that
+our paradigm is practical in diverse real-world scenarios where
+high-fidelity maps may be unavailable.
+However, this new paradigm has rarely been investigated
+and first faces the challenge of data scarcity. Existing VLN
+datasets [1], [4], [5] only pair navigation instructions with
+visual trajectories, lacking floor plan metadata. To bridge this
+gap, we construct the FloorPlan-VLN dataset, which pairs
+semantically annotated floor plans with navigation trajectories
+and concise instructions. The floor plans are derived from
+Matterport3D [6] and enriched with region types and iden-
+tifiers. A large number of trajectories are further annotated at
+the waypoint level, where each waypoint is assigned a region
+identifier and semantic type. This allows us to trace the agent’s
+movement across regions throughout the trajectory, which is
+crucial for filtering valid paths, generating concise instructions,
+and supporting localization-related auxiliary tasks. To our
+knowledge, this is the first benchmark for studying navigation
+under floor plan priors with concise instructions.
+The subsequent challenge is the alignment between abstract
+floor plans, egocentric observations and instructions. As floor
+plans provide only coarse global layouts rather than navigable
+metric maps, agents must learn to align global spatial priors
+and local observations. Recently, Multimodal Large Language
+Models (MLLMs) [7], [8] have demonstrated exceptional
+capabilities in interpreting 2D diagrams and schematics due
+to web-scale pretraining. To leverage its alignment ability
+for navigation tasks, we propose FP-Nav, a MLLM-based
+framework. Specifically, we rasterize floor plans into images
+augmented with visual prompt marks, and introduce a dual-
+arXiv:2603.17437v1  [cs.RO]  18 Mar 2026
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+2
+Concise Instruction:
+  Start at (16, office), proceed to (13, living room), and stop at the couch.
+FloorPlan-VLN
+Verbose Instruction:
+      Go past a display case, through a hallway with an eye chart, into the 
+waiting area, and stop in front of a light beige couch with six pillows.
+Observation
+Instruction
+Floor Plan Reference
+Action
+Scene Assets
+Standardized Floorplans
+The New Paradigm of Floorplan-VLN
+Fig. 1. Illustration of the FloorPlan-VLN paradigm. Floor plans are derived from Matterport3D scenes, and concise region-based instructions are constructed
+to train agents to navigate by leveraging floor plans as global spatial priors.
+view, spatio-temporally aligned video pairing strategy. This
+strategy synchronizes observations (view 1) with dynamic
+floor plan visualizations (view 2), ensuring a consistent cor-
+respondence between local observations and global layouts.
+In addition, we jointly train three auxiliary tasks, namely
+region localization, trajectory reasoning, and instruction sum-
+marization, to enhance the model’s ability to align fine-grained
+observations, coarse-grained floor plans, and instructions.
+When evaluated under this new benchmark, FP-Nav sig-
+nificantly outperforms adapted state-of-the-art (SoTA) VLN
+baselines. Compared with the baseline finetuned on the
+FloorPlan-VLN dataset, our method achieves 138% and 69%
+relative improvements in success rate on seen and unseen
+splits, respectively, highlighting the potential of leveraging
+spatial priors. More importantly, we rigorously evaluate our
+framework beyond ideal simulation environments. Through
+comprehensive noise modeling and zero-shot deployment on
+a real-world quadruped robot, we demonstrate that FP-Nav is
+robust to moderate actuation drift and uncalibrated floor plan
+distortions. These results not only validate the effectiveness of
+our approach but also establish FloorPlan-VLN as a promising
+step toward spatially intelligent embodied navigation.
+In summary, our main contributions are three-fold:
+• New paradigm: We introduce a novel floor plan guided
+VLN paradigm where agents follow concise, goal-
+oriented instructions under global spatial priors.
+• New Dataset: We construct the FloorPlan-VLN dataset,
+pairing semantically annotated floor plans with trajecto-
+ries whose waypoints are labeled with region identifiers
+and types, along with concise region-level instructions.
+• Model and baseline: We propose FP-Nav, a model
+based on MLLMs with a spatio-temporally aligned input
+strategy and auxiliary tasks for cross-modal alignment.
+Extensive evaluations, including noise modeling, ablation
+studies and real-world deployment, establish it as the first
+strong and robust baseline for this new paradigm.
+II. RELATED WORK
+A. Vision-Language Navigation
+Vision-Language Navigation (VLN) has advanced signif-
+icantly in recent years. Early studies in discrete settings,
+such as MP3D Simulator [1], formulated it as graph traverse
+task [13]–[15] and mainly focused on grounding instructions
+with observations [16]–[19] or auxiliary information [20] such
+as history [21] and topological graphs [22], [23]. Substantial
+progress was achieved through large-scale pre-training [24]–
+[27] and data augmentation [28]–[31], enabling agents to
+approach human performance under this simplified setting.
+However, the assumption of a predefined topological graph
+does not reflect real-world challenges. This has motivated
+a shift towards continuous environments (VLN-CE) [5] in
+Habitat Simulator [32], where agents operate in larger state
+spaces and must control navigation through low-level actions.
+To bridge the gap between discrete and continuous settings,
+many works proposed waypoint-based methods [33]–[35].
+To enhance spatial perception, prior works developed metric
+and volumetric maps to aggregate multi-modal observations
+through grid-based memory structures [36] and voxelized 3D
+occupancy representations [37]. Recent approaches leveraged
+pre-trained VLMs to encode structured 3D feature fields or
+dynamic tokens for cross-modal reasoning [38], [39]. Besides,
+3D Gaussian Maps [40] adopted radiance field representations
+for precise semantic grounding. Another direction constructed
+BEV scene graphs [41], [42], organizing environments into
+topological graphs with bird’s-eye-view semantic features.
+With the development of MLLMs [7], [8], [43]–[45], zero-
+shot VLN has also gained traction. They proposed topological
+maps [46]–[48] and value maps [49], [50] for better envi-
+ronment perception and waypoint selection. More recently,
+some works collected large-scale navigation videos to finetune
+Vision-Language-Action models [51]–[57], which use pre-
+trained MLLMs to output low-level actions directly, allowing
+navigation based solely on RGB observations.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+3
+TABLE I
+CONCEPTUAL COMPARISON BETWEEN FLOORPLAN-VLN AND RELATED NAVIGATION PARADIGMS. OUR TASK INTRODUCES A UNIQUE COMBINATION OF
+CONCISE LANGUAGE AND SEMANTIC-RICH FLOOR PLANS, SHIFTING THE FOCUS TO SPATIO-SEMANTIC REASONING.
+Task / Paradigm
+Instruction Type
+Spatial Prior Type
+Semantic Info.
+Goal Specification
+Primary Challenge
+Traditional VLN [1]
+Verbose (step-by-step)
+✗(Unknown)
+✗
+Linguistic Landmark
+Trajectory Grounding
+Hand-Drawn Navigation [9], [10]
+✗(None)
+Informal Sketch
+✗
+Trajectory Annotation
+Informal Cue Interpretation
+FloorPlan Point Navigation [11], [12]
+✗(None)
+Geometric Boundary
+✗
+Point Goal Coordinates
+Localization & Planning
+FloorPlan-VLN (Ours)
+Concise (Region-based)
+Vectorized Layout
+✓(RTA/RIA)
+Linguistic Landmark
+Spatio-Semantic Alignment
+Abbr: RTA = Region Type Annotations, RIA = Region Identifier Annotations.
+While existing environment representations have signifi-
+cantly advanced spatial awareness, they primarily rely on on-
+the-fly construction, which restricts the agent to incremental
+local perception and precludes the use of global spatial priors.
+Attempting to derive a global context through these represen-
+tations, whether using dense maps [38], [40], [50] or structured
+graphs [23], [35], requires an exhaustive pre-scanning of the
+entire environment that is both computationally expensive and
+practically burdensome. In contrast, our FloorPlan-VLN uses
+pre-existing floor plans as a low-cost prior as shown in Table I.
+This approach avoids the inefficient ”scan-and-reconstruct”
+cycle, instead providing a standardized spatial interface for
+immediate global layout. By offloading spatial discovery to
+this prior, our method enables agents to interpret concise
+instructions rather than following step-by-step guidance.
+B. Hand-Drawn Maps for Navigation
+While the use of global spatial priors has not been con-
+sidered in VLN, a parallel line of research has investigated
+navigation with hand-drawn maps. These studies aim to guide
+agents in unseen environments with hand-drawn sketches,
+which provide both the spatial layout and either a reference
+trajectory or a specified goal. Early works perceive sketches
+as an interface for human-robot interaction and focused on
+extracting navigation clues from sketches based on ruled-
+based methods [58], [59]. Other works explored probabilistic
+methods such as Monte Carlo Localization [60]–[63], Hidden
+Markov Models [64], [65] and Bayesian Filtering [10]. Re-
+cently, HAM-Nav [9] built a zero-shot system based on VLM
+to associate environmental features with hand-drawn maps.
+However, such works differ fundamentally from FloorPlan-
+VLN as they focus on interpreting navigation clues from
+signals drawn by users rather than following linguistic in-
+structions as illustrated in Table I. Furthermore, the stylistic
+variance of hand-drawn maps poses a significant domain
+gap and hinders scalable model training, leading to current
+research [9] limited to zero-shot settings. We argue that
+standardized floor plans serve as a more robust and scalable
+Unified Spatial Interface. Unlike informal sketches that
+suffer from high variance, our vectorized representation (i.e.,
+structured region polygons) abstracts the environment layout
+and region semantics into a consistent format. This not only
+enables scalable model training but also provides a unified
+target representation that both accurate architectural buleprints
+and hand-drawn maps can be mapped onto.
+C. Floor Plan Point Navigation
+Another line of research explored visual navigation using
+simplified floor plans. Early studies focused on floor plan
+based localization [66]–[71], assuming idealized floor plans
+containing only wall boundaries. These approaches often esti-
+mated the agent’s location from RGB-D observations or em-
+bedded visible points onto the floor plan, followed by querying
+image features for localization. More recently, floor plans have
+been introduced into point-goal navigation tasks [11], [12],
+where the goal position is explicitly marked on the map. For
+example, Shen et al. [12] encoded panoramic image features
+at sampled points on the floor plan and performed localization
+via a score map, planning trajectories based on a topological
+graph. Li et al. [11] instead designed a diffusion policy to
+generate trajectories and projected them from the floor plan to
+the real world using the provided scale and offset.
+However, these studies typically treat floor plans as over-
+simplified geometric constraints (e.g., wall boundaries) for
+localization or point navigation, where the goal is defined by
+coordinates rather than instructions, as presented in Table I.
+In contrast, FloorPlan-VLN introduces region-level semantics
+paired with concise instructions, bridging the gap between
+low-level geometric navigation and high-level semantic rea-
+soning. Therefore, our task focuses on the challenge of align-
+ing layout priors, observations, and instructions.
+III. TASK AND DATASET
+A. Task Definition
+We define the proposed FloorPlan-VLN task as follows.
+Given an unseen environment E, the agent starts from ps and
+must reach a goal position pg following an instruction I while
+leveraging a floor plan F. At each step t, it receives an egocen-
+tric observation Ot then predicts an action at ∈A, where A =
+{MoveForward(d), TurnLeft(θ), TurnRight(θ), Stop},
+d
+and θ are fixed step sizes. The floor plan F = {Ri}N
+i=1
+provides a coarse global layout, containing regions on the
+same floor (e.g. N regions). Each region is represented by
+a boundary polygon P, a semantic type and a unique iden-
+tifier. The boundary polygon is defined by m vertices, i.e.,
+Ri = (P, type, id), P = {vi}m
+i=1, vi ∈R2. The instruction I
+specifies the start region (ids, types), goal region (idg, typeg),
+and stopping conditions. Unlike conventional VLN instruc-
+tions describing landmarks and step-by-step actions, ours are
+concise and high-level, encouraging reliance on floor plan
+reasoning. An episode succeeds if the final position pT is
+within a distance threshold δ of pg.
+B. FloorPlan-VLN Dataset Collection
+Unlike hand-drawn maps [9], [10], [65] that vary in style
+and accuracy, or oversimplified floor plans that contain only
+wall boundaries, we collect standardized vectorized floor
+plans. Architectural floor plans follow inconsistent drafting
+conventions and often include decorative elements, resulting
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+4
+Scene Asset
+Rasterization
+1st floor 2nd floor
+3rd floor 4th floor
+5th floor
+Region
+Polygons
+House File
+L 0 0 - -0.39 2.54 -5.67 -3.73 -2.08 … 0 0 0
+R 0 0 0 0 e -0.019 3.47 -5.75  -1.24 … 0 0 0 
+…
+…
+S 3 3 0 F 4.94 0.38 -2.75 0 0 1 3.63 … 0 0 0
+…
+V 5 0 F -0.85 -0.69 -5.75 0 0 1 0 0 0 
+…
+Region 
+IDs
+Region 
+Types
+Region 
+Levels
+1. Floorplan Construction
+2. Trajectory Collection
+3. Instruction Simplification
+Redundant 
+Exploration
+Trajectories
+3603
+Trajectories
+2998
+Trajectories
+Stop Condition
+2nd floor
+3rd floor
+Cross-floor 
+Trajectories
+Walk outside the laundry room and 
+turn right then move forward into the 
+bedroom. Walk pass the bed and enter 
+a hallway, turn left at the plant then go 
+ahead into the bath room and stand 
+beside the bathtub.
+Verbose Instruction
+stand beside 
+the bathtub
+Concise Instruction Templates
+start region type: 
+laundry room
+start region id: 
+end region type: 
+bath room
+end region id: 
+ 
+You are now at (start region id, start region type), please go to 
+(end region id, end region type)
+…
+Make your way from (1, laundry room) to (6, bath room) and 
+stand beside the bathtub.
+6️⃣
+1️⃣
+sample
+2
+1
+3
+w1
+w2
+w3
+w4
+w5
+w1:
+w2:
+w3:
+w4:
+w5:
+(4, balcony )
+(3, bedroom )
+(3, bedroom )
+(5, hallway )
+(8, closet )
+Waypoint-level 
+Trajectory
+Annotation
+1
+2 Trajectory
+Filtering
+1
+2
+3
+4
+5
+6
+7
+8
+1
+2
+3
+4
+5
+6
+7
+8
+Fig. 2. The dataset collection pipeline of the FloorPlan-VLN dataset.
+TABLE II
+THE FLOORPLAN-VLN DATASET DERIVES TRAJECTORIES FROM TWO MAJOR VLN DATASETS, R2R AND RXR, BOTH BUILT ON MATTERPORT3D
+SCENES. RXR INCLUDES LONGER TRAJECTORIES AND POSES GREATER NAVIGATION CHALLENGES THAN R2R. ABBREVIATIONS: VAL = VALIDATION,
+TRAJS = TRAJECTORIES, EPS = EPISODES, FPS = FLOOR PLANS, RTS = REGION TYPES, MTL = MEAN TRAJECTORY LENGTH (METERS).
+Split
+FloorPlan-R2R Dataset
+FloorPlan-RxR Dataset
+Scenes
+Trajs
+Eps
+FPs
+Regions
+RTs
+MTL
+Scenes
+Trajs
+Eps
+FPs
+Regions
+RTs
+MTL
+Train
+61
+2,998
+9,002
+111
+945
+30
+9.27
+59
+5328
+15978
+115
+942
+30
+15.04
+Val-Seen
+51
+226
+679
+80
+885
+30
+9.57
+56
+593
+1778
+94
+864
+29
+14.90
+Val-Unseen
+11
+487
+1,461
+18
+161
+22
+9.04
+11
+925
+2775
+21
+157
+22
+13.97
+Fig. 3. Hand drawn maps can be converted to standardized representation.
+in non-standardized representations. To achieve a consistent
+representation, prior works in floor plan reconstruction [72]–
+[75] vectorize raw floor plans into 2D polygons with semantic
+labels, while recent methods [76], [77] generate such repre-
+sentations directly from 3D point clouds. These approaches
+establish a unified format that encodes spatial structures
+and region categories. Following this paradigm, we design a
+dataset collection pipeline as illustrated in Figure 2.
+Firstly, we construct vectorized floor plans from the Matter-
+port3D dataset [6] by extracting all regions from each floor of
+every building. Each region is represented as a closed polygon
+defined by its boundary vertexes, annotated with a semantic
+type, and assigned a unique identifier to distinguish regions of
+the same type within the same floor.
+Secondly, we obtain navigation trajectories from R2R-CE
+and RxR-CE [5]. For each trajectory, waypoints are mapped
+to regions by checking which polygon contains them, thereby
+yielding the sequence of regions traversed by the agent. We
+excluding cross-floor and redundant exploration trajectories
+so that the task focuses on single-floor navigation. We fo-
+cus on single-floor navigation for two main reasons. First,
+statistical analysis of R2R-CE trajectories shows that cross-
+floor episodes account for only 2.2% of the dataset, lacking
+enough supervision for learning vertical transitions and floor
+plan switching. Second, the core challenge of FloorPlan-VLN
+is spatio-semantic alignment between global layout priors and
+0
+5
+10
+15
+20
+25
+30
+1 7.4
+17
+26.6 36.2 45.8 55.4
+65
+77.8
+(a) Number of Regions per Floorplan Level
+Frequency
+0
+50
+100
+150
+200
+250
+(b) Number of Region Types
+Frequency
+0
+200
+400
+600
+800
+1000
+1200
+1
+2
+3
+4
+5
+6
+7
+(c) Number of Unique Regions Traversed in Trajectory
+Frequency
+0
+50
+100
+150
+200
+250
+300
+350
+400
+5.1
+7.7
+10.3 12.9 15.5 18.2 20.8 23.4
+(d) Trajectory Length (meters)
+Frequency
+Fig. 4. Dataset analysis of the FloorPlan-R2R training split.
+egocentric observations. Although multi-floor navigation is
+feasible based on staircase detection and dynamic floor plan
+switching, it would shift focus from cross-modal reasoning.
+We argue that robust single-floor navigation is a prerequisite
+for future multi-floor extensions.
+Thirdly, to reduce the redundancy of the original instructions
+and encourage the use of floor plans, we simplify them into
+concise forms using Qwen-2.5-VL [7]. For each episode, the
+concise instructions specify only the start and target regions,
+along with their corresponding identifiers and semantic types.
+Meanwhile, the stopping conditions are extracted directly
+from the original instructions to preserve authentic human
+intent. We design a set of 10 concise instruction templates
+that describe the task as shown in Figure 2. This procedure
+retains essential task requirements while discarding detailed
+descriptions of landmarks and step-by-step actions.
+To ensure practical applicability, we develop a semi-
+automated pipeline that can efficiently convert hand-drawn
+maps into our standardized format as demonstrated in Figure 3.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+5
+…
+t
+O
+t
+G
+t
+M
+Height:
+420
+Large Language Model
+MLP Projector
+Vision Encoder
+The next action is
+Forward d cm.
+Turn right θ degrees.
+Turn left θ degrees.
+··Stop.
+Navigation Tasks
+…
+Decide your next action, which could involve turning left or right 
+by a specific degree or moving forward a certain distance or stop.
+Imagine you are a robot programmed for navigation tasks. 
+You have been given a navigation video
+Your assigned task is:
+From (24, hallway), make your way to (21, bedroom), and 
+wait at the open door on the left. 
+Action Prediction
+Auxiliary Tasks
+Region
+Localization
+Trajectory
+Reasoning
+Instruction
+Summarization
+Spatio-Temporally Aligned Video Stream
+Fig. 5. Overview of the FP-Nav framework. The model takes a spatio-temporally aligned dual-view video stream as input, jointly encoding floor plans and
+egocentric observations. Three auxiliary tasks are designed to strengthen cross-modal alignment, and the model autoregressively predicts navigation actions.
+This pipeline is also used in our real-world experiments, and
+more details will be introduced in § VI-A.
+C. Dataset Analysis
+As shown in Table II, the FloorPlan-VLN dataset unifies tra-
+jectories from R2R and RxR. The R2R split provides shorter,
+simpler trajectories, while RxR includes longer and more
+complex trajectories, posing greater challenges. Each dataset
+is divided into train, val-seen, and val-unseen splits, where
+the seen split tests generalization to new trajectories within
+familiar scenes, and the unseen split evaluates generalization
+to novel environments and floor plans.
+In total, FloorPlan-VLN spans 70+ buildings, 130+ floor
+plans, and over 1k region-level annotations across 30 semantic
+region types, offering diverse spatial structures and scene
+scales for studying floor plan guided navigation. Moreover,
+it introduces vectorized region polygons enriched with re-
+gion types, identifiers, and instructions, establishing the first
+benchmark for studying navigation under floor plan priors
+with concise instructions. To further characterize the dataset,
+we analyze the training split of FloorPlan-R2R from four
+perspectives, as illustrated in Figure 4. Figure (a) shows that
+most floor plans contain more than 7 regions, indicating that
+the dataset includes environments of varying scales and spatial
+complexity. Figure (b) presents the distribution of region types.
+Figure (c) shows that most trajectories traverse at least three
+regions, and Figure (d) reveals that their average length is
+about 9 meters, highlighting the long-horizon and multi-region
+challenges of the FloorPlan-VLN task.
+IV. FP-NAV
+MLLMs pretrained on web-scale data implicitly learn to
+interpret spatial diagrams such as floor plans. To exploit this
+ability for navigation, we propose FP-Nav, which rasterizes
+floor plans as images and finetunes Qwen-2.5-VL [8] to align
+them with egocentric observations and instructions for action
+generation. As illustrated in Figure 5, FP-Nav comprises a
+vision encoder for extracting visual features, a lightweight
+MLP projector for vision-language feature alignment, and an
+LLM that performs cross-modal fusion and generates low-
+level navigation actions. Given an instruction, a sequence of
+egocentric observations, and a floor plan, we finetune the
+model to jointly align these modalities and generate step-
+wise actions. To address the alignment challenge between
+floor plan and observation, we introduce a spatio-temporally
+aligned video pairing strategy. Besides, three auxiliary tasks
+are designed to strengthen FP-Nav’s capabilities in region lo-
+calization, trajectory reasoning and instruction summarization.
+A. Spatio-Temporally Aligned Video Stream
+The collected floor plans are vectorized as polygons which
+are a set of 2D point clouds. A straightforward method to
+encode them is using point encoders [78], [79] to extract their
+geometry features then concatenate them with corresponding
+semantic type features and ID features. However, we empiri-
+cally find that training a floor plan encoder to align its learned
+features with the MLLM’s feature space is difficult, since
+MLLMs are primarily trained on rasterized visual data such as
+images. Thus we decide to rasterize floor plans F into images
+IF ∈RH×W ×3, where H and W represent image’s height and
+width, respectively. To embed the semantic structure into the
+image, we employ visual prompting [80]: Region Types (e.g.,
+living room, kitchen) are encoded by distinct colors for easy
+visual segmentation, and unique region identifiers are marked
+with numeric labels. To establish effective correspondences
+between observations and floor plans, we explore four input
+strategies that progressively transition from implicit to explicit
+alignment as shown in Figure 6.
+(a) Static Separate Input. The most straightforward
+method provides the static floor plan and the egocentric
+observation sequence as separate inputs as shown in Figure 6
+(a). It requires the agent to implicitly localize itself according
+to a static floor plan and dynamic observations which remains
+a significant open challenge. As the first exploration, we
+aim to prioritize the core challenge of aligning egocentric
+observations with floor plans and instructions. Therefore, we
+utilize the agent’s ground-truth poses from simulator as oracle
+signals and design additional experiments to evaluate the
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+6
+video
+Imagine you are a robot programmed 
+for navigation tasks. You have been 
+given a floorplan image
+and a navigation video
+…
+Your assigned task is …
+Imagine you are a robot programmed 
+for navigation tasks. You have been 
+given a navigation video
+and a floorplan navigation video
+Your assigned task is …
+Imagine you are a robot programmed 
+for navigation tasks. You have been 
+given a navigation video
+Your assigned task is …
+Imagine you are a robot programmed 
+for navigation tasks. You have been 
+given a navigation video
+Your assigned task is …
+…
+(a) Floorplan Image
+(b) Two Separate Videos
+(c) Interleave Videos
+(d) Spatio-Temporally Aligned Videos
+Floorplan
+Observation
+Floorplan with navigation state
+Dual-view observation
+…
+…
+…
+Fig. 6. Comparison of four input strategies.
+robustness of our method to pose perturbations and floor plan
+distortions. This setup establishes the first performance upper
+bound and decouples the cross-modal alignment challenge
+from the complexities of location estimation.
+(b) Dual-Stream Temporal Fusion. Utilizing the oracle
+pose, we generate a dynamic floor plan sequence where the
+agent’s historical trajectory and current pose are explicitly
+rendered (blue squares). In this approach, the observation
+video and the dynamic floor plan sequence are fed as two
+independent streams, forcing the model to learn cross-modal
+correspondences across the entire temporal context.
+(c) Interleaved Frame Fusion. To facilitate more granular
+alignment at each time step, we interleave the egocentric
+frames and their corresponding allocentric floor plan frames.
+This strategy encourages the model to perform alternating
+cross-modal comparisons within the visual sequence, trying
+to reduce the difficulty of long-range temporal matching.
+(d) Spatio-Temporally Aligned Dual-View. Inspired by
+how humans use navigation tools, where they simultaneously
+observe their surroundings and their pose on the map, we
+propose a spatio-temporally aligned video stream as input as
+shown in Figure 6 (d). This strategy shifts the learning burden
+from implicit alignment to explicit spatial correlation. At each
+time step t, the dual-view input frame Mt is constructed
+by horizontally concatenating the egocentric observation Ot
+with the floor plan image Gt, where Gt includes the agent’s
+historical trajectory T0:t−1 = s0, s1, . . . , st−1 and current
+pose st = (xt, yt, θt) explicitly marked:
+Mt = [Ot ∥Gt]; Gt = R(IF, T0:t−1, st)
+(1)
+where R(·) is the rendering function for floor plan IF given
+the trajectory T0:t−1 and pose st, and [· ∥·] denotes the
+horizontal concatenation function. This provides the visual
+encoder with an immediate spatial-temporal correspondence.
+We
+denote
+the
+navigation
+task’s
+dataset
+as
+Dnav = {(Q1, A1), (Q2, A2), · · · , (QN, AN)}, where Qt =
+{prompts; Mt−h:t; I} (as shown in Figure 5) where h is the
+length of video sequence and At = {The next action is at.}
+User: Imagine you are a robot programmed for navigation tasks. You have 
+been given a navigation video including observation and floorplan 
+guidance. Describe your location.
+Assistant: I can see a large white countertop with a sink, cabinets 
+underneath, and a ceiling with recessed lighting. There is also a doorway 
+leading outside and another room visible in the background. The presence 
+of these elements confirms that I am in a kitchen
+User: Imagine you are a robot programmed for navigation tasks. You have 
+been given a navigation video including observation and floorplan 
+guidance. Based on this video, describe the navigation trajectory.
+Assistant (case 1): I haven't explored any regions. I am exploring (31, 
+kitchen) and I need to explore (30, hallway) next.
+Assistant (case 2): I have explored (31, kitchen),  I am exploring (30, 
+hallway) and I need to explore (12, bedroom) next.
+User: Imagine you are a robot programmed for navigation tasks. You have 
+been given a navigation video including observation and floorplan 
+guidance. Your assigned task is: Begin at (31, kitchen), move to (12, 
+bedroom), and stop beside the bed. Summarize your navigation process 
+and describe your next plan.
+Assistant (case 3): I have explored (31, kitchen) and (30, hallway), I am 
+exploring (12, bedroom) and I need to stop beside the bed.
+Assistant: Begin at (31, kitchen), move to (12, bedroom), and stop beside 
+the bed.
+Region Localization
+Trajectory Reasoning
+Instruction Summarization
+Fig. 7.
+Three auxiliary tasks designed to strengthen the alignment among
+instructions, egocentric observations, and floor plans.
+B. Auxiliary Tasks
+To strengthen the model’s spatio-semantic alignment and
+high-level reasoning capabilities, we incorporate three auxil-
+iary tasks alongside the primary navigation objective. These
+tasks encourage the MLLM to internalize the relationship
+between egocentric observations, floor plans, and instructions.
+Region Localization. This task encourages the agent to
+associate current visual perceptions with the floor plan. At
+randomly sampled steps t within a trajectory, the agent is
+prompted to describe its observation Ot and infer the current
+region type Rt. We employ a teacher model (e.g., Qwen-2.5-
+VL-32B) to generate a concise caption Ct for the frame. The
+ground-truth region type Rt is automatically determined by
+a spatial query fmap(st) that checks which polygonal region
+boundary in the vectorized floor plan contains the agent’s
+current pose st. The task’s QA dataset is similar to Dnav while
+the target response At = {Ct; Rt} as shown in Figure 7.
+Trajectory Reasoning. To enhance long-term spatial mem-
+ory and progress tracking, the agent is asked to summarize its
+navigation history, report its current progress, and generate a
+plan for the next step. Each step of the trajectory is annotated
+with the agent’s current region identifier and region type, as
+introduced in § III-B. These annotations allow us to construct
+ground truth supervision by tracing agent’s visited region
+sequence and identify the next region to traverse. As illustrated
+in Figure 7, we consider three cases:
+• Initialization Stage. When the agent has not yet explored
+any regions, it focuses on identifying its current region
+Rt and the next one to visit Pt.
+• Navigation Stage. As the agent explores multiple re-
+gions, it is required to summarize the visited regions in
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+7
+order Ht, identify its current region and type Rt, and
+predict the next region to explore Pt.
+• Termination stage. Once the agent reaches the region
+containing the goal, it summarizes all previous explo-
+rations, infers its current location, and describes the stop
+condition St specified in the instruction.
+The dataset Dtraj is similar to Region Localization task
+while the target response At consists of {Ht, Rt, Pt(St)}.
+Instruction Summarization. This task reinforces the align-
+ment between instruction and spatio-temporally visual inputs.
+Given a successful dual-view navigation video M1:T , the agent
+is required to reconstruct the original concise instruction I (en-
+compassing the start, goal, and stop condition). By learning to
+reconstruct the high-level intent behind a navigation episode,
+the model develops a deeper understanding of how concise
+instructions correspond to observations and floor plans. This
+dataset is denoted as Dsum with its inputs Qt = {M1:T } and
+target response At = {I}.
+C. Unified Training Objective
+While these tasks are functionally diverse, we formulate
+the entire training process as a unified Next Token Prediction
+(NTP) problem. This approach treats the navigation task and
+auxiliary tasks as different parts of the same autoregressive
+model, distinguished by specific text prompts. We aggregate
+all tasks into a unified dataset D = Dnav ∪Daux, where Daux =
+Dloc ∪Dtraj ∪Dsum. For any sample in D, the input consists of
+a multi-modal sequence X = {M; prompts, I}, and the target
+is a sequence of tokens Y = {y1, y2, . . . , yN}. The model is
+trained by minimizing the unified cross-entropy loss:
+Ltotal = −
+X
+(X,Y)∈D
+N
+X
+i=1
+log P(yi | X, y<i; θ)
+where θ represents the trainable parameters. During training,
+we employ a task-balanced sampling strategy to ensure that the
+primary navigation task Dnav remains the dominant objective
+while benefiting from the cross-modal alignment provided
+by Daux. More details are introduced in § V-B This unified
+formulation allows the MLLM to naturally share internal
+representations across execution and reasoning.
+D. Modeling Actuation and Floor Plan Noises
+To evaluate the system’s robustness in non-ideal conditions,
+we introduce a comprehensive uncertainty framework that
+simulates real-world control errors and prior inaccuracies.
+Actuation Noises: In real-world deployment, the robot
+controller could be imperfect, therefore we model the actuation
+noise by perturbing the agent’s actual displacement. Given an
+action at ∈{MoveForward, TurnLeft, TurnRight}, the
+agent’s pose st = (xt, yt, θt) is updated via a noisy transition
+model. For rotation:
+θt+1 = θt + sgn(at) · ∆ˆθ + ϵrot,
+ϵrot ∼N(0, σ2
+rot)
+(2)
+where ∆ˆθ is the nominal turn angle and ϵrot represents the
+heading noise.
+For moving forward:
+(
+dt = ˆd(1 + ϵm),
+ϵm ∼N(0, σ2
+move)
+θt+1 = θt + ϵd,
+ϵd ∼N(0, σ2
+drift)
+(
+xt+1 = xt + dt sin(θt+1)
+yt+1 = yt + dt cos(θt+1)
+(3)
+where ˆd is the nominal step size, ϵm is the relative distance
+error, and ϵd accounts for the subtle heading drift during
+straight-line motion. We set σdrift = 0.1σmove
+Floor Plan Noises: To simulate the inaccuracies in real-
+world floor plans and hand-drawn maps, we introduce two
+types of geometric noises. Rather than assuming a perfect
+map-to-world alignment, these noises evaluate the agent’s
+spatial reasoning robustness under imperfect global priors.
+Global Scale Variance: In practical deployment, floor plans
+or hand-drawn maps may contain scale inaccuracies relative
+to the real environment. As a result, the agent’s trajectory pro-
+jected onto the map may appear to be deviated. To equivalently
+simulate the consequences of this scaling discrepancy, we
+inject a global scale multiplier α into the trajectory projection
+process, rather than altering the map itself:
+ˆpt = α · fproj(pt),
+α ∼N(1, σ2
+scale)
+(4)
+where pt = (xt, yt) is the agent’s actual position in the
+simulator, fproj(·) is the projection function, and ˆpt is the
+corresponding coordinate rendered on the floor plan image.
+Geometric Jitter: Imperfect floor plans and hand-drawn
+maps may include shape distortions. To emulate this real-world
+variance, we apply a random displacement to each vertex
+vi ∈P of the region boundaries:
+v′
+i = vi + ϵi, ϵi ∼N(0, σ2
+jitter)
+(5)
+The primary objective of introducing this perturbation is to
+explicitly verify that FP-Nav relies on a holistic understanding
+of global spatial layout for navigation, rather than overfitting
+to rigid pixel-level coordinate dependencies.
+V. EXPERIMENT
+We design experiments to address the following questions:
+(1) How does our method compare with other adapted SoTA
+baselines? (2) Does our method robust to imperfect pose and
+floor plans? (3) Is the proposed spatio-temporally aligned
+video stream effective? (4) Does the model learn to align the
+floor plan with egocentric observations? (5) What is the impact
+of different auxiliary tasks? (6) What is the effect of training
+different parameters (e.g., MLP/LLM/vision encoder)?
+A. Experiment Setup
+All experiments are conducted in the Habitat simulator [32],
+which provides continuous state in reconstructed indoor envi-
+ronments. We evaluate on the validation-seen and validation-
+unseen splits and report: Navigation Error (NE) measures
+the mean distance from the final location to the destination;
+Success Rate (SR) represents the proportion of episodes with
+NE under 3 meters; Oracle Success Rate (OSR) calculates SR
+with an oracle stop policy and Success weighted by Trajectory
+Length (SPL) normalizes SR by trajectory length.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+8
+TABLE III
+COMPARISON WITH BASELINES ACROSS FLOORPLAN-R2R AND FLOORPLAN-RXR.
+Method
+FloorPlan-R2R
+FloorPlan-RxR
+Val Seen
+Val Unseen
+Val Seen
+Val Unseen
+NE↓
+OSR↑
+SR↑
+SPL↑
+NE↓
+OSR↑
+SR↑
+SPL↑
+NE↓
+OSR↑
+SR↑
+SPL↑
+NE↓
+OSR↑
+SR↑
+SPL↑
+Qwen-zs
+9.6
+3.1
+2.2
+1.9
+9.3
+3.4
+2.4
+2.0
+12.0
+8.6
+5.6
+4.4
+11.1
+11.2
+7.2
+5.7
+NaVILA-zs
+9.9
+19.0
+8.8
+0.6
+10.1
+17.6
+5.5
+3.5
+12.9
+20.1
+7.1
+4.5
+11.2
+20.0
+6.9
+4.4
+StreamVLN-zs
+9.1
+24.3
+11.5
+6.5
+8.8
+30.3
+14.6
+7.0
+11.6
+27.9
+15.0
+9.2
+10.8
+26.9
+14.4
+7.7
+InternVLA-N1-zs
+7.3
+26.5
+10.6
+9.2
+8.2
+19.4
+7.5
+7.0
+10.4
+22.4
+12.3
+9.7
+10.0
+22.4
+10.0
+8.0
+Navid-zs
+9.5
+3.1
+2.0
+1.6
+8.9
+2.9
+1.8
+1.0
+11.6
+10.8
+6.7
+5.0
+10.7
+12.1
+10.5
+8.4
+Navid-ft
+8.8
+27.0
+18.1
+14.2
+9.1
+25.2
+17.0
+13.0
+11.3
+20.5
+12.8
+8.6
+10.6
+24.2
+13.4
+9.2
+FP-Nav
+8.6
+36.3
+23.0
+17.8
+9.8
+35.2
+20.9
+15.3
+11.9
+26.8
+17.0
+12.2
+11.3
+28.9
+15.1
+10.2
+FP-Nav-v
+8.2
+48.2
+38.1
+31.5
+9.6
+37.4
+25.9
+21.7
+11.9
+29.8
+18.7
+15.0
+11.3
+31.2
+17.7
+14.1
+FP-Nav-v-rxr
+7.0
+51.1
+43.2
+38.4
+9.4
+39.8
+28.8
+24.0
+9.9
+37.3
+24.1
+20.0
+10.1
+38.5
+25.2
+20.1
+64%
+18%
+16%2%
+forward 25
+left 15
+right 15
+stop
+15%
+18%
+15%
+11%
+8%
+11%
+7%
+15%
+forward 25
+forward 50
+forward 75
+left 15
+left 30
+right 15
+right 30
+stop
+(a) Before Action Merge
+(b) After Action Merge
+Fig. 8. Action frequency after merging consecutive steps in the FloorPlan-
+R2R finetuning dataset.
+B. Implementation Details
+We collect navigation videos for finetuning by executing
+ground-truth trajectories in the Habitat simulator. The trans-
+lation step d, rotation step θ and success distance threshold
+δ introduced in Section III-A, are set to 25 cm, 15◦and
+3 m respectively. The video sequence length h is set to 6.
+During execution, the agent follows each trajectory step by
+step while capturing egocentric observations at 1 fps. The
+recorded pose data are then projected onto the floor plan,
+depicting the agent’s pose and trajectory over time.
+To balance the action distribution, we merge consecutive
+identical actions (e.g., forwards) and upsample underrepre-
+sented ones (e.g., stop). As shown in Figure 8(a), the original
+data distribution is highly imbalanced. Most actions are Move
+Forward, while Stop and turning actions occur much less
+frequently. Training directly on such a distribution would make
+it difficult for the model to learn effective turning or stopping
+behaviors, leading to suboptimal navigation.
+To address this, we merge consecutive Move Forward ac-
+tions (e.g., “move forward 50 cm” and “move forward 75 cm”)
+into a single longer step action to reduce redundancy. Simi-
+larly, consecutive Turn Left or Turn Right actions are merged
+to preserve meaningful rotation patterns. During inference, we
+decompose the predicted action into a sequence of primitive
+actions and execute them sequentially. For underrepresented
+actions such as Stop, we upsample them by repetition to
+increase their frequency during training. After balancing, the
+action distribution becomes significantly more uniform, as
+shown in Figure 8(b), allowing the model to learn a more
+stable and comprehensive navigation policy. In total, we obtain
+approximately 350K action QA samples.
+For auxiliary tasks, we additionally collect about 174K QA
+samples for the region localization and trajectory reasoning
+tasks, and 9K samples for the instruction summarization task.
+We finetune FP-Nav using 4 H100 GPUs for 20 hours (80
+GPU hours in total). For navigation episodes with long step
+sequences, we truncate the video to at most 6 frames, keeping
+the first and last frames and uniformly sampling the remaining
+ones. The batch size is set as 4 and the learning rate is 4×10−5.
+During inference, we follow [53] and use expression matching
+to parse action commands from the model’s textual output.
+C. Main Results
+As FloorPlan-VLN is a new task setting, we establish five
+zero-shot baselines and one finetuned baseline, and compare
+them with our proposed FP-Nav on the FloorPlan-VLN bench-
+mark. The evaluated methods are as follows where “-zs”
+means this method is evaluated in a zero-shot manner and all
+baselines are evaluated with our dual-view, spatio-temporally
+aligned input strategy:
+• Qwen-zs: We apply Qwen-2.5-VL-7B for step-wise
+action generation on both FloorPlan-VLN-R2R and
+FloorPlan-VLN-RxR datasets.
+• NaVILA-zs: NaVILA [55] is a Vision-Language-Action
+(VLA) model pre-trained on VLN-CE videos and large-
+scale human navigation videos.
+• StreamVLN-zs: StreamVLN [57] is a video-based LLM
+which supports multi-turn dialouge navigation through a
+hybrid slow-fast context modeling strategy.
+• InternVLA-N1-zs: InternVLA-N1 [81] is a dual-system
+framework which uses MLLM as slow-system for goal
+point selection and uses a navigation diffusion model [82]
+as fast-system for trajectory generation.
+• Navid-zs: Navid [53] is a VLA model pre-trained on
+VLN-CE videos that designs grid sampling strategy for
+better memory efficiency.
+• Navid-ft: Finetunes Navid with FloorPlan-VLN data.
+• FP-Nav: Adopts Qwen-2.5-VL-7B as the backbone while
+freezing the vision encoder for fair comparison with
+Navid-ft. Ablation studies are conducted on this setup.
+• FP-Nav-v: Unfreezes Qwen’s vision encoder, allowing
+updates to the ViT [83] patch embeddings and Rotary
+Positional Embeddings (RoPE) [84].
+• FP-Nav-v-rxr: Further augments training with approxi-
+mately 1.7k long-horizon episodes (trajectory length >10
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+9
+m) from the FloorPlan-RxR dataset to improve extended
+navigation ability.
+Results on FloorPlan-R2R. As shown in Table III, most
+of the methods achieve relative low zero-shot performance in
+our new paradigm. While specialized navigation agents such as
+StreamVLN achieve a higher zero-shot success rate (SR), we
+attribute this primarily to their intensive domain-specific pre-
+training on VLN-CE datasets and their architectures tailored
+for navigation tasks. To decouple the effect of pre-existing nav-
+igation biases from the actual contribution of floor plan priors,
+we intentionally select Qwen-2.5-VL as our primary backbone.
+The marginal zero-shot performance of vanilla Qwen (Qwen-
+zs) underscores a fundamental challenge: general-purpose
+MLLMs struggle to ground concise instructions within floor
+plans and egocentric observations without explicit fine-tuning.
+Consequently, utilizing a navigation-agnostic generalist model
+ensures a more rigorous and objective evaluation.
+Beyond finetuning MLLM, we also finetune Navid to
+demonstrate
+the
+transferability
+of
+our
+proposed
+spatio-
+temporally aligned dual-view input strategy. Among the estab-
+lished baselines, StreamVLN relies on a multi-turn dialogue
+state tracking architecture, NaVILA benefits from extensive
+augmentation with large-scale human navigation data, and
+InternVLA-N1 employs a complex dual-system reasoning
+framework. These specialized designs introduce additional
+confounding variables that make it difficult to isolate the spe-
+cific impact of the floor plan prior. Therefore, we specifically
+choose to fine-tune Navid.
+After finetuning, Navid-ft achieves a significant improve-
+ment, demonstrating that the model can partially adapt to floor
+plan guided navigation. Our FP-Nav, further improves OSR,
+SR, and SPL by +10.0, +3.9, and +2.3 points on Val-Unseen
+over Navid-ft. Although Navid is finetuned on VLN-CE, it is
+built on LLaMA-Vid [85], whose pretraining focuses on video
+understanding with limited exposure to schematic or spatial
+diagram reasoning. This indicates that MLLMs with stronger
+spatial and diagram oriented pretraining are inherently better at
+learning correspondences between floor plans and egocentric
+observations, even without updating the visual encoder.
+Unfreezing Qwen’s vision encoder (FP-Nav-v) brings sub-
+stantial gains, with SR and SPL improving by 24% and
+42% on Val-Unseen split, respectively. This suggests that
+updating the visual backbone helps the model transition from
+natural image understanding to the symbol-dense floor plan
+domain, where ViT patch embeddings and RoPE can adjust to
+the dual-view temporal alignment, yielding improved cross-
+view consistency. Finally, FP-Nav-v-rxr leads to consistent
+improvements across all metrics, confirming the benefit of
+longer trajectories for enhancing navigation robustness. We
+also observe higher performance on Val-Seen compared to Val-
+Unseen after unfreezing, suggesting stronger memorization
+and reasoning over previously seen floor plans, which benefits
+intra-scene generalization.
+Results on FloorPlan-RxR. Except for FP-Nav-v-rxr, all
+models are evaluated in a zero-shot manner on the FloorPlan-
+RxR dataset. As shown in Table III, the results exhibit trends
+consistent with those observed on FloorPlan-R2R, demonstrat-
+ing strong cross-dataset generalization. Since FloorPlan-RxR
+Fig. 9. Dataset comparison between FloorPlan-R2R Val-Seen and FloorPlan-
+RxR on Val-Seen split.
+contains longer trajectories that traverse more regions, the
+task is inherently more challenging, leading to a performance
+drop across all methods. Nevertheless, FP-Nav-v-rxr achieves
+further gains by adding long-horizon trajectories, highlighting
+both the model’s scalability and the effectiveness of our
+proposed learning strategy.
+The results in Table III show that both Qwen-zs and
+Navid-zs achieve higher performance on the FloorPlan-RxR
+dataset than on FloorPlan-R2R for both seen and unseen
+splits. According to our statics, we find that FloorPlan-RxR
+contains a larger proportion of short trajectories, as illus-
+trated in Figure 9. The box plot indicates that FloorPlan-RxR
+has a lower minimum trajectory length, while the histogram
+reveals that it includes over 70 trajectories shorter than 5
+meters, significantly more than FloorPlan-R2R. These simpler
+trajectories increase the chance of navigation success. For
+instance, on the Val-Seen split of FloorPlan-RxR, Navid-zs
+successfully completes 37 trajectories, among which 23 (about
+62%) are shorter than 5 meters. In contrast, FloorPlan-R2R
+contains only 18 such short trajectories, explaining why zero-
+shot models perform better on FloorPlan-RxR dataset.
+Conversely, the finetuned models exhibit lower performance
+on FloorPlan-RxR than on FloorPlan-R2R. This is primarily
+due to the distribution shift between the two datasets, as
+shown in Figure 9. Trajectories in FloorPlan-RxR are longer
+and more diverse, showing a right-skewed distribution with
+outliers reaching up to 70 meters, representing challenging,
+long-horizon navigation cases that are difficult to complete.
+FloorPlan-R2R, in contrast, consists of shorter and more
+uniformly distributed trajectories, reflecting its relatively con-
+strained navigation complexity. Furthermore, FloorPlan-RxR
+trajectories typically traverse more regions, adding additional
+reasoning challenges.
+Because Navid-ft, FP-Nav, and FP-Nav-v are fine-tuned
+only on FloorPlan-R2R, they struggle to generalize to the
+longer and more complex trajectories in FloorPlan-RxR. By
+contrast, FP-Nav-v-rxr, which is trained with an additional
+1.7k long-horizon episodes from FloorPlan-RxR, achieves
+clear improvements, confirming the benefits of augment-
+ing with longer trajectories. Nevertheless, since these addi-
+tional episodes are still fewer than the 9k episodes used in
+FloorPlan-R2R, its performance remains slightly lower than
+on FloorPlan-R2R.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+10
+Clean (
+0)
+=
+Low Noise(
+0.005)
+=
+High Noise(
+0.03)
+=
+Medium Noise(
+0.01)
+=
+Increasing Floor Plan Distortion Noise
+Fig. 10. Visualization of floor plan distortion under varying levels of geometric jitter.
+0
+=
+0.01
+=
+0.0
+=
+３
+0.0
+=
+５
+Scale Noise
+0,
+0
+move
+rot
+
+
+=
+=
+　
+0.10,
+0.05
+move
+rot
+
+
+=
+=
+　
+0. ,
+0.
+move
+rot
+
+
+=
+=
+　
+３
+１
+0. ,
+0.
+move
+rot
+
+
+=
+=
+５
+３
+Actuation Noise
+Fig. 11. Visualization of actuation noises and scale noises.
+TABLE IV
+ROBUSTNESS TO ACTUATION, FLOOR PLAN SCALE, AND FLOOR PLAN
+DISTORTION NOISES.
+Experiment 1: Robustness to actuation noises
+#
+Noise
+NE↓
+OSR↑
+SR↑
+SPL↑
+1
+σmove = 0.00, σrot = 0.00
+9.8
+35.2
+20.9
+15.3
+2
+σmove = 0.10, σrot = 0.05
+8.4
+42.4
+22.0
+14.5
+3
+σmove = 0.30, σrot = 0.10
+8.9
+39.5
+21.4
+11.5
+4
+σmove = 0.50, σrot = 0.30
+8.60
+37.1
+17.5
+6.7
+Experiment 2: Robustness to floor plan scale noises
+#
+Noise
+NE↓
+OSR↑
+SR↑
+SPL↑
+1
+σscale = 0.00
+9.8
+35.2
+20.9
+15.3
+2
+σscale = 0.01
+10.2
+32.4
+18.6
+12.8
+3
+σscale = 0.03
+10.0
+32.6
+19.6
+13.7
+4
+σscale = 0.05
+10.1
+32.4
+18.3
+13.0
+Experiment 3: Robustness to floor plan distortion noises
+#
+Noise
+NE↓
+OSR↑
+SR↑
+SPL↑
+1
+σjitter = 0.000
+9.8
+35.2
+20.9
+15.3
+2
+σjitter = 0.005
+10.0
+34.9
+20.1
+14.0
+3
+σjitter = 0.010
+9.8
+33.5
+20.1
+14.3
+4
+σjitter = 0.030
+9.8
+33.9
+18.5
+13.3
+D. Robustness to Actuation and Floor Plan Noises
+We systematically test FP-Nav’s robustness by increasing
+the intensity of the noises defined in § IV-D.
+Robustness to Actuation Noises: Figure 11 illustrates the
+effect of different levels of actuation noise on the same action
+sequence. While the drift at each step is small, the accumulated
+drift can become significant over time. The results presented
+in Table IV demonstrate that our model exhibits remarkable
+resilience to actuation noise. Despite the cumulative drift
+induced by σmove and σdrift, the Success Rate (SR) remains
+relatively stable. Moreover, with minimal action perturbation,
+performance even shows a slight improvement. These findings
+confirm that our method does not overfit to the oracle poses
+and is relatively robust to small imperfections in actuation.
+Generalization to Imperfect Floor Plans: As illustrated in
+Figure 10, increasing distortion noise results in a progressively
+irregular floor plan. Figure 11 further demonstrates the devia-
+tion in the trajectory caused by noise in the floor plan scale.
+Despite the presence of noise, the results from Experiment
+2 and 3 in Table IV indicate that inaccuracies in scaling
+and geometric perturbations lead to only a modest decline
+in navigation performance. These findings suggest that the
+agent does not rely on absolute coordinate matching. Instead,
+it appears to have learned to leverage invariant spatial layouts.
+This robustness provides a compelling bridge between high-
+precision simulators and real-world deployment, where floor
+plans are often informal or hand-drawn.
+E. Ablation Study
+Is the proposed spatio-temporally aligned video stream
+effective? Figure 12 visualizes a successful navigation episode
+under the proposed spatio-temporally aligned input strategy.
+A natural question then arises: Is this dual-view input strategy
+truly more effective than other input designs introduced in
+Figure 6? To answer this question, we evaluate the four input
+strategies and present the results in Table V.
+TABLE V
+ABLATION STUDY ON DIFFERENT INPUT STRATEGIES.
+#
+Method
+NE↓
+OSR↑
+SR↑
+SPL↑
+1
+static separate input
+9.8
+3.9
+2.5
+2.3
+2
+dual-stream temporal fusion
+9.8
+9.8
+4.2
+2.4
+3
+interleaved frame fusion
+9.6
+4.4
+2.6
+2.4
+4
+spatio-temporally aligned
+9.8
+35.2
+20.9
+15.3
+We first provide the model with a static floor plan image and
+an observation video as two separate inputs. In this case, the
+agent must infer correspondences between dynamic egocentric
+views and a static layout, yielding weak performance due to
+the lack of temporal synchronization.
+Next, we construct a floor plan navigation video that
+visualizes the agent’s pose and trajectory over time, and
+feed the two streams into the model separately (Figure 6
+b). Although this method provides explicit localization cues
+and slightly improves OSR and SR, the separate processing
+prevents precise frame-level alignment.
+We then test an interleaved strategy where observation
+frames and floor plan frames at the same time step are
+alternately fed into the model. Although this design aims to
+couple temporally corresponding views, it breaks the temporal
+continuity of each stream, leading to weaker integration of
+observation and floor plans and degraded performance.
+In contrast, our spatio-temporally synchronized dual-view
+strategy performs simple yet effective early fusion: each ob-
+servation frame is concatenated with its corresponding floor
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+11
+T=1
+T=43
+T=26
+T=16
+Fig. 12.
+An example of a successful episode using the spatio-temporally
+aligned input strategy. At each step, the agent’s pose is plotted on the floor
+plan and concatenated with the corresponding egocentric observation to form
+a synchronized dual-view input sequence.
+plan view of the agent’s pose, forming a single aligned image.
+This preserves spatial–temporal continuity, enabling the model
+to perceive local details and global structure jointly, thus
+achieving better alignment and the best performance.
+Does the model learn to align the floor plan with
+egocentric observations? We conduct a series of experiments
+to verify whether the model truly relies on the floor plan
+during navigation, rather than focusing solely on egocentric
+observations. As shown in Table VI, masking increasing
+portions of the floor plan leads to consistent drops in SR and
+SPL and a rise in NE, indicating reduced spatial reference
+forces the agent to explore more. In some cases, the agent
+still passes the correct goal but fails to stop, explaining the
+slight OSR increase. When the floor plan is fully masked,
+SR drops by 41%, confirming that the model indeed depends
+on floor plan cues for navigation. To further validate this, we
+TABLE VI
+INVESTIGATION OF WHETHER THE MODEL TRULY LEARNS TO USE FLOOR
+PLANS DURING NAVIGATION.
+#
+Method
+NE↓
+OSR↑
+SR↑
+SPL↑
+1
+full floorplan
+9.8
+35.2
+20.9
+15.3
+2
+mask 25%
+10.1
+28.7
+17.7
+13.4
+3
+mask 50%
+10.0
+29.8
+16.8
+13.0
+4
+mask 75%
+10.2
+30.7
+14.4
+10.5
+5
+mask 100%
+10.8
+32.0
+12.3
+8.0
+6
+random floorplan
+10.7
+34.4
+9.1
+5.5
+provide mismatched floor plans from other scenes (Row 6 in
+Table VI). Compared to the correct floor plan, SR and SPL
+drop by 56% and 64%, respectively, showing that inaccurate
+spatial priors severely mislead navigation. This confirms that
+the model leverages the floor plan for global reasoning, rather
+than relying solely on observations.
+What is the impact of different auxiliary tasks. Since
+action-based QA supervision alone is insufficient to elicit floor
+plan understanding in MLLMs for VLN, we introduce three
+auxiliary tasks to enhance the alignment between floor plans,
+egocentric observations and instructions.
+TABLE VII
+EFFECT OF AUXILIARY TASKS ON NAVIGATION PERFORMANCE.
+#
+Method
+NE↓
+OSR↑
+SR↑
+SPL↑
+1
+w/o aux tasks
+10.0
+30.5
+17.8
+13.0
+2
+RL
+9.8
+32.0
+19.1
+12.8
+3
+RL + TR
+9.7
+32.0
+20.1
+14.5
+4
+RL + TR + IS
+9.8
+35.2
+20.9
+15.3
+Abbr: RL = Region Localization, TR = Trajectory Reasoning, IS =
+Instruction Summarization.
+Table VII summarizes the effects of each auxiliary task. Re-
+moving all of them causes about a 15% drop in performance,
+confirming their effectiveness. Region localization improves
+SR and OSR by helping the agent infer the region type of
+its current location. Trajectory reasoning further enhances all
+metrics by promoting region-level planning. Finally, instruc-
+tion summarization aligns concise language with navigation
+videos, achieving the best overall results. Together, these
+tasks progressively strengthen spatial alignment, instruction
+understanding, and navigation planning.
+The effect of training with different parameters. The
+substantial improvement achieved by unfreezing the vision
+encoder naturally raises a question: what is the impact of
+unfreezing different components of Qwen?
+TABLE VIII
+EFFECT OF TRAINING DIFFERENT MODEL COMPONENTS ON NAVIGATION
+PERFORMANCE.
+#
+Method
+NE↓
+OSR↑
+SR↑
+SPL↑
+1
+MLP
+10.4
+3.2
+2.3
+1.9
+2
+MLP + LLM
+9.8
+35.2
+20.9
+15.3
+3
+MLP + LLM + Vision
+9.6
+37.4
+25.9
+21.7
+Table VIII presents the results of this analysis. When only
+the MLP projection head is fine-tuned, performance even drops
+below the Qwen-zs baseline in Table III. This outcome is
+expected, since the MLP serves merely as a shallow adapter
+that maps visual embeddings into the embedding space of the
+LLM, and such a two-layer network lacks the capacity to learn
+new skills such as understanding the floor plan or reasoning
+about navigation. Allowing both the MLP and LLM to update
+leads to a clear performance gain, suggesting that the LLM can
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+12
+A
+B
+C
+G
+F
+E
+A
+E
+F
+G
+B
+C
+Fig. 13. Real-world experimental scenes and the corresponding floor plan.
+already learn to interpret concise navigation instructions when
+conditioned on floor plan. Finally, unfreezing all parameters
+achieves the best results, as the full capacity of the MLLM is
+utilized to jointly refine perception, alignment, and reasoning.
+VI. REAL-WORLD EXPERIMENTS
+We conduct real-world experiments to evaluate whether our
+proposed FP-Nav can follow concise instructions and utilize
+floor plans to complete long-horizon navigation tasks that need
+to cross multiple regions. Prior real-world VLN evaluations
+typically take place in single room environments such as meet-
+ing rooms, offices or laboratories [53], [55]. In these settings,
+trajectories are short, region transitions are minimal, and fine-
+grained instructions compensate for the lack of global spatial
+priors. In contrast, our setting reflects a substantially more
+challenging and realistic scenario. As shown in Figure 13,
+we conduct real-world experiments in a large building which
+spans approximately 1,370 m², containing 25 regions including
+offices, corridors, meeting rooms, and bathrooms. Navigating
+in such a layout is challenging which requires the agent to
+traverse multiple regions, reason over wide-range spaces, and
+follow concise instructions.
+A. Real-world Deployment Details
+To generate floor plans compatible with the standard-
+ized representation used during training, we design a semi-
+automatic conversion pipeline, as illustrated in Figure 14.
+Starting with a raw photo of the building’s floor plan (Fig-
+ure 13), we manually trace region contours in PowerPoint to
+delineate region boundaries. We then select the appropriate
+floor plan based on the experimental environment. The pipeline
+automatically extracts the polygon vertices of each region
+and stores them in a structured JSON file containing region
+polygons and unique identifiers. Region types are manually
+labeled at this stage. Finally, the pipeline automatically raster-
+izes the floor plan images in the FloorPlan-VLN format, en-
+suring domain consistency between simulation and real-world
+deployment. This process is straightforward, requires minimal
+manual effort, and generates floor plans directly compatible
+with FP-Nav’s input. Additionally, hand-drawn maps can also
+be converted using this pipeline, as demonstrated in Figure 3.
+Next, we develop a human-robot interaction interface that
+enables users to mark any starting position and heading on
+the floor plan as the robot’s initial pose. The user then
+provides a concise instruction following the FloorPlan-VLN
+format (start region, target region, stopping condition) and the
+robot subsequently executes navigation based on the concise
+instruction and specified pose.
+While simulation provides perfect pose information for
+trajectory rendering, the real robot relies on LiDAR-based
+odometry to estimate pose changes over time. We integrate
+these odometry updates, apply coordinate transforms anchored
+at the user-specified start pose, and project the resulting
+trajectory onto the floor plan using a precomputed scale factor
+derived from the building’s layout. This enables real-time
+visualization of the robot’s movement on the floor plan and
+mirrors the pipeline used during training.
+As shown in Figure 15, we deploy FP-Nav on a Unitree
+Go2 quadruped robot equipped with a Jetson Orin, an Intel
+RealSense D435i camera, and a LiDAR for odometry. Robot
+perceptions derived from RealSense are send to an external
+laptop with an Morefine RTX 4090 eGPU (16GB) to perform
+FP-Nav inference, and actions are transmitted back to the robot
+via ZeroMQ. Locomotion execution uses the high-level control
+APIs provided by Unitree, enabling stable motion while fo-
+cusing evaluation solely on navigation decision-making rather
+than low-level control.
+B. Results
+We evaluate Navid-ft and FP-Nav-v-rxr at six locations
+(A–F) shown in Figure 13, testing 5 trajectories among these
+locations, with each test repeated 5 times, with slightly dif-
+ferent start poses and stop conditions, resulting in a total of
+25 episodes. Each episode crosses at least 2 regions and the
+average length is about 12.2 meters which is a challenging
+task setting. An episode is considered successful if the robot
+stops within 3 meters of the target region and we use standard
+metrics SR and NE, the results are shown in Table IX.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+13
+4. Rasterize floor plans
+outdoor
+other room
+stairs
+hallway
+bar
+toilet
+office
+2. Select floor plan 
+3. Extract polygons and 
+mark region types
+“regions”: {
+    “hallway”:{
+        “id”: 1,
+        “polys”: {
+            [[112, 343],
+             [201, 185],
+             [ 89,  277],
+             [ 66,  109],
+             …]},
+    “bar”: {…},
+     “toilet”: {…},
+  …
+}
+1. Draw regions
+·
+Fig. 14. The pipeline of generating real-world floor plan.
+Unitree Go2
+Intel 
+RealSense 
+D435i
+LiDAR
+Laptop
+Cuddy Router
+MOREFINE
+RTX 4090 eGPU
+Fig. 15. Real-world robot setup.
+TABLE IX
+THE RESULTS OF REAL-WORLD EXPERIMENTS.
+#
+Method
+NE↓
+SR↑
+1
+Navid-ft
+9.3
+8.0
+2
+FP-Nav-v-rxr
+6.4
+24.0
+As navigating long-horizon trajectories in the real world
+compounds early actuation errors and visual domain shifts,
+zero-shot deployment remains highly challenging. Conse-
+quently, the baseline Navid-ft struggles significantly, achieving
+a success rate of only 8.0% (2 successful episodes). In stark
+contrast, our FP-Nav-v-rxr achieves a success rate of 24.0%
+(6 successful episodes), demonstrating a notable relative im-
+provement. More importantly, despite the absence of any
+real-world fine-tuning and the presence of physical actuation
+noise, the 24.0% real-world SR of FP-Nav closely matches
+its simulation performance on the val-unseen split (28.8%, as
+shown in Table III). This indicates that our method is robust
+against actuation variances and floor plan perturbations. These
+results validate the feasibility and potential of FloorPlan-VLN.
+VII. CONCLUSION
+We introduced FloorPlan-VLN, a novel paradigm that shifts
+Vision-Language Navigation toward human-like spatial rea-
+soning by utilizing floor plans as global priors under concise
+instructions. To support this, we contributed a standardized
+dataset and proposed FP-Nav, a strong MLLM-based base-
+line featuring spatio-temporally aligned inputs and auxiliary
+reasoning tasks. Notably, our framework demonstrates strong
+zero-shot robustness against simulated actuation noises and
+real-world physical variances, proving its practical deployment
+potential. Beyond current achievements, a critical insight from
+our work is that spatial diagrams act as a universal cognitive
+bridge between natural language and physical environments.
+Future efforts could focus on enabling agents to actively refine
+their internal cognitive maps when encountering key spatial
+structures in the real world, while also enhancing the ability
+of MLLMs to reason with floor plans.
+REFERENCES
+[1] P. Anderson, Q. Wu, D. Teney, J. Bruce, M. Johnson, N. S¨underhauf,
+I. Reid, S. Gould, and A. Van Den Hengel, “Vision-and-language
+navigation: Interpreting visually-grounded navigation instructions in real
+environments,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), 2018, pp. 3674–3683.
+[2] W. Xu and F. Zhang, “Fast-lio: A fast, robust lidar-inertial odometry
+package by tightly-coupled iterated kalman filter,” IEEE Robot. Autom.
+Lett., pp. 3317–3324, 2021.
+[3] B. Mildenhall, P. P. Srinivasan, M. Tancik, J. T. Barron, R. Ramamoorthi,
+and R. Ng, “Nerf: Representing scenes as neural radiance fields for view
+synthesis,” pp. 99–106, 2021.
+[4] A. Ku, P. Anderson, R. Patel, E. Ie, and J. Baldridge, “Room-across-
+room: Multilingual vision-and-language navigation with dense spa-
+tiotemporal grounding,” arXiv preprint arXiv:2010.07954, 2020.
+[5] J. Krantz, E. Wijmans, A. Majundar, D. Batra, and S. Lee, “Beyond the
+nav-graph: Vision and language navigation in continuous environments,”
+in Proc. Eur. Conf. Comput. Vis. (ECCV), 2020, pp. 104–120.
+[6] A. Chang, A. Dai, T. Funkhouser, M. Halber, M. Niessner, M. Savva,
+S. Song, A. Zeng, and Y. Zhang, “Matterport3d: Learning from rgb-d
+data in indoor environments,” in Proc. Int. Conf. 3D Vis. (3DV), 2017,
+pp. 667–676.
+[7] P. Wang, S. Bai, S. Tan, S. Wang, Z. Fan, J. Bai, K. Chen,
+X. Liu, J. Wang, W. Ge et al., “Qwen2-vl: Enhancing vision-language
+model’s perception of the world at any resolution,” arXiv preprint
+arXiv:2409.12191, 2024.
+[8] S. Bai, K. Chen, X. Liu, J. Wang, W. Ge, S. Song, K. Dang, P. Wang,
+S. Wang, J. Tang et al., “Qwen2.5-vl technical report,” arXiv preprint
+arXiv:2502.13923, 2025.
+[9] A. H. Tan, A. Fung, H. Wang, and G. Nejat, “Mobile robot navigation
+using hand-drawn maps: A vision language model approach,” IEEE
+Robot. Autom. Lett., vol. 10, no. 7, pp. 7667–7674, 2025.
+[10] C. Xu, C. Amato, and L. L. Wong, “Robot navigation in unseen
+environments using coarse maps,” in Proc. IEEE Int. Conf. Robot.
+Autom. (ICRA), 2024, pp. 2932–2938.
+[11] J. Li, W. Huang, Z. Wang, W. Liang, H. Di, and F. Liu, “Flona: Floor
+plan guided embodied visual navigation,” in Proc. AAAI Conf. Artif.
+Intell. (AAAI), 2025, pp. 14 610–14 618.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+14
+[12] W. Shen, Z. Meng, P. Gu, P. Zhou, F. Yu, and X. Lv, “Vf-nav: visual
+floor-plan-based point-goal navigation,” Sci. China Inf. Sci., pp. 1–16,
+2025.
+[13] D. Fried, R. Hu, V. Cirik, A. Rohrbach, J. Andreas, L.-P. Morency,
+T. Berg-Kirkpatrick, K. Saenko, D. Klein, and T. Darrell, “Speaker-
+follower models for vision-and-language navigation,” in Adv. Neural Inf.
+Process. Syst. (NeurIPS), 2018, pp. 3318–3329.
+[14] X. Wang, W. Xiong, H. Wang, and W. Y. Wang, “Look before you
+leap: Bridging model-free and model-based reinforcement learning for
+planned-ahead vision-and-language navigation,” in Proc. Eur. Conf.
+Comput. Vis. (ECCV), 2018, pp. 4392–4412.
+[15] X. Wang, Q. Huang, A. Celikyilmaz, J. Gao, D. Shen, Y.-F. Wang,
+W. Y. Wang, and L. Zhang, “Reinforced cross-modal matching and
+self-supervised imitation learning for vision-language navigation,” in
+Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), 2019,
+pp. 6629–6638.
+[16] Y. Qi, Z. Pan, S. Zhang, A. v. d. Hengel, and Q. Wu, “Object-and-
+action aware model for visual language navigation,” in Proc. Eur. Conf.
+Comput. Vis. (ECCV), 2020, pp. 303–317.
+[17] X. Lin, G. Li, and Y. Yu, “Scene-intuitive agent for remote embodied
+visual grounding,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit. (CVPR), 2021, pp. 7036–7045.
+[18] A. Moudgil, A. Majumdar, H. Agrawal, S. Lee, and D. Batra, “Soat: A
+scene-and object-aware transformer for vision-and-language navigation,”
+in Adv. Neural Inf. Process. Syst. (NeurIPS), 2021, pp. 7357–7367.
+[19] C. Gao, J. Chen, S. Liu, L. Wang, Q. Zhang, and Q. Wu, “Room-
+and-object aware knowledge reasoning for remote embodied referring
+expression,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), 2021, pp. 3064–3073.
+[20] D. An, Y. Qi, Y. Huang, Q. Wu, L. Wang, and T. Tan, “Neighbor-view
+enhanced model for vision and language navigation,” in Proc. ACM Int.
+Conf. Multimedia (ACM MM), 2021, pp. 5101–5109.
+[21] S. Chen, P.-L. Guhur, C. Schmid, and I. Laptev, “History aware multi-
+modal transformer for vision-and-language navigation,” in Adv. Neural
+Inf. Process. Syst. (NeurIPS), 2021, pp. 5834–5847.
+[22] K. Chen, J. K. Chen, J. Chuang, M. V´azquez, and S. Savarese, “Topo-
+logical planning with transformers for vision-and-language navigation,”
+in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), 2021,
+pp. 11 276–11 286.
+[23] S. Chen, P.-L. Guhur, M. Tapaswi, C. Schmid, and I. Laptev, “Think
+global, act local: Dual-scale graph transformer for vision-and-language
+navigation,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), 2022, pp. 16 516–16 526.
+[24] W. Hao, C. Li, X. Li, L. Carin, and J. Gao, “Towards learning a
+generic agent for vision-and-language navigation via pre-training,” in
+Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), 2020,
+pp. 13 134–13 143.
+[25] Y. Hong, Q. Wu, Y. Qi, C. Rodriguez-Opazo, and S. Gould, “Vln bert: A
+recurrent vision-and-language bert for navigation,” in Proc. IEEE/CVF
+Conf. Comput. Vis. Pattern Recognit. (CVPR), 2021, pp. 1643–1653.
+[26] Y. Qiao, Y. Qi, Y. Hong, Z. Yu, P. Wang, and Q. Wu, “Hop: History-and-
+order aware pre-training for vision-and-language navigation,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), 2022, pp.
+15 418–15 427.
+[27] Y. Qiao, Y. Qi, Y. Hong, Z. Yu, and Q. Wu, “Hop+: History-enhanced
+and order-aware pre-training for vision-and-language navigation,” IEEE
+Trans. Pattern Anal. Mach. Intell., vol. 45, no. 7, pp. 8524–8537, 2023.
+[28] K. He, Y. Huang, Q. Wu, J. Yang, D. An, S. Sima, and L. Wang,
+“Landmark-rxr: Solving vision-and-language navigation with fine-
+grained alignment supervision,” in Adv. Neural Inf. Process. Syst.
+(NeurIPS), 2021, pp. 652–663.
+[29] P.-L. Guhur, M. Tapaswi, S. Chen, I. Laptev, and C. Schmid, “Airbert:
+In-domain pretraining for vision-and-language navigation,” in Proc.
+IEEE/CVF Int. Conf. Comput. Vis. (ICCV), 2021, pp. 1614–1623.
+[30] Z. Wang, J. Li, Y. Hong, Y. Wang, Q. Wu, M. Bansal, S. Gould,
+H. Tan, and Y. Qiao, “Scaling data generation in vision-and-language
+navigation,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV), 2023,
+pp. 11 975–11 986.
+[31] K. Lin, P. Chen, D. Huang, T. H. Li, M. Tan, and C. Gan, “Learn-
+ing vision-and-language navigation from youtube videos,” in Proc.
+IEEE/CVF Int. Conf. Comput. Vis. (ICCV), 2023, pp. 8283–8292.
+[32] M. Savva, A. Kadian, O. Maksymets, Y. Zhao, E. Wijmans, B. Jain,
+J. Straub, J. Liu, V. Koltun, J. Malik et al., “Habitat: A platform for
+embodied ai research,” in Proc. IEEE/CVF Int. Conf. Comput. Vis.
+(ICCV), 2019, pp. 9338–9346.
+[33] J. Krantz, A. Gokaslan, D. Batra, S. Lee, and O. Maksymets, “Waypoint
+models for instruction-guided navigation in continuous environments,”
+in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV), 2021, pp. 15 142–
+15 151.
+[34] Y. Hong, Z. Wang, Q. Wu, and S. Gould, “Bridging the gap be-
+tween learning in discrete and continuous environments for vision-and-
+language navigation,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit. (CVPR), 2022, pp. 15 418–15 428.
+[35] D. An, H. Wang, W. Wang, Z. Wang, Y. Huang, K. He, and L. Wang,
+“Etpnav: Evolving topological planning for vision-language navigation
+in continuous environments,” IEEE Trans. Pattern Anal. Mach. Intell.,
+pp. 1–16, 2024.
+[36] Z. Wang, X. Li, J. Yang, Y. Liu, and S. Jiang, “Gridmm: Grid memory
+map for vision-and-language navigation,” in Proc. IEEE/CVF Int. Conf.
+Comput. Vis. (ICCV), 2023, pp. 15 625–15 636.
+[37] R. Liu, W. Wang, and Y. Yang, “Volumetric environment representation
+for vision-language navigation,” in Proc. IEEE/CVF Conf. Comput. Vis.
+Pattern Recognit. (CVPR), 2024, pp. 16 317–16 328.
+[38] Z. Wang and G. H. Lee, “g3d-lf: Generalizable 3d-language feature
+fields for embodied tasks,” in Proc. IEEE/CVF Conf. Comput. Vis.
+Pattern Recognit. (CVPR), 2025, pp. 14 191–14 202.
+[39] Z. Wang, S. Lee, and G. H. Lee, “Dynam3d: Dynamic layered 3d
+tokens empower vlm for vision-and-language navigation,” arXiv preprint
+arXiv:2505.11383, 2025.
+[40] J. Gao, R. Liu, and W. Wang, “3d gaussian map with open-set semantic
+grouping for vision-language navigation,” in Proc. IEEE/CVF Int. Conf.
+Comput. Vis. (ICCV), 2025, pp. 9252–9262.
+[41] D. An, Y. Qi, Y. Li, Y. Huang, L. Wang, T. Tan, and J. Shao, “Bevbert:
+Multimodal map pre-training for language-guided navigation,” in Proc.
+IEEE/CVF Int. Conf. Comput. Vis. (ICCV), 2023, pp. 2737–2748.
+[42] R. Liu, X. Wang, W. Wang, and Y. Yang, “Bird’s-eye-view scene graph
+for vision-language navigation,” in Proc. IEEE/CVF Int. Conf. Comput.
+Vis. (ICCV), 2023, pp. 10 968–10 980.
+[43] T. B. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan, P. Dhariwal,
+A. Neelakantan, P. Shyam, G. Sastry, A. Askell et al., “Language models
+are few-shot learners,” in Adv. Neural Inf. Process. Syst. (NeurIPS),
+2020, pp. 1877–1901.
+[44] H. Touvron, T. Lavril, G. Izacard, X. Martinet, M.-A. Lachaux,
+T. Lacroix, B. Rozi`ere, N. Goyal, E. Hambro, F. Azhar et al.,
+“Llama: Open and efficient foundation language models,” arXiv preprint
+arXiv:2302.13971, 2023.
+[45] OpenAI, “Gpt-4 technical report,” arXiv preprint arXiv:2303.08774,
+2024.
+[46] G. Zhou, Y. Hong, and Q. Wu, “Navgpt: Explicit reasoning in vision-
+and-language navigation with large language models,” in Proc. AAAI
+Conf. Artif. Intell. (AAAI), 2024, pp. 7641–7649.
+[47] J. Chen, B. Lin, R. Xu, Z. Chai, X. Liang, and K.-Y. K. Wong, “Mapgpt:
+Map-guided prompting for unified vision-and-language navigation,” in
+Proc. Conf. North Am. Chapter Assoc. Comput. Linguistics (NAACL),
+2024, pp. 9796–9810.
+[48] Y. Qiao, W. Lyu, H. Wang, Z. Wang, Z. Li, Y. Zhang, M. Tan, and
+Q. Wu, “Open-nav: Exploring zero-shot vision-and-language naviga-
+tion in continuous environment with open-source llms,” arXiv preprint
+arXiv:2409.18794, 2024.
+[49] Y. Long, W. Cai, H. Wang, G. Zhan, and H. Dong, “Instructnav: Zero-
+shot system for generic instruction navigation in unexplored environ-
+ment,” in Proc. Conf. Robot Learn. (CoRL), 2024, pp. 1–12.
+[50] K. Chen, D. An, Y. Huang, R. Xu, Y. Su, Y. Ling, I. Reid, and L. Wang,
+“Constraint-aware zero-shot vision-language navigation in continuous
+environments,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 47, no. 11,
+pp. 10 441–10 456, 2025.
+[51] D. Zheng, S. Huang, L. Zhao, Y. Zhong, and L. Wang, “Towards learning
+a generalist model for embodied navigation,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. (CVPR), 2024, pp. 13 624–13 634.
+[52] L. Zhang, X. Hao, Q. Xu, Q. Zhang, X. Zhang, P. Wang, J. Zhang,
+Z. Wang, S. Zhang, and R. Xu, “Mapnav: A novel memory represen-
+tation via annotated semantic maps for vlm-based vision-and-language
+navigation,” in Proc. Annu. Meeting Assoc. Comput. Linguistics (ACL),
+2025, pp. 13 032–13 056.
+[53] J. Zhang, K. Wang, R. Xu, G. Zhou, Y. Hong, X. Fang, Q. Wu, Z. Zhang,
+and W. He, “Navid: Video-based vlm plans the next step for vision-and-
+language navigation,” Proc. Robot.: Sci. Syst. (RSS), pp. 1–17, 2024.
+[54] J. Zhang, K. Wang, S. Wang, M. Li, H. Liu, S. Wei, Z. Wang,
+Z. Zhang, and H. Wang, “Uni-navid: A video-based vision-language-
+action model for unifying embodied navigation tasks,” arXiv preprint
+arXiv:2412.06224, 2024.
+[55] A.-C. Cheng, Y. Ji, Z. Yang, X. Zou, J. Kautz, E. Biyik, H. Yin, S. Liu,
+and X. Wang, “Navila: Legged robot vision-language-action model for
+navigation,” in Proc. Robot.: Sci. Syst. (RSS), 2025, pp. 1–17.
+
+
+JOURNAL OF LATEX CLASS FILES, VOL. 14, NO. 8, AUGUST 2021
+15
+[56] S. Wang, J. Zhang, M. Li, J. Liu, A. Li, K. Wu, F. Zhong, J. Yu,
+Z. Zhang, and H. Wang, “Trackvla: Embodied visual tracking in the
+wild,” arXiv preprint arXiv:2505.23189, 2025.
+[57] M. Wei, C. Wan, X. Yu, T. Wang, Y. Yang, X. Mao, C. Zhu,
+W. Cai, H. Wang, Y. Chen et al., “Streamvln: Streaming vision-and-
+language navigation via slowfast context modeling,” arXiv preprint
+arXiv:2507.05240, 2025.
+[58] M. Skubic, S. Blisard, A. Carle, and P. Matsakis, “Hand-drawn maps
+for robot navigation,” in Proc. AAAI Conf. Artif. Intell. (AAAI), 2002,
+pp. 23–30.
+[59] G. Parekh, M. Skubic, O. Sjahputera, and J. M. Keller, “Scene matching
+between a map and a hand drawn sketch using spatial relations,” in Proc.
+IEEE Int. Conf. Robot. Autom. (ICRA), 2007, pp. 4007–4012.
+[60] K. Matsuo and J. Miura, “Outdoor visual localization with a hand-drawn
+line drawing map using fastslam with pso-based mapping,” in Proc.
+IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS), 2012, pp. 202–207.
+[61] B. Behzadian, P. Agarwal, W. Burgard, and G. D. Tipaldi, “Monte carlo
+localization in hand-drawn maps,” in Proc. IEEE/RSJ Int. Conf. Intell.
+Robots Syst. (IROS), 2015, pp. 4291–4296.
+[62] F. Boniardi, B. Behzadian, W. Burgard, and G. D. Tipaldi, “Robot
+navigation in hand-drawn sketched maps,” in Proc. Eur. Conf. Mobile
+Robots (ECMR), 2015, pp. 1–6.
+[63] F. Boniardi, A. Valada, W. Burgard, and G. D. Tipaldi, “Autonomous
+indoor robot navigation using a sketch interface for drawing maps and
+routes,” in Proc. IEEE Int. Conf. Robot. Autom. (ICRA), 2016, pp. 2896–
+2901.
+[64] M. Skubic, C. Bailey, and G. Chronis, “A sketch interface for mobile
+robots,” in Proc. IEEE Int. Conf. Syst., Man, Cybern. (SMC), 2003, pp.
+919–924.
+[65] M. Skubic, S. Blisard, C. Bailey, J. Adams, and P. Matsakis, “Qualitative
+analysis of sketched route maps: translating a sketch into linguistic
+descriptions,” IEEE Trans. Syst., Man, Cybern., pp. 1275–1282, 2004.
+[66] X. Wang, R. J. Marcotte, and E. Olson, “Glfp: Global localization from
+a floor plan,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst. (IROS).
+IEEE, 2019, pp. 1627–1632.
+[67] Z. Li, M. H. Ang, and D. Rus, “Online localization with imprecise floor
+space maps using stochastic gradient descent,” in Proc. IEEE/RSJ Int.
+Conf. Intell. Robots Syst. (IROS), 2020, pp. 8571–8578.
+[68] H. Howard-Jenkins, J.-R. Ruiz-Sarmiento, and V. A. Prisacariu,
+“Lalaloc: Latent layout localisation in dynamic, unvisited environments,”
+in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV), 2021, pp. 10 107–
+10 116.
+[69] H. Howard-Jenkins and V. A. Prisacariu, “Lalaloc++: Global floor plan
+comprehension for layout localisation in unvisited environments,” in
+Proc. Eur. Conf. Comput. Vis. (ECCV), 2022, pp. 693–709.
+[70] Z. Min, N. Khosravan, Z. Bessinger, M. Narayana, S. B. Kang, E. Dunn,
+and I. Boyadzhiev, “Laser: Latent space rendering for 2d visual localiza-
+tion,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR),
+2022, pp. 11 122–11 131.
+[71] C. Chen, R. Wang, C. Vogel, and M. Pollefeys, “F3loc: fusion and
+filtering for floorplan localization,” in Proc. IEEE/CVF Conf. Comput.
+Vis. Pattern Recognit. (CVPR), 2024, pp. 18 029–18 038.
+[72] C. Liu, J. Wu, P. Kohli, and Y. Furukawa, “Raster-to-vector: Revisiting
+floorplan transformation,” in Proc. IEEE/CVF Int. Conf. Comput. Vis.
+(ICCV), 2017, pp. 2195–2203.
+[73] T. Yamasaki, J. Zhang, and Y. Takada, “Apartment structure estimation
+using fully convolutional networks and graph model,” in Proc. ACM
+Workshop Multimedia Real Estate Tech., 2018, pp. 1–6.
+[74] Z. Zeng, X. Li, Y. K. Yu, and C.-W. Fu, “Deep floor plan recognition
+using a multi-task network with room-boundary-guided attention,” in
+Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV), 2019, pp. 9096–9104.
+[75] X. Lv, S. Zhao, X. Yu, and B. Zhao, “Residential floor plan recognition
+and reconstruction,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit. (CVPR), 2021, pp. 16 717–16 726.
+[76] Y. Yue, T. Kontogianni, K. Schindler, and F. Engelmann, “Connecting
+the dots: Floorplan reconstruction using two-level queries,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR), 2023, pp. 845–
+854.
+[77] Y. Liu, L. Zhu, X. Ma, H. Ye, X. Gao, X. Zheng, and S. Shen,
+“Polyroom: Room-aware transformer for floorplan reconstruction,” in
+Proc. Eur. Conf. Comput. Vis. (ECCV), 2024, pp. 322–339.
+[78] C. R. Qi, H. Su, K. Mo, and L. J. Guibas, “Pointnet: Deep learning on
+point sets for 3d classification and segmentation,” in Proc. IEEE/CVF
+Conf. Comput. Vis. Pattern Recognit. (CVPR), 2017, pp. 652–660.
+[79] C. R. Qi, L. Yi, H. Su, and L. J. Guibas, “Pointnet++: Deep hierarchical
+feature learning on point sets in a metric space,” in Adv. Neural Inf.
+Process. Syst. (NeurIPS), 2017, pp. 30–43.
+[80] J. Yang, H. Zhang, F. Li, X. Zou, C. Li, and J. Gao, “Set-of-mark
+prompting unleashes extraordinary visual grounding in gpt-4v,” arXiv
+preprint arXiv:2310.11441, 2023.
+[81] I. Team, “InternVLA-N1: An open dual-system navigation foundation
+model with learned latent plans,” 2025.
+[82] W. Cai, J. Peng, Y. Yang, Y. Zhang, M. Wei, H. Wang, Y. Chen, T. Wang,
+and J. Pang, “Navdp: Learning sim-to-real navigation diffusion policy
+with privileged information guidance,” arXiv preprint arXiv:2505.08712,
+2025.
+[83] A. Dosovitskiy, “An image is worth 16x16 words: Transformers for
+image recognition at scale,” arXiv preprint arXiv:2010.11929, 2020.
+[84] J. Su, M. Ahmed, Y. Lu, S. Pan, W. Bo, and Y. Liu, “Roformer: En-
+hanced transformer with rotary position embedding,” Neurocomputing,
+p. 127063, 2024.
+[85] Y. Li, C. Wang, and J. Jia, “Llama-vid: An image is worth 2 tokens in
+large language models,” in Proc. Eur. Conf. Comput. Vis. (ECCV), 2024,
+pp. 323–340.

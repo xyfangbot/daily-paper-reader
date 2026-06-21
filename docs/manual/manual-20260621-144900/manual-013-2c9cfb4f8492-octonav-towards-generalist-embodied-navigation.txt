@@ -1,0 +1,2803 @@
+arXiv:2506.09839v1  [cs.CV]  11 Jun 2025
+OctoNav: Towards Generalist Embodied
+Navigation
+Chen Gao1,2∗
+Liankai Jin1∗
+Xingyu Peng1,4∗
+Jiazhao Zhang3
+Yue Deng1,4
+Annan Li1
+He Wang3
+Si Liu1†
+1Beihang University
+2National University of Singapore
+3Peking University
+4Zhongguancun Academy
+Project page: https://buaa-colalab.github.io/OctoNav
+Search for sofa
+Find [Ins-IMG]
+and turn to [x, y]
+go to location [x, y]
+Go to [x,y,z] , find black phone
++ Hybrid Training Paradigm
+Align path using reference {Img} to approach the scene 
+matching the visual perspective. After that, turn right and walk 
+across the hallway through the doorway. Turn slightly left and 
+enter the middle hallway and walk though it.
+Search for sofa
+Find the {Ins-IMG}
+Navigate to this place {Img}, then go through the
+doorway next to the refrigerator, and turn left to
+find the closet, then return to [x,y,z] and wait.
+Go to [x, y]
+and
+Turn
+right
+and
+walk
+across
+hallway
+through
+the
+doorway.
+Free-Form, Multi-Modal, Multi-Capability Instructions
+HM3D
+MP3D
+Gibson
+ProcTHOR
+400+ Scenes
+10k+ TBA-CoT
+<Think> I started in
+the
+…
+I’m now in
+hallway where stairs in
+my
+right.
+Since
+the
+bedroom
+usually
+in
+upstairs, go toward the
+stairs may lead me to
+bedroom … </Think>
+<Action>Turn
+Right
+</Action>
++ Continuous Envs
+Find the table, and go to the [x,y,z]
+Go to [x,y,z] and Turn right and walk
+across hallway through the doorway.
+Turn slightly left and find the objects
+{Ins-Img} and black drawer.
+<Think> I started in
+the
+…
+I’m now in
+hallway where stairs in
+my
+right.
+Since
+the
+bedroom
+usually
+in
+upstairs, go toward the
+stairs may lead me to
+bedroom … </Think>
+<Action>Turn
+Right
+</Action>
+<Think> I started in
+the … I’m now in the
+hallway and stairs on
+my
+right.
+Since
+the
+bedroom
+is
+usually
+upstairs, going toward
+stairs may lead me to
+bedroom … </Think>
+<Action>Turn
+Right
+</Action>
+(II) Sim2Real Generalization 
+(I) Benchmark Performance
+ImgNav
+Ins-ImgNav
+Overall
+VLN
+ObjNav
+PointNav
+19.4
+30.24
+23.97
+23.51
+49.18
+37.14
+Ours
+Uni-NaVid
+NaVid
+NavGPT-2
+NaviLLM
+Video-LLaVA
+Figure 1: On the left, we present the large-scale OctoNav-Bench, which contains diverse instruction-
+trajectory pairs and the elaborate TBA-CoT dataset across numerous scenes. Based on OctoNav-
+Bench and our method/training designs, we introduce a VLA-based method, termed OctoNav-R1.
+On the right, (I) demonstrates the performance comparisons on OctoNav-Bench, where we provide a
+fine-grained breakdown of accuracy across various navigation capabilities. OctoNav-R1 outperforms
+previous methods in all capabilities, demonstrating its versatility. (II) presents a robot demo in the
+real world, which is driven by the OctoNav-R1, showing its preliminary sim2real generalization.
+Abstract
+Embodied navigation stands as a foundation pillar within the broader pursuit of
+embodied intelligence. However, previous navigation research is divided into
+different tasks/capabilities, e.g., ObjNav, ImgNav and VLN, where they differ in
+task settings/objectives and modalities, making datasets and methods are designed
+individually. In this work, we take steps toward generalist navigation agents, which
+can follow free-form instructions that include arbitrary compounds of multi-modal
+and multi-capability. To achieve this, we propose a large-scale benchmark and
+corresponding method, termed OctoNav-Bench and OctoNav-R1. Specifically,
+OctoNav-Bench features continuous environments and is constructed via a designed
+automatic annotation pipeline. We thoroughly craft instruction-trajectory pairs
+∗Equal contribution
+†Corresponding author
+Preprint. Under review.
+
+
+for imitation learning, where instructions are diverse in free-form with arbitrary
+modality and capability. Also, we elaborately construct a Think-Before-Action
+(TBA-CoT) dataset within OctoNav-Bench to provide the thinking process behind
+actions. For OctoNav-R1, we build it upon MLLMs and adapt it to a VLA-type
+model, which can produce low-level actions solely based on 2D visual observations.
+Moreover, we design a Hybrid Training Paradigm (HTP) that consists of three
+stages, i.e., Action-/TBA-SFT, Nav-GPRO, and Online RL stages. Each stage
+contains specifically designed learning policies and rewards. Importantly, for TBA-
+SFT and Nav-GRPO designs, we are inspired by the OpenAI-o1 and DeepSeek-R1,
+which show impressive reasoning ability via thinking-before-answer. Thus, we aim
+to investigate how to achieve thinking-before-action in the embodied navigation
+field, to improve model’s reasoning ability toward generalists. Specifically, we
+propose TBA-SFT to utilize the TBA-CoT dataset to fine-tune the model as a cold-
+start phrase and then leverage Nav-GPRO to improve its thinking ability. Finally,
+OctoNav-R1 shows superior performance compared with the previous methods.
+1
+Introduction
+Embodied navigation aims to enable agents to perceive, reason, and move within previously-unseen
+environments to reach specified goals, constituting a crucial research direction within embodied
+intelligence. However, current embodied navigation is fragmented into narrowly defined tasks such
+as object goal (ObjNav) [1, 2], point goal (PointNav) [3, 4, 5], image goal (ImgNav) [6, 7], instance-
+image goal (Ins-ImgNav) [8, 9, 10], and vision-language navigation (VLN) [11, 12, 13], where they
+differ in task settings, input modalities, and objectives etc. For instance, PointNav requires agents to
+reach target coordinates. ImgNav and Ins-ImgNav require agents to find a scene or object that match
+given reference images. Therefore, separated benchmarks and methods are proposed for each task,
+and their rigid separation poses a challenge for building generalist navigation agents. Agents trained
+on specific task definitions lack the flexibility to handle diverse tasks, restricting models to specific
+capabilities. For example, a VLN agent can not achieve visual goals described by reference images.
+Ideally, a generalist agent is expected to follow free-form instruction, i.e., beyond isolated task-specific
+instruction, also compound of multi-modal and multi-task/capability instructions. For example, as
+shown in Fig. 1, instructions like “navigate to this place {Image}, then go through the doorway next
+to the refrigerator, and turn left to find the closet, then return to {x,y,z} and wait”, span coordinate,
+visual, language modalities and PointNav, ImgNav, VLN tasks/capabilities. Thus, we aspire to move
+beyond narrow task specialization toward generalist, i.e., investigating the construction of generalist
+navigation agents capable of following free-form, multi-modal, and multi-capability instructions.
+Most recent works take preliminary attempts for building generalizable navigation agents, but key
+limitations remain. For example, GOAT-Bench [14] and LHPR-VLN [15] benchmarks are built for
+lifelong and long-horizon navigation learning, respectively. However, as shown in Tab. 1, these
+benchmarks only contain two capabilities. Moreover, they are not free-form instructions, meaning
+each instruction only involves a single capability or modality. Thus, they are essentially multi-task
+benchmarks with various tasks being independent, failing to support generalist navigation agents.
+In this work, we introduce OctoNav-Bench, a large-scale and unified benchmark specifically designed
+for generalist embodied navigation, which is distinguished by the following core features. (1) Large-
+scale Annotations: OctoNav-Bench encompasses 400+ diverse 3D scenes sourced from widely
+used HM3D and Gibson etc. Also, OctoNav-Bench provides 45k+ annotated instruction-trajectory
+pairs via the designed automatic annotation pipeline, supporting large-scale training. (2) Free-
+form, Multi-Model and Multi-capability Instructions: The instructions are generated in free-form
+descriptions. First, the capabilities included in the instruction are sampled from arbitrary combinations
+of ObjNav, PointNav, ImgNav, Ins-ImgNav, and VLN, i.e., each instruction contains multiple
+navigation capabilities simultaneously. Moreover, these instructions are multimodal, incorporating
+textual, visual (e.g., reference scene-/object-level images), and spatial (e.g., coordinates) descriptions.
+(3) TBA-CoT Dataset: We leverage Qwen-VL and DeepSeek-R1 to construct a Think-Before-Action
+Chain-of-Thought (TBA-CoT) dataset, which captures the deliberative reasoning process behind each
+action decision. Such a dataset can be used to supervise and enhance the agent’s reasoning ability.
+(4) Continuous Environments with RL Support: Unlike discrete or graph-based settings [11, 13],
+2
+
+
+OctoNav-Bench provides continuous simulation environments, allowing agents to move freely and
+acquire visual observations at arbitrary locations. Thus, it supports active learning like online RL.
+In addition to the benchmark, we further propose OctoNav-R1, a VLA-based model designed and
+trained on OctoNav-Bench, and is distinguished by the following key aspects: (1) Free-form, Multi-
+modal and Multi-capability Instruction Following: OctoNav-R1 can accept free-form instructions
+that comprise multi-modal and multi-capability. Based on step-wise egocentric visual observations,
+the model can directly generate a sequence of low-level actions (e.g., move forward, turn left/right),
+enabling it to follow complex instructions in a unified manner. (2) RL-enhanced VLA Hybrid
+Training Paradigm: Unlike conventional VLA models that are typically fine-tuned via SFT on static
+datasets, OctoNav-R1 are trained by the proposed Hybrid Training Paradigm (HTP). Specifically, we
+integrate RL into the VLA training pipeline, making HTP combine Action-/TBA-SFT, Nav-GRPO,
+and online RL stages. (3) Thinking-Before-Action: Inspired by the long CoT reasoning within
+DeepSeek-R1 [16], we argue that previous VLA models, which directly map observations to actions,
+lack explicit thinking processes and struggle with complicated tasks. Therefore, we leverage the TBA-
+CoT dataset to train OctoNav-R1 via TBA-SFT and Nav-GRPO, endowing the model with the ability
+to jointly produce thinking thoughts and action sequences. (4) Initial Sim2Real Generalization: We
+deploy OctoNav-R1 on physical robots, and observe preliminary sim-to-real transfer ability without
+real-world fine-tuning. It further confirms the annotated OctoNav-Bench and designed OctoNav-R1.
+2
+Related Work
+Large Model for Embodied Navigation. Recent works [17, 18, 19, 20, 21, 22, 23] explored the
+integration of LLMs and MLLMs into agents. Early approaches PaLM-E [24] incorporate multi-
+modal tokens, enabling high-level planning for manipulation and navigation. RT-2 [25] extends this
+idea by directly predicting low-level actions for closed-loop control. RoboFlamingo [26] leverages
+vision-language pretraining to generate policies, emphasizing efficient adaptation. NaVid [27] fine-
+tunes a video-based MLLMs, achieving more promising results on specific navigation tasks. Other
+navigation agents like NavGPT [28, 29], MapGPT [30], and TopV-Nav [31] treat LLMs/MLLMs as
+zero-shot agents, relying on prompt learning. Besides, some works [32, 33, 34] investigate unified
+models. For instance, Uni-NaVid [32] and NaviLLM [33] fine-tune MLLMs to improve task transfer
+ability. Note that NaviLLM only applies navigation in discrete environments. Moreover, they leverage
+existing datasets via direct multi-task learning. Therefore, despite these methods showing potential
+for generalization, they can only handle different tasks separately and fall short when faced with
+free-form instructions that simultaneously include multi-modal and multi-capability.
+Reinforcement Learning for Large Model. Prior large model works [35, 36, 37, 38, 39] show
+that stepwise reasoning, such as chain-of-thought (CoT) [40], can improve performance on complex
+tasks [41, 42, 43]. Recently, reinforcement learning (RL) has emerged as a promising strategy [16,
+44, 45, 46, 47] for improving model reasoning ability. Models like DeepSeek-R1 [16] demonstrate
+that even outcome-only rewards can guide LLMs to develop reasoning behaviors without step-level
+annotations. More recently, the training paradigm of DeepSeek-R1 has been applied to the MLLMs
+literature, e.g., Vision-R1 [48], Video-R1 [49, 50] construct multi-modal CoT datasets. Despite
+these improvements, most efforts are limited to static images or constrained tasks. There is currently
+no research that investigates how DeepSeek-R1-style training philosophy can be applied to robot
+scenarios. Considering the complexity of visual observations and free-form instructions, we build
+our OctoNav-Bench with a TBA-CoT dataset. By the devised HTP, our OctoNav-R1 gains strong
+planning capabilities for navigation.
+3
+OctoNav-Bench
+We propose OctoNav-Bench, which is a large-scale benchmark for facilitating generalist embodied
+navigation. The scalable and automated pipeline is devised for benchmark building (shown in Fig. 2).
+3.1
+Instruction-Trajectory Pairs Construction
+Template Generation. In this stage, we aim to generate diverse instruction templates, where each
+instruction can incorporate multiple navigation capabilities simultaneously. As shown in Fig. 2 (I),
+we employ a capability sampler to determine which capabilities are included in each instruction. The
+capability sampler follows predefined principles, e.g., balancing the proportion of each capability.
+3
+
+
+Capability Sampler
+(I)Template Generation
+(II) Trajectory Generation and Instruction Instantiation
+(III) Instruction Extension
+(IV) Quality Check
+ImgNav, PointNav, VLN , ObjNav
+You are in [x,y,z], and toward
+{orient, head}. Navigate to
+this place {Img}, then return
+to {x,y,z} and wait. {step-
+by-step instruction}. Then
+find the {Object},
+Principles: (a) balance the proportion 
+of each capability in current data;
+(b) balance the number and order of 
+capabilities in each instruction; (c) …
+Principles: (a) balance the length of 
+trajectories; (b) balance the distribution 
+of action types in trajectories; (c) balance 
+the total number of action steps; (d)…
+You are in {0,0,0}, and toward
+{90!,90!} . Navigate to this place
+{Img}, then return to {20, 30, 10}
+and wait. {Go through the door next
+to the refrigerator, and turn right, go
+through the hall way and up the
+stairs}. Then find the {Closet},
+Capability Construction
+Principles: (a) subgoals are evenly distributed;
+(b) balance the target object categories; (c)
+balance the length of sub-trajectories
+Automatic Check
+Manual Check
+Principles: (a) Avoid ungrounded
+instructions that still contain placeholders;
+(b) Avoid too long instructions; (c) …
+Principles: (a) Avoid meaningless reference
+images; (b) Avoid strange trajectories; (c)
+Avoid unnatural instructions; (d) …
+Scene Pool
+Trajectory Sampler
+[20,30,10]
+Reference Image
+[0,0,0]
+Closet
+Trajectory
+Egocentric view
+Target object
+Coordinate
+[x,y,z]
+VLN
+Trajectory
+Figure 2: The automatic construction pipeline of OctoNav-Bench. (I) Template Generation. We
+generate diverse instruction templates, where multiple capabilities are involved and specific elements
+are represented via placeholders. (II) Trajectory Generation and Instruction Instantiation. We extract
+elements along the sampled trajectory and instantiate the instruction by grounding the placeholders
+with corresponding elements. (III) Instruction Extension. We extend instructions with their variants.
+(IV) Quality Check. We apply automatic and manual verification stages. Best viewed in color.
+Then, we leverage GPT to generate templates according to the involved capabilities. Currently, since
+task-specific elements (e.g., reference images for ImgNav) are not determined, we adopt placeholders
+to represent these elements, enabling flexible instantiation during the following stages.
+Trajectory Generation and Instruction Instantiation. To construct instruction-trajectory pairs,
+we generate diverse navigation trajectories and instantiate multi-modal instructions accordingly.
+Concretely, as shown in Fig. 2(II), we curate a scene pool consisting of over 400 indoor environments
+drawn from MP3D [51], HM3D [52], Gibson [53], and ProcTHOR [54]. A scene is first sampled
+from this pool, after which a trajectory is sampled within the selected environment using a customized
+trajectory sampler (appendix A.2.2). To ensure that the sampled trajectories exhibit diversity and
+realism, we follow principles and apply constraints during sampling, e.g., balance trajectory lengths
+and action types. Once a full trajectory is obtained, we instantiate the corresponding instruction
+to align the trajectory via the capability construction mechanism. Concretely, we extract visual
+and positional attributes along the trajectory to ground the placeholders in the instruction template
+(e.g., image, coordinate point, object category). Starting from the initial location, we select multiple
+waypoints along the trajectory as sub-goals, where each corresponds to a distinct capability. For
+example, as shown in Fig. 2(II) the image observed at the first sub-goal becomes the reference image
+for ImgNav, and an object category near the final sub-goal serves as the final target for ObjNav.
+To ensure coverage and diversity, we also enforce several additional criteria and principles during
+capability construction, e.g., the selected sub-goals are spatially distributed to avoid redundancy
+Through this process, we obtain a collection of grounded instruction-trajectory pairs.
+Finally, we conduct instruction extension and quality check stages to improve data diversity and qual-
+ity. Overall, we adopt LLMs to expand each instruction into multiple semantically equivalent versions.
+We apply automatic and manual checks to filter and revise data. More details in appendix A.2.5.
+3.2
+Multi-Modal TBA-CoT Dataset Construction
+We design an automatic construction method for building the Think-Before-Action Chain-of-Thought
+(TBA-CoT) dataset, which is shown in Fig. 3. Since OctoNav-Bench already contains instruction-
+trajectory pairs, we aim to annotate the pseudo reasoning-thoughts behind actions along the trajectory.
+Technically, at time step t, the agent has a ground-truth action e.g., turn right 30◦. We first extract
+its current view image, history view images, and reference images of ImgNav/Ins-ImgNav target (if
+any in the instruction). For the current view, we prompt Qwen-VL to obtain an image description by
+feeding the current view image, the instruction, and structured prompts. Similarly, we summarize
+4
+
+
+Qwen-VL
+Large
+Vision-
+Language
+Model
+DeepSeek
+-R1
+Reasoning
+LLM
+GT
+Action
+You arrive at the hallway, where
+a door leading to stairs is to your
+right. On your left, there is a wall
+and an illuminated floor lamp…
+<Think> I started in basement with …
+I’m
+in
+laundry room with washing
+machines, then I moved to the bathroom
+with a broken-flush toilet, a sink, and
+entered the hallway through the door.
+I’ve already located the scene that has
+washing machine in the laundry room,
+completing the first verification task.
+Also, I’ve gone through the bathroom
+with a sink, completing the second task.
+My current task requires me to find
+pillow in the bedroom. I’m now in the
+hallway where stairs on my right. Since
+the bedroom is usually in upstairs, going
+toward the stairs may lead me to the
+bedroom. </Think>
+<Action> Turn Right 30! </Action>
+You began your journey in the
+laundry room, noticing washing
+machines, a dryer, and chairs.
+From there, you moved to the
+bathroom, observing a toilet, a
+door, a bathtub, and a sink …
+Find this place
+, then pass the door near the sink and turn right, and find the pillow in the bedroom.
+Image Goal
+This is a laundry area. It has a
+washing machine and a dryer
+side by side, with white walls,
+and a framed picture ….
+Current View
+History View
+Trajectory
+Prompt
+Prompt
+Figure 3: The automatic construction method of TBA-CoT. For the trajectories in OctoNav-Bench,
+we leverage Qwen-VL and DeepSeek-R1 to produce the thinking thoughts behind the action steps.
+Table 1: Comparisons between OctoNav-Bench and previous benchmarks. NT denotes the task
+number. Mixed indicates whether a single instruction integrates multiple capabilities. Modality is
+the modality within instructions, where [V,L,P] denote [vision, language, point]. TBA presents the
+think-before-action annotations. DE, CE denote the discrete and continuous environments.
+Instruction Capability
+Scenes
+Benchmarks
+NT
+ObjNav
+PointNav
+VLN
+ImgNav
+Ins-ImgNav
+Mixed
+Modality
+TBA
+MP3D
+HM3D
+Gibson
+ProcTHOR
+NS
+Env
+R2R[11]
+22k
+✗
+✗
+✓
+✗
+✗
+✗
+L
+✗
+✓
+✗
+✗
+✗
+90
+DE
+R2R-CE [12]
+4.5k
+✗
+✗
+✓
+✗
+✗
+✗
+L
+✗
+✓
+✗
+✗
+✗
+90
+CE
+RxR-CE [12]
+-
+✗
+✗
+✓
+✗
+✗
+✗
+L
+✗
+✓
+✗
+✗
+✗
+90
+CE
+SOON [55]
+30k
+✓
+✗
+✗
+✗
+✗
+✗
+L
+✗
+✓
+✗
+✗
+✗
+90
+DE
+REVERIE [13]
+22k
+✗
+✗
+✓
+✗
+✗
+✗
+L
+✗
+✓
+✗
+✗
+✗
+90
+DE
+OVON [56]
+53k
+✓
+✗
+✗
+✗
+✗
+✗
+L
+✗
+✗
+✓
+✗
+✗
+181
+CE
+GOAT-Bench [14]
+725k
+✓
+✗
+✗
+✗
+✓
+✗
+V,L
+✗
+✗
+✓
+✗
+✗
+181
+CE
+IR2R-CE [57]
+414
+✗
+✗
+✓
+✗
+✗
+✗
+L
+✗
+✓
+✗
+✗
+✗
+71
+CE
+LHPR-VLN [15]
+3.3k
+✓
+✗
+✓
+✗
+✗
+✓
+L
+✗
+✗
+✓
+✗
+✗
+216
+CE
+OctoNav-Bench
+45k
+✓
+✓
+✓
+✓
+✓
+✓
+V,L,P
+✓
+✓
+✓
+✓
+✓
+438
+CE
+the historical views and reference image by inputting the instruction, corresponding images, and
+prompts. Such a process converts the visual modality into language modality with key perceptual
+cues retention. We then aggregate and restructure these descriptions with appropriate prompts and
+feed them into DeepSeek-R1. Note that we also feed the ground-truth action of the current step,
+making LLM generate a detailed reasoning trace according to the reference action.
+3.3
+Data Analysis.
+We illustrate comparisons between OctoNav-Bench and previous benchmarks as shown in Tab 1.
+Generally, OctoNav-Bench pioneeringly unifies different tasks and contains free-form instruction, i.e.,
+each instruction includes multi-modal (V,L,P) and multi-capability (noted as mixed). GOAT-Bench
+only includes ObjNav and Ins-ImgNav (goal-level instructions), lacking VLN capability that follows
+step-by-step action-level instructions. Moreover, each instruction in GOAT-Bench only involves a
+single modality and capability (non-mixed), making it a multiple set of independent tasks. LHPR-
+VLN includes only ObjNav and VLN, only involving the language modality and lacking the important
+visual-goal capability. Also, OctoNav-Bench is the pioneer work that provides TBA annotations.
+4
+OctoNav-R1
+We propose OctoNav-R1 to fully unleash the advantage offered by OctoNav-Bench. Overall, OctoNav-
+R1 is built upon LLaMA-VID [58] with specific architecture designs (appendix C.1) to enable it to
+receive multi-modal instructions and produce low-level actions in an end-to-end manner. Moreover,
+as illustrated in Fig. 4, we propose a Hybrid Training Paradigm (HTP), which is a multi-stage
+reinforcement fine-tuning. Specifically, in Stage I, we conduct imitation learning by leveraging the
+annotated data in OctoNav-Bench to apply supervised fine-tuning (SFT), which contains two phases.
+First, in Action-SFT phase, the model is trained with instruction-trajectory pairs, enabling it to follow
+instructions. Second, in TBA-SFT phase, the model is trained via TBA-CoT data, equipping the
+model with the ability to think before action. In Stage II, we propose Nav-GRPO with customized
+5
+
+
+OctoNav-R1
+You are in {0,0,0}, and toward {90!,90!, 0!} . Navigate
+to this place {Img}, then return to {20, 30, 10} and wait.
+{Go through the door next to the refrigerator, and turn
+right, go through the hall way and up the stairs}.
+…
+…
+…
+Stage I: Action-SFT
+🔥
+LoRA
+The next action is
+The next action is
+90!
+<Think> I started in laundry room with washing
+machine, then moved to the …</Think>
+<Action> Turn Right 90! </Action>
+<Think> I started in laundry room with washing
+machine, then moved to the …</Think>
+<Action> Turn Left 30! </Action>
+Predicted
+GT
+Predicted
+GT
+<Think> I started in the laundry room with
+washing machine, then moved to the …</Think>
+<Action> Turn Right 90! </Action>
+Stage II: Nav-GRPO
+Stage III: Online RL
+Stage I: TBA-SFT
+Multi-Modal Instruction
+History/Current Views
+<Think> I started in the laundry room with
+washing machine, then moved to the …</Think>
+<Action> Turn Right 90! </Action>
+Verifiable Reward
+r = #
+1, 。𝑎= 𝑎"# ∧𝑚= 𝑚"#
+0.5, … 𝑎= 𝑎"# ∧𝑚≠𝑚"#
+0, 。. 𝑎≠𝑎"#
+🔥
+🔥
+<Think> I started in the laundry room with
+washing machine, then moved to the …</Think>
+<Action> Turn Right 90! </Action>
+GRPO Sampling
+…
+𝑟"
+…
+𝑟"
+𝑟#
+Group Computation🔥
+r = .1,
+𝑆$𝑖𝑠successful
+−𝑑%! −𝑑% , . . 𝑜𝑡ℎ𝑒𝑟𝑤𝑖𝑠𝑒
+Move Forward
+🔥
+Env Feedback
+Figure 4: Overview of the HTP for training OctoNav-R1. The model takes multi-model instruction
+and visual observation as inputs, and produces textual answers, where model architecture details are
+in appendix C.1. HTP contains three training stages, which are described in Sec. 4.
+reward functions to further enhance the model’s thinking capacity. In Stage III, we conduct online RL
+in simulations supported by OctoNav-Bench, which enables trial-and-error and active learning.
+4.1
+Action and TBA Supervised Fine-Tuning
+Action-SFT. In this phase, we train OctoNav-R1 (denoted as πθ) with instruction-trajectory pairs,
+enabling it to receive multi-modal inputs and produce navigation actions, as shown in Fig. 4. Tech-
+nically, an instruction-trajectory pair contains multiple action steps within the trajectory. For each
+action step, a training sample can be presented as (V, I, A), where V is the visual observation, I
+is the instruction, and A refers to the answer. The visual observation V = (Vh, Vc) contains two
+parts, i.e., the historical observations (video) Vh ∈RNh×H×W ×3 and the current observation (image)
+Vc ∈RH×W ×3. Nh is the frame number. Besides, the instruction I contains multiple modalities,
+i.e., visual, textual, coordinate. We leverage placeholders to replace non-textual elements in the
+instruction. For instance, we utilize <ImageNav> to replace the reference image in the instruction.
+Then, corresponding images are transferred into image embeddings by the visual encoder, which will
+replace the corresponding placeholders’ embeddings (details in appendix C.1). Besides, as shown in
+Fig. 4, the ground-truth answer A consists of an action a and its magnitude m. Note that a is chosen
+from {move forward, turn left, turn right, stop}. m indicates the distance (e.g., 25cm) or angle (e.g.,
+90◦) of the action. Therefore, the training loss is computed as follows:
+Lact(θ) = −E(V,I,A)∼Dact
+1
+|A|
+|A|
+X
+t=1
+log πθ(At|V, I, Tact, A<t),
+(1)
+where Tact is the prompt and Dact is the dataset. At represents the t-th token within A, and A<t
+represents corresponding tokens preceding At.
+TBA-SFT. Previous VLA-based methods for embodied navigation typically operate as black-box
+models, i.e., directly mapping multi-modal inputs to low-level actions without any explicit reasoning
+process. However, generalist-oriented navigation agents encounter complex and diverse tasks involv-
+ing multi-modal and multi-capability instructions, thereby requiring reasoning ability. Inspired by
+the think-before-answer within DeepSeek-R1 [16], we aim to bring a similar Think-Before-Action
+(TBA) paradigm to promote deliberative decision-making. Specifically, in this stage, we leverage
+the annotated TBA-CoT dataset in OctoNav-Bench to fine-tune the model. We aim to encourage the
+model to output in a structured format consisting of two clearly delineated segments, i.e., <Think>
+reasoning thoughts</Think><Action>executable actions</Action>. As shown in Fig. 4, a training
+sample is (V, I, A), where the answer A lies in the TBA format. The training loss for this stage is:
+Ltba(θ) = −E(V,I,A)∼Dtba
+1
+|A|
+|A|
+X
+t=1
+log πθ(At|V, I, Ttba, A<t),
+(2)
+6
+
+
+where Ttba is the prompt and Dtba is the TBA-CoT dataset. Here, we use special prompts to instruct
+model to output in TBA format. Therefore, we can control the model to output direct action or in TBA
+format via different prompts. Thus, we can flexibly regulate the TBA frequency during inference.
+4.2
+Nav-GRPO
+After the TBA-SFT, which is a cold-start training phase for enabling TBA ability, the model acquires
+an initial ability to generate outputs in the structured <Think>...</Think><Action>...</Action>
+format. In this stage, we propose Nav-GRPO, i.e., group relative policy optimization (GRPO) for
+navigation, with customized reward functions to further enhance the model’s thinking ability. First,
+we select NG training samples from OctoNav-Bench, forming DGRP O = {(Vi, Ii)}NG
+i=1. For each
+sample (Vi, Ii), we utilize model trained after TBA-SFT to generate G outputs:
+{oi,j}G
+j=1 ∼πθold(Vi, Ii, Tg),
+(3)
+where Tg is the prompt. As introduced in Sec. 4.1, an output oi,j consists of an action ai,j and a
+magnitude mi,j. Let agt and mgt be the corresponding ground-truth action and magnitude, then the
+reward for oi,j is customized as:
+ri,j =
+
+
+
+
+
+1,
+ai,j = agt ∧mi,j = mgt,
+0.5,
+ai,j = agt ∧m ̸= mgt,
+0,
+ai,j ̸= agt.
+(4)
+By setting up such a stepped reward function, the model is encouraged to learn from a broader range
+of reward signals, even when the generated answer is not completely precise. Then the advantage for
+oi,j is obtained via:
+δi,j = ri,j −mean(ri,1, ri,2, · · · , ri,G)
+std(ri,1, ri,2, · · · , ri,G)
+.
+(5)
+Following [16], the loss for Nav-GRPO is computed as:
+LGRP O(θ) = −E[(Vi, Ii) ∼DGRP O, {oi,j}G
+j=1 ∼πθold(Vi, Ii, Tg)]
+1
+G
+G
+X
+j=1
+1
+|oi,j|
+|oi,j|
+X
+t=1
+[min(c1 · δi,j, c2 · δi,j) −βKL(πθ||πθSF T )],
+(6)
+where πθSF T is the reference model to stabilize the training process, and c1, c2 are defined via:
+c1 =
+πθ(ot
+i,j|Vi, Ii, Tg, o<t
+i,j)
+πθold(ot
+i,j|Vi, Ii, Tg, o<t
+i,j), c2 = clip(c1, 1 −ε, 1 + ε).
+(7)
+4.3
+Online Reinforcement Learning
+Previous VLA-based agents are predominantly trained via imitation learning. In this stage, we take
+further steps by combining VLA-based models with online RL. This is made feasible by OctoNav-
+Bench, which provides diverse and continuous environments within a unified simulation platform.
+Technically, we apply the advantage actor-critic algorithm (A2C) as the learning policy. We utilize
+a linear network with a pooling layer as the critic model Vcritic. It takes the hidden states of
+the last Transformer layer in the OctoNav-R1 as input and produces a score for corresponding
+states. Moreover, the reward function is designed considering both the distance change and the goal.
+Specifically, when the agent reaches the current goal successfully, reward ron = 1. Otherwise, the
+distance change to the current goal will be utilized to compute the reward. Formally, at state S, the
+agent acts via A to reach the next state S′, and the reward for this step is defined as follows:
+ron(S, A, S′) =
+(
+1,
+S′ is successful,
+−(dS′ −dS),
+otherwise,
+(8)
+where dS, dS′ are the distances to the current goal at state S and S′ respectively. For non-moving
+actions (e.g., turn right), the distance to the goal remains unchanged after execution. Thus, we make
+the agent slightly move forward d′cm after each non-moving action, to obtain non-zero effective
+7
+
+
+Table 2: Comparison with previous methods on test set. * denotes model modification and fine-
+tuning on OctoNav-Bench for comparison. †indicates fine-tuning on OctoNav-Bench.
+Overall
+Ins-ImgNav
+ImgNav
+PointNav
+ObjNav
+VLN
+Methods
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+MLLMs as Agent
+Qwen-VL[59]
+0.00
+0.00
+2.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.41
+0.16
+6.15
+2.86
+2.86
+2.86
+Video-LLaVA [60]
+0.80
+0.45
+3.80
+2.82
+1.78
+3.63
+0.41
+0.17
+0.41
+1.20
+0.63
+1.20
+3.28
+2.67
+12.30
+5.71
+4.51
+5.71
+LLaVA-NeXT [61]
+0.20
+0.18
+2.40
+2.02
+1.46
+2.42
+0.00
+0.00
+0.41
+0.00
+0.00
+0.00
+2.46
+2.11
+9.43
+2.86
+2.86
+2.86
+Methods for DE
+NaviLLM* [33]
+1.20
+1.20
+4.20
+3.63
+3.57
+4.03
+0.00
+0.00
+0.41
+0.80
+0.75
+0.80
+4.10
+3.49
+13.11
+8.57
+8.57
+14.29
+NavGPT-2* [29]
+2.00
+1.35
+5.20
+2.82
+2.21
+3.23
+1.65
+0.89
+2.07
+2.79
+1.81
+2.79
+6.15
+4.85
+15.57
+11.43
+11.43
+17.14
+Methods for CE
+NaVid [27]
+5.80
+4.34
+11.40
+10.48
+7.35
+12.10
+5.37
+3.80
+6.20
+7.57
+5.85
+7.97
+23.36
+17.95
+37.30
+25.71
+25.29
+37.14
+Uni-NaVid [32]
+8.60
+5.79
+17.60
+15.32
+10.25
+16.53
+11.16
+7.41
+12.81
+9.56
+5.86
+11.55
+36.48
+25.48
+56.97
+28.57
+22.33
+42.86
+NaVid† [27]
+8.80
+7.20
+13.80
+16.94
+13.23
+18.15
+10.74
+9.33
+11.57
+9.96
+9.52
+11.55
+27.05
+23.21
+38.52
+20.00
+19.57
+25.71
+Uni-NaVid† [32]
+9.20
+6.21
+17.80
+19.35
+13.44
+22.58
+10.33
+6.79
+11.98
+11.55
+7.40
+13.15
+42.62
+28.70
+61.07
+25.71
+21.45
+45.71
+OctoNav-R1 (ours)
+19.40
+13.77
+29.40
+30.24
+20.77
+35.48
+23.97
+17.49
+27.27
+23.51
+14.35
+27.89
+49.18
+37.79
+67.21
+37.14
+33.56
+42.86
+rewards. Formally, we adopt the temporal difference algorithm to train OctoNav-R1, and the loss
+function is achieved via:
+Lon(θ) = −E(S,A,S′)∼πθ
+1
+|A|
+|A|
+X
+t=1
+[ron(S, A, S′) + γVcritic(S′) −Vcritic(S)] log πθ(At|S, A<t),
+(9)
+where γ is the discount factor. Besides, the critic model Vcritic is updated by the MSE loss:
+Lcritic(Vcritic) = E(S,A,S′)∼πθ[ron(S, A, S′) + γVcritic(S′) −Vcritic(S)]2.
+(10)
+In practice, we adopt a warm-up training strategy, i.e., only train the critic model and freeze the
+parameters of OctoNav-R1 during the initial training phase.
+5
+Experiments
+5.1
+Experimental Setting
+Environments. OctoNav-Bench is built upon Habitat simulator [62]. Scenes are diversely collected
+from MP3D, HM3D, Gibson, and ProcTHOR, including 400+ and 40+ scenes for train and test
+splits. Scenes used in test are unseen in train split. Annotated instruction-trajectory pairs are 45k+,
+and TBA-CoT contains 10k+ instruction-think-action pairs. Real world deployment in appendix B.
+Metrics. We utilize success rate (SR), oracle success rate (OSR), and the success weighted by path
+length (SPL). The success of a task means all sub-tasks within are successful in order, while the oracle
+success only concerns whether the final goal is reached. The success of a sub-task means the current
+and predecessor sub-tasks are completed in order. Note that each sub-task corresponds to a specific
+capability, thus we can calculate the metrics for each capability. More details in appendix A.5.
+5.2
+Comparison with Previous Methods
+Task-specific models designed for the single navigation task/capability can not achieve our setting, as
+each instruction in OctoNav-Bench involves multi-modal and multi-capability. Therefore, we adopt
+LLM-/MLLM-based models [33, 29, 27, 32] for comparison, since they possess a certain degree of
+generalized ability (shown in Tab. 2). First, we prompt off-the-shelf MLLMs (e.g., Qwen-VL) as
+agents to choose actions. While video-based MLLMs perform better than image-based ones, e.g.,
+Video-LLaVA achieve 0.80% overall SR, the performance is still poor for such complex tasks.
+Original NaviLLM and NavGPT-2 can perform VLN, but only for discrete environments (DE). We
+carefully revise them (marked * in Tab 1) e.g., modifying the waypoint-selection head to action-
+selection head, to enable them to move in CE. Then we also fine-tune them on OctoNav-Bench. The
+performance is better than off-the-shelf MLLMs, yet still low, e.g., NavGPT-2* achieves 2.00% SR. It
+indicates the huge gap between task settings and between the discrete and continuous environments.
+NaVid and Uni-NaVid are originally trained via collected multi-task datasets. However, the low
+performance confirms the essential difference between OctoNav-Bench and multi-task dataset that are
+simply collected from existing datasets. Further, we fine-tune and evaluate NaVid†and Uni-NaVid†.
+The best performance 9.20% SR obtained via Uni-NaVid†is still far lower than our OctoNav-R1
+model. It confirms our technical contribution of model design (appendix C.1) and HTP (Sec. 4).
+8
+
+
+Table 3: Main Ablations of the HTP. The performance is gradually improved with the continuous
+addition of the proposed methods in each stage.
+Overall
+Ins-ImgNav
+ImgNav
+PointNav
+ObjNav
+VLN
+Methods
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+Base-Model
+5.80
+4.34
+11.40
+10.48
+7.35
+12.10
+5.37
+3.80
+6.20
+7.57
+5.85
+7.97
+23.36
+17.95
+37.30
+25.71
+25.29
+37.14
++Action-SFT
+8.80
+7.20
+13.80
+16.94
+13.23
+18.15
+10.74
+9.33
+11.57
+9.96
+9.52
+11.55
+27.05
+23.21
+38.52
+20.00
+19.57
+25.71
++TBA-SFT
+14.40
+10.32
+25.00
+25.40
+16.57
+31.05
+19.01
+14.56
+23.14
+21.51
+14.93
+25.10
+42.21
+30.67
+61.07
+31.43
+26.46
+48.57
++Nav-GRPO
+17.00
+12.04
+25.00
+29.44
+20.73
+33.47
+19.42
+14.27
+22.73
+21.51
+16.37
+24.70
+48.77
+35.63
+62.70
+34.29
+29.14
+48.57
++Online RL
+19.40
+13.77
+29.40
+30.24
+20.77
+35.48
+23.97
+17.49
+27.27
+23.51
+14.35
+27.89
+49.18
+37.79
+67.21
+37.14
+33.56
+42.86
+Table 4: Ablations. We conduct detailed ablations in terms of different aspects.
+(a) Reward design in Nav-GRPO.
+Reward
+Overall
+Type
+SR
+SPL
+OSR
+Strict
+16.20
+11.74
+25.40
+Loose
+15.40
+10.97
+26.00
+Stepped
+17.00
+12.04
+25.00
+(b) Prompt template ablations in Nav-GRPO.
+Overall
+Template Type
+SR
+SPL
+OSR
+Single Template
+15.80
+10.93
+25.40
+Diverse Templates
+17.00
+12.04
+25.00
+(c) Thinking frequency ablations.
+Thinking
+Overall
+Frequency
+SR
+SPL
+OSR
+per 10 steps
+17.00
+11.51
+27.60
+per 20 steps
+19.40
+13.77
+29.40
+per 40 steps
+18.80
+12.62
+28.20
+5.3
+Ablation Study and Visualizations
+We investigate the contribution of each proposed component via extensive ablations. The results are
+shown in Tab. 3 and Tab. 4. Note that the Base-model’s architecture in appendix C.1. Base-model
+achieves higher performance on ObjNav and VLN, while other capabilities are not satisfied, e.g.,
+5.37% SR on ImgNav and 7.57% SR on PointNav.
+Action-SFT. As shown in Tab. 3, after the Action-SFT with instruction-trajectory pairs of OctoNav-
+Bench, the model improves shortage capabilities and increases the overall SR (from 5.80% to 8.80%).
+However, the performance on VLN capability is slightly dropped, e.g., SR from 25.71% to 20.00%,
+indicating the VLN capability is sacrificed to improve the generalist ability.
+Instruction: Find the instance depicted in {InstanceImageNav} and validate its appearance in the current
+environment. Seek out the bed, head straight for the bed. Bring yourself to a stop upon arrival.
+Current
+InstanceImageNav
+History
+OctoNav-R1: <think>I started in the living room, and navigated to reach the dining area. The first task
+requires checking the dining table for the described chair. The current dining room scene shows a wooden
+table with chairs on the left side. Since the chair is already visible in this area, I’ve completed the first task.
+The second task requires navigating to the bedroom. The current observation shows a hallway ahead with a
+door on the right. This suggests I'm in a transitional area between the dining room and bedroom. Moving
+forward through the hall way would likely lead me to the bedroom where I can find the bed.</think>
+<action>The next action is to move forward 75 cm.</action>
+Bird's eye view map
+Figure 5: Visualization of TBA in a trajectory.
+TBA-SFT. After the TBA-SFT phase, the overall SR is improved by 5.60%, demonstrating the
+effectiveness of the thinking process. Moreover, the model can better handle multi-capability with
+the thinking ability, as the performance is greatly improved in terms of all capabilities. For example,
+the SR is improved by 11.55% on PointNav and by 15.16% on ObjNav.
+Nav-GRPO. As shown in Tab. 3, with Nav-GRPO, the overall SR is improved from 14.40% to
+17.00%. Besides, the SPL of VLN is improved to 29.14%, indicating Nav-GRPO can further boost
+the thinking quality, leading to a better ability for complex VLN tasks. We further investigate the
+influence of reward design and prompt diversity. In Tab. 4a, ‘Strict’ means the reward of the partially
+correct answer (a = agt ∧m ̸= mgt) is 0, and ‘Loose’ means the reward is 1. As shown, the stepped
+version achieves the best performance. Besides, as shown in Tab. 4b, diverse prompts can enhance
+the generalization ability of the model, and thereby improving SR.
+Online RL. As shown in Tab. 3, the performance is further enhanced via online RL, where SR is
+improved by 2.85% on VLN and by 4.55% on ImgNav. Besides, the overall SPL is improved by
+1.73%, showing that the model learns a more efficient navigation strategy.
+Thinking Frequency. We investigate the thinking frequency in Tab. 4c. Overall, the performance
+fluctuations are not sensitive, e.g., 19.40% SR of per-20-step v.s 18.80% SR of per-40-step. However,
+where and when to think is still a valuable topic, and we leave it for future work.
+9
+
+
+Visualization of TBA. As shown in Fig. 5, since chair is already in the current view, the agent realizes
+the first task is completed, and continues to plan for next tasks. Such thinking shows that OctoNav-R1
+can understand task order, evaluate, and switch states. Besides, the agent can infer the location of the
+bed based on the common sense of indoor layout. More visualizations are in the appendix.
+6
+Conclusion
+In this work, we introduce OctoNav-Bench and OctoNav-R1, aiming to build generalist agents
+capable of following free-form instructions with multi-modal and multi-capability. OctoNav-Bench is
+constructed with an annotation pipeline, providing instruction-trajectory pairs and a TBA-CoT dataset
+to capture reasoning processes. For OctoNav-R1, we design a VLA-type model that generates low-
+level actions purely from 2D visual observations. We propose HTP with three stages: Action-/TBA-
+SFT, Nav-GPRO, and Online RL. Our method emphasizes thinking-before-action, showing reasoning
+and generalization. Experiments confirm the superiority of OctoNav-R1 over prior methods.
+References
+[1] Devendra Singh Chaplot, Dhiraj Prakashchand Gandhi, Abhinav Gupta, and Russ R Salakhutdinov. Object
+goal navigation using goal-oriented semantic exploration. Advances in Neural Information Processing
+Systems, 33:4247–4258, 2020.
+[2] Chen Gao, Si Liu, Jinyu Chen, Luting Wang, Qi Wu, Bo Li, and Qi Tian. Room-object entity prompting
+and reasoning for embodied referring expression. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 46(2):994–1010, 2023.
+[3] Abhishek Kadian*, Joanne Truong*, Aaron Gokaslan, Alexander Clegg, Erik Wijmans, Stefan Lee,
+Manolis Savva, Sonia Chernova, and Dhruv Batra. Sim2Real Predictivity: Does Evaluation in Simulation
+Predict Real-World Performance? volume 5, pages 6670–6677, 2020.
+[4] Xiaoming Zhao, Harsh Agrawal, Dhruv Batra, and Alexander G Schwing. The surprising effectiveness
+of visual odometry techniques for embodied pointgoal navigation. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision, pages 16127–16136, 2021.
+[5] Ruslan Partsey, Erik Wijmans, Naoki Yokoyama, Oles Dobosevych, Dhruv Batra, and Oleksandr
+Maksymets. Is mapping necessary for realistic pointgoal navigation? In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, pages 17232–17241, 2022.
+[6] Yuke Zhu, Roozbeh Mottaghi, Eric Kolve, Joseph J Lim, Abhinav Gupta, Li Fei-Fei, and Ali Farhadi.
+Target-driven visual navigation in indoor scenes using deep reinforcement learning.
+In 2017 IEEE
+international conference on robotics and automation (ICRA), pages 3357–3364. IEEE, 2017.
+[7] Xinyu Sun, Peihao Chen, Jugang Fan, Jian Chen, Thomas Li, and Mingkui Tan. Fgprompt: Fine-grained
+goal prompting for image-goal navigation. Advances in Neural Information Processing Systems, 36:12054–
+12073, 2023.
+[8] Karmesh Yadav, Jacob Krantz, Ram Ramrakhya, Santhosh Kumar Ramakrishnan, Jimmy Yang, Austin
+Wang, John Turner, Aaron Gokaslan, Vincent-Pierre Berges, Roozbeh Mootaghi, Oleksandr Maksymets,
+Angel X Chang, Manolis Savva, Alexander Clegg, Devendra Singh Chaplot, and Dhruv Batra. Habitat
+challenge 2023. https://aihabitat.org/challenge/2023/, 2023.
+[9] Jacob Krantz, Theophile Gervet, Karmesh Yadav, Austin Wang, Chris Paxton, Roozbeh Mottaghi, Dhruv
+Batra, Jitendra Malik, Stefan Lee, and Devendra Singh Chaplot. Navigating to objects specified by images.
+In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 10916–10925, 2023.
+[10] Jacob Krantz, Stefan Lee, Jitendra Malik, Dhruv Batra, and Devendra Singh Chaplot. Instance-specific
+image goal navigation: Training embodied agents to find object instances. arXiv preprint arXiv:2211.15876,
+2022.
+[11] Peter Anderson, Qi Wu, Damien Teney, Jake Bruce, Mark Johnson, Niko Sünderhauf, Ian Reid, Stephen
+Gould, and Anton Van Den Hengel. Vision-and-language navigation: Interpreting visually-grounded
+navigation instructions in real environments. In Proceedings of the IEEE conference on computer vision
+and pattern recognition, pages 3674–3683, 2018.
+10
+
+
+[12] Jacob Krantz, Erik Wijmans, Arjun Majumdar, Dhruv Batra, and Stefan Lee. Beyond the nav-graph:
+Vision-and-language navigation in continuous environments. In Computer Vision–ECCV 2020: 16th
+European Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part XXVIII 16, pages 104–120.
+Springer, 2020.
+[13] Yuankai Qi, Qi Wu, Peter Anderson, Xin Wang, William Yang Wang, Chunhua Shen, and Anton van den
+Hengel. Reverie: Remote embodied visual referring expression in real indoor environments. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 9982–9991, 2020.
+[14] Mukul Khanna, Ram Ramrakhya, Gunjan Chhablani, Sriram Yenamandra, Theophile Gervet, Matthew
+Chang, Zsolt Kira, Devendra Singh Chaplot, Dhruv Batra, and Roozbeh Mottaghi. Goat-bench: A
+benchmark for multi-modal lifelong navigation. In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 16373–16383, 2024.
+[15] Xinshuai Song, Weixing Chen, Yang Liu, Vincent Chan, Guanbin Li, and Liang Lin. Towards long-horizon
+vision-language navigation: Platform, benchmark and method. arXiv preprint arXiv:2412.09082, 2024.
+[16] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong
+Ma, Peiyi Wang, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement
+learning. arXiv preprint arXiv:2501.12948, 2025.
+[17] Yuxing Long, Wenzhe Cai, Hongcheng Wang, Guanqi Zhan, and Hao Dong. Instructnav: Zero-shot
+system for generic instruction navigation in unexplored environment. In 8th Annual Conference on Robot
+Learning, 2024.
+[18] Bingqian Lin, Yunshuang Nie, Ziming Wei, Jiaqi Chen, Shikui Ma, Jianhua Han, Hang Xu, Xiaojun Chang,
+and Xiaodan Liang. Navcot: Boosting llm-based vision-and-language navigation via learning disentangled
+reasoning. IEEE Transactions on Pattern Analysis and Machine Intelligence, 2025.
+[19] Xiaoan Bao, Zhiqiang Lv, and Biao Wu. Enhancing large language models with rag for visual language
+navigation in continuous environments. Electronics, 14(5):909, 2025.
+[20] Jin Shi, Satoshi Yagi, Satoshi Yamamori, and Jun Morimoto. Llm-guided zero-shot visual object navigation
+with building semantic map. In 2025 IEEE/SICE International Symposium on System Integration (SII),
+pages 1274–1279. IEEE, 2025.
+[21] Siqi Zhang, Yanyuan Qiao, Qunbo Wang, Longteng Guo, Zhihua Wei, and Jing Liu. Flexvln: Flexible
+adaptation for diverse vision-and-language navigation tasks. arXiv preprint arXiv:2503.13966, 2025.
+[22] Hang Yin, Xiuwei Xu, Lingqing Zhao, Ziwei Wang, Jie Zhou, and Jiwen Lu. Unigoal: Towards universal
+zero-shot goal-oriented navigation. arXiv preprint arXiv:2503.10630, 2025.
+[23] An-Chieh Cheng, Yandong Ji, Zhaojing Yang, Zaitian Gongye, Xueyan Zou, Jan Kautz, Erdem Bıyık,
+Hongxu Yin, Sifei Liu, and Xiaolong Wang. Navila: Legged robot vision-language-action model for
+navigation. arXiv preprint arXiv:2412.04453, 2024.
+[24] Danny Driess, F. Xia, Mehdi S. M. Sajjadi, Corey Lynch, Aakanksha Chowdhery, Brian Ichter, Ayzaan
+Wahid, Jonathan Tompson, Quan Ho Vuong, Tianhe Yu, Wenlong Huang, Yevgen Chebotar, Pierre
+Sermanet, Daniel Duckworth, Sergey Levine, Vincent Vanhoucke, Karol Hausman, Marc Toussaint, Klaus
+Greff, Andy Zeng, Igor Mordatch, and Peter R. Florence. Palm-e: An embodied multimodal language
+model. In International Conference on Machine Learning, 2023.
+[25] Brianna Zitkovich, Tianhe Yu, Sichun Xu, Peng Xu, Ted Xiao, Fei Xia, Jialin Wu, Paul Wohlhart, Stefan
+Welker, Ayzaan Wahid, et al. Rt-2: Vision-language-action models transfer web knowledge to robotic
+control. In Conference on Robot Learning, pages 2165–2183. PMLR, 2023.
+[26] Xinghang Li, Minghuan Liu, Hanbo Zhang, Cunjun Yu, Jie Xu, Hongtao Wu, Chilam Cheang, Ya Jing,
+Weinan Zhang, Huaping Liu, et al. Vision-language foundation models as effective robot imitators. In
+ICLR, 2024.
+[27] Jiazhao Zhang, Kunyu Wang, Rongtao Xu, Gengze Zhou, Yicong Hong, Xiaomeng Fang, Qi Wu, Zhizheng
+Zhang, and He Wang. Navid: Video-based vlm plans the next step for vision-and-language navigation. In
+Robotics: Science and Systems, 2024.
+[28] Gengze Zhou, Yicong Hong, and Qi Wu. Navgpt: Explicit reasoning in vision-and-language navigation
+with large language models. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 38,
+pages 7641–7649, 2024.
+11
+
+
+[29] Gengze Zhou, Yicong Hong, Zun Wang, Xin Eric Wang, and Qi Wu. Navgpt-2: Unleashing navigational
+reasoning capability for large vision-language models. In European Conference on Computer Vision, pages
+260–278. Springer, 2024.
+[30] Jiaqi Chen, Bingqian Lin, Ran Xu, Zhenhua Chai, Xiaodan Liang, and Kwan-Yee K. Wong. Mapgpt:
+Map-guided prompting with adaptive path planning for vision-and-language navigation. In Annual Meeting
+of the Association for Computational Linguistics, 2024.
+[31] Linqing Zhong, Chen Gao, Zihan Ding, Yue Liao, and Si Liu. Topv-nav: Unlocking the top-view spatial
+reasoning potential of mllm for zero-shot object navigation. arXiv preprint arXiv:2411.16425, 2024.
+[32] Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li, Haoran Liu, Songlin Wei, Zhongyuan Wang,
+Zhizheng Zhang, and He Wang. Uni-navid: A video-based vision-language-action model for unifying
+embodied navigation tasks. In Robotics: Science and Systems, 2025.
+[33] Duo Zheng, Shijia Huang, Lin Zhao, Yiwu Zhong, and Liwei Wang. Towards learning a generalist model
+for embodied navigation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 13624–13634, 2024.
+[34] Hanqing Wang, Wei Liang, Luc V Gool, and Wenguan Wang. Towards versatile embodied navigation.
+Advances in neural information processing systems, 35:36858–36874, 2022.
+[35] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. Re-
+act: Synergizing reasoning and acting in language models. In International Conference on Learning
+Representations (ICLR), 2023.
+[36] Maciej Besta, Florim Memedi, Zhenyu Zhang, Robert Gerstenberger, Nils Blach, Piotr Nyczyk, Marcin
+Copik, Grzegorz Kwasniewski, Jürgen Müller, Lukas Gianinazzi, et al. Topologies of reasoning: Demysti-
+fying chains, trees, and graphs of thoughts. CoRR, 2024.
+[37] Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan.
+Tree of thoughts: Deliberate problem solving with large language models. Advances in neural information
+processing systems, 36:11809–11822, 2023.
+[38] Jieyi Long. Large language model guided tree-of-thought. arXiv preprint arXiv:2305.08291, 2023.
+[39] Maciej Besta, Nils Blach, Ales Kubicek, Robert Gerstenberger, Michal Podstawski, Lukas Gianinazzi,
+Joanna Gajda, Tomasz Lehmann, Hubert Niewiadomski, Piotr Nyczyk, et al. Graph of thoughts: Solving
+elaborate problems with large language models. In Proceedings of the AAAI Conference on Artificial
+Intelligence, volume 38, pages 17682–17690, 2024.
+[40] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny
+Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural
+information processing systems, 35:24824–24837, 2022.
+[41] Zhiyuan Li, Hong Liu, Denny Zhou, and Tengyu Ma. Chain of thought empowers transformers to solve
+inherently serial problems. In The Twelfth International Conference on Learning Representations, 2024.
+[42] Xiang Zhang, Muhammad Abdul-Mageed, and Laks VS Lakshmanan. Autoregressive+ chain of thought=
+recurrent: Recurrence’s role in language models’ computability and a revisit of recurrent transformer.
+arXiv preprint arXiv:2409.09239, 2024.
+[43] Guhao Feng, Bohang Zhang, Yuntian Gu, Haotian Ye, Di He, and Liwei Wang. Towards revealing the
+mystery behind chain of thought: a theoretical perspective. Advances in Neural Information Processing
+Systems, 36:70757–70798, 2023.
+[44] Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan
+Zhang, YK Li, Y Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language
+models. arXiv preprint arXiv:2402.03300, 2024.
+[45] Zhihang Lin, Mingbao Lin, Yuan Xie, and Rongrong Ji. Cppo: Accelerating the training of group relative
+policy optimization-based reasoning models. arXiv preprint arXiv:2503.22342, 2025.
+[46] Shyam Sundhar Ramesh, Yifan Hu, Iason Chaimalas, Viraj Mehta, Pier Giuseppe Sessa, Haitham Bou Am-
+mar, and Ilija Bogunovic. Group robust preference optimization in reward-free rlhf. Advances in Neural
+Information Processing Systems, 37:37100–37137, 2024.
+[47] Chen Li, Nazhou Liu, and Kai Yang. Adaptive group policy optimization: Towards stable training and
+token-efficient reasoning. arXiv preprint arXiv:2503.15952, 2025.
+12
+
+
+[48] Wenxuan Huang, Bohan Jia, Zijie Zhai, Shaosheng Cao, Zheyu Ye, Fei Zhao, Zhe Xu, Yao Hu, and
+Shaohui Lin. Vision-r1: Incentivizing reasoning capability in multimodal large language models. arXiv
+preprint arXiv:2503.06749, 2025.
+[49] Kaituo Feng, Kaixiong Gong, Bohao Li, Zonghao Guo, Yibing Wang, Tianshuo Peng, Benyou Wang, and
+Xiangyu Yue. Video-r1: Reinforcing video reasoning in mllms. arXiv preprint arXiv:2503.21776, 2025.
+[50] Xingjian Zhang, Siwei Wen, Wenjun Wu, and Lei Huang. Tinyllava-video-r1: Towards smaller lmms for
+video reasoning. arXiv preprint arXiv:2504.09641, 2025.
+[51] Angel Chang, Angela Dai, Thomas Funkhouser, Maciej Halber, Matthias Niebner, Manolis Savva, Shuran
+Song, Andy Zeng, and Yinda Zhang. Matterport3d: Learning from rgb-d data in indoor environments. In
+International Conference on 3D Vision (3DV), 2017.
+[52] Santhosh Kumar Ramakrishnan, Aaron Gokaslan, Erik Wijmans, Oleksandr Maksymets, Alexander Clegg,
+John M Turner, Eric Undersander, Wojciech Galuba, Andrew Westbury, Angel X Chang, et al. Habitat-
+matterport 3d dataset (hm3d): 1000 large-scale 3d environments for embodied ai. In Thirty-fifth Conference
+on Neural Information Processing Systems Datasets and Benchmarks Track, 2021.
+[53] Fei Xia, Amir R Zamir, Zhiyang He, Alexander Sax, Jitendra Malik, and Silvio Savarese. Gibson env:
+Real-world perception for embodied agents. In Proceedings of the IEEE conference on computer vision
+and pattern recognition, pages 9068–9079, 2018.
+[54] Matt Deitke, Eli VanderBilt, Alvaro Herrasti, Luca Weihs, Kiana Ehsani, Jordi Salvador, Winson Han, Eric
+Kolve, Aniruddha Kembhavi, and Roozbeh Mottaghi. Procthor: Large-scale embodied ai using procedural
+generation. Advances in Neural Information Processing Systems, 35:5982–5994, 2022.
+[55] Fengda Zhu, Xiwen Liang, Yi Zhu, Qizhi Yu, Xiaojun Chang, and Xiaodan Liang. Soon: Scenario oriented
+object navigation with graph-based exploration. In Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 12689–12699, 2021.
+[56] Naoki Yokoyama, Ram Ramrakhya, Abhishek Das, Dhruv Batra, and Sehoon Ha. Hm3d-ovon: A dataset
+and benchmark for open-vocabulary object goal navigation. In 2024 IEEE/RSJ International Conference
+on Intelligent Robots and Systems (IROS), pages 5543–5550. IEEE, 2024.
+[57] Jacob Krantz, Shurjo Banerjee, Wang Zhu, Jason Corso, Peter Anderson, Stefan Lee, and Jesse Thomason.
+Iterative vision-and-language navigation. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pages 14921–14930, 2023.
+[58] Yanwei Li, Chengyao Wang, and Jiaya Jia. Llama-vid: An image is worth 2 tokens in large language
+models. In European Conference on Computer Vision, pages 323–340. Springer, 2024.
+[59] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie
+Wang, Jun Tang, et al. Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923, 2025.
+[60] Bin Lin, Yang Ye, Bin Zhu, Jiaxi Cui, Munan Ning, Peng Jin, and Li Yuan. Video-llava: Learning united
+visual representation by alignment before projection. In Proceedings of the 2024 Conference on Empirical
+Methods in Natural Language Processing, pages 5971–5984, 2024.
+[61] Yuanhan Zhang, Bo Li, haotian Liu, Yong jae Lee, Liangke Gui, Di Fu, Jiashi Feng, Ziwei Liu, and
+Chunyuan Li. Llava-next: A strong zero-shot video understanding model. https://llava-vl.github.
+io/blog/2024-04-30-llava-next-video/, 2024.
+[62] Manolis Savva, Abhishek Kadian, Oleksandr Maksymets, Yili Zhao, Erik Wijmans, Bhavana Jain, Julian
+Straub, Jia Liu, Vladlen Koltun, Jitendra Malik, Devi Parikh, and Dhruv Batra. Habitat: A Platform for
+Embodied AI Research. In Proceedings of the IEEE/CVF International Conference on Computer Vision
+(ICCV), 2019.
+[63] Chen Gao, Jinyu Chen, Si Liu, Luting Wang, Qiong Zhang, and Qi Wu. Room-and-object aware knowledge
+reasoning for remote embodied referring expression. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 3064–3073, 2021.
+[64] Rui Liu, Xiaohan Wang, Wenguan Wang, and Yi Yang. Bird’s-eye-view scene graph for vision-language
+navigation. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 10968–
+10980, 2023.
+[65] Rui Liu, Wenguan Wang, and Yi Yang. Vision-language navigation with energy-based policy. In The
+Thirty-eighth Annual Conference on Neural Information Processing Systems, 2024.
+13
+
+
+[66] Rui Liu, Wenguan Wang, and Yi Yang. Volumetric environment representation for vision-language
+navigation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+pages 16317–16328, 2024.
+[67] Chen Gao, Xingyu Peng, Mi Yan, He Wang, Lirong Yang, Haibing Ren, Hongsheng Li, and Si Liu.
+Adaptive zone-aware hierarchical planner for vision-language navigation. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition, pages 14911–14920, 2023.
+[68] Jinyu Chen, Chen Gao, Erli Meng, Qiong Zhang, and Si Liu. Reinforced structured state-evolution for
+vision-language navigation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 15450–15459, 2022.
+[69] Yusheng Zhao, Jinyu Chen, Chen Gao, Wenguan Wang, Lirong Yang, Haibing Ren, Huaxia Xia, and Si Liu.
+Target-driven structured transformer planner for vision-language navigation. In Proceedings of the 30th
+ACM international conference on multimedia, pages 4194–4203, 2022.
+[70] Xianghao Kong, Jinyu Chen, Wenguan Wang, Hang Su, Xiaolin Hu, Yi Yang, and Si Liu. Controllable
+navigation instruction generation with chain of thought prompting. In European Conference on Computer
+Vision, pages 37–54. Springer, 2024.
+[71] Andrew Szot, Alex Clegg, Eric Undersander, Erik Wijmans, Yili Zhao, John Turner, Noah Maestre, Mustafa
+Mukadam, Devendra Chaplot, Oleksandr Maksymets, Aaron Gokaslan, Vladimir Vondrus, Sameer Dharur,
+Franziska Meier, Wojciech Galuba, Angel Chang, Zsolt Kira, Vladlen Koltun, Jitendra Malik, Manolis
+Savva, and Dhruv Batra. Habitat 2.0: Training home assistants to rearrange their habitat. In Advances in
+Neural Information Processing Systems (NeurIPS), 2021.
+[72] Xavier Puig, Eric Undersander, Andrew Szot, Mikael Dallaire Cote, Tsung-Yen Yang, Ruslan Partsey,
+Ruta Desai, Alexander William Clegg, Michal Hlavac, So Yeon Min, et al. Habitat 3.0: A co-habitat for
+humans, avatars and robots. arXiv preprint arXiv:2310.13724, 2023.
+[73] Peter Anderson, Angel Chang, Devendra Singh Chaplot, Alexey Dosovitskiy, Saurabh Gupta, Vladlen
+Koltun, Jana Kosecka, Jitendra Malik, Roozbeh Mottaghi, Manolis Savva, et al. On evaluation of embodied
+navigation agents. arXiv preprint arXiv:1807.06757, 2018.
+[74] Dhruv Batra, Aaron Gokaslan, Aniruddha Kembhavi, Oleksandr Maksymets, Roozbeh Mottaghi, Manolis
+Savva, Alexander Toshev, and Erik Wijmans. Objectnav revisited: On evaluation of embodied agents
+navigating to objects. arXiv preprint arXiv:2006.13171, 2020.
+[75] Quan Sun, Yuxin Fang, Ledell Wu, Xinlong Wang, and Yue Cao. Eva-clip: Improved training techniques
+for clip at scale. arXiv preprint arXiv:2303.15389, 2023.
+[76] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidi-
+rectional transformers for language understanding. In Proceedings of the 2019 conference of the North
+American chapter of the association for computational linguistics: human language technologies, volume
+1 (long and short papers), pages 4171–4186, 2019.
+[77] Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan
+Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P. Xing. Vicuna: An open-source chat-
+bot impressing gpt-4 with 90%* chatgpt quality. https://lmsys.org/blog/2023-03-30-vicuna/,
+2023.
+[78] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and
+Weizhu Chen. Lora: Low-rank adaptation of large language models. arXiv preprint arXiv:2106.09685,
+2021.
+[79] Wenliang Dai, Junnan Li, Dongxu Li, Anthony Meng Huat Tiong, Junqi Zhao, Weisheng Wang, Boyang
+Li, Pascale Fung, and Steven Hoi. Instructblip: Towards general-purpose vision-language models with
+instruction tuning. arXiv preprint arXiv:2305.06500, 2023.
+14
+
+
+A
+Appendix: More Details of OctoNav-Bench
+A.1
+More Related Works
+Embodied Navigation Tasks and Benchmarks. Embodied navigation aims to make agents perceive
+and move toward target locations in unseen environments. Existing research primarily centers around
+specific tasks including ObjNav [1, 2, 63], PointNav [3], ImgNav [7], Ins-ImgNav [8, 9, 10], and
+VLN [11, 12, 13, 64, 65, 66, 67, 68, 69]. which differ in both objective and instruction modality.
+For instance, PointNav requires reaching a specified coordinate with the instruction given as a
+coordinate. ImageNav involves locating an object or region depicted in a reference image, where the
+instruction lies in visual modality. Correspondingly, benchmarks are developed for the development
+and evaluation of each task, e.g., R2R-CE [12] and REVERIE [13] for the VLN task. Although
+these task-specific benchmarks have significantly advanced progress, their strict segregation creates
+obstacles for developing generalist navigation agents. Models trained with narrowly defined tasks
+struggle to adapt to diverse, open-ended instructions, inherently limiting their versatility and scope.
+In this work, we pioneeringly introduce the OctoNav-Bench. It features free-form instructions,
+where each instruction may span multiple modalities and potentially specify composite navigation
+capabilities. By unifying multiple modalities and capabilities and allowing flexible instruction
+formats, we aim to catalyze research toward generalist agents that can interpret arbitrary commands
+and execute a wide range of embodied navigation goals.
+A.2
+More Construction Details
+A.2.1
+Ins-ImgNav Goal Generation
+We mainly follow the generation process in [10]. The generation of instance image goals proceeds in
+two stages, i.e., sample camera position and select image goal, as shown in Fig. 6.
+Sampling Camera Positions. During camera position sampling, 36 candidate points are uniformly
+distributed along concentric circles centered at the bounding box centroid of the target object (i.e.,
+evenly spaced points every 10 degrees), where radius of circles r ∈0.5m, 1.0m, 1.5m, 2.0m. For
+each candidate point, five height values are randomly sampled from the range of [0.8, 1.5] meters to
+form potential camera positions. All candidate camera positions undergo validity assessment based
+on two criteria: navigability and visibility. Positions occupied by other objects or walls are considered
+not navigable, while positions not able to see the target object are marked as invisible. Only navigable
+and visible positions (green rectangles in the figure) are selected and advance to the next stage.
+Selecting Image Goal. From the validated camera position set, we subsequently select positions that
+optimally frame the target object. To ensure visual prominence, each camera is oriented along the
+vector from the camera position to the object’s center, thereby maximizing the object’s projection
+in the image. We then compute the frame coverage for each position, defined as the ratio of image
+pixels occupied by the target object. This metric is calculated from the semantic map of the current
+scene. Positions whose frame coverage exceeds a threshold of 20% are retained as Ins-ImgNav goal
+camera positions, and the RGB picture taken from these positions is served as Ins-ImgNav goal.
+Sample Camera Position
+Select Image Goal
+Valid Camera Position
+Not Navigable or Invisible
+Frame Coverage: 33.8%
+Frame Coverage: 19.0%
+Frame Coverage: 7.2%
+✅
+❌
+❌
+Get RGB Picture and 
+Semantic Map
+Check Frame Coverage
+Figure 6: Construction pipeline of instance image goals for Ins-ImgNav
+15
+
+
+Template Generation
+Please generate 10 instruction templates for Point Navigation tasks according to the example.
+Ensure no additional information is included and only use varied phrasing to describe the task. Avoid terms 
+like ‘stop’ or similar, as this is part of a sequence of continuous tasks.
+You should keep the placeholders wrapped in ‘{}’ in the template.
+Keep the length comparable to the examples, neither too long nor too brief.
+Additionally, minimize excessive use of ‘to’ for connections; substitute with other terms to enhance linguistic 
+variety.
+Example template:
+‘navigate to the coordinates {coordinates} to reach the target zone’
+Figure 7: Example Prompt for Template Generation.
+A.2.2
+Trajectory Generation
+During trajectory generation, we apply several constraints to ensure diversity and reality of trajectories.
+Firstly, the starting and ending points of trajectories are randomly sampled within the navigable areas
+of the scene, with inaccessible start-end pairs being eliminated. Subsequently, the Euclidean distance
+and geodesic distance of each trajectory are computed. We filter trajectories based on geodesic
+distance to ensure appropriate path distance. For capability combinations containing k capabilities,
+the generated trajectory distances are constrained within the interval [3k, 10k] meters. Additionally,
+to encourage moderately complex trajectories and avoid straight paths, we define a straight ratio as
+the quotient of geodesic distance divided by Euclidean distance. A higher ratio indicates greater
+deviation from straight path. Trajectories with ratios exceeding 1.1 are selected as candidate paths.
+For trajectories with ratios within [1.0, 1.1], we employ a probabilistic selection criterion defined by
+10 × (ratio −1)2 to mitigate excessive linear trajectories while preserving stochasticity.
+For VLN capability, we first include the VLN data of R2R-CE and RxR-CE, then generate some
+VLN data using C-INSTRUCTOR [70]. Since instructions and trajectories are strictly aligned, our
+generated trajectories must fully encompass the complete VLN path. Randomly generated trajectories,
+as previously described, rarely align perfectly with VLN trajectories, necessitating special trajectory
+generation for VLN. To deal with VLN, we generate trajectory segments before and after the VLN
+path, then concatenate them into a complete trajectory. These trajectory segments are generated using
+the algorithm mentioned before, with either the starting or ending point fixed to match the VLN
+trajectory. During concatenation, trajectories must be screened to ensure natural continuity with
+the VLN path, avoiding moving back and forth or 180◦turns. Let S denote the starting point and
+T the endpoint of the VLN trajectory. For the former trajectory segment (starting at A and ending
+at S) and the latter segment (starting at T and ending at B), distance-based ratios are employed as
+filtering criteria. A trajectory is deemed sufficiently natural if it satisfies the following conditions:
+(disAS +disST )/disAT ≤3, (disST +disT B)/disSB ≤3, (disAS +disST +disT B)/disAB ≤5.
+Trajectories meeting all three criteria are added to the candidate pool. This approach ensures geometric
+coherence, minimizes unnatural motions, and maintains alignment with VLN trajectories.
+A.2.3
+Instruction Template Generation
+Template Pool Building. We leverage the GPT to generate several templates in advance, building
+a template pool. We wrote one example for each type of template, and ask GPT to rewrite it, the
+prompt is shown in Fig. 7. Each generated template is checked by human. The most important part is
+instruction of capabilities, we prepare 10 templates for each capability. For example, ‘proceed toward
+the coordinates coordinates until reaching the designated area’ for PointNav, ‘navigate to the object
+shown in InstanceImageNav and confirm its visibility in the present scene’ for Ins-ImgNav. However,
+the VLN instruction is a complete passage generated with corresponding trajectory, so templates
+are not required. In addition, a 10 series of conjunctions is generated to concatenate capability
+instructions and improve diversity. Moreover, the template pool includes 10 various stop instruction,
+such as ’stop after reaching the target.’
+Instruction Template Forming. The instruction templates include three parts: the initial coordinate
+and orientation of agent, a sequence of task instructions and a stop command. The first part is fixed,
+showing the inital state of agent: ‘Your current position is (x, y, z) and your current orientation is
+(dx, dy, dz)’. The second part is the main body of instruction. We concatenate template of single
+capability instructions into a sequence, which are all randomly selected from template pool. Among
+the sequences, half of them are concatenated with conjunctions, while others are not. The last part
+16
+
+
+indicates that the agent need to stop after finishing all the tasks, also randomly selected. Finally, we
+link the three part to form a complete instruction template. Through randomization, we generated a
+large number of diverse instructions.
+A.2.4
+PointNav Setting
+In the PointNav task of the Habitat Challenge 2019, agents were equipped with GPS and compass
+sensors, enabling real-time localization. However, Habitat Challenge 2020 discontinued this con-
+figuration, as high-precision sensors are generally unavailable in indoor environments. Following
+the Habitat Challenge setting, we do not provide real-time positional feedback. Instead, we provide
+navigation instructions including the starting coordinates and orientation and the target coordinates
+specified in the PointNav task. We employ absolute coordinates of the scene’s intrinsic coordinate
+system rather than relative coordinates. This design facilitates the model’s ability to learn spatial
+information and construct a coherent spatial coordinate system. If relative coordinates were used,
+positional error is more likely to accumulate during trajectories requiring frequent turns, making it
+harder to find the goal position.
+A.2.5
+Instruction Extension and Quality Check.
+Instruction Extension. We aim to enhance not only the diversity of navigation capabilities but also
+the linguistic variability of instructions. Thus, we leverage DeepSeek to rewrite some instructions into
+three distinct variants. All three versions convey the same core intent and task objective, differing only
+in their linguistic form. As a result, trajectories are paired with a triplet of semantically equivalent but
+stylistically diverse instructions, thereby enriching the dataset’s linguistic coverage and promoting
+the model’s generalization to diverse language expressions.
+Quality Check. To further improve data quality, we introduce a semi-automatic verification stage.
+First, we employ GPT to perform automatic filtering, targeting common issues such as semantic
+inconsistencies among the instruction variants, hallucinations, or vague task goals. Following this,
+humans manually review the filtered outputs to either correct minor or ambiguous errors or discard
+examples that are difficult to revise. This process ensures that only high-quality and well-grounded
+data are retained, enhancing the overall reliability and robustness of the dataset.
+A.2.6
+Think-Before-Action Chain-of-Thoughts Generation Pipeline.
+Our TBA-CoT generation pipeline includes three stages: image information extraction, historical
+information aggregation, and TBA reasoning. The first two stages leverage multimodal models (e.g.,
+Qwen-VL), while the final stage utilizes reasoning models (e.g., DeepSeek-R1).
+Image Information Extraction. The image information extraction process involves four image
+categories: current observation images, historical observation image sequences, ImgNav goal images,
+and Ins-ImgNav goal images. Each category requires distinct extraction strategies through customized
+prompt engineering. For historical observation images, we primarily extract room types and their
+distinctive landmark objects. Current observation images and ImgNav goal images necessitate
+the extraction of both room types and spatial relationships (e.g., objects positioned to the left,
+right, or front) to decide next move or identify goal position. Ins-ImgNav processing focuses on
+object attributes such as color characteristics and adjacent object relationships to facilitate target
+identification. The detailed prompts are shown in Fig. 8.
+Historical Information Aggregation.
+In the historical information aggregation phase, we initially collect all objects identified from historical
+observations. To address information redundancy particularly in expansive areas (e.g., dining areas,
+hallways), we implement an object selection mechanism through the multimodal model, retaining
+the most iconic 30% of the objects. At the same time, we prompt the model to merge synonyms to
+resolve naming inconsistencies (e.g., ‘sofa’ vs. ‘armchair’) that may occur during initial stage. The
+filtered object sets are then concatenated and input into the model to generate structured historical
+trajectory summaries. The detailed prompts are shown in Fig. 9.
+17
+
+
+Historical Observation
+System:
+You are an indoor navigation assistant. You will be given a first-person image of my movement, you need to 
+accurately identify the user's location.
+User:
+Here is a first-person image of my current location. Analyze the current scene and iconic objects. Then, you 
+should concisely describe my current location in one sentence.
+You need to select no more than three iconic objects in the room to describe, prioritizing furniture first. But do 
+not mention the floor.
+You should format your answer in this template:
+“You arrive at [room name], where you observe [iconic objects].”
+Current Observation
+System:
+You are an indoor navigation assistant. You will be given a first-person image of my movement, you need to 
+accurately identify the user's location.
+User:
+Here is a first-person image of my current location. Analyze the scene and identify iconic objects to your left, 
+right, and front. Concisely describe my location in one sentence, specifying directional object placement.
+If there are no objects on some directions, you should skip them.
+You should format your answer in this template:
+“You arrive at [room name], where [left objects] are to your left, [right objects] on your right, and [front 
+objects] directly ahead.”
+ImgNav Image Goal
+System:
+You are an indoor navigation assistant. You will be given a first-person image of my target location, you need 
+to accurately identify the location.
+User:
+Here is a first-person image of my target location. Analyze the scene and identify iconic objects to the left, 
+right, and front. Concisely describe this location in one sentence, specifying directional object placement so 
+that I can find out the place.
+If there are no objects on some directions, you should not mention them.
+You should format your answer in this template:
+“You should go to [room name], where [left objects] are to your left, [right objects] on your right, and [front 
+objects] directly ahead.”
+Ins-ImgNav Image Goal
+System:
+You are an indoor navigation assistant. You will be given a first-person image of my target location, you need 
+to accurately identify the location.
+User:
+Here is a first-person image of my target location. I want to find the object in this image. Analyze the scene 
+and identify the feature of object that I am looking for. 
+You should format your answer in this template:
+“You should find [target object with feature]”
+Figure 8: Prompt for Image Information Extraction.
+Object Selection
+System:
+You are a helpful assistant good at summarizing user’s input. You will be given a room name and a sequence 
+of objects in this room. Your task is to summarize the objects in this room.
+User:
+I and now at {room} and here is a list of objects in this room: {objects}
+You should retain the {num} most iconic objects in chronological order and output their name. Pay attention 
+to the number and do not output objects more or less than required.
+Note that there might be same object with different names (e.g. “sofa” and “armchair”, “dresser” and “chest of 
+drawers”), you should treat visually similar objects as equivalent and output only once.
+List the object names separated by commas. Do not output any other information.
+Trajectory Summarization
+System:
+You are an assistant good at summarizing user’s input. You will be given a sequence of descriptions of user’s 
+movement. Your task is to synthesize all descriptions into a concise and coherent summary of user’s 
+movement history.
+User:
+Here are a list of my locations and my observations: 
+{history}
+Summarize my journey as a coherent narrative.
+Output example:
+“You entered the kitchen, saw a microwave, then moved into the living room, where you noticed a TV...”
+Figure 9: Prompt for Historical Information Aggregation.
+18
+
+
+Think-Before-Action Reasoning
+System:
+You are a helpful assistant with robust navigation capabilities, skilled in carefully observing environments and 
+executing tasks based on instructions. You will be given a sequence of navigation tasks. Leverage your 
+expertise in spatial observation and navigation to complete navigation tasks one by one.
+User:
+You are working on a navigation task. You will receive a navigation instruction <instruction>, historical 
+trajectory information <history>, and current scene observation <current>.
+First, sum up your historical movement and observation. Then, you should check how many tasks you have 
+completed according to these information.
+Next, you need to thoroughly analyze your current task and observation to choose your next action, with the 
+explanation why you choose this action.
+The instruction might include two images, {ImageNav} and {InstanceImageNav}, whose visual descriptions 
+are provided under <ImageNav> and <InstanceImageNav>.
+Note that in the instructions or description there might be same object appearing twice or more with different 
+names (e.g. “sofa” and “armchair”, “dresser” and “chest of drawers”), you should treat names of visually 
+similar objects as equivalent.
+You should assume that you really observed these information through vision, and do not mention words like 
+‘history context’, ‘current observation’, etc. Use more natural description.
+Ensure your reasoning is written between <thinking></thinking>, and place the final chosen action within 
+<next_action></next_action>. Strictly adhere to the output format and do not output any other information.
+## Navigation Instruction
+<instruction>
+{instruction}
+</instruction>
+{additional_image}
+## Historical Trajectory Information
+<history>
+{history}
+</history>
+## Current Scene Information
+<current>
+{current}
+</current>
+## Action Space Definition
+<all_actions>
+['stop', 'move_forward', 'turn_left', 'turn_right']
+</all_actions>
+## Reference Action
+<next_action>{action}</next_action>
+## Output Example
+<thinking>
+I began my journey in the kitchen, noticing a white cabinet, then moved through the living room, observing a 
+wooden table and a black chair.
+The first task is to find a black chair. I have been to the living room and found the black chair. So I have 
+completed the first task.
+The second task is to go towards glass doors, go forward and enter the white door on the right. However, I 
+have not found the glass doors yet. So I need to find the glass doors now.
+Currently, I am in the living room, and the patio area is to my left. The glass doors might be in the patio area. 
+So I decide to turn left.
+</thinking>
+<next_action>turn_left</next_action>
+Figure 10: Prompt for TBA Reasoning.
+TBA Reasoning. The deep reasoning stage integrates current observations, historical trajectories,
+navigation instructions, and optional image goals into a structured prompt template for reasoning
+model to process. To align model outputs with ground truth actions while maintaining natural
+reasoning flow, we adopt a reference action embedding strategy with multiple rejection sampling.
+This approach provides target actions in the prompt context without explicit constraints, enabling the
+model to generate logically coherent reasoning rather than result-oriented justification. The detailed
+prompts are shown in Fig. 10.
+19
+
+
+Ins-ImgNav
+ImgNav
+VLN
+ObjNav
+PointNav
+ImgNav
+Ins-ImgNav
+VLN
+ObjNav
+PointNav
+VLN
+Ins-ImgNav
+ObjNav
+PointNav
+ImgNav
+VLN
+PointNav
+Ins-ImgNav
+ImgNav
+ObjNav
+ObjNav
+ImgNav
+Ins-ImgNav
+PointNav
+VLN
+Order
+Figure 11: Sankey diagram of capability distribution within instructions.
+(3) ObjNav category distribution
+(4) Ins-ImgNav Category distribution
+(1) Trajectory step distribution
+(2) Trajectory length distribution
+Figure 12: Distribution of trajectory and category.
+A.3
+Data Analysis
+Sankey Diagram. In Fig. 11, we visualize the data distribution by a Sankey diagram. Specifically,
+each instruction in OctoNav-Bench contains 1 to 5 types of navigation capabilities in order. Thus,
+each edge in the diagram represents an instruction, and edges with the same type of ability are grouped
+into a cluster. Note that the thickness of the cluster reflects the number of corresponding instructions.
+which means the thicker the cluster, the greater the number of corresponding instructions. We can
+observe that the clusters become thinner toward the right, indicating that instructions containing 5
+distinct navigation capabilities (i.e., the hard instruction) are relatively rare, while instructions with 1
+to 4 tasks appear more frequently. Moreover, navigation capabilities appear in various orders across
+the instructions, confirming the diversity. Additionally, we note that the frequency of the VLN task
+appears relatively lower compared to other tasks. This is primarily because VLN instructions tend to
+20
+
+
+(b) In TBA-CoT dataset
+(a) Instructions
+Figure 13: Visualization of the word cloud.
+be longer in word count, even if fewer in number. As a result, the total textual proportion of VLN
+remains balanced within the dataset.
+Bar Charts. In Fig. 12, we illustrate the distribution of trajectory lengths and step counts, along
+with the distribution of target categories in ObjNav and Ins-ImgNav. The trajectory distribution
+approximately follows a normal distribution. The average length is long, and the range of lengths
+is wider, reflecting the high complexity and the challenging nature of OctoNav-Bench. In addition,
+the distribution of target categories in both ObjNav and Ins-ImgNav presents a broad spectrum of
+navigation goals, confirming the generalization potential.
+Word Clouds. As shown in Fig. 13, we analyze the word clouds for the instructions and TBA-CoT
+dataset of OctoNav-Bench. For instructions, there are plenty of words instructing to move like
+‘proceed’, ‘toward’, ‘advance’ and ‘approach’. The categories of ObjNav targets align with Fig. 12,
+with chair, bed and sofa being the most frequently appearing words. For TBA-CoT dataset, the word
+cloud reveals several keywords in CoT. The room keywords like ‘living room’, ‘hallway’ and ‘kitchen’
+are emphasized, showing abundant location information is included in reasoning steps. In addition,
+‘left’ and ‘right’ recurs frequently because of the spatial analysis of observations. Moreover, the
+words showing reasoning about task requirements and future actions are also mentioned repeatedly,
+such as ‘task requires’, ‘need’, ‘moving forward’.
+Scatter Chart. Fig. 14 shows the distribution of the task. The x-axis denotes the word number
+in the instruction, while the y-axis indicates the step length of the trajectory. To enhance chart
+clarity, data points with instruction exceeding 100 words have been excluded. All data points
+are categorized into three groups: easy, medium, and hard, based on the number of capabilities
+involved. Easy tasks contain a single capability, medium tasks include two capabilities, while
+hard tasks have three or more tasks. In the figure, they are denoted by orange, green, and red,
+respectively. Collectively, task difficulty demonstrates correlation with both instruction length and
+step length, where longer instruction and trajectory correlate with increased task complexity. A
+roughly proportional relationship between instruction length and step length is also evident. The
+chart further reveals substantial diversity in instruction lengths within our dataset, particularly notable
+in the hard category where multiple capabilities interact to produce complex task requirements.
+This diversity highlights that our OctoNav-Bench is designed to cover a wide range of navigation
+situations.
+A.4
+Data Usage.
+The proposed OctoNav-Bench uses Habitat simulator [62, 71, 72], MP3D [51], HM3D [52], Gib-
+son [53], and ProcTHOR [54] scenes, which are all public. Besides, the construction of many
+datasets [12, 14, 15, 55, 56, 57] is also based on these scenes and simulators. All data are used in
+compliance with their licenses and terms of use.
+A.5
+Metrics Details
+We provide computation details about metrics for better understanding. Concretely, there are N test
+samples in total. i-th sample contains numi sub-tasks and its j-th sub-task is defined as subi,j. Note
+that each subi,j has a corresponding capability capi,j of this sub-task. Also, Si,j denotes the binary
+21
+
+
+Figure 14: Distribution of the task. The x-axis represents the number of words in the instruction,
+while the y-axis indicates the step length.
+success indicator of this sub-task, and OSi,j denotes the binary indicator of oracle success. Goali,j
+is the target point, SDi,j is the success distance.
+Following prior works [73, 74, 27], we set different success distances for each capability: 0.36m for
+PointNav and ImgNav, 1m for ObjNav and Ins-ImgNav, 3m for VLN. Any location within the success
+distance of the target location is regarded as a successful area. Areai,j presents the successful area
+of the sub-task subi,j. Formally, it can be achieved via:
+Areai,j = {p|p ∈P ∧dis(Goali,j, p) ≤SDi,j},
+(11)
+where P denotes the whole navigable area. Then, let Traji,k be the location after the k-th step of
+agent’s trajectory in sample i. We obtain Si,j and OSi,j as follows:
+OSi,j = ∃k, s. t. Traji,k ∈Areai,j,
+(12)
+Si,j = ∃(k1, . . . , kj), s. t. (k1 < · · · < kj) ∧(Traji,k1 ∈Areai,1) ∧· · · ∧(Traji,kj ∈Areai,j).
+(13)
+Let Li,j be the shortest path length from the starting point satisfying Si,j = 1. Note that Li,0 = 0.
+Next, we define li,j as the local shortest path of subi,j, which equals to Li,j −Li,j−1. Similarly,
+let TLi,j be the length of the trajectory actually taken by the agent, which meets Si,j = 1. Note
+that TLi,0 = 0. And tli,j is defined as the local trajectory length of subi,j, which equals to
+TLi,j −TLi,j−1. If subi,j is not successful, both TLi,j and tli,j are considered as +∞. Thus, for
+each capability c ∈[Ins-ImgNav, ImgNav, PointNav, ObjNav, VLN], the evaluation metrics can be
+calculated as follows:
+SRc =
+1
+N
+P
+i=1
+numi
+P
+j=1
+[capi,j = c]
+N
+X
+i=1
+numi
+X
+j=1
+Si,j[capi,j = c],
+(14)
+OSRc =
+1
+N
+P
+i=1
+numi
+P
+j=1
+[capi,j = c]
+N
+X
+i=1
+numi
+X
+j=1
+OSi,j[capi,j = c],
+(15)
+SPLc =
+1
+N
+P
+i=1
+numi
+P
+j=1
+[capi,j = c]
+N
+X
+i=1
+numi
+X
+j=1
+Si,j
+li,j
+max(li,j, tli,j)[capi,j = c].
+(16)
+And overall evaluation metrics can be calculated as follows:
+SROverall = 1
+N
+N
+X
+i=1
+Si,numi,
+(17)
+OSROverall = 1
+N
+N
+X
+i=1
+OSi,numi,
+(18)
+SPLOverall = 1
+N
+N
+X
+i=1
+Si,numi
+Li,numi
+max(Li,numi, TLi,numi)
+(19)
+22
+
+
+RealSense D455
+LiDAR-L1
+Portable Wi-Fi
+Figure 15: We use Unitree GO2, and mount RealSense D455, a portable Wi-Fi and a LiDAR-L1.
+Note that, our model only takes RGB frames as input. The portable Wi-Fi is used for communication
+with the remote server and the Lidar is used for the local controller API of Unitree Dog.
+(a)
+(b)
+(c)
+(d)
+Figure 16: Visualization in real world.
+B
+Appendix: Real-World Deployment
+B.1
+Robot Setup
+OctoNav-R1 is tested on a robotic dog (Unitree GO2) mounted with a RealSense D455 camera on its
+head (We provide a visualization at Fig. 15). Here, we only use the RGB frames with a resolution of
+640 × 480 in the setting of 90◦HFOV. We also mount a portable Wi-Fi at the back of the robot dog,
+which is used to communicate with the remote server (send captured images and receive commands).
+Unitree GO2 is integrated with a LiDAR-L1, which is only used for local motion planning for
+Unitree’s API.
+B.2
+Deployment Details
+Our model is deployed on a remote server equipped with an NVIDIA 4090 GPU. During navigation,
+the server receives navigation instructions and images captured by the robotic dog through the Internet.
+To ensure efficient communication, the images are compressed before transmission. After processing
+the newly captured images, the model generates action commands and sends them to the robotic dog.
+Upon receiving these commands, the robotic dog executes the actions using a local motion planning
+model (specifically, the off-the-shelf model provided by Unitree Dog).
+B.3
+Visualization in the Real-World
+We present visualizations in the real world in Fig. 16. In Fig. 16(a) and Fig. 16(b), the robot is
+required to navigate to the left chair and the right chair respectively. As shown in the visulizations,
+the robot correctly distinguish left and right. Besides, the robot in Fig. 16(b) successfully navigates
+to the required point. All these demonstrate that OctoNav-R1 can accurately recognize the spatial
+relationship. In Fig. 16(d) is required to find a chair first, and then navigate to the tv shown in an
+23
+
+
+Visual Encoder
+Language Encoder
+Query Creator
+…
+History Observations
+Current Observation
+Pooling
+Cross Attention
+[Img]
+[Img]
+[Img]
+history tokens 
+current token 
+history queries 
+current query 
+…
+[Img]
+[Img]
+[HIS]
+[/HIS][OBS]
+[/OBS][NAV]
+[Img]
+[Img]
+<Think>…………………………………………</Think><Action>…………………………………………</Action>
+Base LLM: Vicuna 7B
+Visual Projector
+Query Projector
+Visual Goals
+You are in {0,0,0}, and toward {90!,90!, 0!} . Navigate to this place {Img},
+then return to {20, 30, 10} and wait. {Go through the door next to the
+refrigerator, and turn right, go through the hall way and up the stairs}.
+Figure 17: The model architecture of OctoNav-R1. Best viewed in color.
+image. As shown in Fig. 16(d), our robot successfully finishes this multi-stage task, indicating the
+ability of multi-modal cognition and task planning. We observe preliminary sim-to-real transfer
+ability without real-world fine-tuning. It further confirms the OctoNav-Bench and OctoNav-R1.
+C
+Appendix: More Technical Details of OctoNav-R1
+C.1
+Model Architecture
+Our OctoNav-R1 is built upon LLaMA-VID [58]. Further, we propose task-specific designs on top
+of it, making it capable of receiving multi-modal instructions and producing low-level actions in an
+end-to-end manner. The detailed model architecture of OctoNav-R1 is shown in Fig. 17. Firstly, all
+images are encoded by the visual encoder EV :
+Ei
+h = EV (Vi
+h), Ec = EV (Vc), Eg = EV (Vg),
+(20)
+where Vi
+h is the i-th historical observation, Vc is the current observation, Vg is the goal image for
+ImgNav or Ins-ImgNav tasks. These image features are further sent into the pooling layer and the
+visual projector PV to align with the LLM embedding space:
+E′i
+h = PV (Pool(Ei
+h)), E′
+c = PV (Pool(Ec)), E′
+g = PV (Pool(Eg)).
+(21)
+Meanwhile, the instruction I is embedded by the language encoder EL:
+I = EL(I).
+(22)
+Besides, for each observation, we generate a query token for it using the Q-Former style query
+generator GQ:
+Qi
+h = GQ(Ei
+h, I), Qc = GQ(Ec, I).
+(23)
+These tokens are then aligned to the LLM embedding space via cross attention and query projector
+PQ:
+Q′i
+h = PQ(CA(Ei
+h, Qi
+h)), Q′
+c = PQ(CA(Ec, Qc)),
+(24)
+where CA(·) is the cross attention function:
+CA(E, Q) = Pool(Softmax(QET )E).
+(25)
+24
+
+
+Action-SFT Template
+Imagine you are a robot programmed for navigation tasks. You have been given a video of historical 
+observations and an image of the current observation <image>. Your assigned task is: ‘{}’. Note that the 
+coordinates are in meters. Analyze this series of images to decide your next move, which could involve 
+turning left or right by a specific degree or moving forward a certain distance.
+TBA-SFT Template
+Imagine you are a robot programmed for navigation tasks. You have been given a video of historical 
+observations and an image of the current observation <image>. Your assigned task is: ‘{}’. Note that the 
+coordinates are in meters. Summarize the navigation history and your current observation, give the following 
+navigation plan, and then output your next action.
+Action Templates for Nav-GRPO
+Imagine you are a robot programmed for navigation tasks. You have been given a video of historical 
+observations and an image of the current observation <image>. Your assigned task is: ‘{}’. Note that the 
+coordinates are in meters. Analyze this series of images to decide your next move, which could involve 
+turning left or right by a specific degree or moving forward a certain distance. Think carefully before making 
+the final decision.
+Imagine you are a robot programmed for navigation tasks. You have been given a video of historical 
+observations and an image of the current observation <image>. Your assigned task is: ‘{}’. Note that the 
+coordinates are in meters. Examine these images and decide whether to turn left or right by a certain number 
+of degrees, or move straight ahead for a specific distance. Think about all the options meticulously before 
+settling on your final choice.
+Imagine you are a robot programmed for navigation tasks. You have been given a video of historical 
+observations and an image of the current observation <image>. Your assigned task is: ‘{}’. Note that the 
+coordinates are in meters. Study the provided video and image, and decide your next navigation step, which 
+could be turning left or right by a certain angle, or moving forward by certain distance. Consider all possible 
+scenarios and potential outcomes before finalizing your move.
+TBA Templates for Nav-GRPO
+Imagine you are a robot programmed for navigation tasks. You have been given a video of historical 
+observations and an image of the current observation <image>. Your assigned task is: ‘{}’. Note that the 
+coordinates are in meters. Summarize the navigation history and your current observation, give the following 
+navigation plan, and then output your next action. Think carefully before making the final decision.
+Imagine you are a robot programmed for navigation tasks. You have been given a video of historical 
+observations and an image of the current observation <image>. Your assigned task is: ‘{}’. Note that the 
+coordinates are in meters. Summarize the navigation history and your current observation, give the following 
+navigation plan, and then output your next action. Carefully consider all aspects before finalizing your 
+decision.
+Figure 18: Prompt for Training.
+Then each query token embedding is inserted to the head of the corresponding image embeddings.
+The embedding of the placeholder (e.g., {ImageNav} and {InstanceImageNav}) is replaced by the
+goal image embedding E′
+g, as shown in Fig. 17. In practice, we utilize EVA-CLIP [75] as the visual
+encoder, BERT [76] as the Language Encoder, and Vicuna-7B [77] as the base LLM.
+C.2
+Implementation Details.
+For the Action-SFT stage, we train the model for nearly 10k steps via the instruction-trajectory pairs
+within OctoNav-Bench. Then we train the model on the TBA-CoT dataset of OctoNav-Bench for
+nearly 6k steps to enable the model’s TBA ability. For the GRPO training stage, NGRP O=2, 000,
+and we train the model for 1, 000 steps with ε = 0.2 and β = 0.0001. All trainings are finished on
+8 A800 40G GPUs with a learning rate of 2e −5, and the batch size for a single GPU is 2. For the
+online reinforcement learning, we train the model with a learning rate of 2e −6 on a single A800
+for 500 steps. The discount factor γ = 1, d′ = 25cm, and the warm-up stage contains 100 steps. To
+enable efficient fine-tuning, we employ LoRA [78] technique across all training stages. The prompts
+used in training are presented in Fig. 18.
+C.3
+Baseline Methods
+We provide more details of the baselines for comparison and how they are modified to evaluate on
+OctoNav-Bench.
+MLLMs as Agent. We select representative open-source MLLM for baseline: Qwen-VL [59],
+Video-LLaVA [60] and LLaVA-NeXT-Video [61]. For Qwen-VL, we combine historical observation
+25
+
+
+images, current observation image and image goals into a single large picture, with a caption on
+top of each image. Then, the picture and the instruction are fed into MLLM to produce action. For
+Video-LLaVA and LLaVA-NeXT-Video, the historical observation images are sent to model through
+video, while the current observation image and image goals are sent through a combined picture.
+Navigation Model for Discrete Environments. NaviLLM [33] pioneers as a universal framework
+for embodied navigation scenarios, tailoring LLMs to address diverse task requirements through
+schema-based instruction. NavGPT-2[29] leverages the VLM framework from InstructBLIP [79],
+enhanced with multi-image perception capabilities to optimize its performance for VLN tasks. As
+both models are developed in discrete environments, we finetune them to fit in our continuous
+environment.
+For NaviLLM, we first change the output head from waypoint-selection to action-selection, aligning
+with continuous environment setting. Next, we slightly modify the instruction template, adding current
+observation, ImgNav goal and Ins-ImgNav goal tokens into input while keeping the original history
+image tokens unchanged. The corresponding images are sent into visual encoder and embedded as
+visual input. After modification, we fine-tune the LLM backbone using the LoRA [78] method.
+For NavGPT-2, we apply its first training stage (i.e., LLM finetuning) on the OctoNav-Bench, thus
+enable the LLM to output actions needed in the continuous environments. Particularly, we put text
+"ImageNav" and "InstanceImageNav" on the corresponding goal images, send all images to the visual
+encoder, and stack all image embeddings as the visual input. In inference, the navigation action is
+directly extracted from the LLM output text.
+Navigation Model for Continuous Environments. NaVid [27] and Uni-NaVid [32] are two video-
+based Vision-Language Models for VLN, developed in continuous environment like ours. Uni-NaVid
+is a follow-up to NaVid, with much more training data and stronger navigation ability. We firstly
+add image goal embeddings into the models, then evaluate them before and after finetuning on the
+OctaNav-Bench.
+D
+Appendix: More Experimental Results
+D.1
+Visualization on OctoNav-Bench
+In this section, we provide more visualizations of navigation trajectories and thinking processes of
+OctoNav-R1.
+In Fig. 19, the agent is required to reach the scene in {InstanceImageNav} and {ImageNav} subse-
+quently, and finally find the sofa. For OctoNav-R1, as the chairs in {InstanceImageNav} are already
+in the field of view, the agent directly walks towards these chairs. After finishing this task, the agent
+notices that the hallway in {ImageNav} is on the left side. In this way, the agents turns left and walks
+through the hallway, where the sofa emerges. Then the agent walks close to the sofa and stops. Such a
+trajectory shows that OctoNav-R1 can correctly understand the sequence of tasks, determine whether
+the current task is completed, and switch to the next task. In contrast, the agent of Uni-NaVid only
+stays beside the sofa, as the agent ignores the first two tasks and only focuses on the last one.
+In Fig. 20, the agent is required to reach the scene in {ImageNav}. As the {ImageNav} shows a scene
+in the hallway, the agent of OctoNav-R1 firstly explores the hallway in the right area. After confirming
+that the required scene is not located in the right hallway, the agent turns back to explore the hallway
+at left, where it successfully reaches the required scene. Such a process indicates that OctoNav-R1
+can precisely understand the contents in the goal images, and flexibly adjusts the navigation plan
+when the target cannot be found. In contrast, Uni-NaVid fails to understand the image content and
+hovers at the starting point.
+In Fig. 21, our agent firstly finds the sofa shown in {ImageNav}. Then the agent directly navigates
+to the target point. Finally, the agent successfully reaches the scene shown in {InstanceImageNav}.
+Note that each target in this instruction is either point or image, showing the OctoNav-R1’s ability to
+complete multi-modal targets. In contrast, Uni-NaVid only completes the first task.
+26
+
+
+Instruction: Your current position is (0.57, 3.54, 0.02) and your current orientation is (-0.91, -0.42, 0).
+Use {InstanceImageNav} to guide exploration until detecting the matching instance in the current visual
+field. Orient via image {ImageNav} and advance until scenes visually align. Find the sofa and then head
+straight to the sofa. End your motion there.
+ImageNav
+InstanceImageNav
+OctoNav-R1
+Uni-NaVid
+Failed
+Success
+Figure 19: Visualization on OctoNav-Bench.
+Instruction: Your current position is (-3.28, -2.79, 0.18) and your current orientation is (-0.38, 0.93, 0).
+Adjust your path with image {ImageNav} until the corresponding viewpoint appears. Find the chair and
+then head straight to the chair. Locate the object instance in the reference image {InstanceImageNav}
+and verify its presence in the current view. Then terminate your movement.
+OctoNav-R1
+ImageNav
+InstanceImageNav
+Uni-NaVid
+Failed
+Success
+Figure 20: Visualization on OctoNav-Bench.
+27
+
+
+Instruction: Your current position is (-2.01, -6.04, 0.05) and your current orientation is (-0.99, 0.11, 0). 
+Search for the reference object {InstanceImageNav} and assess whether it is present in the immediate 
+view. Guide yourself to (5.71, -3.30, 0.12) positioned at the target area. Steer based on image {ImageNav} 
+until environmental features correspond. Then bring yourself to a standstill.
+OctoNav-R1
+InstanceImageNav
+Uni-NaVid
+ImageNav
+Success
+Failed
+Figure 21: Visualization on OctoNav-Bench.
+Instruction: Your current position is (9.60, -0.83, 0.02) and your current orientation is (0.88, -0.48, 0). Steer based on 
+image {ImageNav} until environmental features correspond. Follow the bay windows then take a left. go slightly right 
+and stop by the staircase. Stop once you reach it. 
+OctoNav-R1
+ImageNav
+Uni-NaVid
+Success
+Failed
+Figure 22: Visualization on OctoNav-Bench.
+In Fig. 22, our agent first navigates to the scene displayed in {ImageNav}, and then follows a VLN
+instruction. It could be seen from the images that our agent can precisely obey the VLN instruction
+step-by-step, approaches the window first, and eventually reaches the staircase. Such a process
+demonstrates the OctoNav-R1’s capability in completing VLN tasks. In contrast, Uni-NaVid agent
+tends to randomly wander randomly when faced with the complex instruction.
+In Fig. 23, the agent is currently required to navigate to the kitchen area in the {InstanceImageNav}.
+Noticing the kitchen is ahead in the hall way, the agent decides to exit the current area. As the exit
+door is visible on the left of the current view, the agent turns left to align itself with the exit path.
+Such a process demonstrates that OctoNav-R1 can accurately understand the meaning of each image
+and extract useful information from different images.
+In Fig. 24, the agent currently reaches an empty room. By comparing the current observation with
+{ImageNav}, the agent correctly concludes that the first task has been completed, and continues to
+plan for the second task. As the target in {InstanceImageNav} does not appear in the current scene,
+28
+
+
+Instruction: Your current position is (-3.26, -2.69, 0.18) and your current orientation is (-1.00, 0.03,0). 
+Proceed toward the coordinate (-2.78,-0.42.0.18) until reaching the designated area. Search for the 
+reference object {InstanceImageNav} and assess whether it is present in the immediate view. Seek out 
+the sofa, head straight for the sofa. Follow the reference image {ImageNav} until reaching the 
+matching visual scene. After that, stop.
+Current
+InstanceImageNav
+History
+OctoNav-R1: <Think>I started in a bedroom facing a foosball table, then moved through a hallway to a 
+bedroom with a bed and a clock. The current task requires moving through a doorway to a kitchen area. 
+The kitchen is directly ahead in the hallway, but the current position is in a bedroom. To reach the 
+kitchen, I need to exit the bedroom. The exit door is visible to my left. Turning left would align me with 
+the exit path, allowing me to proceed to the kitchen area as required.</Think><Action>The next action 
+is to turn left 30 degrees.</Action>
+bird's eye view map
+Figure 23: Visualization of think-before-actioin in a trajectory.
+Instruction: Your current position is (-5.18, -4.85, -1.22) and your current orientation is (-0.68, -0.73, 0). 
+First of all, adjust your path with image {ImageNav} until the corresponding viewpoint appears. After 
+that, locate the object instance in the reference image {InstanceImageNav} and verify its presence in the 
+current view. End your motion there.
+ImageNav
+InstanceImageNav
+History
+OctoNav-R1: <Think>I started in a bedroom, then moved through a hallway and entered a room with a 
+ceiling fan. The first task requires moving to a doorway with a wall on the left and a window ahead. The 
+current scene shows a wall on the left and a window ahead, which matches the ImageNav description. 
+The second task requires locating an instance image. Since I‘m already in a room with a ceiling fan, 
+the doorway ahead likely leads to another room where the instance might be located. The next action is 
+to move forward toward the doorway to investigate the adjacent space.</Think><Action>Move forward 
+75 cm.</Action>
+Current
+bird's eye view map
+Figure 24: Visualization of think-before-actioin in a trajectory.
+Instruction: Your current position is (4.68, -1.05, 0.18) and your current orientation is (-0.97, -0.24, 0). 
+Look for the bed and proceed straight to the bed. Navigate to the object shown in {InstanceImageNav} 
+and confirm its visibility in the present scene. Bring yourself to a stop upon arrival.
+Current
+InstanceImageNav
+History
+OctoNav-R1: <Think>I started in the dining area, then moved to the kitchen. The first task requires 
+finding a bed, which I haven't yet located. The current kitchen view shows a refrigerator ahead and a 
+counter to the right. The bed might be through the kitchen exit, so moving forward through the kitchen 
+path makes sense. The navigation plan suggests moving forward to reach the kitchen’s exit area, which 
+likely leads to the bedroom. The next action is to move forward toward the kitchen exit 
+area.</Think><Action>The next action is to move forward 75cm.</Action>
+bird's eye view map
+Figure 25: Visualization of think-before-actioin in a trajectory.
+the agent decides to explore the adjacent space for more clues. Such a behaviour shows that OctoNav-
+R1 can effectively make the navigation plan when faced with difficulties.
+In Fig. 25, the agent first navigates to the wrong direction which is opposite the bed target. Thankfully,
+through the TBA scheme, the agent realizes that the bed target is not located in the current area.
+Subsequently, the agent decides to leave the current area, and moves to the bedroom where the bed
+target is more likely to be. Such a process shows that OctoNav-R1 has the ability to correct errors in
+the navigation process.
+29
+
+
+Overall
+Ins-ImgNav
+ImgNav
+PointNav
+ObjNav
+VLN
+Template Type
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+Single Template
+15.80
+10.93
+25.40
+27.02
+19.58
+33.06
+17.36
+12.30
+19.42
+21.12
+14.71
+23.11
+47.13
+34.57
+63.52
+31.43
+28.23
+48.57
+Diverse Templates
+17.00
+12.04
+25.00
+29.44
+20.73
+33.47
+19.42
+14.27
+22.73
+21.51
+16.37
+24.70
+48.77
+35.63
+62.70
+34.29
+29.14
+48.57
+Table 5: Prompt template ablations in Nav-GRPO.
+Reward
+Overall
+Ins-ImgNav
+ImgNav
+PointNav
+ObjNav
+VLN
+Type
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+Strict
+16.20
+11.74
+25.40
+26.21
+19.75
+31.05
+17.36
+14.77
+20.25
+22.31
+16.72
+26.29
+43.85
+31.32
+60.66
+28.57
+24.85
+45.71
+Loose
+15.40
+10.97
+26.00
+27.42
+18.87
+31.45
+18.18
+13.43
+21.07
+19.92
+13.89
+22.31
+43.03
+33.64
+63.11
+31.43
+27.33
+45.71
+Stepped
+17.00
+12.04
+25.00
+29.44
+20.73
+33.47
+19.42
+14.27
+22.73
+21.51
+16.37
+24.70
+48.77
+35.63
+62.70
+34.29
+29.14
+48.57
+Table 6: Reward design in Nav-GRPO.
+Thinking
+Overall
+Ins-ImgNav
+ImgNav
+PointNav
+ObjNav
+VLN
+Frequency
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+per 10 steps
+17.00
+11.51
+27.60
+25.81
+17.80
+32.66
+19.83
+12.95
+23.14
+23.51
+16.14
+26.69
+43.44
+31.00
+63.93
+28.57
+27.69
+40.00
+per 20 steps
+19.40
+13.77
+29.40
+30.24
+20.77
+35.48
+23.97
+17.49
+27.27
+23.51
+14.35
+27.89
+49.18
+37.79
+67.21
+37.14
+33.56
+42.86
+per 40 steps
+18.80
+12.62
+28.20
+27.42
+18.46
+33.87
+17.77
+12.00
+22.73
+25.50
+15.37
+29.08
+48.77
+34.12
+64.34
+34.29
+26.49
+45.71
+Table 7: Thinking frequency ablations.
+Easy Instructions
+Medium Instructions
+Hard Instructions
+Methods
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+SR
+SPL
+OSR
+LVLM as Agent
+Qwen-VL[59]
+0.00
+0.00
+0.00
+0.00
+0.00
+2.96
+0.00
+0.00
+3.29
+Video-LLaVA [60]
+2.23
+1.25
+2.23
+0.00
+0.00
+4.14
+0.00
+0.00
+5.26
+LLaVA-NeXT [61]
+0.56
+0.49
+0.56
+0.00
+0.00
+2.37
+0.00
+0.00
+4.61
+Methods for DE
+NaviLLM* [33]
+2.79
+2.79
+2.79
+0.59
+0.59
+5.33
+0.00
+0.00
+4.61
+NavGPT-2* [29]
+4.47
+2.91
+4.47
+1.18
+0.92
+5.92
+0.00
+0.00
+5.26
+Methods for CE
+NaVid [27]
+11.17
+8.89
+11.17
+4.14
+2.98
+11.24
+1.32
+0.51
+11.84
+Uni-NaVid [32]
+14.53
+9.81
+14.53
+7.10
+5.01
+17.16
+3.29
+1.93
+21.71
+NaVid† [27]
+16.76
+13.52
+16.76
+7.10
+6.28
+13.02
+1.32
+0.77
+11.18
+Uni-NaVid† [32]
+14.53
+10.25
+14.53
+9.47
+6.25
+18.93
+2.63
+1.42
+20.39
+OctoNav-R1 (ours)
+28.49
+20.61
+28.49
+20.71
+14.98
+32.54
+7.24
+4.38
+26.97
+Table 8: More Comparison with previous methods.
+D.2
+Ablation Study
+We present more detailed ablation results in Tab. 5, Tab. 6 and Tab. 7.
+D.3
+More Comparison Results
+We present more comparison results in Tab.8. Specifically, We divide the test instructions into three
+types according to the number of tasks. Each easy instruction contains only one task. Each medium
+instruction contains two tasks. A hard instruction contains at least three tasks. As shown in Tab.8,
+OctoNav-R1 achieves the state-of-the-art performance on all types of instructions. Particularly, the
+SR for hard instructions in improved from 2.63% to 7.24%, demonstrating OctoNav-R1’s superiority
+in completing complex instructions.
+30
+
+
+E
+Appendix: Limitations and Broader Impacts
+Limitations. We find that VLMs sometimes generate hallucinations, leading to degraded navigation
+performance. Studying how to reduce such hallucinations in VLM research field is also beneficial
+for embodied navigation. Considering the cost of the TBA paradigm, we adjust OctoNav-R1 to
+the mode of thinking at fixed frequency. Overall, the performance is not sensitive to the frequency.
+However, we believe that when and where to think is a valuable research topic, e.g., slow-fast thinking
+collaboration and scene-aware adaptive thinking, which we leave for further work.
+Broader Impacts. Navigation errors by robots in real-world scenarios may lead to safety hazards
+or property losses. We hope research on enhancing the safety and reliability of robots in real-world
+environments can facilitate the practical deployment of embodied navigation applications. Moreover,
+beyond the navigation agents moving on the ground, we hope our work also provides insights for
+researchers in the drone and UAV literature.
+31

@@ -1,0 +1,1027 @@
+CL-CoTNav: Closed-Loop Hierarchical Chain-of-Thought for Zero-Shot
+Object-Goal Navigation with Vision-Language Models
+Yuxin Cai1,2, Xiangkun He1, Maonan Wang3, Hongliang Guo2, Wei-Yun Yau2, and Chen Lv1,∗
+Abstract— Visual Object Goal Navigation (ObjectNav) re-
+quires a robot to locate a target object in an unseen environ-
+ment using egocentric observations. However, decision-making
+policies often struggle to transfer to unseen environments
+and novel target objects, which is the core generalization
+problem. Traditional end-to-end learning methods exacerbate
+this issue, as they rely on memorizing spatial patterns rather
+than employing structured reasoning, limiting their ability
+to generalize effectively. In this letter, we introduce Closed-
+Loop Hierarchical Chain-of-Thought Navigation (CL-CoTNav),
+a vision-language model (VLM)-driven ObjectNav framework
+that integrates structured reasoning and closed-loop feedback
+into navigation decision-making. To enhance generalization,
+we fine-tune a VLM using multi-turn question-answering
+(QA) data derived from human demonstration trajectories.
+This structured dataset enables hierarchical Chain-of-Thought
+(H-CoT) prompting, systematically extracting compositional
+knowledge to refine perception and decision-making, inspired
+by the human cognitive process of locating a target object
+through iterative reasoning steps. Additionally, we propose a
+Closed-Loop H-CoT mechanism that incorporates detection
+and reasoning confidence scores into training. This adap-
+tive weighting strategy guides the model to prioritize high-
+confidence data pairs, mitigating the impact of noisy inputs
+and enhancing robustness against hallucinated or incorrect
+reasoning. Extensive experiments in the AI Habitat environment
+demonstrate CL-CoTNav’s superior generalization to unseen
+scenes and novel object categories. Our method consistently
+outperforms state-of-the-art approaches in navigation success
+rate (SR) and success weighted by path length (SPL) by 22.4%.
+We release our datasets, models, and supplementary videos on
+our project page.
+Index Terms— Vision-based navigation, foundation models,
+autonomous agents.
+I. INTRODUCTION
+Humans efficiently navigate unfamiliar environments to find
+an object by reasoning semantic relationships [1]—for instance,
+kitchens are typically adjacent to living rooms, and exit signs
+indicate pathways to an exit. This structured reasoning allows
+humans to infer the probable location of a target object without ex-
+haustive exploration or explicit SLAM-based mapping. Replicating
+this capability in robots is fundamental to Object Goal Navigation
+(ObjectNav), where a robot must learn to locate an instance of
+a specified object category in an unseen environment using only
+egocentric observations [2]. However, achieving such reasoning-
+driven navigation remains an open challenge, particularly when
+1School
+of
+Mechanical
+and
+Aerospace
+Engineering,
+Nanyang
+Technological University, Singapore {caiy0039, xiangkun.he,
+lyuchen}@ntu.edu.sg
+2Institute for Infocomm Research (I2R), Agency for Science, Technology
+and Research (ASTAR), Singapore {stucaiy, guo hongliang,
+wyyau}@i2r.a-star.edu.sg
+3School of Science and Engineering, the Chinese University of Hong
+Kong, Shenzhen, China and the Shanghai AI Laboratory, Shanghai, China
+{maonanwang}@link.cuhk.edu.cn
+*Corresponding author
+Fig. 1.
+Overview of Zero-Shot Object Navigation (ZSON). The left
+side illustrates the training phase, where an robot trains to navigate within
+seen scenes sets and towards target objects sets. The right side represents
+the zero-shot generalization phase, where the trained policy is evaluated
+in unseen target objects and novel scenes without further training. The
+figure also highlights the proposed H-CoT process, where it reasons about
+likely and unlikely object locations based on object-object and object-scene
+relationships.
+addressing zero-shot generalization, where robot must navigate to
+previously unseen objects or adapt to novel scene layouts without
+retraining, making Zero-Shot Object Navigation (ZSON) a critical
+yet unsolved problem [3], as shown in Fig.1.
+The ZSON problem presents two primary challenges [4]. First,
+unseen object generalization requires robot to infer the probable
+location of novel target objects based on learned semantic relation-
+ships rather than memorizing specific instances. For example, if
+robot has learned to find a ”chair,” it should be able to infer the
+likely placement of a ”stool” based on shared spatial and functional
+attributes, rather than requiring explicit training on stools. Second,
+unseen scene generalization requires robot to learn layout patterns
+rather than memorizing specific room arrangements. Real-world
+indoor spaces exhibit significant variations in spatial arrangements
+but share same layout pattern. Effective generalization demands the
+ability to infer high-level spatial relationships—such as recognizing
+that a kitchen is typically adjacent to a dining area—rather than
+relying on rigid spatial distributions observed during training. Ad-
+dressing these challenges necessitates structured semantic reasoning
+beyond conventional feature-based learning. A robust ZSON policy
+should explicitly incorporate object-object and object-scene co-
+occurrence relationships to improve generalization across unseen
+objects and scenes while maintaining efficient navigation.
+Existing approaches to ZSON primarily fall into two paradigms:
+modular pipelines and end-to-end reinforcement learning (RL) [5].
+Modular pipelines decompose navigation into semantic mapping,
+frontier goal selection, and motion planning, explicitly constructing
+top-down representations to infer potential object locations. While
+interpretable by map, these methods heavily depend on accurate
+localization and mapping, making them sensitive to errors in depth
+arXiv:2504.09000v1  [cs.RO]  11 Apr 2025
+
+
+sensing. This poses a significant challenge for real-world deploy-
+ment, where sensor noise and dynamic scene variations degrade
+decision accuracy. In contrast, end-to-end RL methods directly
+optimize policies from egocentric visual inputs to output actions
+[6]. While capable of capturing complex visual-action associations,
+these approaches require extensive interaction data for training.
+Both paradigms also share one crucial limitation: they lack a prin-
+cipled mechanism to integrate semantic reasoning and uncertainty
+estimation in-the-loop, limiting their generalization ability.
+Recent advances in VLMs have introduced new opportunities
+for incorporating commonsense reasoning priors into navigation
+[7], [8]. These models excel at object recognition and reasoning,
+making them valuable for introducing semantic priors and inferring
+semantic relationships [9], [10]. However, directly applying such
+models to ObjectNav task remains challenging [11]. While language
+models can generate high-level narratives about reaching a target,
+they lack direct grounding in real-world observations and often
+produce hallucinated or semantically incorrect reasoning. Existing
+vision-language navigation methods also either lack structured in-
+termediate reasoning steps or fail to incorporate incorrect reasoning,
+leading to unreliable output.
+To address these limitations, we propose a VLM-driven navi-
+gation framework that introduces a hierarchical chain-of-thought
+reasoning process. Instead of directly predicting actions, our
+method decomposes ObjectNav into structured multi-turn question-
+answering steps that explicitly model human-like decision-making,
+inspired by how humans iteratively refine their understanding of the
+environment. In addition, to mitigate noisy RGB observations or in-
+correct commonsense reasoning associations, we introduce a closed-
+loop mechanism that incorporates confidence-weighted adaptive
+learning into training, prioritizing high-confidence trajectories while
+reducing the influence of unreliable predictions. This refinement
+improves generalization to unseen objects and environments while
+ensuring robust navigation decisions. Our contributions can be
+summarized as follows:
+• We introduce CL-CoTNav, a VLM-driven ObjectNav frame-
+work that integrates structured reasoning into navigation
+decision-making. We fine-tune small-scale VLM using multi-
+turn question-answering (QA) data derived from human
+demonstration trajectories. This structured dataset enables
+hierarchical Chain-of-Thought (H-CoT) prompting, iteratively
+extracting compositional knowledge from pretrained founda-
+tion models, serve as auxiliary navigation guidance labels.
+• We further develop a closed-loop H-CoT mechanism that
+introduces confidence scores into training through adaptive
+loss weighting, reducing the impact of both noisy RGB
+observations and unreliable semantic reasoning associations.
+• We conduct extensive experiments in AI Habitat, demonstrat-
+ing that our method outperforms state-of-the-art ObjectNav
+baselines in success rate and success weighted by path length.
+Our results highlight the benefits of structured reasoning and
+confidence-aware learning for zero-shot object navigation.
+II. RELATED WORK
+A. Object Goal Visual Navigation
+Object Goal Visual Navigation (ObjectNav) requires an agent
+to locate an instance of a target object category in an unseen
+environment using only visual inputs [2]. Existing approaches can
+be categorized into modular learning and end-to-end learning [5].
+Modular learning methods decompose the navigation task into
+semantic mapping, goal selection, and motion planning. These
+methods construct a top-down semantic map, select exploration
+goals based on learned or heuristic policies, and execute low-level
+actions through a local planner [5]. Representative pipelines [12],
+[13] incrementally build episodic semantic maps while employing
+goal-agnostic, frontier-based exploration. The semantic exploration
+policy determines navigation goals by leveraging learned priors on
+object spatial relationships, while the local planner [14] generates
+paths and executes actions. The exploration policy operates at
+a coarse time scale, whereas the planner continuously updates
+the map and refines the path at a finer scale. Although modular
+approaches are interpretable and transferable to real-world settings,
+their reliance on accurate localization and mapping limits practice in
+large-scale environments. End-to-end learning methods, in contrast,
+directly map raw sensor inputs and goal descriptions to navigation
+actions using deep neural networks, bypassing explicit mapping. It
+learns implicit representations of the observation before inputting
+it into the navigation policy, exploiting the object relationships or
+semantic contexts, aiming for a more robust navigation policy. [15]
+incorporate attention mechanisms to prioritize relevant observed
+objects. Meta-learning strategies [16] enable adaptive navigation in
+unseen environments without explicit supervision, and graph neural
+networks [17] have been employed to model object relationships
+and extract semantic interaction features. [18] introduce an image-
+level representation to bridge the gap between RGB inputs and
+control-space actions. While end-to-end approaches captures com-
+plex visual-action associations, they require large-scale interactive
+training data and often struggle with long-horizon dependencies and
+memory retention.
+In this work, we adopt this end-to-end learning paradigm,
+integrating semantic relationships reasoning between the target
+object, observed objects and scene. Our approach is designed to be
+generalizable across unseen scenes and object categories, enhancing
+adaptability in real-world ObjectNav scenarios.
+B. Zero-Shot Object Goal Navigation
+Traditional ObjectNav methods are trained on a fixed set of
+object categories and scenes [19], [1], limiting their ability to gener-
+alize beyond seen cases. In contrast, humans can effortlessly locate
+novel objects in unfamiliar environments without prior exposure.
+Achieving similar generalization in ObjectNav requires disentan-
+gling navigation ability from specific training scenes and target
+objects. To evaluate this, experiments typically partition object
+target classes and scenes into seen and unseen categories, assessing
+the model’s capability to navigate to novel objects and scenes
+without additional training. End-to-end methods such as SSNet [20]
+incorporate object detection results and cosine similarity between
+word embeddings to prevent class-specific policy overfitting. SPNet
+[4] refines policy learning through object-goal embeddings that
+guide action selection based on semantic similarity. EmbCLIP [21]
+and ZSON [3] utilize pretrained vision encoders and text-based
+embeddings [22] to establish semantic relationships between target
+objects and observed scenes, improving generalization without
+requiring additional annotated training data.
+Despite advances in semantic embeddings and target-guided ex-
+ploration, ZSON remains challenging due to the variability of object
+and scene distributions and the absence of unified features and
+prior knowledge for efficient search. To address this, our method
+leverages human-demonstrated trajectories, interpreting them hier-
+archically to integrate structured priors, semantic reasoning, and
+agnostic exploration, thereby achieving robust generalization with-
+out extensive retraining.
+C. Foundation Models for Visual Navigation
+Recent works integrate pre-trained multimodal models into Ob-
+jectNav, reducing the need for training from scratch while leverag-
+ing strong visual recognition or reasoning. These methods primarily
+use foundation models for (1) exploration guidance by relating
+observations to target objects or (2) policy learning for direct action
+prediction. For exploration guidance, VLFM [23] employs BLIP-2
+[24] to compute cosine similarity between observations and target
+prompts, projecting scores onto a semantic map to guide frontier-
+based exploration. OpenFMNav [25] decomposes ObjectNav into
+sequential stages, utilizing vision-language models (VLMs) for
+perception, reasoning, and constructing a semantic score map for
+
+
+Fig. 2. Overview of CL-CoTNav. We finetune VLM using multi-turn QA data derived from human demonstration trajectories. This structured dataset enables
+H-CoT prompting, including two main turns: perception and planning, to iteratively extract compositional knowledge from egocentric RGB observations
+through a sequence of large pre-trained models and finally aligned with human demonstration actions. A confidence scoring system is also generated to
+evaluate the reliability of each detection and reasoning step, which guide adaptive loss weighting during finetuning to improve robustness against noisy
+supervision.
+language-guided navigation. CoW [24] provides object grounding,
+similarly projecting relevance scores onto a top-down map. While
+these methods enable zero-shot navigation without additional train-
+ing, frozen VLMs may produce incorrect associations due to biases
+or hallucinations, lacking mechanisms for real-time correction. For
+policy learning, ViNT [26] encodes vision-language features into a
+transformer-based policy, requiring an additional adapter to map
+from token space to action space. DivScene [27] directly fine-
+tunes VLMs using imitation learning, but its reliance on annotated
+shortest paths—assuming prior knowledge of the target object’s lo-
+cation—limits the model’s ability to learn efficient search strategies.
+To address these limitations, our method directly employs a
+compact VLM as the full navigation policy, introducing a struc-
+tured reasoning framework that extracts compositional knowledge
+from human-demonstrated trajectories. Additionally, a closed-loop
+feedback mechanism mitigates VLM errors, enhancing adaptability
+and robustness in unseen environments.
+III. METHODOLOGY
+A. Problem formulation
+In the ObjectNav task, consider a set of seen object goal classes
+Ctrain = {c1, c2, . . . , cn} available during training, where n is
+the total number of seen classes, and a set of seen scenes Xtrain.
+During zero-shot testing, the agent navigates to objects from an
+unseen target class set Ctest = {u1, u2, . . . , um}, where m is the
+total number of unseen classes, within unseen scenes Xtest. The
+training and testing sets are disjoint, i.e., Xtrain ∩Xtest = ∅and
+Ctrain ∩Ctest = ∅. The robot is first trained to navigate to a target
+object ci from Ctrain within a scene Xtrain,i, given egocentric RGB
+observations, and is later evaluated in a zero-shot setting where
+it must navigate to a target object from Ctest in an unseen scene
+Xtest,i. Each episode initializes the agent at a random position
+pi
+0 with a random orientation in scene si
+0, and the target object
+category ci is provided. An episode is therefore characterized by
+Ti = {si, ci, pi, oi, ai}. At each time step t, the agent receives an
+observation oi
+t from its current viewpoint and selects an action ai
+t.
+The observation consists of an RGB image, the agent’s location
+and orientation, and the target object category. The action space
+A consists of six discrete actions: move forward, which moves the
+agent forward by 25 cm; turn left and turn right, which rotate the
+agent 30° left or right; look up and look down, which adjust the
+camera pitch by 30°; and stop, which signals that the target has been
+reached. An episode is considered successful if the agent executes
+the stop action and the target object is visible as well as within 0.2
+m of the target. Each episode is constrained to a maximum of 500
+time steps.
+B. Overview
+The CL-CoTNav framework is illustrated in Fig. 2. To model
+human-like reasoning in ObjectNav, our method transforms ego-
+centric RGB observations and corresponding human demonstration
+trajectories into structured, multi-turn question-answering (QA)
+sequences. This is achieved using a pipeline of pre-trained large
+vision-language and language models. Each QA sequence aligns
+intermediate reasoning steps with ground-truth actions, enabling
+supervision beyond low-level behavior cloning.
+At the core of the framework is the H-CoT prompting process,
+which decomposes ObjectNav into two reasoning phases: Percep-
+tion Rounds and Planning Rounds. In the Perception Rounds, the
+system identifies salient objects from the current RGB observation,
+infers semantic co-occurrence relationships at both the room and
+object levels, and constructs a structured scene-level context. These
+steps allow the model to hypothesize where the target object is likely
+
+
+to be found, mimicking the cognitive strategies used by humans
+during navigation. The Planning Rounds then reason over the
+accumulated context, producing high-level navigation suggestions
+(e.g., ”turn left” or ”explore another room”) that are discretized
+into executable control actions. This hierarchical prompting process
+acts as an interpretable bridge between perception and control,
+promoting generalization between perception and control.
+To enhance robustness and learning efficiency, we further pro-
+pose the Closed-Loop H-CoT mechanism. While H-CoT provides
+structured supervision, it remains vulnerable to label errors due to
+noisy visual inputs or incorrect semantic reasoning associations.
+To mitigate this, we introduce a confidence scoring system that
+evaluates the reliability of each QA pair based on reasoning
+consistency and input quality. During training, these confidence
+scores are integrated into an adaptive loss function that modulates
+the influence of each sample. High-confidence samples contribute
+more strongly, while uncertain or potentially hallucinated reasoning
+paths are down-weighted.
+The complete QA dataset, annotated with hierarchical reasoning
+steps and associated confidence scores, is then used to fine-tune a
+compact vision-language model via Low-Rank Adaptation (LoRA).
+By combining hierarchical prompting with closed-loop learning,
+CL-CoTNav achieves robust generalization to unseen scenes and
+novel object categories. We next detail the two key components of
+our approach: the H-CoT reasoning process and the Closed-Loop
+confidence integration mechanism.
+C. Hierarchical Chain-of-Thought (H-CoT)
+To enrich the supervision signal beyond discrete human-labeled
+actions, we introduce the Hierarchical Chain-of-Thought (H-CoT)
+framework—a structured reasoning process that mimics human cog-
+nitive strategies for navigation. H-CoT decomposes the ObjectNav
+task into two multi-turn reasoning stages: Perception Rounds for
+semantic scene understanding and Planning Rounds for informed
+decision-making. This design enables compositional reasoning over
+spatial and semantic cues, allowing the model to generalize beyond
+training distributions.
+In the Perception Rounds, a sequence of QA steps is applied
+to egocentric RGB observations to extract structured scene con-
+text. The first round identifies subgoal objects and their spatial
+arrangements (e.g., “a dining table is centrally positioned with
+surrounding chair”), capturing the visual layout of the environment.
+Subsequent rounds perform semantic guesswork through two levels
+of association. At the room level, the model infers the scene type
+based on typical object co-occurrence (e.g., “a TV and sofa suggest
+a living room”). At the object level, it relates detected subgoal
+objects to the target via commonsense priors (e.g., “a cushion is
+likely near a couch, but not near a stove”). These associations allow
+the model to hypothesize the target’s likely presence without direct
+observation. Each subgoal object is assigned a relevance score that
+reflects its semantic proximity to the target object, serving as a soft
+attention mechanism. This scoring filters out spurious detections
+and prioritizes contextual cues that are semantically informative,
+forming a rich representation of the current scene to guide object
+navigation.
+Building on this context, the Planning Rounds generate navi-
+gation suggestions grounded in the inferred scene semantics. The
+model evaluates whether the current room is a plausible location
+for the target; if not, it recommends exploration strategies such
+as “explore another room” or “turn around.” These suggestions are
+then mapped into high-level textual decisions, which are further dis-
+cretized into text-based executable control actions. Critically, these
+planning outputs are aligned with human demonstration actions,
+grounding abstract reasoning in behaviorally relevant supervision.
+To generate this hierarchical supervision, we annotate human
+demonstration data using a pipeline of pre-trained vision-language
+models, resulting in this dataset of structured multi-turn QA
+pairs aligned with human actions. This dataset enables supervised
+training that incorporates both detection, reasoning and control,
+bridging the gap between low-level action imitation and high-
+level semantic understanding. By explicitly modeling semantic co-
+occurrence relationships and decomposing decision-making into
+interpretable stages, H-CoT provides a strong inductive bias for
+zero-shot generalization, allows the agent to reason compositionally
+about new objects and scenes.
+D. Closed-Loop H-CoT Mechanism
+While the H-CoT framework introduces structured reasoning for
+ObjectNav, it remains vulnerable to failures caused by noisy visual
+inputs, hallucinated associations, or unreliable outputs from the
+underlying vision-language models. These detection and reasoning
+inconsistencies can degrade navigation performance when treated
+equally during training. To address this, we propose the Closed-
+Loop H-CoT Mechanism, a feedback-driven strategy that introduces
+reasoning confidence scores to modulate training dynamics.
+In standard imitation learning, all training samples are treated
+with equal importance, regardless of their semantic clarity or visual
+quality. In contrast, our approach attaches a confidence score to each
+sample during H-CoT generation, capturing the reliability of both
+detection (object grounding) and reasoning (semantic inference) at
+each turn. Specifically, for each multi-turn QA sequence labeled
+by pre-trained models, we parse out the final text-based action
+suggestion and compare it to the human-demonstrated ground truth
+action. The degree of semantic alignment—combined with visual
+detection certainty—forms a confidence score ci ∈[0, 1] for each
+reasoning trajectory.
+These confidence scores are then integrated into training via an
+adaptive loss weighting mechanism. ObjectNav is formulated as a
+multi-class classification task, where the model predicts a discrete
+navigation action (e.g., forward, left, right) conditioned on the RGB
+image and the corresponding structured QA prompt. The baseline
+training objective is defined using categorical cross-entropy:
+LCE = −log ˆyi,yi
+(1)
+where ˆyi,yi is the predicted probability assigned to the correct
+action label yi. To prioritize learning from trustworthy trajectories
+and downweight unreliable supervision, we define a sigmoid-based
+adaptive loss function:
+Ladaptive =
+1
+1 + exp(−α(ci −β)) · (−log ˆyi,yi)
+(2)
+Here, ci is the confidence score of the i-th sample, while α and β
+are hyperparameters controlling the sharpness and threshold of the
+weighting function.
+This closed-loop design enables the model to selectively attend
+to high-quality detection and reasoning timesteps while minimizing
+the impact of noise or hallucinations from photorealistic scene and
+language model. By integrating confidence-weighted fine-tuning
+into the training loop, the Closed-Loop H-CoT mechanism improves
+generalization to unseen environments and enhances the robustness
+of decision-making under real-world visual uncertainty.
+IV. EXPERIMENT
+In this section, we first describe the details of our experiment
+settings, including the dataset split, simulation platform, and train-
+ing parameter. Then, we evaluate our method and other ZSON
+methods through the commonly used Habitat platform and discuss
+the experimental results.
+A. Dataset
+We evaluate our method using the Matterport3D (MP3D) en-
+vironment [28] in the Habitat simulator [29], which provides
+high-resolution, photo-realistic indoor scenes with 21 object goal
+categories. Our experiments follow the standard Zero-Shot Object
+Navigation setting, which evaluates generalization across both novel
+
+
+object categories and unseen scenes. Training is conducted on the
+MP3D-HD-70k dataset [6], which contains over 70,000 human
+demonstration trajectories collected across 56 scenes. To ensure data
+quality, we remove failed trajectories, filter non-navigable starting
+positions, and cap all episodes to a maximum length of 500 steps.
+After preprocessing, we obtain cleaned subsets of 35k, 50k, and 70k
+demonstrations, balanced across object classes and scene types. We
+design two evaluation protocols to measure generalization, as shown
+in Table I: (1) object generalization, where the target categories
+differ between training and test, and (2) scene generalization, where
+the environments differ.
+TABLE I
+BREAKDOWN OF TRAIN AND TEST DATASETS FOR SCENE AND OBJECT
+GENERALIZATION EXPERIMENTS. INSIDE () INDICATE EPISODE OR
+TARGET NUMBERS AFTER CLEANING.
+Split
+Dataset
+Scenes
+Episodes
+Targets
+Scene Generalization
+Train
+MP3D-HD-70k
+56
+70,176 (53,827)
+28 (21)
+Train
+MP3D-HD-50k
+40
+49,778 (37,925)
+28 (21)
+Train
+MP3D-HD-35k
+28
+34,641 (26,517)
+28 (21)
+Test
+MP3D-Val
+11
+2,195 (1,148)
+21
+Object Generalization
+Train
+MP3D-HD-35k-C16
+28
+20,595
+16
+Test
+MP3D-HD-35k-C05
+28
+5,922
+5
+Object Generalization. For this split, we adopt the setting
+from [4], where the 21 object categories in MP3D are divided
+into 16 seen and 5 unseen classes. The training set (MP3D-HD-
+35k-C16) includes trajectories involving only the seen classes,
+while the test set (MP3D-HD-35k-C05) uses the same 28 training
+scenes but targets the five unseen categories: counter, bed, toilet,
+chest of drawers, plant. This setting evaluates the model’s ability to
+reason over novel object semantics not encountered during training.
+The remaining 16 categories—e.g., chair, table, sofa, tv monitor,
+sink—are exclusively used for training.
+Scene Generalization. To assess generalization to unseen spatial
+layouts, we train on the full MP3D-HD dataset using subsets of 28,
+40, or 56 scenes (i.e., MP3D-HD-35k/50k/70k), each containing
+trajectories across all 21 object categories. Evaluation is performed
+on the MP3D-Val set, which includes 2,195 episodes across 11
+held-out scenes that do not overlap with any training environments.
+This setting focuses on the model’s ability to adapt to novel layouts
+and scene compositions, even when the object categories remain the
+same. Table I summarizes the number of scenes, episodes, and target
+categories used across all training and evaluation configurations.
+B. Implementation Details
+In the ObjectNav task, the agent is required to search for
+an instance of a specified object category (e.g., bed) within an
+unseen environment using only egocentric perception. The agent
+is equipped with an RGB camera, a depth sensor, and an odometry
+sensor that provides its pose relative to the episode’s starting
+position. The simulated robot is 0.88 meters tall with a 0.18-
+meter radius. It captures 480 × 640 RGB-D observations through
+a forward-facing camera mounted at a height of 0.88 meters, with
+a horizontal field of view (HFoV) of 79 degrees. All experiments
+are conducted using the Habitat-Lab simulation platform [29], and
+models are implemented in PyTorch [30].
+To generate multi-round QA annotations for our dataset, we
+employ the following pre-trained models for different submodules:
+Qwen-VL-Chat [31] for subgoal detection, Qwen-7B [32] for
+TABLE II
+HYPERPARAMETERS FOR LORA FINE-TUNING
+Parameter
+Value
+LoRA rank (r)
+8
+LoRA scaling factor (α)
+16
+LoRA dropout
+0.05
+Learning rate
+3 × 10−4
+Batch size
+16
+Gradient accumulation steps
+4
+Weight decay
+0.006
+Warmup steps
+500
+semantic guesswork and object-target association, and ChatGPT-
+3.5-turbo for high-level action suggestion and scene-level reasoning.
+Example of conversation template can be found in Fig.2. For
+navigation policy learning, we fine-tune based on InternVL2 [33]
+framework, elaborate a 2B-parameter vision-language model, using
+the LoRA [34] technique. Fine-tuning is performed on a compute
+node equipped with 4 NVIDIA V100 GPUs. We use a batch
+size of 16 and train for 3 epochs, which takes approximately 19
+hours on the MP3D-HD-50k dataset. The LoRA-specific fine-tuning
+hyperparameters are summarized in Table II.
+C. Metrics
+We follow [35] to evaluate our method using Success Rate (SR),
+Success Weighted by Path Length (SPL), and Soft SPL for object-
+goal navigation tasks. SR is defined as:
+1
+N
+PN
+i=1 Si where Si = 1
+if the robot successfully reaches the target; otherwise, the episode
+is considered a failure. Success Weighted by Path Length (SPL)
+is defined as: SPL =
+1
+N
+PN
+i=1
+li
+max(li,pi) where li is the shortest
+path from the start position to a successful stop position, and pi is
+the robot’s actual trajectory length in episode i. Finally, Soft SPL
+[36] accounts for navigation efficiency while incorporating partial
+progress toward the goal.
+D. Comparison Models
+We compare our proposed method with several representative
+baseline and state-of-the-art (SOTA) approaches in ObjectNav,
+spanning RL, imitation learning (IL), and VLM paradigms.
+Baseline [19]: A RL approach trained from scratch using ego-
+centric RGB inputs. It directly use a pre-trained ResNet to extract
+a 1-D visual feature from the RGB observation and concatenate
+with the semantic embedding of the target class as the input of the
+policy network. The policy is learned end-to-end using PPO without
+incorporating semantic priors.
+Habitat-Web [6]: An IL method that trains ObjectNav agents
+directly from human demonstration trajectories. The model maps
+egocentric RGB observations to expert-labeled actions via an end-
+to-end MLP policy, similar to Baseline.
+VLFM [23]: A VLM-based modular navigation framework that
+employs BLIP-2 [24] for semantic matching. It computes cosine
+similarity between the agent’s current RGB view and the target
+object description, projecting scores onto a semantic map for goal
+selection. The model is frozen during deployment and not fine-tuned
+for ObjectNav tasks.
+SSNet [20]: A RL-based zero-shot ObjectNav model that inte-
+grates object detection scores and word embedding similarity as
+anxillary input to policy learning.
+DivScene [27]: An VLM approach that also introduces chain-of-
+thought (CoT) reasoning for decision-making. Unlike our method,
+which learns an end-to-end policy from human behavior using fine-
+tuned VLMs, DivScene employs CoT supervision based on shortest
+path trajectories.
+
+
+E. Training Results
+Table III presents the evaluation performance of CL-CoTNav
+and other baseline models on the training splits after training.
+All methods achieve comparable success rates (SR) and success
+weighted by path length (SPL), indicating that ObjectNav is gener-
+ally learnable across different paradigms, including reinforcement
+learning, imitation learning, and VLM-based methods.
+CL-CoTNav consistently achieves the highest SPL and compet-
+itive SR, demonstrating the effectiveness of structured hierarchical
+reasoning and confidence-aware fine-tuning. Compared to imita-
+tion learning approaches such as Habitat-Web and DivScene, CL-
+CoTNav exhibits notably higher SPL, suggesting that structured
+multi-round reasoning contributes to more efficient and purposeful
+trajectories. While VLFM leverages frozen vision-language embed-
+dings and commonsense priors, it performs worse than fine-tuned
+approaches, particularly in SPL. This confirms that adaptation to
+navigation-specific tasks is critical for fully exploiting the semantic
+reasoning capacity of large-scale vision-language models. Although
+DivScene incorporates chain-of-thought supervision into its imi-
+tation learning pipeline, its reliance on shortest-path ground truth
+limits its adaptability. In contrast, CL-CoTNav further benefits from
+closed-loop learning, improving robustness by emphasizing high-
+confidence reasoning during training.
+We also observe that increasing the number of human demon-
+stration trajectories improves performance, though with diminishing
+returns. Moving from 35k to 50k demonstrations yields substantial
+gains in both SR and SPL, while the improvement from 50k to 70k
+is more modest. This suggests that while imitation learning ben-
+efits from more data, its effectiveness saturates without structured
+supervision. In this context, our results highlight the importance of
+compositional reasoning over pure data scaling for achieving high-
+quality navigation performance.
+TABLE III
+TRAINING RESULTS FOR OBJECTNAV. WE REPORT SUCCESS RATE (SR)
+AND SUCCESS WEIGHTED BY PATH LENGTH (SPL) FOR EACH SOTA.
+Method
+SR (%)
+SPL (%)
+Training
+Object Goals
+Baseline [19]
+63.3
+0.21
+Yes
+SSNet [20]
+65.4
+0.23
+Yes
+Habitat-Web [6]
+69.1
+0.26
+Yes
+VLFM [23]
+70.1
+0.28
+No
+DivScene [27]
+73.8
+0.30
+Yes
+CL-CoTNav (MP3D-HD-35k-C16)
+74.1
+0.31
+Yes
+Scenes
+Baseline [19]
+64.1
+0.22
+Yes
+SSNet [20]
+67.5
+0.25
+Yes
+Habitat-Web [6]
+70.8
+0.27
+Yes
+VLFM [23]
+71.3
+0.28
+No
+DivScene [27]
+75.6
+0.32
+Yes
+CL-CoTNav (MP3D-HD-35k)
+73.5
+0.32
+Yes
+CL-CoTNav (MP3D-HD-50k)
+74.8
+0.35
+Yes
+CL-CoTNav (MP3D-HD-70k)
+76.2
+0.38
+Yes
+Humans
+93.7
+42.5
+F. Zero-Shot Generalization Test
+Table IV reports the performance of various models on zero-shot
+ObjectNav under two settings: novel object categories and novel
+scenes. CL-CoTNav achieves the highest success rate and SPL in
+both settings, demonstrating its strong generalization ability through
+hierarchical reasoning and confidence-aware learning.
+For novel object generalization, models that incorporate se-
+mantic priors—such as VLFM, SSNet, DivScene, and CL-
+CoTNav—outperform traditional RL (Baseline) and IL (Habitat-
+Web). Although trained on expert demonstrations, Habitat-Web
+TABLE IV
+ZERO-SHOT OBJECTNAV RESULTS ON MP3D VAL SPLIT. WE REPORT
+SUCCESS RATE (SR) AND SUCCESS WEIGHTED BY PATH LENGTH (SPL)
+UNDER TWO GENERALIZATION SETTINGS: NOVEL OBJECT GOALS AND
+NOVEL SCENES. ALL MODELS ARE TRAINED ON 35K TRAJECTORIES.
+Method
+Novel Object Goals
+Novel Scenes
+SR (%)
+SPL (%)
+SR (%)
+SPL (%)
+Baseline [19]
+22.7
+5.1
+25.3
+6.1
+Habitat-Web [6]
+26.5
+7.4
+28.2
+9.0
+VLFM [23]
+34.2
+14.8
+35.8
+16.5
+SSNet [20]
+30.2
+10.8
+31.1
+12.1
+DivScene [27]
+44.1
+19.1
+46.7
+21.3
+CL-CoTNav (35k)
+55.2
+25.7
+58.5
+27.4
+fails to generalize well to unseen objects, likely due to overfit-
+ting to category-specific patterns without broader semantic rea-
+soning. VLFM benefits from frozen vision-language embeddings
+but lacks fine-tuning, resulting in low SPL due to inefficient
+trajectory planning. SSNet improves upon RL by modeling object-
+object associations but remains limited by its static representa-
+tions. DivScene introduces chain-of-thought reasoning during VLM
+finetuning, leading to improved generalization, but is constrained
+by reliance on shortest-path supervision. CL-CoTNav outperforms
+all baselines by explicitly modeling both object-level and room-
+level semantic relationships and refining decision-making through
+confidence-based weighting. This structured reasoning enables the
+agent to infer the likely location of unseen targets and navigate
+efficiently without memorized spatial priors.
+In the novel scene generalization setting, the focus shifts to layout
+adaptation. RL-based methods struggle due to overfitting to seen
+environments. While SSNet introduces object-aware exploration
+cues, its performance remains limited in unfamiliar layouts. Imita-
+tion learning models, including Habitat-Web, experience significant
+performance drops, suggesting limited adaptability to new spatial
+arrangements. VLFM achieves better generalization due to its
+strong semantic priors, but its frozen architecture limits efficiency.
+DivScene benefits from intermediate reasoning but remains less
+effective than CL-CoTNav in navigating complex spatial layouts.
+CL-CoTNav maintains a relatively small performance gap between
+training and zero-shot testing, indicating superior generalization.
+Its hierarchical planning allows flexible adaptation to novel con-
+figurations, while the closed-loop mechanism suppresses unreliable
+supervision, improving trajectory quality.
+Overall, these results highlight the importance of structured
+multi-turn reasoning and adaptive learning in achieving robust gen-
+eralization. CL-CoTNav bridges the limitations of prior approaches
+by integrating semantic reasoning with confidence-aware training,
+offering a scalable solution for zero-shot ObjectNav. Despite the
+model’s fine-tuning on a 2B parameter scale, the multi-turn infer-
+ence time remains at 1.2 seconds, making it suitable for practical
+applications. Future extensions may explore online adaptation to
+further enhance real-time deployment in unseen environments.
+G. Ablation Study
+This section isolates the contributions of hierarchical reasoning
+and closed-loop learning within the CL-CoTNav framework, ana-
+lyzing their impact on zero-shot generalization.
+As shown in Table V, proposed H-CoT plays a central role in
+boosting generalization. Compared to a baseline using pure human
+annotations—where the QA format is limited to querying the target
+object and returning the human-demonstrated action—standard CoT
+prompting [37] improves performance by introducing intermedi-
+ate reasoning. However, H-CoT further amplifies these gains by
+introducing a two-stage structure that separately models subgoal
+identification and semantic reasoning across room- and object-level
+contexts. This design leads to better-informed decision-making,
+
+
+Fig. 3.
+Zero-shot generalization results on MP3D Val. The figure illustrates how CL-CoTNav navigates in unseen scene layouts. The predicted navigation
+path is shown in blue and shortest path is shown in green. SPL = 0.71, ep length = 97.
+significantly reducing failure cases arising from reactive or shallow
+policies.
+Building on H-CoT, the Closed-Loop CoT mechanism provides
+an additional performance boost. By incorporating reasoning con-
+fidence scores into the training loop, the model learns to prioritize
+high-quality supervision while down-weighting noisy or seman-
+tically ambiguous samples. This adaptive loss weighting refines
+decision-making and enhances robustness under distribution shifts,
+particularly in unseen environments. The improvement from H-CoT
+to CL-CoTNav highlights the value of confidence-aware learning
+in mitigating the effect of hallucinated associations and unreliable
+intermediate predictions.
+TABLE V
+ABLATION STUDY RESULTS ON MP3D VAL (UNSEEN SCENES). THIS
+STUDY EVALUATES THE IMPACT OF HIERARCHICAL REASONING
+(H-COT) AND ADAPTIVE LEARNING (CLOSED-LOOP COT) ON
+GENERALIZATION.
+Method
+Success (↑)
+SPL (↑)
+Pure Text (Human Annotations)
+24.3%
+6.5%
+Standard CoT [37]
+36.5%
+15.8%
+H-CoT (Hierarchical CoT Only)
+52.9%
+23.1%
+CL-CoTNav (H-CoT + Closed-Loop)
+55.2%
+25.7%
+Taken together, these results validate that CL-CoTNav’s superior
+generalization stems not only from its structured reasoning process,
+but also from its ability to selectively learn from trustworthy
+examples. The combined effect of hierarchical decomposition and
+closed-loop feedback forms a scalable framework for ObjectNav,
+enabling agents to move beyond passive imitation and toward
+actively adaptive navigation.
+V. CONCLUSION AND FUTURE WORK
+In this work, we introduce Closed-Loop Hierarchical Chain-
+of-Thought Navigation (CL-CoTNav), a vision-language model
+(VLM)-driven ObjectNav framework that integrates structured rea-
+soning and closed-loop feedback into navigation decision-making.
+We fine-tune a VLM using multi-turn question-answering (QA)
+data derived from human demonstration trajectories. This structured
+dataset enables hierarchical Chain-of-Thought (H-CoT) prompting,
+iteratively extract compositional knowledge and provide auxiliary
+navigation guidance. Additionally, we propose a Closed-Loop H-
+CoT mechanism that incorporates confidence scores into training to
+prioritize high-confidence data pairs, enhancing robustness against
+hallucinated or incorrect reasoning. Extensive experiments in the
+AI Habitat environment demonstrated that our method achieves
+superior generalization to unseen scenes and target objects, outper-
+forming state-of-the-art approaches in success rate (SR) and success
+weighted by path length (SPL).
+Despite these advancements, our approach still relies on imitation
+learning, which is inherently limited by the quality and coverage
+of the dataset. To overcome this, future work will explore offline
+RL to enhance policy learning beyond supervised data constraints.
+Additionally, online fine-tuning will be investigated to further adapt
+navigation policies in real-time, enabling more effective exploration
+and dynamic decision-making. Further, we plan to conduct physical
+experiments to validate the approach in realistic settings. By inte-
+grating offline and online RL adaptation, we aim to bridge the gap
+
+
+between structured reasoning and real-world navigation challenges,
+ensuring more robust and scalable ObjectNav performance.
+REFERENCES
+[1] W. Yang, X. Wang, A. Farhadi, A. Gupta, and R. Mottaghi,
+“Visual semantic navigation using scene priors,” arXiv preprint
+arXiv:1810.06543, 2018.
+[2] J. Sun, J. Wu, Z. Ji, and Y.-K. Lai, “A survey of object goal navi-
+gation,” IEEE Transactions on Automation Science and Engineering,
+2024.
+[3] A. Majumdar, G. Aggarwal, B. Devnani, J. Hoffman, and D. Batra,
+“Zson: Zero-shot object-goal navigation using multimodal goal embed-
+dings,” Advances in Neural Information Processing Systems, vol. 35,
+pp. 32340–32352, 2022.
+[4] Q. Zhao, L. Zhang, B. He, and Z. Liu, “Semantic policy network
+for zero-shot object goal visual navigation,” IEEE Robotics and
+Automation Letters, 2023.
+[5] T. Gervet, S. Chintala, D. Batra, J. Malik, and D. S. Chaplot,
+“Navigating to objects in the real world,” Science Robotics, vol. 8,
+no. 79, p. eadf6991, 2023.
+[6] R. Ramrakhya, E. Undersander, D. Batra, and A. Das, “Habitat-
+web: Learning embodied object-search strategies from human demon-
+strations at scale,” in Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pp. 5173–5183, 2022.
+[7] D. Shah, B. Osi´nski, S. Levine, et al., “Lm-nav: Robotic navigation
+with large pre-trained models of language, vision, and action,” in
+Conference on robot learning, pp. 492–504, PMLR, 2023.
+[8] B. Yu, H. Kasaei, and M. Cao, “L3mvn: Leveraging large language
+models for visual target navigation,” in 2023 IEEE/RSJ International
+Conference on Intelligent Robots and Systems (IROS), pp. 3554–3560,
+IEEE, 2023.
+[9] J. Zhang, J. Huang, S. Jin, and S. Lu, “Vision-language models for
+vision tasks: A survey,” IEEE Transactions on Pattern Analysis and
+Machine Intelligence, 2024.
+[10] C. Wen, Y. Huang, H. Huang, Y. Huang, S. Yuan, Y. Hao, H. Lin,
+Y.-S. Liu, and Y. Fang, “Zero-shot object navigation with vision-
+language models reasoning,” in International Conference on Pattern
+Recognition, pp. 389–404, Springer, 2025.
+[11] X. Guo and H. Yu, “On the domain adaptation and general-
+ization of pretrained language models: A survey,” arXiv preprint
+arXiv:2211.03154, 2022.
+[12] D. S. Chaplot, D. P. Gandhi, A. Gupta, and R. R. Salakhutdinov,
+“Object goal navigation using goal-oriented semantic exploration,” Ad-
+vances in Neural Information Processing Systems, vol. 33, pp. 4247–
+4258, 2020.
+[13] L. Zhang, L. Wei, P. Shen, W. Wei, G. Zhu, and J. Song, “Semantic
+slam based on object detection and improved octomap,” IEEE Access,
+vol. 6, pp. 75545–75559, 2018.
+[14] J. A. Sethian, “A fast marching level set method for monotonically
+advancing fronts.,” proceedings of the National Academy of Sciences,
+vol. 93, no. 4, pp. 1591–1595, 1996.
+[15] S. Lian and F. Zhang, “Tdanet: Target-directed attention network for
+object-goal visual navigation with zero-shot ability,” arXiv preprint
+arXiv:2404.08353, 2024.
+[16] M. Wortsman, K. Ehsani, M. Rastegari, A. Farhadi, and R. Mottaghi,
+“Learning to learn how to learn: Self-adaptive visual navigation
+using meta-learning,” in Proceedings of the IEEE/CVF conference on
+computer vision and pattern recognition, pp. 6750–6759, 2019.
+[17] B. Chen, H. Zhu, S. Yao, S. Lu, P. Zhong, Y. Sheng, and J. Wang,
+“Socially aware object goal navigation with heterogeneous scene
+representation learning,” IEEE Robotics and Automation Letters, 2024.
+[18] W. Cai, S. Huang, G. Cheng, Y. Long, P. Gao, C. Sun, and H. Dong,
+“Bridging zero-shot object navigation and foundation models through
+pixel-guided navigation skill,” in 2024 IEEE International Conference
+on Robotics and Automation (ICRA), pp. 5228–5234, IEEE, 2024.
+[19] Y. Zhu, R. Mottaghi, E. Kolve, J. J. Lim, A. Gupta, L. Fei-Fei, and
+A. Farhadi, “Target-driven visual navigation in indoor scenes using
+deep reinforcement learning,” in 2017 IEEE international conference
+on robotics and automation (ICRA), pp. 3357–3364, IEEE, 2017.
+[20] Q. Zhao, L. Zhang, B. He, H. Qiao, and Z. Liu, “Zero-shot object
+goal visual navigation,” in 2023 IEEE International Conference on
+Robotics and Automation (ICRA), pp. 2025–2031, IEEE, 2023.
+[21] A. Khandelwal, L. Weihs, R. Mottaghi, and A. Kembhavi, “Simple
+but effective: Clip embeddings for embodied ai,” in Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+pp. 14829–14838, 2022.
+[22] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal,
+G. Sastry, A. Askell, P. Mishkin, J. Clark, et al., “Learning transferable
+visual models from natural language supervision,” in International
+conference on machine learning, pp. 8748–8763, PmLR, 2021.
+[23] N. Yokoyama, S. Ha, D. Batra, J. Wang, and B. Bucher, “Vlfm: Vision-
+language frontier maps for zero-shot semantic navigation,” in 2024
+IEEE International Conference on Robotics and Automation (ICRA),
+pp. 42–48, IEEE, 2024.
+[24] J. Li, D. Li, S. Savarese, and S. Hoi, “Blip-2: Bootstrapping language-
+image pre-training with frozen image encoders and large language
+models,” in International conference on machine learning, pp. 19730–
+19742, PMLR, 2023.
+[25] Y. Kuang, H. Lin, and M. Jiang, “Openfmnav: Towards open-set zero-
+shot object navigation via vision-language foundation models,” arXiv
+preprint arXiv:2402.10670, 2024.
+[26] D. Shah, A. Sridhar, N. Dashora, K. Stachowicz, K. Black, N. Hirose,
+and S. Levine, “Vint: A foundation model for visual navigation,” arXiv
+preprint arXiv:2306.14846, 2023.
+[27] Z. Wang, H. Zhang, T. Fang, Y. Tian, Y. Yang, K. Ma, X. Pan, Y. Song,
+and D. Yu, “Divscene: Benchmarking lvlms for object navigation with
+diverse scenes and objects,” arXiv preprint arXiv:2410.02730, 2024.
+[28] A. Chang, A. Dai, T. Funkhouser, M. Halber, M. Niessner, M. Savva,
+S. Song, A. Zeng, and Y. Zhang, “Matterport3d: Learning from rgb-d
+data in indoor environments,” arXiv preprint arXiv:1709.06158, 2017.
+[29] X. Puig, E. Undersander, A. Szot, M. D. Cote, T.-Y. Yang, R. Partsey,
+R. Desai, A. W. Clegg, M. Hlavac, S. Y. Min, et al., “Habitat
+3.0: A co-habitat for humans, avatars and robots,” arXiv preprint
+arXiv:2310.13724, 2023.
+[30] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan,
+T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, et al., “Pytorch: An
+imperative style, high-performance deep learning library,” Advances
+in neural information processing systems, vol. 32, 2019.
+[31] J. Bai, S. Bai, S. Yang, S. Wang, S. Tan, P. Wang, J. Lin, C. Zhou,
+and J. Zhou, “Qwen-vl: A versatile vision-language model for un-
+derstanding, localization, text reading, and beyond,” arXiv preprint
+arXiv:2308.12966, 2023.
+[32] J. Bai, S. Bai, Y. Chu, Z. Cui, K. Dang, X. Deng, Y. Fan, W. Ge,
+Y. Han, F. Huang, B. Hui, L. Ji, M. Li, J. Lin, R. Lin, D. Liu, G. Liu,
+C. Lu, K. Lu, J. Ma, R. Men, X. Ren, X. Ren, C. Tan, S. Tan, J. Tu,
+P. Wang, S. Wang, W. Wang, S. Wu, B. Xu, J. Xu, A. Yang, H. Yang,
+J. Yang, S. Yang, Y. Yao, B. Yu, H. Yuan, Z. Yuan, J. Zhang, X. Zhang,
+Y. Zhang, Z. Zhang, C. Zhou, J. Zhou, X. Zhou, and T. Zhu, “Qwen
+technical report,” arXiv preprint arXiv:2309.16609, 2023.
+[33] Z. Chen, J. Wu, W. Wang, W. Su, G. Chen, S. Xing, M. Zhong,
+Q. Zhang, X. Zhu, L. Lu, et al., “Internvl: Scaling up vision foundation
+models and aligning for generic visual-linguistic tasks,” in Proceed-
+ings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pp. 24185–24198, 2024.
+[34] E. J. Hu, Y. Shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang,
+W. Chen, et al., “Lora: Low-rank adaptation of large language mod-
+els.,” ICLR, vol. 1, no. 2, p. 3, 2022.
+[35] P. Anderson, A. Chang, D. S. Chaplot, A. Dosovitskiy, S. Gupta,
+V. Koltun, J. Kosecka, J. Malik, R. Mottaghi, M. Savva, et al.,
+“On evaluation of embodied navigation agents,” arXiv preprint
+arXiv:1807.06757, 2018.
+[36] S. Datta, O. Maksymets, J. Hoffman, S. Lee, D. Batra, and D. Parikh,
+“Integrating egocentric localization for more realistic point-goal navi-
+gation agents,” in Conference on Robot Learning, pp. 313–328, PMLR,
+2021.
+[37] W. Chen, O. Mees, A. Kumar, and S. Levine, “Vision-language models
+provide promptable representations for reinforcement learning,” arXiv
+preprint arXiv:2402.02651, 2024.

@@ -3956,6 +3956,271 @@ window.$docsify = {
         return `${safeBase}${url.replace(/^\/+/, '')}`;
       };
 
+      const sanitizeMediaDownloadName = (value, fallback = 'paper-media') => {
+        const text = String(value || '')
+          .trim()
+          .replace(/\s+/g, '-')
+          .replace(/[\\/:*?"<>|#%{}^~[\]`]+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '');
+        return (text || fallback).slice(0, 120);
+      };
+
+      const getPaperMediaDownloadBaseName = () => {
+        const routeFile = (vm && vm.route && vm.route.file) || '';
+        const basename = String(routeFile || '')
+          .replace(/\\/g, '/')
+          .split('/')
+          .pop()
+          .replace(/\.md$/i, '');
+        return sanitizeMediaDownloadName(basename, 'paper-media');
+      };
+
+      const mediaMimeExtensionMap = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+        'image/svg+xml': 'svg',
+      };
+
+      const inferMediaExtension = (url, mimeType) => {
+        const mime = String(mimeType || '').split(';')[0].trim().toLowerCase();
+        if (mediaMimeExtensionMap[mime]) return mediaMimeExtensionMap[mime];
+        try {
+          const path = new URL(url, window.location.href).pathname;
+          const match = path.match(/\.([a-z0-9]{2,5})$/i);
+          if (match) return match[1].toLowerCase();
+        } catch (_err) {
+          const match = String(url || '').split(/[?#]/)[0].match(/\.([a-z0-9]{2,5})$/i);
+          if (match) return match[1].toLowerCase();
+        }
+        return 'webp';
+      };
+
+      let paperMediaCrcTable = null;
+      const getPaperMediaCrcTable = () => {
+        if (paperMediaCrcTable) return paperMediaCrcTable;
+        paperMediaCrcTable = new Uint32Array(256);
+        for (let n = 0; n < 256; n += 1) {
+          let c = n;
+          for (let k = 0; k < 8; k += 1) {
+            c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+          }
+          paperMediaCrcTable[n] = c >>> 0;
+        }
+        return paperMediaCrcTable;
+      };
+
+      const crc32ArrayBuffer = (arrayBuffer) => {
+        const table = getPaperMediaCrcTable();
+        const bytes = new Uint8Array(arrayBuffer);
+        let crc = 0xffffffff;
+        for (let i = 0; i < bytes.length; i += 1) {
+          crc = table[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xffffffff) >>> 0;
+      };
+
+      const pushZipU16 = (target, value) => {
+        target.push(value & 0xff, (value >>> 8) & 0xff);
+      };
+
+      const pushZipU32 = (target, value) => {
+        target.push(
+          value & 0xff,
+          (value >>> 8) & 0xff,
+          (value >>> 16) & 0xff,
+          (value >>> 24) & 0xff,
+        );
+      };
+
+      const dosZipDateTime = (date = new Date()) => {
+        const year = Math.min(Math.max(date.getFullYear(), 1980), 2107);
+        const dosTime =
+          (date.getHours() << 11) |
+          (date.getMinutes() << 5) |
+          Math.floor(date.getSeconds() / 2);
+        const dosDate =
+          ((year - 1980) << 9) |
+          ((date.getMonth() + 1) << 5) |
+          date.getDate();
+        return { dosDate, dosTime };
+      };
+
+      const createStoredZipBlob = async (files) => {
+        const encoder = new TextEncoder();
+        const now = dosZipDateTime();
+        const localParts = [];
+        const centralParts = [];
+        let localOffset = 0;
+
+        for (const file of files) {
+          const data = await file.blob.arrayBuffer();
+          const nameBytes = encoder.encode(file.name);
+          const crc = crc32ArrayBuffer(data);
+          const size = data.byteLength >>> 0;
+          const localHeader = [];
+          pushZipU32(localHeader, 0x04034b50);
+          pushZipU16(localHeader, 20);
+          pushZipU16(localHeader, 0x0800);
+          pushZipU16(localHeader, 0);
+          pushZipU16(localHeader, now.dosTime);
+          pushZipU16(localHeader, now.dosDate);
+          pushZipU32(localHeader, crc);
+          pushZipU32(localHeader, size);
+          pushZipU32(localHeader, size);
+          pushZipU16(localHeader, nameBytes.length);
+          pushZipU16(localHeader, 0);
+          localParts.push(new Uint8Array(localHeader), nameBytes, data);
+
+          const centralHeader = [];
+          pushZipU32(centralHeader, 0x02014b50);
+          pushZipU16(centralHeader, 20);
+          pushZipU16(centralHeader, 20);
+          pushZipU16(centralHeader, 0x0800);
+          pushZipU16(centralHeader, 0);
+          pushZipU16(centralHeader, now.dosTime);
+          pushZipU16(centralHeader, now.dosDate);
+          pushZipU32(centralHeader, crc);
+          pushZipU32(centralHeader, size);
+          pushZipU32(centralHeader, size);
+          pushZipU16(centralHeader, nameBytes.length);
+          pushZipU16(centralHeader, 0);
+          pushZipU16(centralHeader, 0);
+          pushZipU16(centralHeader, 0);
+          pushZipU16(centralHeader, 0);
+          pushZipU32(centralHeader, 0);
+          pushZipU32(centralHeader, localOffset);
+          centralParts.push(new Uint8Array(centralHeader), nameBytes);
+
+          localOffset += localHeader.length + nameBytes.length + data.byteLength;
+        }
+
+        const centralSize = centralParts.reduce((sum, part) => sum + part.byteLength, 0);
+        const endHeader = [];
+        pushZipU32(endHeader, 0x06054b50);
+        pushZipU16(endHeader, 0);
+        pushZipU16(endHeader, 0);
+        pushZipU16(endHeader, files.length);
+        pushZipU16(endHeader, files.length);
+        pushZipU32(endHeader, centralSize);
+        pushZipU32(endHeader, localOffset);
+        pushZipU16(endHeader, 0);
+
+        return new Blob([...localParts, ...centralParts, new Uint8Array(endHeader)], {
+          type: 'application/zip',
+        });
+      };
+
+      const downloadBlobAsFile = (blob, filename) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      };
+
+      const readMediaDownloadItem = (node) => {
+        if (!node) return null;
+        const url = String(node.getAttribute('data-paper-media-download-url') || '').trim();
+        if (!url) return null;
+        const kind = String(node.getAttribute('data-paper-media-download-kind') || 'figure').trim();
+        return {
+          url,
+          kind: kind === 'table' ? 'table' : 'figure',
+          label: String(node.getAttribute('data-paper-media-download-label') || '').trim(),
+          index: Number(node.getAttribute('data-paper-media-download-index') || 0),
+        };
+      };
+
+      const collectMediaDownloadItems = (scope) => {
+        const seen = new Set();
+        return Array.from((scope || document).querySelectorAll('[data-paper-media-download-url]'))
+          .map(readMediaDownloadItem)
+          .filter(Boolean)
+          .filter((item) => {
+            const key = `${item.kind}:${item.url}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+      };
+
+      const buildMediaZipFiles = async (items) => {
+        const used = new Set();
+        const files = [];
+        for (let i = 0; i < items.length; i += 1) {
+          const item = items[i];
+          const response = await fetch(item.url, { cache: 'force-cache' });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const blob = await response.blob();
+          const ext = inferMediaExtension(item.url, blob.type);
+          const dir = item.kind === 'table' ? 'tables' : 'figures';
+          const prefix = item.kind === 'table' ? 'table' : 'figure';
+          const index = String(item.index || i + 1).padStart(3, '0');
+          let name = `${dir}/${prefix}-${index}.${ext}`;
+          let dedupe = 2;
+          while (used.has(name)) {
+            name = `${dir}/${prefix}-${index}-${dedupe}.${ext}`;
+            dedupe += 1;
+          }
+          used.add(name);
+          files.push({ name, blob });
+        }
+        return files;
+      };
+
+      const setMediaDownloadBusy = (button, busy, label) => {
+        if (!button) return;
+        if (busy) {
+          button.dataset.originalText = button.textContent || '';
+          button.disabled = true;
+          button.textContent = label || '打包中...';
+        } else {
+          button.disabled = false;
+          button.textContent = button.dataset.originalText || button.textContent || '下载';
+          delete button.dataset.originalText;
+        }
+      };
+
+      const downloadMediaItems = async (items, filenameBase, button, options = {}) => {
+        const cleanItems = Array.isArray(items) ? items.filter(Boolean) : [];
+        if (!cleanItems.length) return;
+        const base = sanitizeMediaDownloadName(filenameBase || getPaperMediaDownloadBaseName(), 'paper-media');
+        const asZip = options.asZip !== false || cleanItems.length > 1;
+        setMediaDownloadBusy(button, true, asZip ? '打包中...' : '下载中...');
+        try {
+          if (!asZip && cleanItems.length === 1) {
+            const item = cleanItems[0];
+            const response = await fetch(item.url, { cache: 'force-cache' });
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            const blob = await response.blob();
+            const ext = inferMediaExtension(item.url, blob.type);
+            const prefix = item.kind === 'table' ? 'table' : 'figure';
+            const index = String(item.index || 1).padStart(3, '0');
+            downloadBlobAsFile(blob, `${base}-${prefix}-${index}.${ext}`);
+            return;
+          }
+          const files = await buildMediaZipFiles(cleanItems);
+          const zipBlob = await createStoredZipBlob(files);
+          downloadBlobAsFile(zipBlob, `${base}-figures-tables.zip`);
+        } catch (err) {
+          console.error('[DPR] 论文图表下载失败：', err);
+          alert(`图表下载失败：${err && err.message ? err.message : '未知错误'}`);
+        } finally {
+          setMediaDownloadBusy(button, false);
+        }
+      };
+
       const renderMediaCarousel = (items, options = {}) => {
         if (!items || !items.length) return '';
         const kind = options.kind || 'figure';
@@ -3963,12 +4228,21 @@ window.$docsify = {
         const label = options.label || 'Figure';
         const labelCn = options.labelCn || '插图';
         const slides = items.map((item, index) => {
+          const assetUrl = resolveDocsAssetUrl(item.url);
+          const itemIndex = Number(item.index || index + 1) || index + 1;
           const pageText = item.page ? `PDF 第 ${item.page} 页` : '';
           const caption = item.caption ? `<div class="paper-figure-caption">${escapePaperHtml(item.caption)}</div>` : '';
           return [
-            `<div class="paper-figure-slide${index === 0 ? ' is-active' : ''}" data-figure-slide="${index}">`,
+            [
+              `<div class="paper-figure-slide${index === 0 ? ' is-active' : ''}"`,
+              ` data-figure-slide="${index}"`,
+              ` data-paper-media-download-url="${escapePaperHtml(assetUrl)}"`,
+              ` data-paper-media-download-kind="${escapePaperHtml(kind)}"`,
+              ` data-paper-media-download-label="${escapePaperHtml(label)}"`,
+              ` data-paper-media-download-index="${itemIndex}">`,
+            ].join(''),
             '<div class="paper-figure-frame">',
-            `<img class="paper-figure-image" src="${escapePaperHtml(resolveDocsAssetUrl(item.url))}" alt="Paper ${label} ${index + 1}" loading="lazy">`,
+            `<img class="paper-figure-image" src="${escapePaperHtml(assetUrl)}" alt="Paper ${label} ${index + 1}" loading="lazy">`,
             '</div>',
             '<div class="paper-figure-meta">',
             `<div class="paper-figure-badge">${label} ${index + 1}${pageText ? ` · ${escapePaperHtml(pageText)}` : ''}</div>`,
@@ -3979,10 +4253,11 @@ window.$docsify = {
         }).join('');
 
         const thumbs = items.map((item, index) => {
+          const assetUrl = resolveDocsAssetUrl(item.url);
           const thumbPageText = item.page ? ` · PDF 第 ${item.page} 页` : '';
           return [
             `<button class="paper-figure-thumb${index === 0 ? ' is-active' : ''}" type="button" data-figure-thumb="${index}" aria-label="切换到第 ${index + 1} 张${labelCn}">`,
-            `<img class="paper-figure-thumb-image" src="${escapePaperHtml(resolveDocsAssetUrl(item.url))}" alt="${label} Thumbnail ${index + 1}" loading="lazy">`,
+            `<img class="paper-figure-thumb-image" src="${escapePaperHtml(assetUrl)}" alt="${label} Thumbnail ${index + 1}" loading="lazy">`,
             `<span class="paper-figure-thumb-label">${label} ${index + 1}${thumbPageText ? escapePaperHtml(thumbPageText) : ''}</span>`,
             '</button>',
           ].join('');
@@ -3991,8 +4266,14 @@ window.$docsify = {
         return [
           `<div class="paper-figure-section paper-${escapePaperHtml(kind)}-section" data-paper-figure-carousel data-paper-media-kind="${escapePaperHtml(kind)}">`,
           '<div class="paper-figure-toolbar">',
+          '<div class="paper-figure-toolbar-title">',
           `<div class="paper-figure-title">${escapePaperHtml(title)}</div>`,
           `<div class="paper-figure-counter"><span data-figure-current>1</span> / ${items.length}</div>`,
+          '</div>',
+          '<div class="paper-figure-toolbar-actions">',
+          '<button class="paper-figure-download" type="button" data-paper-media-download-current>下载当前</button>',
+          `<button class="paper-figure-download" type="button" data-paper-media-download-group>下载${escapePaperHtml(labelCn)}</button>`,
+          '</div>',
           '</div>',
           '<div class="paper-figure-stage">',
           '<div class="paper-figure-main">',
@@ -4031,6 +4312,7 @@ window.$docsify = {
         const hasFigures = Array.isArray(figures) && figures.length;
         const hasTables = Array.isArray(tables) && tables.length;
         if (!hasFigures && !hasTables) return '';
+        const mediaCount = (hasFigures ? figures.length : 0) + (hasTables ? tables.length : 0);
         const defaultTab = hasFigures ? 'figures' : 'tables';
         const figureButton = hasFigures ? [
           `<button class="paper-media-card${defaultTab === 'figures' ? ' is-primary' : ''}" type="button" data-paper-media-open="figures">`,
@@ -4066,6 +4348,7 @@ window.$docsify = {
           '<div>',
           '<div class="paper-media-summary-kicker">Paper Media</div>',
           '<div class="paper-media-summary-title">图表附件</div>',
+          `<button class="paper-media-download" type="button" data-paper-media-download-all>下载图表（${mediaCount}）</button>`,
           '</div>',
           '<div class="paper-media-summary-cards">',
           figureButton,
@@ -4081,6 +4364,7 @@ window.$docsify = {
           '<div class="paper-media-dialog-title">论文图表附件</div>',
           '</div>',
           '<div class="paper-media-dialog-actions">',
+          `<button class="paper-media-download" type="button" data-paper-media-download-all>下载全部（${mediaCount}）</button>`,
           '<button class="paper-media-fullscreen" type="button" data-paper-media-fullscreen aria-pressed="false" aria-label="全屏查看">全屏</button>',
           '<button class="paper-media-close" type="button" data-paper-media-close aria-label="关闭">×</button>',
           '</div>',
@@ -4112,6 +4396,10 @@ window.$docsify = {
           const fullscreenButton = modal.querySelector('[data-paper-media-fullscreen]');
           const tabs = Array.from(modal.querySelectorAll('[data-paper-media-tab]'));
           const panes = Array.from(modal.querySelectorAll('[data-paper-media-pane]'));
+          const downloadAllButtons = [
+            ...Array.from(root.querySelectorAll('[data-paper-media-download-all]')),
+            ...Array.from(modal.querySelectorAll('[data-paper-media-download-all]')),
+          ];
           let savedScrollY = 0;
           let closeTimer = 0;
           let lastTrigger = null;
@@ -4196,6 +4484,16 @@ window.$docsify = {
           tabs.forEach((tab) => {
             tab.addEventListener('click', () => activate(tab.dataset.paperMediaTab || 'figures'));
           });
+          downloadAllButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+              downloadMediaItems(
+                collectMediaDownloadItems(modal),
+                getPaperMediaDownloadBaseName(),
+                button,
+                { asZip: true },
+              );
+            });
+          });
           modal.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
               if (modal.classList.contains('is-fullscreen')) {
@@ -4221,6 +4519,8 @@ window.$docsify = {
           const thumbPrevBtn = root.querySelector('[data-figure-thumb-prev]');
           const thumbNextBtn = root.querySelector('[data-figure-thumb-next]');
           const counter = root.querySelector('[data-figure-current]');
+          const downloadCurrentBtn = root.querySelector('[data-paper-media-download-current]');
+          const downloadGroupBtn = root.querySelector('[data-paper-media-download-group]');
           if (!slides.length) return;
 
           let current = 0;
@@ -4285,6 +4585,27 @@ window.$docsify = {
               render();
             });
           });
+          if (downloadCurrentBtn) {
+            downloadCurrentBtn.addEventListener('click', () => {
+              const item = readMediaDownloadItem(slides[current]);
+              downloadMediaItems(
+                item ? [item] : [],
+                getPaperMediaDownloadBaseName(),
+                downloadCurrentBtn,
+                { asZip: false },
+              );
+            });
+          }
+          if (downloadGroupBtn) {
+            downloadGroupBtn.addEventListener('click', () => {
+              downloadMediaItems(
+                collectMediaDownloadItems(root),
+                getPaperMediaDownloadBaseName(),
+                downloadGroupBtn,
+                { asZip: true },
+              );
+            });
+          }
 
           render();
         });

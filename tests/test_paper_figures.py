@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import fitz
 from PIL import Image
@@ -64,7 +65,72 @@ class PaperFiguresTest(unittest.TestCase):
             self.assertTrue(meta_path.exists())
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
             self.assertEqual(len(meta["figures"]), 1)
-            self.assertEqual(meta["version"], 2)
+            self.assertEqual(meta["version"], 3)
+
+    def test_webp_save_options_defaults_to_higher_quality(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PAPER_MEDIA_WEBP_QUALITY", None)
+            os.environ.pop("PAPER_MEDIA_WEBP_LOSSLESS", None)
+
+            options = self.mod._webp_save_options()
+
+            self.assertEqual(options["format"], "WEBP")
+            self.assertEqual(options["quality"], 94)
+            self.assertNotIn("lossless", options)
+
+    def test_webp_save_options_supports_lossless_override(self):
+        with patch.dict(os.environ, {"PAPER_MEDIA_WEBP_LOSSLESS": "true"}, clear=False):
+            options = self.mod._webp_save_options()
+
+            self.assertEqual(options["format"], "WEBP")
+            self.assertTrue(options["lossless"])
+            self.assertNotIn("quality", options)
+
+    def test_papercropper_uses_high_resolution_defaults(self):
+        with tempfile.TemporaryDirectory() as d, patch.dict(
+            os.environ,
+            {
+                "PAPERCROPPER_IMGSZ": "",
+                "PAPERCROPPER_DPI": "",
+                "PAPERCROPPER_PNG_DPI": "",
+            },
+            clear=False,
+        ):
+            tmp_dir = Path(d)
+            pdf_path = tmp_dir / "sample.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n")
+
+            original_resolve = self.mod._resolve_papercropper
+            original_run = self.mod.subprocess.run
+            captured = {}
+
+            class DummyResult:
+                returncode = 0
+                stdout = "done"
+                stderr = ""
+
+            def fake_run(cmd, *args, **kwargs):
+                captured["cmd"] = cmd
+                return DummyResult()
+
+            self.mod._resolve_papercropper = lambda: (sys.executable, "/tmp/extract.py", "/tmp/model.pt")
+            self.mod.subprocess.run = fake_run
+            try:
+                self.mod._extract_media_with_papercropper(
+                    str(pdf_path),
+                    str(tmp_dir / "figures"),
+                    "assets/figures/arxiv/sample",
+                    str(tmp_dir / "tables"),
+                    "assets/tables/arxiv/sample",
+                )
+            finally:
+                self.mod._resolve_papercropper = original_resolve
+                self.mod.subprocess.run = original_run
+
+            cmd = captured["cmd"]
+            self.assertEqual(cmd[cmd.index("--imgsz") + 1], "1280")
+            self.assertEqual(cmd[cmd.index("--dpi") + 1], "300")
+            self.assertEqual(cmd[cmd.index("--png-dpi") + 1], "360")
 
     def test_papercropper_failure_is_reported_before_fallback(self):
         with tempfile.TemporaryDirectory() as d:

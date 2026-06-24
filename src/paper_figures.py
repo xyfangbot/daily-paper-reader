@@ -19,8 +19,10 @@ from PIL import Image
 MIN_FIGURE_WIDTH = 240
 MIN_FIGURE_HEIGHT = 180
 MIN_FIGURE_AREA = 120_000
-WEBP_QUALITY = 82
-FIGURE_META_VERSION = 2
+DEFAULT_WEBP_QUALITY = 94
+WEBP_QUALITY_ENV = "PAPER_MEDIA_WEBP_QUALITY"
+WEBP_LOSSLESS_ENV = "PAPER_MEDIA_WEBP_LOSSLESS"
+FIGURE_META_VERSION = 3
 PAPERCROPPER_SCRIPT_ENV = "PAPERCROPPER_SCRIPT"
 PAPERCROPPER_DIR_ENV = "PAPERCROPPER_DIR"
 PAPERCROPPER_MODEL_ENV = "PAPERCROPPER_MODEL"
@@ -28,6 +30,9 @@ PAPERCROPPER_PYTHON_ENV = "PAPERCROPPER_PYTHON"
 PAPERCROPPER_DISABLE_ENV = "PAPERCROPPER_DISABLE"
 PAPERCROPPER_MODEL_FILENAME = "doclayout_yolo_docstructbench_imgsz1280_2501.pt"
 PAPERCROPPER_LOG_LIMIT = 1200
+DEFAULT_PAPERCROPPER_IMGSZ = "1280"
+DEFAULT_PAPERCROPPER_DPI = "300"
+DEFAULT_PAPERCROPPER_PNG_DPI = "360"
 
 
 def _safe_asset_key(value: str) -> str:
@@ -163,6 +168,26 @@ def _truthy_env(name: str) -> bool:
     return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _int_env(name: str, default: int, *, min_value: int, max_value: int) -> int:
+    raw = str(os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return min(max(value, min_value), max_value)
+
+
+def _webp_save_options() -> Dict[str, Any]:
+    options: Dict[str, Any] = {"format": "WEBP", "method": 6}
+    if _truthy_env(WEBP_LOSSLESS_ENV):
+        options["lossless"] = True
+        return options
+    options["quality"] = _int_env(WEBP_QUALITY_ENV, DEFAULT_WEBP_QUALITY, min_value=1, max_value=100)
+    return options
+
+
 def _first_existing(candidates: List[str]) -> str:
     for candidate in candidates:
         path = str(candidate or "").strip()
@@ -226,7 +251,7 @@ def _save_webp_from_path(src_path: str, dst_path: str) -> tuple[int, int]:
             export_img = img.convert("RGB")
         else:
             export_img = img.copy()
-        export_img.save(dst_path, format="WEBP", quality=WEBP_QUALITY, method=6)
+        export_img.save(dst_path, **_webp_save_options())
         return width, height
 
 
@@ -299,9 +324,9 @@ def _extract_media_with_papercropper(
 
     timeout = int(os.getenv("PAPERCROPPER_TIMEOUT_SECONDS") or "360")
     conf = str(os.getenv("PAPERCROPPER_CONF") or "0.4")
-    imgsz = str(os.getenv("PAPERCROPPER_IMGSZ") or "1024")
-    dpi = str(os.getenv("PAPERCROPPER_DPI") or "200")
-    png_dpi = str(os.getenv("PAPERCROPPER_PNG_DPI") or "260")
+    imgsz = str(os.getenv("PAPERCROPPER_IMGSZ") or DEFAULT_PAPERCROPPER_IMGSZ)
+    dpi = str(os.getenv("PAPERCROPPER_DPI") or DEFAULT_PAPERCROPPER_DPI)
+    png_dpi = str(os.getenv("PAPERCROPPER_PNG_DPI") or DEFAULT_PAPERCROPPER_PNG_DPI)
     batch_size = str(os.getenv("PAPERCROPPER_BATCH_SIZE") or "4")
     padding = str(os.getenv("PAPERCROPPER_PADDING") or "2.0")
 
@@ -432,7 +457,7 @@ def extract_figures_from_pdf(
 
                 file_name = f"fig-{fig_index:03d}.webp"
                 abs_path = os.path.join(output_dir, file_name)
-                export_img.save(abs_path, format="WEBP", quality=WEBP_QUALITY, method=6)
+                export_img.save(abs_path, **_webp_save_options())
 
                 figures.append(
                     {

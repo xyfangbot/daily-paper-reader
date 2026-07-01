@@ -307,22 +307,61 @@ async function testHotPaperScoutPassesSelectedProfilesAndControls() {
     },
   };
   __setHotPaperScoutMsgEl(msgEl);
-  __setHotPaperScoutControls({ value: '7' }, { value: 'company' });
+  __setHotPaperScoutControls({ value: '30' }, { value: 'company' }, { value: 'embodied intelligence' });
   __setUnsavedChanges(false);
 
   assert.equal(await runHotPaperScoutFromSelection(), true);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0], {
     profile_tag: 'ACTIVE,CONF',
-    days_window: '7',
+    domain_query: 'embodied intelligence',
+    days_window: '30',
     institution_filter: 'company',
     max_results: '30',
   });
-  assert.match(msgEl.textContent, /最近 7 天热点论文筛选/);
+  assert.match(msgEl.textContent, /最近 30 天热点论文筛选/);
   assert.equal(msgEl.style.color, '#080');
 
   __setHotPaperScoutMsgEl(null);
-  __setHotPaperScoutControls(null, null);
+  __setHotPaperScoutControls(null, null, null);
+  delete global.window.DPRWorkflowRunner;
+  delete global.window.SubscriptionsSmartQuery;
+}
+
+async function testHotPaperScoutCanRunWithDomainOnly() {
+  const calls = [];
+  const msgEl = {
+    textContent: '',
+    style: {
+      color: '',
+    },
+  };
+  global.window.DPRWorkflowRunner = {
+    runHotPaperScout(options) {
+      calls.push(options);
+      return true;
+    },
+  };
+  global.window.SubscriptionsSmartQuery = {
+    getSelectedProfilesForRun() {
+      return [];
+    },
+  };
+  __setHotPaperScoutMsgEl(msgEl);
+  __setHotPaperScoutControls({ value: '30' }, { value: 'company' }, { value: 'embodied AI' });
+  __setUnsavedChanges(false);
+
+  assert.equal(await runHotPaperScoutFromSelection(), true);
+  assert.deepEqual(calls[0], {
+    profile_tag: '',
+    domain_query: 'embodied AI',
+    days_window: '30',
+    institution_filter: 'company',
+    max_results: '30',
+  });
+
+  __setHotPaperScoutMsgEl(null);
+  __setHotPaperScoutControls(null, null, null);
   delete global.window.DPRWorkflowRunner;
   delete global.window.SubscriptionsSmartQuery;
 }
@@ -338,6 +377,7 @@ async function testHotPaperScoutPassesSelectedProfilesAndControls() {
   testConferenceRunDisabledWhenUnsaved();
   await testQuickFetchIncludesAnySelectedProfile();
   await testHotPaperScoutPassesSelectedProfilesAndControls();
+  await testHotPaperScoutCanRunWithDomainOnly();
 
   console.log('subscriptions manager tests passed');
 })().catch((error) => {

@@ -19,6 +19,7 @@ window.SubscriptionsManager = (function () {
   let quickRunOpenWorkflowPanelBtn = null;
   let quickRunConferenceBtn = null;
   let hotPaperScoutBtn = null;
+  let hotPaperScoutDomainEl = null;
   let hotPaperScoutDaysEl = null;
   let hotPaperScoutInstitutionEl = null;
   let hotPaperScoutMsgEl = null;
@@ -632,13 +633,15 @@ window.SubscriptionsManager = (function () {
     const selectedProfiles = getSelectedProfilesForRun();
     const selectedProfileCount = selectedProfiles.length;
     const dailySelectedProfileCount = selectedProfileCount;
+    const hotDomainQuery = normalizeText(hotPaperScoutDomainEl && hotPaperScoutDomainEl.value);
     const dailyBlocked = hasUnsavedChanges || dailySelectedProfileCount < 1;
+    const hotBlocked = hasUnsavedChanges || (dailySelectedProfileCount < 1 && !hotDomainQuery);
     const conferenceBlocked =
       hasUnsavedChanges || selectedProfileCount < 1 || selectedConferenceYearPairs.size < 1;
     renderProfilePickers();
     [
       [quickRunStartBtn, dailyBlocked],
-      [hotPaperScoutBtn, dailyBlocked],
+      [hotPaperScoutBtn, hotBlocked],
       [quickRunConferenceBtn, conferenceBlocked],
     ].forEach(([btn, blocked]) => {
       if (!btn) return;
@@ -655,7 +658,9 @@ window.SubscriptionsManager = (function () {
             title = '请先保存后再抓取。';
           }
         } else if (selectedProfileCount < 1) {
-          title = '请先在上方选择至少一个词条。';
+          title = btn === hotPaperScoutBtn
+            ? '请填写领域关键词，或在上方选择至少一个词条。'
+            : '请先在上方选择至少一个词条。';
         } else if (btn === quickRunConferenceBtn && !selectedConferenceYearPairs.size) {
           title = '请先选择至少一个会议年份。';
         } else {
@@ -866,8 +871,9 @@ window.SubscriptionsManager = (function () {
       return false;
     }
     const tags = getDailySelectedProfileTagsForRun();
-    if (!tags.length) {
-      setHotPaperScoutMessage('请先勾选至少一个词条。', '#c00');
+    const domainQuery = normalizeText(hotPaperScoutDomainEl && hotPaperScoutDomainEl.value);
+    if (!tags.length && !domainQuery) {
+      setHotPaperScoutMessage('请填写领域关键词，或先勾选至少一个词条。', '#c00');
       refreshQuickRunButtons();
       return false;
     }
@@ -875,13 +881,15 @@ window.SubscriptionsManager = (function () {
       setHotPaperScoutMessage('热点论文工作流触发器未加载到当前页面。', '#c00');
       return false;
     }
-    const daysWindow = hotPaperScoutDaysEl && hotPaperScoutDaysEl.value === '7' ? '7' : '14';
+    const rawDays = normalizeText(hotPaperScoutDaysEl && hotPaperScoutDaysEl.value);
+    const daysWindow = ['7', '14', '30'].includes(rawDays) ? rawDays : '30';
     const rawInstitution = normalizeText(hotPaperScoutInstitutionEl && hotPaperScoutInstitutionEl.value).toLowerCase();
     const institutionFilter = ['all', 'company', 'university'].includes(rawInstitution)
       ? rawInstitution
-      : 'all';
+      : 'company';
     const result = await window.DPRWorkflowRunner.runHotPaperScout({
       profile_tag: tags.join(','),
+      domain_query: domainQuery,
       days_window: daysWindow,
       institution_filter: institutionFilter,
       max_results: '30',
@@ -892,10 +900,11 @@ window.SubscriptionsManager = (function () {
     }
     const label = {
       all: '全部机构',
-      company: '科技公司',
+      company: '具身智能公司领衔',
       university: '高校',
     }[institutionFilter] || '全部机构';
-    setHotPaperScoutMessage(`已对 ${tags.length} 个词条发起最近 ${daysWindow} 天热点论文筛选（${label}）。`, '#080');
+    const targetText = domainQuery || `${tags.length} 个词条`;
+    setHotPaperScoutMessage(`已发起「${targetText}」最近 ${daysWindow} 天热点论文筛选（${label}）。`, '#080');
     showWorkflowSuccessEffects();
     return true;
   };
@@ -1283,20 +1292,31 @@ window.SubscriptionsManager = (function () {
 
               <div class="dpr-hot-scout-module">
                 <div class="chat-quick-run-title">热点论文筛选</div>
-                <div class="dpr-task-danger-desc">OpenAlex · 最近高热论文</div>
+                <div class="dpr-task-danger-desc">OpenAlex · 具身智能公司领衔</div>
                 <div class="dpr-hot-scout-controls">
+                  <label class="dpr-hot-scout-field dpr-hot-scout-field--wide">
+                    <span>领域关键词</span>
+                    <input
+                      id="arxiv-admin-hot-domain"
+                      class="dpr-manual-upload-input"
+                      type="text"
+                      value="embodied intelligence; embodied AI; embodied agents; vision-language-action model; robot foundation model"
+                      aria-label="热点论文领域关键词"
+                    >
+                  </label>
                   <label class="dpr-hot-scout-field">
                     <span>时间范围</span>
                     <select id="arxiv-admin-hot-days" class="dpr-manual-upload-input" aria-label="热点论文时间范围">
-                      <option value="14" selected>14 天</option>
+                      <option value="30" selected>30 天</option>
+                      <option value="14">14 天</option>
                       <option value="7">7 天</option>
                     </select>
                   </label>
                   <label class="dpr-hot-scout-field">
                     <span>机构筛选</span>
                     <select id="arxiv-admin-hot-institution" class="dpr-manual-upload-input" aria-label="热点论文机构筛选">
-                      <option value="all" selected>全部</option>
-                      <option value="company">科技公司</option>
+                      <option value="company" selected>具身智能公司领衔</option>
+                      <option value="all">全部</option>
                       <option value="university">高校</option>
                     </select>
                   </label>
@@ -1571,6 +1591,7 @@ window.SubscriptionsManager = (function () {
       'arxiv-admin-quick-run-conference-run-btn',
     );
     hotPaperScoutBtn = document.getElementById('arxiv-admin-hot-scout-btn');
+    hotPaperScoutDomainEl = document.getElementById('arxiv-admin-hot-domain');
     hotPaperScoutDaysEl = document.getElementById('arxiv-admin-hot-days');
     hotPaperScoutInstitutionEl = document.getElementById('arxiv-admin-hot-institution');
     hotPaperScoutMsgEl = document.getElementById('arxiv-admin-hot-scout-msg');
@@ -1613,6 +1634,13 @@ window.SubscriptionsManager = (function () {
       hotPaperScoutBtn._bound = true;
       hotPaperScoutBtn.addEventListener('click', () => {
         runHotPaperScoutFromSelection();
+      });
+    }
+
+    if (hotPaperScoutDomainEl && !hotPaperScoutDomainEl._bound) {
+      hotPaperScoutDomainEl._bound = true;
+      hotPaperScoutDomainEl.addEventListener('input', () => {
+        refreshQuickRunButtons();
       });
     }
 
@@ -1800,9 +1828,10 @@ window.SubscriptionsManager = (function () {
       __setHotPaperScoutMsgEl: (el) => {
         hotPaperScoutMsgEl = el || null;
       },
-      __setHotPaperScoutControls: (daysEl, institutionEl) => {
+      __setHotPaperScoutControls: (daysEl, institutionEl, domainEl) => {
         hotPaperScoutDaysEl = daysEl || null;
         hotPaperScoutInstitutionEl = institutionEl || null;
+        hotPaperScoutDomainEl = domainEl || null;
       },
       __setUnsavedChanges: (value) => {
         hasUnsavedChanges = !!value;

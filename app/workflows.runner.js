@@ -47,10 +47,11 @@ window.DPRWorkflowRunner = (function () {
       key: 'hot-paper-scout',
       id: 'hot-paper-scout.yml',
       name: '热点论文筛选',
-      desc: '按选中词条从 OpenAlex 筛选最近 7/14 天高热论文。',
+      desc: '按领域和选中词条从 OpenAlex 筛选最近 7/14/30 天高热论文。',
       dispatchInputs: {
-        days_window: '14',
-        institution_filter: 'all',
+        domain_query: 'embodied intelligence; embodied AI; embodied agents; vision-language-action model; robot foundation model; generalist robot policy; humanoid robot policy; robot learning foundation model',
+        days_window: '30',
+        institution_filter: 'company',
         max_results: '30',
       },
     },
@@ -2007,15 +2008,17 @@ window.DPRWorkflowRunner = (function () {
   const runHotPaperScout = async (options = {}) => {
     const opts = options && typeof options === 'object' ? options : {};
     const profileTag = String(opts.profile_tag || opts.profileTag || '').trim();
-    const daysText = String(opts.days_window || opts.daysWindow || '14').trim();
-    const daysWindow = daysText === '7' ? '7' : '14';
-    const institutionRaw = String(opts.institution_filter || opts.institutionFilter || 'all').trim().toLowerCase();
+    const domainQuery = String(opts.domain_query || opts.domainQuery || '').trim();
+    const daysText = String(opts.days_window || opts.daysWindow || '30').trim();
+    const daysWindow = ['7', '14', '30'].includes(daysText) ? daysText : '30';
+    const institutionRaw = String(opts.institution_filter || opts.institutionFilter || 'company').trim().toLowerCase();
     const institutionFilter = ['all', 'company', 'university'].includes(institutionRaw)
       ? institutionRaw
-      : 'all';
+      : 'company';
     const maxResults = String(opts.max_results || opts.maxResults || '30').trim() || '30';
     return runWorkflowByKey('hot-paper-scout', {
       profile_tag: profileTag,
+      domain_query: domainQuery,
       days_window: daysWindow,
       institution_filter: institutionFilter,
       max_results: maxResults,

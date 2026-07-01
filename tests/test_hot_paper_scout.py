@@ -2,6 +2,7 @@ import importlib.util
 import pathlib
 import sys
 import unittest
+import xml.etree.ElementTree as ET
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -38,6 +39,7 @@ def make_work(
     cited_by_count: int = 0,
     institution_name: str = "OpenAI",
     institution_type: str = "company",
+    author_position: str = "first",
 ) -> dict:
     return {
         "id": f"https://openalex.org/W{idx}",
@@ -57,6 +59,7 @@ def make_work(
         },
         "authorships": [
             {
+                "author_position": author_position,
                 "author": {"display_name": f"Author {idx}"},
                 "institutions": [
                     {
@@ -113,16 +116,34 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(parsed["link"], "https://example.org/papers/1")
         self.assertEqual(parsed["pdf_url"], "https://example.org/papers/1.pdf")
         self.assertEqual(parsed["institution_names"], ["Stanford University"])
+        self.assertEqual(parsed["lead_institution_names"], ["Stanford University"])
         self.assertEqual(parsed["institution_types"], ["education"])
 
     def test_institution_filters_company_university_all(self):
-        company = make_work(1, institution_name="OpenAI", institution_type="company")
-        alias_company = make_work(2, institution_name="Microsoft Research", institution_type="facility")
+        company = make_work(1, institution_name="Figure AI", institution_type="company")
+        alias_company = make_work(2, institution_name="Unitree Robotics", institution_type="facility")
+        generic_company = make_work(5, institution_name="OpenAI", institution_type="company")
         university = make_work(3, institution_name="Tsinghua University", institution_type="education")
+        company_not_lead = make_work(4, institution_name="Tsinghua University", institution_type="education")
+        company_not_lead["authorships"].append(
+            {
+                "author_position": "middle",
+                "author": {"display_name": "Industry Coauthor"},
+                "institutions": [
+                    {
+                        "id": "https://openalex.org/I999",
+                        "display_name": "OpenAI",
+                        "type": "company",
+                    }
+                ],
+            }
+        )
 
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(company, "company"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(alias_company, "company"))
+        self.assertFalse(hot_paper_scout.work_matches_institution_filter(generic_company, "company"))
         self.assertFalse(hot_paper_scout.work_matches_institution_filter(university, "company"))
+        self.assertFalse(hot_paper_scout.work_matches_institution_filter(company_not_lead, "company"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(university, "university"))
         self.assertFalse(hot_paper_scout.work_matches_institution_filter(company, "university"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(university, "all"))
@@ -131,6 +152,7 @@ class HotPaperScoutTest(unittest.TestCase):
         result = hot_paper_scout.scout_hot_papers(
             build_config(),
             profile_tag="rl-robotics",
+            domain_query="",
             days_window=14,
             institution_filter="all",
             max_results=30,
@@ -150,6 +172,7 @@ class HotPaperScoutTest(unittest.TestCase):
         result = hot_paper_scout.scout_hot_papers(
             build_config(),
             profile_tag="rl-robotics",
+            domain_query="embodied intelligence; robot foundation model",
             days_window=14,
             institution_filter="all",
             max_results=30,
@@ -157,10 +180,37 @@ class HotPaperScoutTest(unittest.TestCase):
         )
 
         self.assertEqual(len(result.papers), 30)
+        self.assertEqual(result.domain_queries, ["embodied intelligence", "robot foundation model"])
         dois = [paper["doi"] for paper in result.papers]
         self.assertEqual(dois.count("https://doi.org/10.1234/dup"), 1)
         duplicate = next(paper for paper in result.papers if paper["doi"] == "https://doi.org/10.1234/dup")
         self.assertEqual(duplicate["cited_by_count"], 80)
+
+    def test_arxiv_fallback_entry_parse_marks_company_source(self):
+        xml = """
+        <entry xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+          <id>http://arxiv.org/abs/2606.12345v1</id>
+          <published>2026-06-30T00:00:00Z</published>
+          <title>Unitree Humanoid Robot Learning</title>
+          <summary>We study embodied AI policies with Unitree robots.</summary>
+          <author><name>Alice Example</name></author>
+          <link href="http://arxiv.org/abs/2606.12345v1" rel="alternate" type="text/html"/>
+          <link title="pdf" href="http://arxiv.org/pdf/2606.12345v1" rel="related" type="application/pdf"/>
+        </entry>
+        """
+        entry = ET.fromstring(xml)
+        paper = hot_paper_scout.arxiv_entry_to_paper(
+            entry,
+            'all:"Unitree" AND all:"embodied AI"',
+            "2026-06-01",
+            "company",
+        )
+
+        self.assertIsNotNone(paper)
+        self.assertEqual(paper["source"], "arxiv_fallback")
+        self.assertEqual(paper["company_match"], "unitree")
+        self.assertEqual(paper["lead_institution_names"], ["unitree"])
+        self.assertEqual(paper["pdf_url"], "http://arxiv.org/pdf/2606.12345v1")
 
 
 if __name__ == "__main__":

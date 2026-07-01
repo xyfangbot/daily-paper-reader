@@ -1,6 +1,7 @@
 import importlib.util
 import pathlib
 import sys
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -211,6 +212,73 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(paper["company_match"], "unitree")
         self.assertEqual(paper["lead_institution_names"], ["unitree"])
         self.assertEqual(paper["pdf_url"], "http://arxiv.org/pdf/2606.12345v1")
+
+    def test_hot_outputs_follow_daily_paper_format(self):
+        paper = {
+            "id": "http://arxiv.org/abs/2606.12345v1",
+            "arxiv_id": "2606.12345v1",
+            "arxiv_url": "http://arxiv.org/abs/2606.12345v1",
+            "doi": "",
+            "title": "Unitree Humanoid Robot Learning",
+            "publication_date": "2026-06-30",
+            "authors": ["Alice Example"],
+            "abstract": "We study embodied AI policies with Unitree robots. The policy transfers to humanoids.",
+            "link": "http://arxiv.org/abs/2606.12345v1",
+            "pdf_url": "http://arxiv.org/pdf/2606.12345v1",
+            "openalex_id": "",
+            "cited_by_count": 0,
+            "source": "arxiv_fallback",
+            "profile_tag": "embodied-ai",
+            "matched_query": 'all:"Unitree" AND all:"embodied AI"',
+            "company_match": "unitree",
+            "institution_names": ["unitree"],
+            "lead_institution_names": ["unitree"],
+        }
+        result = hot_paper_scout.ScoutResult(
+            papers=[paper],
+            warnings=["OpenAlex 查询失败：demo"],
+            profiles=[],
+            domain_queries=["embodied AI"],
+            queries=[],
+            from_date="2026-06-01",
+            run_token="hot-test",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            readme_path = tmp_path / "README.md"
+            paper_path = tmp_path / "paper.md"
+
+            hot_paper_scout.write_readme(readme_path, result, 30, "company")
+            hot_paper_scout.write_paper_markdown(paper_path, paper, 1, "company")
+
+            readme = readme_path.read_text(encoding="utf-8")
+            paper_md = paper_path.read_text(encoding="utf-8")
+
+        self.assertIn("# 日报 · 热点论文筛选", readme)
+        self.assertIn("- 当次推荐总数：1", readme)
+        self.assertIn("## 今日简报（AI）", readme)
+        self.assertIn("## 精读区", readme)
+        self.assertIn("## 速读区", readme)
+        self.assertIn("使用键盘方向键可在日报/论文之间快速切换。", readme)
+        self.assertNotIn("## Warning", readme)
+        self.assertNotIn("## 结果", readme)
+        self.assertNotIn("论文数：1", readme)
+
+        self.assertIn("selection_source: hot_paper_scout", paper_md)
+        self.assertIn("source: arxiv", paper_md)
+        self.assertIn("score: 9.0", paper_md)
+        self.assertIn('arxiv_id: "2606.12345v1"', paper_md)
+        self.assertIn("tldr:", paper_md)
+        self.assertIn("motivation:", paper_md)
+        self.assertIn("method:", paper_md)
+        self.assertIn("result:", paper_md)
+        self.assertIn("conclusion:", paper_md)
+        self.assertIn("## 摘要", paper_md)
+        self.assertIn("## Abstract", paper_md)
+        self.assertNotIn("## 领衔机构", paper_md)
+        self.assertNotIn("## 机构", paper_md)
+        self.assertNotIn("## 来源信息", paper_md)
 
 
 if __name__ == "__main__":

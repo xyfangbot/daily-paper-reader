@@ -384,6 +384,14 @@ def arxiv_pdf_url(entry: ET.Element) -> str:
     return ""
 
 
+def arxiv_id_from_url(value: str) -> str:
+    text = single_line(value)
+    match = re.search(r"arxiv\.org/(?:abs|pdf)/([^?#\s/]+)", text, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    return match.group(1).removesuffix(".pdf")
+
+
 def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institution_filter: str) -> dict[str, Any] | None:
     title = single_line(entry.findtext("atom:title", default="", namespaces=ARXIV_NS))
     abstract = single_line(entry.findtext("atom:summary", default="", namespaces=ARXIV_NS))
@@ -396,6 +404,7 @@ def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institut
     ]
     authors = [author for author in authors if author]
     entry_id = single_line(entry.findtext("atom:id", default="", namespaces=ARXIV_NS))
+    arxiv_id = arxiv_id_from_url(entry_id)
     doi = single_line(entry.findtext("arxiv:doi", default="", namespaces=ARXIV_NS))
     searchable = " ".join([title, abstract, " ".join(authors), query])
     matched_company = matched_embodied_ai_company_name(searchable)
@@ -404,6 +413,8 @@ def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institut
     company_label = matched_company or "arXiv metadata"
     return {
         "id": entry_id,
+        "arxiv_id": arxiv_id,
+        "arxiv_url": entry_id,
         "openalex_id": "",
         "doi": doi,
         "title": title or "Untitled arXiv work",
@@ -647,25 +658,78 @@ def scout_hot_papers(
 
 
 def paper_slug(paper: dict[str, Any], index: int) -> str:
-    base = paper.get("doi") or paper.get("openalex_id") or paper.get("title") or f"paper-{index}"
+    base = paper.get("arxiv_id") or paper.get("doi") or paper.get("openalex_id") or paper.get("title") or f"paper-{index}"
     base = str(base).replace("https://doi.org/", "").replace("https://openalex.org/", "")
     return f"{index:03d}-{safe_slug(base, f'paper-{index}')}"
 
 
+def paper_display_score(paper: dict[str, Any]) -> float:
+    if paper.get("source") == "arxiv_fallback":
+        return 9.0
+    cited = int(paper.get("cited_by_count") or 0)
+    if cited >= 100:
+        return 10.0
+    if cited >= 50:
+        return 9.5
+    if cited >= 20:
+        return 9.0
+    if cited >= 10:
+        return 8.5
+    if cited >= 5:
+        return 8.0
+    return 7.5
+
+
+def first_sentence(text: str, limit: int = 180) -> str:
+    clean = single_line(text)
+    if not clean:
+        return ""
+    parts = re.split(r"(?<=[.!?。！？])\s+", clean, maxsplit=1)
+    sentence = parts[0].strip() if parts else clean
+    if len(sentence) <= limit:
+        return sentence
+    return sentence[: limit - 1].rstrip() + "…"
+
+
+def paper_tldr(paper: dict[str, Any]) -> str:
+    company = str(paper.get("company_match") or "").strip()
+    source = "arXiv fallback" if paper.get("source") == "arxiv_fallback" else "OpenAlex"
+    lead = ", ".join(paper.get("lead_institution_names") or []) or company or "具身智能公司"
+    abstract_hint = first_sentence(str(paper.get("abstract") or ""), 160)
+    if abstract_hint:
+        return f"{lead} 相关近期论文；来源 {source}。{abstract_hint}"
+    return f"{lead} 相关近期论文；来源 {source}，建议打开 PDF 精读。"
+
+
+def paper_glance(paper: dict[str, Any]) -> dict[str, str]:
+    lead = ", ".join(paper.get("lead_institution_names") or []) or paper.get("company_match") or "具身智能公司"
+    source = "arXiv" if paper.get("source") == "arxiv_fallback" else "OpenAlex"
+    cited = int(paper.get("cited_by_count") or 0)
+    return {
+        "motivation": f"筛选最近 30 天内由{lead}相关文本命中的具身智能论文。",
+        "method": first_sentence(str(paper.get("abstract") or ""), 120) or "方法细节请参考摘要与原文。",
+        "result": f"来源 {source}；OpenAlex 引用数 {cited}；匹配 query：{paper.get('matched_query') or '具身智能'}。",
+        "conclusion": "适合纳入热点论文精读队列，建议结合 PDF 进一步确认机构与贡献。",
+    }
+
+
 def write_paper_markdown(path: Path, paper: dict[str, Any], index: int, institution_filter: str) -> None:
     paper_source = str(paper.get("source") or "openalex")
-    source_label = "arXiv fallback" if paper_source == "arxiv_fallback" else "OpenAlex Hot"
+    source_label = "arxiv" if paper_source == "arxiv_fallback" else "openalex"
+    source_note = "arXiv fallback" if paper_source == "arxiv_fallback" else "OpenAlex"
+    score = paper_display_score(paper)
     tags = [
         f"query:{paper.get('profile_tag') or 'hot'}",
+        f"query:{institution_filter_label(institution_filter)}",
         "paper:arXiv" if paper_source == "arxiv_fallback" else "paper:OpenAlex",
-        "paper:Hot",
-        f"institution:{institution_filter_label(institution_filter)}",
     ]
     abstract = str(paper.get("abstract") or "").strip()
     authors = ", ".join(paper.get("authors") or []) or "Unknown"
     source_link = paper.get("pdf_url") or paper.get("link") or paper.get("doi") or paper.get("openalex_id") or ""
+    tldr = paper_tldr(paper)
+    glance = paper_glance(paper)
     if paper_source == "arxiv_fallback":
-        evidence = f"arXiv fallback; company_match={paper.get('company_match') or ''}; query={paper.get('matched_query') or ''}"
+        evidence = f"arXiv fallback；具身智能公司文本命中：{paper.get('company_match') or ''}"
     else:
         evidence = f"OpenAlex cited_by_count={paper.get('cited_by_count') or 0}; query={paper.get('matched_query') or ''}"
     lines = [
@@ -676,6 +740,10 @@ def write_paper_markdown(path: Path, paper: dict[str, Any], index: int, institut
     ]
     if source_link:
         lines.append(f"pdf: {yaml_escape(source_link)}")
+    if paper.get("arxiv_id"):
+        lines.append(f"arxiv_id: {yaml_escape(paper.get('arxiv_id'))}")
+    if paper.get("arxiv_url"):
+        lines.append(f"arxiv_url: {yaml_escape(paper.get('arxiv_url'))}")
     if paper.get("doi"):
         lines.append(f"doi: {yaml_escape(paper.get('doi'))}")
     lines.extend(
@@ -683,100 +751,64 @@ def write_paper_markdown(path: Path, paper: dict[str, Any], index: int, institut
             f"source: {source_label}",
             "selection_source: hot_paper_scout",
             f"tags: [{', '.join(yaml_escape(tag) for tag in tags)}]",
-            f"score: {paper.get('cited_by_count') or 0}",
+            f"score: {score:.1f}",
             f"evidence: {yaml_escape(evidence)}",
-            f"abstract: {yaml_escape(abstract)}",
+            f"tldr: {yaml_escape(tldr)}",
+            f"motivation: {yaml_escape(glance['motivation'])}",
+            f"method: {yaml_escape(glance['method'])}",
+            f"result: {yaml_escape(glance['result'])}",
+            f"conclusion: {yaml_escape(glance['conclusion'])}",
             "---",
             "",
             "## 摘要",
             "",
-            abstract or "OpenAlex 未提供可用摘要。",
+            tldr,
             "",
-            "## 领衔机构",
-            "",
-        ]
-    )
-    lead_institutions = paper.get("lead_institution_names") or []
-    if lead_institutions:
-        lines.extend(f"- {name}" for name in lead_institutions[:10])
-    else:
-        lines.append("- Unknown")
-    lines.extend(
-        [
-            "",
-            "## 机构",
+            "## Abstract",
             "",
         ]
     )
-    institutions = paper.get("institution_names") or []
-    if institutions:
-        lines.extend(f"- {name}" for name in institutions[:20])
-    else:
-        lines.append("- Unknown")
-    lines.extend(
-        [
-            "",
-            "## 来源信息",
-            "",
-            f"- Citations: {paper.get('cited_by_count') or 0}",
-            f"- Source: {source_label}",
-            f"- Matched query: {paper.get('matched_query') or ''}",
-            f"- Company match: {paper.get('company_match') or ''}",
-            f"- DOI: {paper.get('doi') or ''}",
-            f"- Source ID: {paper.get('openalex_id') or paper.get('id') or ''}",
-            f"- Link: {paper.get('link') or ''}",
-        ]
-    )
+    lines.append(abstract or f"{source_note} did not provide an abstract for this paper.")
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def write_readme(path: Path, result: ScoutResult, days_window: int, institution_filter: str) -> None:
     label = institution_filter_label(institution_filter)
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    total = len(result.papers)
+    brief = (
+        f"1) 本期筛选最近 {days_window} 天具身智能公司相关论文，共 {total} 篇进入精读区。\n"
+        f"2) 机构筛选口径：{label}；领域 query：{'; '.join(result.domain_queries) or '无'}。\n"
+        "3) 建议优先查看精读区靠前论文，并结合 PDF 确认公司/机构贡献。"
+    )
     lines = [
-        f"# 热点论文筛选 · {label}",
+        f"# 日报 · 热点论文筛选 · {label}",
         "",
-        f"- 时间范围：最近 {days_window} 天（from_publication_date >= {result.from_date}）",
-        f"- 机构筛选：{label}",
-        f"- 领域查询：{'; '.join(result.domain_queries) or '无'}",
-        f"- 词条：{', '.join(str(p.get('tag')) for p in result.profiles) or '无'}",
-        f"- 查询数：{len(result.queries)}",
-        f"- 论文数：{len(result.papers)}",
+        f"- 生成时间：{generated_at}",
+        f"- 当次推荐总数：{total}",
+        f"- 精读区：{total}",
+        "- 速读区：0",
+        "",
+        "## 今日简报（AI）",
+        brief,
         "",
     ]
-    if normalize_institution_filter(institution_filter) == "company":
-        lines.extend([
-            "> 具身智能公司领衔按第一/末位作者机构判断；若 OpenAlex 缺少作者位置，则回退到任意作者机构，并要求机构名命中内置具身智能公司名单。",
-            "",
-        ])
-    if result.warnings:
-        lines.extend(["## Warning", ""])
-        lines.extend(f"- {warning}" for warning in result.warnings)
-        lines.append("")
     if not result.papers:
-        lines.extend(["## 结果", "", "没有筛选到符合条件的论文。", ""])
+        lines.extend(["> 本次触发没有产出可推荐论文。", ""])
     else:
-        lines.extend(["## 结果", ""])
+        lines.extend(["## 精读区"])
         for index, paper in enumerate(result.papers, start=1):
             slug = paper_slug(paper, index)
             title = paper.get("title") or f"Paper {index}"
-            authors = ", ".join((paper.get("authors") or [])[:4])
-            cited = paper.get("cited_by_count") or 0
-            date = paper.get("publication_date") or "Unknown"
-            institutions = ", ".join((paper.get("institution_names") or [])[:3])
-            source = "arXiv fallback" if paper.get("source") == "arxiv_fallback" else "OpenAlex"
-            lines.extend(
-                [
-                    f"### {index}. [{title}]({slug})",
-                    "",
-                    f"- Citations: {cited}",
-                    f"- Date: {date}",
-                    f"- Source: {source}",
-                    f"- Authors: {authors or 'Unknown'}",
-                    f"- Institutions: {institutions or 'Unknown'}",
-                    f"- Query: {paper.get('matched_query') or ''}",
-                    "",
-                ]
-            )
+            score = f"{paper_display_score(paper):.1f}/10"
+            lines.append(f"{index}. [{title}]({slug}) （{score}）")
+        lines.append("")
+    lines.extend(["## 速读区", "- 本次无速读推荐。", ""])
+    if result.warnings and not result.papers:
+        lines.extend(["## 数据源提示", ""])
+        lines.extend(f"- {warning}" for warning in result.warnings[:12])
+        lines.append("")
+    lines.extend(["---", "使用键盘方向键可在日报/论文之间快速切换。", ""])
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 

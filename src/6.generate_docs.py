@@ -41,7 +41,19 @@ MANUAL_DATE_RE = re.compile(r"^manual-(\d{8})(?:-(\d{6}))?$")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY") or os.getenv("SUMMARY_API_KEY")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL") or os.getenv("SUMMARY_BASE_URL") or "https://api.deepseek.com"
 DEEPSEEK_MODEL = os.getenv("SUMMARY_MODEL") or os.getenv("DEEPSEEK_MODEL") or "deepseek-v4-flash"
-STEP6_STRUCTURED_MAX_TOKENS = 16 * 1024
+
+
+def resolve_step6_structured_max_tokens(default: int = 16 * 1024) -> int:
+    raw = os.getenv("STEP6_STRUCTURED_MAX_TOKENS") or os.getenv("DPR_STEP6_STRUCTURED_MAX_TOKENS")
+    if not raw:
+        return default
+    try:
+        return max(512, int(raw))
+    except Exception:
+        return default
+
+
+STEP6_STRUCTURED_MAX_TOKENS = resolve_step6_structured_max_tokens()
 
 
 def create_llm_client() -> DeepSeekClient | None:

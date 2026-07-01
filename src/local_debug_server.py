@@ -409,14 +409,14 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
             "HOT_RUN_TOKEN=$(grep -oE 'HOT_RUN_TOKEN=[^[:space:]]+' \"$LOG_FILE\" | tail -n 1 | cut -d= -f2)",
             "if [ -z \"$HOT_RUN_TOKEN\" ]; then echo '[ERROR] HOT_RUN_TOKEN not found'; exit 1; fi",
             (
-                f"{shlex.quote(python)} src/6.generate_docs.py "
+                f"STEP6_STRUCTURED_MAX_TOKENS=2048 {shlex.quote(python)} src/6.generate_docs.py "
                 "--date \"$HOT_RUN_TOKEN\" "
                 "--mode standard "
                 "--docs-dir docs "
                 f"--sidebar-date-label {shlex.quote(f'热点论文筛选 · 最近 {days_window} 天 · {filter_label}')} "
                 "--glance-only "
                 "--force-glance "
-                "--docs-concurrency 2"
+                "--docs-concurrency 6"
             ),
         ])
         return ["bash", "-lc", script]

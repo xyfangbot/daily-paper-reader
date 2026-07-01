@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -401,6 +402,17 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("30-70个中文字符", prompt)
         self.assertIn("问题背景→核心方法→关键结果→贡献意义", prompt)
         self.assertNotIn("每个字段一句话概括", prompt)
+
+    def test_structured_max_tokens_env_override(self):
+        old = os.environ.get("STEP6_STRUCTURED_MAX_TOKENS")
+        try:
+            os.environ["STEP6_STRUCTURED_MAX_TOKENS"] = "2048"
+            self.assertEqual(self.mod.resolve_step6_structured_max_tokens(), 2048)
+        finally:
+            if old is None:
+                os.environ.pop("STEP6_STRUCTURED_MAX_TOKENS", None)
+            else:
+                os.environ["STEP6_STRUCTURED_MAX_TOKENS"] = old
 
     def test_generate_glance_uses_explicit_client(self):
         explicit_client = object()

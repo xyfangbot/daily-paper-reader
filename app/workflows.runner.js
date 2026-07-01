@@ -97,6 +97,7 @@ window.DPRWorkflowRunner = (function () {
   let currentPanelMode = 'workflows';
   const lastRunStateById = {};
   let repoContextCache = null;
+  let lastValidatedGithubToken = '';
 
   const escapeHtml = (str) => {
     if (!str) return '';
@@ -108,11 +109,25 @@ window.DPRWorkflowRunner = (function () {
       .replace(/'/g, '&#39;');
   };
 
-  const loadGithubToken = () => {
+  const pushGithubTokenCandidate = (candidates, seen, token, source) => {
+    const value = String(token || '').trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    candidates.push({ token: value, source });
+  };
+
+  const loadGithubTokenCandidates = () => {
+    const candidates = [];
+    const seen = new Set();
     try {
       const secret = window.decoded_secret_private || {};
       if (secret.github && secret.github.token) {
-        return String(secret.github.token || '').trim();
+        pushGithubTokenCandidate(
+          candidates,
+          seen,
+          secret.github.token,
+          '密钥配置',
+        );
       }
     } catch {
       // ignore
@@ -121,12 +136,39 @@ window.DPRWorkflowRunner = (function () {
       const raw = window.localStorage
         ? window.localStorage.getItem('github_token_data')
         : '';
-      if (!raw) return '';
+      if (!raw) return candidates;
       const obj = JSON.parse(raw);
-      return String((obj && obj.token) || '').trim();
+      pushGithubTokenCandidate(
+        candidates,
+        seen,
+        obj && obj.token,
+        '本地 GitHub Token',
+      );
     } catch {
-      return '';
+      // ignore
     }
+    return candidates;
+  };
+
+  const loadGithubToken = () => {
+    if (lastValidatedGithubToken) return lastValidatedGithubToken;
+    const first = loadGithubTokenCandidates()[0];
+    return first ? first.token : '';
+  };
+
+  const isGithubAuthStatus = (status) => status === 401 || status === 403;
+
+  const createGithubAuthError = (message) => {
+    const err = new Error(message);
+    err.isGithubAuthError = true;
+    return err;
+  };
+
+  const formatGithubApiError = (res, bodyText) => {
+    const status = res && res.status ? `HTTP ${res.status}` : 'HTTP 请求失败';
+    const statusText = res && res.statusText ? ` ${res.statusText}` : '';
+    const body = String(bodyText || '').trim();
+    return body ? `${status}${statusText} - ${body}` : `${status}${statusText}`;
   };
   const loadRerankerProfile = () => {
     try {
@@ -187,24 +229,91 @@ window.DPRWorkflowRunner = (function () {
         const repoUrl = `https://api.github.com/repos/${owner}/${repo}`;
         const res = await ghFetch(token, repoUrl);
         if (!res.ok) {
+          const txt = await res.text().catch(() => '');
+          if (isGithubAuthStatus(res.status)) {
+            throw createGithubAuthError(
+              `GitHub Token 无效或权限不足：读取 ${owner}/${repo} 失败，${formatGithubApiError(
+                res,
+                txt,
+              )}。请重新保存密钥配置中的 GitHub Token，需具备 repo、workflow 权限。`,
+            );
+          }
           return { owner, repo, isFork: null, defaultBranch: 'main' };
         }
         const data = await res.json().catch(() => null);
+        if (
+          data &&
+          data.permissions &&
+          Object.prototype.hasOwnProperty.call(data.permissions, 'push') &&
+          data.permissions.push === false
+        ) {
+          throw createGithubAuthError(
+            `GitHub Token 可以读取 ${owner}/${repo}，但没有写入权限。请重新生成或保存具备 repo、workflow 权限的 Token。`,
+          );
+        }
         return {
           owner,
           repo,
           isFork: !!(data && data.fork),
           defaultBranch: String((data && data.default_branch) || 'main'),
         };
-      } catch {
+      } catch (e) {
+        if (e && e.isGithubAuthError) throw e;
         return { owner, repo, isFork: null, defaultBranch: 'main' };
       }
     })();
 
     repoContextCache = { key: cacheKey, promise: fetchPromise, value: null };
-    const value = await fetchPromise;
-    repoContextCache = { key: cacheKey, promise: null, value };
-    return value;
+    try {
+      const value = await fetchPromise;
+      repoContextCache = { key: cacheKey, promise: null, value };
+      return value;
+    } catch (e) {
+      if (repoContextCache && repoContextCache.promise === fetchPromise) {
+        repoContextCache = null;
+      }
+      throw e;
+    }
+  };
+
+  const resolveRepoContextFromAvailableToken = async () => {
+    const candidates = loadGithubTokenCandidates();
+    if (!candidates.length) {
+      lastValidatedGithubToken = '';
+      throw createGithubAuthError(
+        '未检测到 GitHub Token：请在密钥配置中保存具备 repo、workflow 权限的 GitHub Token。',
+      );
+    }
+
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        // 每个候选 token 都强制校验一次，避免坏 token 复用前一次缓存。
+        const repoContext = await resolveRepoContext(candidate.token, {
+          forceRefresh: true,
+        });
+        if (repoContext.owner && repoContext.repo) {
+          lastValidatedGithubToken = candidate.token;
+          return {
+            ...repoContext,
+            token: candidate.token,
+            tokenSource: candidate.source,
+          };
+        }
+        lastError = createGithubAuthError(
+          `无法用${candidate.source}推断目标仓库，请确认当前访问地址和 Token 配置。`,
+        );
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    lastValidatedGithubToken = '';
+    throw createGithubAuthError(
+      lastError && lastError.message
+        ? lastError.message
+        : 'GitHub Token 无效或权限不足，请重新保存具备 repo、workflow 权限的 Token。',
+    );
   };
 
   const ghFetch = async (token, url, init) => {
@@ -357,6 +466,15 @@ window.DPRWorkflowRunner = (function () {
 
   const explainFetchFailure = (error) => {
     const msg = error && error.message ? String(error.message) : String(error || '');
+    if (
+      error &&
+      error.isGithubAuthError
+    ) {
+      return msg;
+    }
+    if (/bad credentials|http\s+401|http\s+403/i.test(msg)) {
+      return `${msg}（GitHub Token 无效、已过期或权限不足；请重新保存具备 repo、workflow 权限的 Token 后再上传。）`;
+    }
     if (!/failed to fetch|networkerror/i.test(msg)) return msg;
     return `${msg}（浏览器没有收到接口响应。若发生在在线上传阶段，通常是网络/代理中断、刷新取消上传，或 GitHub 上传接口跨域/请求被中断；此时解析一般还没有开始。）`;
   };
@@ -1226,16 +1344,10 @@ window.DPRWorkflowRunner = (function () {
   const loadRecentRuns = async () => {
     ensureOverlay();
     if (!recentEl) return;
-    const token = loadGithubToken();
-    if (!token) {
-      recentEl.classList.remove('is-loading');
-      recentEl.innerHTML =
-        '<div style="color:#c00;">未检测到 GitHub Token，无法加载最近运行记录。</div>';
-      return;
-    }
 
     try {
-      const repoContext = await resolveRepoContext(token);
+      const repoContext = await resolveRepoContextFromAvailableToken();
+      const { token } = repoContext;
       const { owner, repo } = repoContext;
       if (!owner || !repo) {
         renderRecentRuns(owner, repo, null, '无法推断目标仓库，无法加载最近运行记录。');
@@ -1298,7 +1410,7 @@ window.DPRWorkflowRunner = (function () {
     } catch (e) {
       console.error(e);
       if (recentEl) recentEl.classList.remove('is-loading');
-      renderRecentRuns('', '', null, e.message || String(e), null);
+      renderRecentRuns('', '', null, explainFetchFailure(e), null);
     }
   };
 
@@ -1350,12 +1462,16 @@ window.DPRWorkflowRunner = (function () {
         return;
       }
     }
-    const token = loadGithubToken();
-    if (!token) {
-      setStatus('未检测到 GitHub Token：请在“密钥配置”或“GitHub Token”处完成配置。', '#c00');
+    let repoContext = null;
+    try {
+      repoContext = await resolveRepoContextFromAvailableToken();
+    } catch (e) {
+      const msg = explainFetchFailure(e);
+      setStatus(msg, '#c00');
+      runsEl.innerHTML = `<div style="color:#c00;">${escapeHtml(msg)}</div>`;
       return;
     }
-    const repoContext = await resolveRepoContext(token);
+    const { token } = repoContext;
     const { owner, repo } = repoContext;
     if (!owner || !repo) {
       setStatus('无法推断目标仓库：请确认 GitHub Token 有效，或使用 xxx.github.io/仓库名/ 访问。', '#c00');
@@ -1650,10 +1766,15 @@ window.DPRWorkflowRunner = (function () {
     }
 
     stopPolling();
-    const token = saved.local ? '' : loadGithubToken();
-    if (!saved.local && !token) {
-      setStatus('检测到未完成的上传解析任务，但当前缺少 GitHub Token，无法恢复进度。', '#c00');
-      return false;
+    let token = '';
+    if (!saved.local) {
+      try {
+        token = (await resolveRepoContextFromAvailableToken()).token;
+      } catch (e) {
+        const msg = explainFetchFailure(e);
+        setStatus(`检测到未完成的上传解析任务，但无法恢复进度：${msg}`, '#c00');
+        return false;
+      }
     }
 
     activeRun = saved.local
@@ -1751,12 +1872,16 @@ window.DPRWorkflowRunner = (function () {
       return false;
     }
 
-    const token = loadGithubToken();
-    if (!token) {
-      setStatus('未检测到 GitHub Token：请先完成密钥配置。', '#c00');
+    let repoContext = null;
+    try {
+      repoContext = await resolveRepoContextFromAvailableToken();
+    } catch (e) {
+      const msg = explainFetchFailure(e);
+      setStatus(msg, '#c00');
+      runsEl.innerHTML = `<div style="color:#c00;">${escapeHtml(msg)}</div>`;
       return false;
     }
-    const repoContext = await resolveRepoContext(token);
+    const { token } = repoContext;
     const { owner, repo } = repoContext;
     if (!owner || !repo) {
       setStatus('无法推断目标仓库：请确认 GitHub Token 有效，或使用 xxx.github.io/仓库名/ 访问。', '#c00');

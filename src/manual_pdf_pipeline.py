@@ -36,6 +36,7 @@ ARXIV_ID_RE = re.compile(
     r"(\d{4}\.\d{4,5}(?:v\d+)?)"
 )
 ARXIV_LOOKUP_CACHE: dict[str, str] = {}
+MACOS_METADATA_REASON = "macOS hidden metadata"
 
 
 def log(message: str) -> None:
@@ -56,6 +57,45 @@ def short_hash(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()[:12]
+
+
+def append_skipped(skipped: list[dict[str, str]] | None, filename: str, reason: str, source: str = "") -> None:
+    if skipped is None:
+        return
+    skipped.append(
+        {
+            "filename": str(filename or "").strip(),
+            "reason": str(reason or "").strip(),
+            "source": str(source or "").strip(),
+        }
+    )
+
+
+def is_macos_metadata_name(filename: str) -> bool:
+    normalized = str(filename or "").replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+    if not parts:
+        return False
+    lowered_parts = [part.lower() for part in parts]
+    basename = lowered_parts[-1]
+    if "__macosx" in lowered_parts:
+        return True
+    if basename.startswith("._"):
+        return True
+    return basename in {".ds_store", "thumbs.db"}
+
+
+def validate_pdf_readable(path: Path) -> str:
+    try:
+        doc = fitz.open(str(path))
+        try:
+            if len(doc) <= 0:
+                return "PDF has no pages"
+        finally:
+            doc.close()
+    except Exception as exc:
+        return f"{type(exc).__name__}: {single_line(str(exc))[:240]}"
+    return ""
 
 
 def extract_pdf_text(path: Path, max_pages: int | None = None) -> str:
@@ -229,15 +269,45 @@ def extract_title_and_authors_from_text(path: Path, text: str) -> tuple[str, lis
     return title[:240], authors[:20]
 
 
-def iter_pdf_paths(input_paths: list[Path], temp_dir: Path) -> list[Path]:
+def iter_pdf_paths(
+    input_paths: list[Path],
+    temp_dir: Path,
+    skipped: list[dict[str, str]] | None = None,
+) -> list[Path]:
     out: list[Path] = []
     for raw in input_paths:
         path = raw.expanduser().resolve()
         if not path.exists():
             raise FileNotFoundError(path)
+        if is_macos_metadata_name(path.name):
+            append_skipped(skipped, path.name, MACOS_METADATA_REASON, str(path))
+            continue
         if path.is_dir():
-            out.extend(sorted(p for p in path.rglob("*.pdf") if p.is_file()))
-            out.extend(iter_pdf_paths(sorted(p for p in path.rglob("*.zip") if p.is_file()), temp_dir))
+            out.extend(
+                sorted(
+                    p
+                    for p in path.rglob("*.pdf")
+                    if p.is_file() and not is_macos_metadata_name(str(p.relative_to(path)))
+                )
+            )
+            skipped_dir_pdfs = sorted(
+                p
+                for p in path.rglob("*.pdf")
+                if p.is_file() and is_macos_metadata_name(str(p.relative_to(path)))
+            )
+            for skipped_pdf in skipped_dir_pdfs:
+                append_skipped(skipped, str(skipped_pdf.relative_to(path)), MACOS_METADATA_REASON, str(path))
+            out.extend(
+                iter_pdf_paths(
+                    sorted(
+                        p
+                        for p in path.rglob("*.zip")
+                        if p.is_file() and not is_macos_metadata_name(str(p.relative_to(path)))
+                    ),
+                    temp_dir,
+                    skipped,
+                )
+            )
             continue
         if path.suffix.lower() == ".pdf":
             out.append(path)
@@ -247,7 +317,12 @@ def iter_pdf_paths(input_paths: list[Path], temp_dir: Path) -> list[Path]:
             extract_root.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(path) as zf:
                 for info in zf.infolist():
-                    if info.is_dir() or not info.filename.lower().endswith(".pdf"):
+                    if info.is_dir():
+                        continue
+                    if is_macos_metadata_name(info.filename):
+                        append_skipped(skipped, info.filename, MACOS_METADATA_REASON, str(path))
+                        continue
+                    if not info.filename.lower().endswith(".pdf"):
                         continue
                     name = Path(info.filename).name
                     if not name:
@@ -267,6 +342,20 @@ def iter_pdf_paths(input_paths: list[Path], temp_dir: Path) -> list[Path]:
         seen.add(key)
         unique.append(path)
     return unique
+
+
+def filter_parseable_pdf_paths(
+    pdf_paths: list[Path],
+    skipped: list[dict[str, str]] | None = None,
+) -> list[Path]:
+    valid: list[Path] = []
+    for pdf_path in pdf_paths:
+        reason = validate_pdf_readable(pdf_path)
+        if reason:
+            append_skipped(skipped, pdf_path.name, f"PDF cannot be opened: {reason}", str(pdf_path))
+            continue
+        valid.append(pdf_path)
+    return valid
 
 
 def create_llm_client() -> DeepSeekClient | None:
@@ -372,19 +461,31 @@ def build_paper_items(
     docs_dir: Path,
     section: str,
     tag: str,
+    skipped: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     asset_dir = docs_dir / "assets" / "manual-pdfs" / batch_token
     asset_dir.mkdir(parents=True, exist_ok=True)
     client = create_llm_client()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     papers: list[dict[str, Any]] = []
-    for index, pdf_path in enumerate(pdf_paths, start=1):
+    for pdf_path in pdf_paths:
+        try:
+            text = extract_pdf_text(pdf_path)
+        except Exception as exc:
+            append_skipped(
+                skipped,
+                pdf_path.name,
+                f"PDF text extraction failed: {type(exc).__name__}: {single_line(str(exc))[:240]}",
+                str(pdf_path),
+            )
+            log(f"[WARN] Skipped unreadable PDF: {pdf_path.name}: {exc}")
+            continue
+        index = len(papers) + 1
         digest = short_hash(pdf_path)
         safe_name = f"{index:03d}-{safe_slug(pdf_path.stem)}-{digest}.pdf"
         copied_pdf = asset_dir / safe_name
         shutil.copy2(pdf_path, copied_pdf)
         relative_pdf = copied_pdf.relative_to(docs_dir).as_posix()
-        text = extract_pdf_text(pdf_path)
         inferred = infer_metadata_with_llm(client, pdf_path.name, text)
         meta = normalize_metadata(pdf_path, text, inferred)
         arxiv_id = resolve_arxiv_id_for_pdf(pdf_path, text, meta["title"])
@@ -420,6 +521,59 @@ def build_paper_items(
         papers.append(item)
         log(f"[OK] PDF queued: {pdf_path.name} -> {paper_id} ({section})")
     return papers
+
+
+def skipped_summary(skipped: list[dict[str, str]]) -> str:
+    if not skipped:
+        return ""
+    lines = []
+    for item in skipped[:20]:
+        filename = item.get("filename") or "<unknown>"
+        reason = item.get("reason") or "unknown reason"
+        lines.append(f"- {filename}: {reason}")
+    if len(skipped) > 20:
+        lines.append(f"- ... and {len(skipped) - 20} more")
+    return "\n".join(lines)
+
+
+def write_skipped_uploads_file(batch_token: str, skipped: list[dict[str, str]]) -> Path | None:
+    if not skipped:
+        return None
+    archive_dir = ROOT_DIR / "archive" / batch_token
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    path = archive_dir / "manual_upload_skipped.json"
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": "manual_pdf_upload",
+        "skipped": skipped,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def append_skipped_notice_to_readme(batch_token: str, docs_dir: Path, skipped: list[dict[str, str]]) -> None:
+    if not skipped:
+        return
+    readme_path = docs_dir / "manual" / batch_token / "README.md"
+    if not readme_path.exists():
+        return
+    rows = [
+        "",
+        "## 跳过的上传文件",
+        "",
+        "以下文件未进入本次解析，通常是 macOS ZIP 隐藏资源文件或无法打开的 PDF。",
+        "",
+        "| 文件 | 原因 |",
+        "| --- | --- |",
+    ]
+    for item in skipped[:50]:
+        filename = str(item.get("filename") or "<unknown>").replace("|", "\\|")
+        reason = str(item.get("reason") or "unknown reason").replace("|", "\\|")
+        rows.append(f"| `{filename}` | {reason} |")
+    if len(skipped) > 50:
+        rows.append(f"| ... | 另有 {len(skipped) - 50} 个文件被跳过，详见 archive/{batch_token}/manual_upload_skipped.json |")
+    current = readme_path.read_text(encoding="utf-8")
+    readme_path.write_text(current.rstrip() + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
 
 
 def write_recommend_file(batch_token: str, papers: list[dict[str, Any]], section: str) -> Path:
@@ -575,21 +729,41 @@ def main() -> None:
         protected_paths.extend(find_manual_media_paths(docs_dir, batch_token))
         snapshots = snapshot_paths(protected_paths, temp_dir / "snapshots")
         try:
-            pdf_paths = iter_pdf_paths([Path(p) for p in args.input], temp_dir)
+            skipped: list[dict[str, str]] = []
+            candidate_pdf_paths = iter_pdf_paths([Path(p) for p in args.input], temp_dir, skipped)
+            hidden_skipped = sum(1 for item in skipped if item.get("reason") == MACOS_METADATA_REASON)
+            pdf_paths = filter_parseable_pdf_paths(candidate_pdf_paths, skipped)
+            invalid_skipped = len(skipped) - hidden_skipped
             if not pdf_paths:
-                raise RuntimeError("未找到可解析的 PDF 文件。")
-            log(f"[INFO] Found {len(pdf_paths)} PDF(s). batch={batch_token}")
+                details = skipped_summary(skipped)
+                suffix = f"\n已跳过文件：\n{details}" if details else ""
+                raise RuntimeError(f"未找到可解析的 PDF 文件。{suffix}")
+            log(
+                f"[INFO] Found {len(pdf_paths)} parseable PDF(s). "
+                f"skipped_hidden={hidden_skipped} skipped_invalid={invalid_skipped} batch={batch_token}"
+            )
+            for item in skipped:
+                log(f"[WARN] Skipped upload entry: {item.get('filename')}: {item.get('reason')}")
             papers = build_paper_items(
                 pdf_paths,
                 batch_token=batch_token,
                 docs_dir=docs_dir,
                 section=args.section,
                 tag=args.tag,
+                skipped=skipped,
             )
+            if not papers:
+                details = skipped_summary(skipped)
+                suffix = f"\n已跳过文件：\n{details}" if details else ""
+                raise RuntimeError(f"未生成任何可解析 PDF 页面。{suffix}")
             recommend_path = write_recommend_file(batch_token, papers, args.section)
             log(f"[OK] recommend saved: {recommend_path}")
+            skipped_path = write_skipped_uploads_file(batch_token, skipped)
+            if skipped_path:
+                log(f"[OK] skipped upload report saved: {skipped_path}")
             run_step6(batch_token, label, docs_dir, args.docs_concurrency)
             validate_generated_docs(batch_token, docs_dir, args.section, args.require_quality)
+            append_skipped_notice_to_readme(batch_token, docs_dir, skipped)
         except Exception:
             cleanup_manual_media_for_batch(docs_dir, batch_token)
             restore_paths(snapshots)

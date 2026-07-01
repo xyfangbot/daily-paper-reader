@@ -195,7 +195,11 @@ class HotPaperScoutTest(unittest.TestCase):
           <published>2026-06-30T00:00:00Z</published>
           <title>Unitree Humanoid Robot Learning</title>
           <summary>We study embodied AI policies with Unitree robots.</summary>
-          <author><name>Alice Example</name></author>
+          <author>
+            <name>Alice Example</name>
+            <arxiv:affiliation>Unitree Robotics</arxiv:affiliation>
+          </author>
+          <author><name>Bob Example</name></author>
           <link href="http://arxiv.org/abs/2606.12345v1" rel="alternate" type="text/html"/>
           <link title="pdf" href="http://arxiv.org/pdf/2606.12345v1" rel="related" type="application/pdf"/>
         </entry>
@@ -210,9 +214,32 @@ class HotPaperScoutTest(unittest.TestCase):
 
         self.assertIsNotNone(paper)
         self.assertEqual(paper["source"], "arxiv_fallback")
-        self.assertEqual(paper["company_match"], "unitree")
-        self.assertEqual(paper["lead_institution_names"], ["unitree"])
+        self.assertEqual(paper["company_match"], "unitree robotics")
+        self.assertEqual(paper["lead_institution_names"], ["unitree robotics"])
+        self.assertEqual(paper["institution_source"], "arxiv-author-affiliation")
         self.assertEqual(paper["pdf_url"], "http://arxiv.org/pdf/2606.12345v1")
+
+    def test_arxiv_fallback_rejects_query_or_abstract_company_text_without_affiliation(self):
+        xml = """
+        <entry xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+          <id>http://arxiv.org/abs/2606.54321v1</id>
+          <published>2026-06-30T00:00:00Z</published>
+          <title>RoboTacDex with a Unitree G1 Humanoid</title>
+          <summary>This dataset uses a Unitree robot platform for manipulation.</summary>
+          <author><name>Alice Example</name></author>
+          <author><name>Bob Example</name></author>
+          <link title="pdf" href="http://arxiv.org/pdf/2606.54321v1" rel="related" type="application/pdf"/>
+        </entry>
+        """
+        entry = ET.fromstring(xml)
+        paper = hot_paper_scout.arxiv_entry_to_paper(
+            entry,
+            'all:"Unitree" AND all:"embodied AI"',
+            "2026-06-01",
+            "company",
+        )
+
+        self.assertIsNone(paper)
 
     def test_hot_outputs_write_step6_recommend_not_custom_markdown(self):
         paper = {
@@ -251,6 +278,8 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertIn("query:具身智能公司领衔", item["llm_tags"])
         self.assertIn("paper:arXiv:2606.12345v1", item["llm_tags"])
         self.assertIn("hot-paper-scout: arXiv fallback", item["canonical_evidence"])
+        self.assertIn("company_affiliation_match=unitree", item["canonical_evidence"])
+        self.assertNotIn("company_text_match", item["canonical_evidence"])
         self.assertNotIn("motivation", item)
         self.assertNotIn("method", item)
         self.assertNotIn("result", item)

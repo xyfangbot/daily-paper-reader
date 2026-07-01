@@ -351,6 +351,24 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("速读区高分论文", brief)
         self.assertNotIn("建议先看精读区", brief)
 
+    def test_day_report_displays_recommend_warnings(self):
+        md = self.mod.build_day_report_markdown(
+            "hot-20260701-test",
+            "热点论文筛选 · 最近 30 天 · 具身智能公司领衔",
+            [],
+            [],
+            True,
+            [
+                "OpenAlex 查询失败：具身智能 / embodied AI: HTTPError: HTTP Error 503",
+                "arXiv fallback 未发现 first/last author affiliation 明确匹配具身智能公司的论文；已拒绝 title/abstract/query 文本命中，避免误判公司领衔。",
+            ],
+        )
+
+        self.assertIn("## 运行提示", md)
+        self.assertIn("OpenAlex 查询失败", md)
+        self.assertIn("已拒绝 title/abstract/query 文本命中", md)
+        self.assertIn("> 本次触发没有产出可推荐论文。", md)
+
     def test_maybe_generate_paper_figures_keeps_legacy_return(self):
         original = self.mod.ensure_paper_media
         self.mod.ensure_paper_media = lambda **kwargs: (

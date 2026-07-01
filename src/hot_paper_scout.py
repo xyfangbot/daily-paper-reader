@@ -384,24 +384,46 @@ def arxiv_id_from_url(value: str) -> str:
     return match.group(1).removesuffix(".pdf")
 
 
+def arxiv_author_records(entry: ET.Element) -> list[dict[str, str]]:
+    records: list[dict[str, str]] = []
+    for author in entry.findall("atom:author", ARXIV_NS):
+        name = single_line(author.findtext("atom:name", default="", namespaces=ARXIV_NS))
+        affiliation = single_line(author.findtext("arxiv:affiliation", default="", namespaces=ARXIV_NS))
+        if name or affiliation:
+            records.append({"name": name, "affiliation": affiliation})
+    return records
+
+
+def arxiv_lead_affiliation_company_match(author_records: list[dict[str, str]]) -> str:
+    if not author_records:
+        return ""
+    lead_records = [author_records[0]]
+    if len(author_records) > 1:
+        lead_records.append(author_records[-1])
+    affiliation_text = " ".join(record.get("affiliation") or "" for record in lead_records)
+    return matched_embodied_ai_company_name(affiliation_text)
+
+
 def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institution_filter: str) -> dict[str, Any] | None:
     title = single_line(entry.findtext("atom:title", default="", namespaces=ARXIV_NS))
     abstract = single_line(entry.findtext("atom:summary", default="", namespaces=ARXIV_NS))
     published = single_line(entry.findtext("atom:published", default="", namespaces=ARXIV_NS))[:10]
     if from_date and published and published < from_date:
         return None
-    authors = [
-        single_line(author.findtext("atom:name", default="", namespaces=ARXIV_NS))
-        for author in entry.findall("atom:author", ARXIV_NS)
-    ]
-    authors = [author for author in authors if author]
+    author_records = arxiv_author_records(entry)
+    authors = [record["name"] for record in author_records if record.get("name")]
     entry_id = single_line(entry.findtext("atom:id", default="", namespaces=ARXIV_NS))
     arxiv_id = arxiv_id_from_url(entry_id)
     doi = single_line(entry.findtext("arxiv:doi", default="", namespaces=ARXIV_NS))
-    searchable = " ".join([title, abstract, " ".join(authors), query])
-    matched_company = matched_embodied_ai_company_name(searchable)
-    if normalize_institution_filter(institution_filter) == "company" and not matched_company:
-        return None
+    mode = normalize_institution_filter(institution_filter)
+    matched_company = arxiv_lead_affiliation_company_match(author_records)
+    if mode == "company":
+        # arXiv Atom search results do not reliably expose institutions.  Title,
+        # abstract, author names, or the search query itself are not evidence of
+        # company leadership; accept fallback items only when first/last author
+        # affiliations explicitly name an embodied-AI company.
+        if not matched_company:
+            return None
     company_label = matched_company or "arXiv metadata"
     return {
         "id": entry_id,
@@ -426,6 +448,7 @@ def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institut
         "matched_query": query,
         "source": "arxiv_fallback",
         "company_match": matched_company,
+        "institution_source": "arxiv-author-affiliation" if matched_company else "",
     }
 
 
@@ -478,6 +501,11 @@ def fetch_arxiv_fallback(
                 papers[key] = paper
         if len(company_batches) > 1:
             time.sleep(3.0)
+    if mode == "company" and not papers:
+        warnings.append(
+            "arXiv fallback 未发现 first/last author affiliation 明确匹配具身智能公司的论文；"
+            "已拒绝 title/abstract/query 文本命中，避免误判公司领衔。"
+        )
     return list(papers.values()), warnings
 
 
@@ -625,7 +653,10 @@ def scout_hot_papers(
         )
         warnings.extend(fallback_warnings)
         if fallback_papers:
-            warnings.append("OpenAlex 当前无可用候选，已启用 arXiv fallback；arXiv 不提供可靠机构归属，具身智能公司按元数据文本匹配。")
+            warnings.append(
+                "OpenAlex 当前无可用候选，已启用 arXiv fallback；"
+                "具身智能公司模式仅接受 first/last author affiliation 明确匹配的条目。"
+            )
         for item in fallback_papers:
             key = (item.get("doi") or item.get("id") or item.get("title") or "").lower()
             if key:
@@ -706,10 +737,10 @@ def paper_recommend_evidence(paper: dict[str, Any], institution_filter: str, day
         company = str(paper.get("company_match") or "").strip()
         parts = [f"hot-paper-scout: arXiv fallback", f"window={days_window}d"]
         if company:
-            parts.append(f"company_text_match={company}")
+            parts.append(f"company_affiliation_match={company}")
         if matched_query:
             parts.append(f"query={matched_query}")
-        parts.append("institution_source=text-match")
+        parts.append("institution_source=arxiv-author-affiliation" if company else "institution_source=arxiv-metadata")
     else:
         institutions = ", ".join((paper.get("lead_institution_names") or paper.get("institution_names") or [])[:3])
         parts = [

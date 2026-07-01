@@ -1052,6 +1052,21 @@ def build_daily_brief_summary(
     return fallback
 
 
+def normalize_recommend_warnings(raw_warnings: Any, limit: int = 8) -> List[str]:
+    warnings: List[str] = []
+    seen: set[str] = set()
+    values = raw_warnings if isinstance(raw_warnings, list) else []
+    for raw in values:
+        text = re.sub(r"\s+", " ", str(raw or "")).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        warnings.append(text)
+        if len(warnings) >= limit:
+            break
+    return warnings
+
+
 def build_docsify_id_href(path_no_ext: str) -> str:
     """
     统一生成 Docsify Markdown 内链格式：`/...`。
@@ -1085,10 +1100,12 @@ def build_latest_report_section(
     deep_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     quick_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     paper_evidence_by_id: Dict[str, str],
+    recommend_warnings: List[str] | None = None,
 ) -> str:
     effective_label = (date_label or "").strip() or format_date_str(date_str)
     run_status = "成功" if recommend_exists else "未产出 recommend 文件（视为无结果）"
     total = len(deep_entries) + len(quick_entries)
+    warnings = normalize_recommend_warnings(recommend_warnings)
     summary = build_daily_brief_summary(
         date_label=effective_label,
         deep_entries=deep_entries,
@@ -1108,6 +1125,11 @@ def build_latest_report_section(
         lines.append("")
         lines.append("### 今日简报（AI）")
         lines.append(summary)
+    if warnings:
+        lines.append("")
+        lines.append("### 运行提示")
+        for warning in warnings:
+            lines.append(f"- {warning}")
     report_href = build_day_report_href(date_str)
     lines.append(f"- 详情：[{report_href}]({report_href})")
     lines.append("")
@@ -1900,11 +1922,13 @@ def build_day_report_markdown(
     deep_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     quick_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     recommend_exists: bool,
+    recommend_warnings: List[str] | None = None,
 ) -> str:
     effective_label = (date_label or "").strip() or format_date_str(date_str)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     total = len(deep_entries) + len(quick_entries)
     run_status = "成功" if recommend_exists else "未产出 recommend 文件（视为无结果）"
+    warnings = normalize_recommend_warnings(recommend_warnings)
     summary = build_daily_brief_summary(
         date_label=effective_label,
         deep_entries=deep_entries,
@@ -1931,6 +1955,12 @@ def build_day_report_markdown(
         lines.append("")
     elif total == 0:
         lines.append("> 本次触发没有产出可推荐论文。")
+        lines.append("")
+
+    if warnings:
+        lines.append("## 运行提示")
+        for warning in warnings:
+            lines.append(f"- {warning}")
         lines.append("")
 
     lines.append("## 精读区")
@@ -1968,6 +1998,7 @@ def write_day_report_readme(
     deep_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     quick_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     recommend_exists: bool,
+    recommend_warnings: List[str] | None = None,
 ) -> str:
     day_dir, day_readme = prepare_day_report_paths(docs_dir, date_str)
     os.makedirs(day_dir, exist_ok=True)
@@ -1977,6 +2008,7 @@ def write_day_report_readme(
         deep_entries=deep_entries,
         quick_entries=quick_entries,
         recommend_exists=recommend_exists,
+        recommend_warnings=recommend_warnings,
     )
     with open(day_readme, "w", encoding="utf-8") as f:
         f.write(content)
@@ -2038,6 +2070,7 @@ def build_home_readme_content(
     deep_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     quick_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     paper_evidence_by_id: Dict[str, str],
+    recommend_warnings: List[str] | None = None,
 ) -> str:
     notice_path, promo_path = ensure_home_module_files(docs_dir)
     notice_md = _read_module_markdown(notice_path)
@@ -2050,6 +2083,7 @@ def build_home_readme_content(
         deep_entries=deep_entries,
         quick_entries=quick_entries,
         paper_evidence_by_id=paper_evidence_by_id,
+        recommend_warnings=recommend_warnings,
     )
 
     lines: List[str] = []
@@ -2072,6 +2106,7 @@ def sync_home_readme_from_day_report(
     deep_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     quick_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
     paper_evidence_by_id: Dict[str, str],
+    recommend_warnings: List[str] | None = None,
 ) -> str:
     home_readme = os.path.join(docs_dir, "README.md")
     # 首页由三段模块拼接：公告栏（独立 md）+ 本次日报 + 宣传栏（独立 md）
@@ -2084,6 +2119,7 @@ def sync_home_readme_from_day_report(
         deep_entries=deep_entries,
         quick_entries=quick_entries,
         paper_evidence_by_id=paper_evidence_by_id,
+        recommend_warnings=recommend_warnings,
     )
     with open(home_readme, "w", encoding="utf-8") as f:
         f.write(content)
@@ -2630,6 +2666,7 @@ def main() -> None:
         log_substep("6.1", "读取 recommend 结果", "END")
     deep_list = payload.get("deep_dive") or []
     quick_list = payload.get("quick_skim") or []
+    recommend_warnings = normalize_recommend_warnings(payload.get("warnings"))
 
     def _paper_score(p: dict) -> float:
         try:
@@ -2749,6 +2786,7 @@ def main() -> None:
         deep_entries=deep_entries,
         quick_entries=quick_entries,
         recommend_exists=recommend_exists,
+        recommend_warnings=recommend_warnings,
     )
     home_readme = sync_home_readme_from_day_report(
         docs_dir=docs_dir,
@@ -2759,6 +2797,7 @@ def main() -> None:
         deep_entries=deep_entries,
         quick_entries=quick_entries,
         paper_evidence_by_id=sidebar_evidence_by_id,
+        recommend_warnings=recommend_warnings,
     )
     log(f"[OK] day report saved: {day_readme}")
     log(f"[OK] home README synced: {home_readme}")

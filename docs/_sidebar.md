@@ -1,6 +1,8 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Hot Papers
+  * 热点论文 · 2026-07-01 · 14天 · 科技公司 <!--dpr-hot:hot-20260701-070206-rl-robotics-world-model-vla-robotics-vtt-c7338647-->
+    * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/hot/hot-20260701-070206-rl-robotics-world-model-vla-robotics-vtt-c7338647/README" data-sidebar-item="{&quot;title&quot;: &quot;热点论文 · 2026-07-01 · 14天 · 科技公司&quot;, &quot;link&quot;: &quot;#/hot/hot-20260701-070206-rl-robotics-world-model-vla-robotics-vtt-c7338647/README&quot;, &quot;score&quot;: &quot;-&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;paper&quot;, &quot;label&quot;: &quot;Hot&quot;}, {&quot;kind&quot;: &quot;paper&quot;, &quot;label&quot;: &quot;OpenAlex&quot;}]}">结果概览</a>
   * 热点论文 · 2026-07-01 · 14天 · 科技公司 <!--dpr-hot:hot-20260701-070101-rl-robotics-world-model-vla-robotics-vtt-e3edc274-->
     * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/hot/hot-20260701-070101-rl-robotics-world-model-vla-robotics-vtt-e3edc274/README" data-sidebar-item="{&quot;title&quot;: &quot;热点论文 · 2026-07-01 · 14天 · 科技公司&quot;, &quot;link&quot;: &quot;#/hot/hot-20260701-070101-rl-robotics-world-model-vla-robotics-vtt-e3edc274/README&quot;, &quot;score&quot;: &quot;-&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;paper&quot;, &quot;label&quot;: &quot;Hot&quot;}, {&quot;kind&quot;: &quot;paper&quot;, &quot;label&quot;: &quot;OpenAlex&quot;}]}">结果概览</a>
   * 热点论文 · 2026-07-01 · 14天 · 全部机构 <!--dpr-hot:hot-20260701-060941-rl-robotics-1f6e1919-->

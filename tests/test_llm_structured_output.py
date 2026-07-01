@@ -71,6 +71,25 @@ class LlmStructuredOutputTest(unittest.TestCase):
 
         self.assertEqual(mock_post.call_args.kwargs["json"]["max_tokens"], 8192)
 
+    @patch.dict(
+        "llm.os.environ",
+        {"DPR_LLM_REQUEST_TIMEOUT": "25", "DPR_LLM_REQUEST_ATTEMPTS": "1"},
+        clear=False,
+    )
+    @patch("llm.requests.post")
+    def test_chat_request_timeout_and_attempts_can_be_overridden_by_env(self, mock_post):
+        mock_post.return_value = self._mock_success_response({"content": "ok"})
+        client = LLMClient(
+            api_key="test-key",
+            model="deepseek-v4-flash",
+            base_url="https://api.deepseek.com,https://fallback.invalid",
+        )
+
+        client.chat(messages=[{"role": "user", "content": "hello"}])
+
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], 25)
+
     @patch("llm.requests.post")
     def test_chat_structured_prefers_json_object_for_deepseek(self, mock_post):
         mock_post.return_value = self._mock_success_response({"content": '{"answer":"ok"}'})

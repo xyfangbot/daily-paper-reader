@@ -29,6 +29,26 @@ def resolve_max_output_tokens(default: int = DEFAULT_MAX_OUTPUT_TOKENS) -> int:
         return default
 
 
+def resolve_request_timeout(default: int = 120) -> int:
+    raw = os.getenv("DPR_LLM_REQUEST_TIMEOUT") or os.getenv("LLM_REQUEST_TIMEOUT")
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return default
+
+
+def resolve_request_attempts(default: int = 6) -> int:
+    raw = os.getenv("DPR_LLM_REQUEST_ATTEMPTS") or os.getenv("LLM_REQUEST_ATTEMPTS")
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return default
+
+
 GLOBAL_TOKENS = {
     'prompt': 0,    # 提示词（prompt）部分 token
     'thinking': 0,  # 推理/思维链部分 token（reasoning_tokens）
@@ -537,12 +557,13 @@ class LLMClient:
             pass
 
         start_time = time.time()
-        request_bases = self._iter_retry_bases(total_attempts=6)
+        request_bases = self._iter_retry_bases(total_attempts=resolve_request_attempts())
+        request_timeout = resolve_request_timeout()
         last_error: Exception | None = None
         for attempt_idx, req_base in enumerate(request_bases, start=1):
             request_url = self._build_chat_completions_url(req_base)
             try:
-                response = requests.post(request_url, headers=headers, json=payload, timeout=120)
+                response = requests.post(request_url, headers=headers, json=payload, timeout=request_timeout)
                 response.raise_for_status()
                 try:
                     response_data = response.json()

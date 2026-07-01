@@ -1,0 +1,34 @@
+---
+title: "OmniCoT: A Benchmark for Global and Multi-Step Panoramic Reasoning"
+authors: "Haocong He, Chenfei Liao, Zichen Wen, Zihao Dongfang, Xu Zheng, Bin Ren, Chang Su, Zixin Zhang, Harold Haodong Chen, Hongfei Zhang, Weijia Li, Kailun Yang, Conghui He, Xuming Hu, Nicu Sebe, Linfeng Zhang"
+date: "2026-06-29"
+pdf: "https://arxiv.org/pdf/2606.30378v1"
+source: arXiv fallback
+selection_source: hot_paper_scout
+tags: ["query:具身智能", "paper:arXiv", "paper:Hot", "institution:具身智能公司领衔"]
+score: 0
+evidence: "arXiv fallback; company_match=google deepmind; query=(all:\"Field AI\" OR all:\"Intrinsic\" OR all:\"Google DeepMind\" OR all:\"NVIDIA\" OR all:\"Tesla\") AND (all:\"embodied AI\" OR all:\"robot foundation model\" OR all:\"vision-language-action model\" OR all:\"humanoid robot\" OR all:\"embodied intelligence\" OR all:\"vision-language-action\" OR all:\"robot learning\" OR all:\"physical AI\")"
+abstract: "Multimodal Large Language Models (MLLMs) have demonstrated promising spatial reasoning capabilities, while these abilities remain underexplored in the emerging visual modality of panoramic imagery. The full 360°$\\times$180° field of view of panoramas essentially supports complex global multi-step reasoning, which is also the fundamental advantage of panoramas in applications such as embodied intelligence. However, existing panoramic benchmarks largely focus on simplistic queries that rely on local cues or single-/few-step reasoning, thereby ignoring the fundamental advantage of panoramas and failing to fully exploit their potential. To address this gap, we introduce OmniCoT, a panoramic spatial reasoning suite designed to enable MLLMs to use global evidence and perform multi-step inference across viewpoints. It includes OmniCoT-B (6.7K data) for evaluation, which measures both answer accuracy and reasoning quality, OmniCoT-Real (1K data) as a manually annotated real-world subset to quantify the Sim-to-Real gap. For training, OmniCoT-T (14.3K data) is purpose-built with structured stepwise Chain-of-Thought annotations that explicitly link intermediate reasoning steps to panoramic evidence. Based on OmniCoT-T, we introduce OmniCoT-R1 and adopt a two-stage training strategy tailored to the geometrically complex panoramic space, where Supervised Fine-tuning (SFT) anchors reasoning to panoramic evidence (e.g., bearings, proximity) and GRPO penalizes geometrically incoherent paths to consolidate global 360° spatial consistency. Through OmniCoT, we aim to recalibrate the difficulty of panoramic spatial reasoning to better align with the intrinsic capabilities of panoramic imagery, thereby fostering meaningful progress in this research area."
+---
+
+## 摘要
+
+Multimodal Large Language Models (MLLMs) have demonstrated promising spatial reasoning capabilities, while these abilities remain underexplored in the emerging visual modality of panoramic imagery. The full 360°$\times$180° field of view of panoramas essentially supports complex global multi-step reasoning, which is also the fundamental advantage of panoramas in applications such as embodied intelligence. However, existing panoramic benchmarks largely focus on simplistic queries that rely on local cues or single-/few-step reasoning, thereby ignoring the fundamental advantage of panoramas and failing to fully exploit their potential. To address this gap, we introduce OmniCoT, a panoramic spatial reasoning suite designed to enable MLLMs to use global evidence and perform multi-step inference across viewpoints. It includes OmniCoT-B (6.7K data) for evaluation, which measures both answer accuracy and reasoning quality, OmniCoT-Real (1K data) as a manually annotated real-world subset to quantify the Sim-to-Real gap. For training, OmniCoT-T (14.3K data) is purpose-built with structured stepwise Chain-of-Thought annotations that explicitly link intermediate reasoning steps to panoramic evidence. Based on OmniCoT-T, we introduce OmniCoT-R1 and adopt a two-stage training strategy tailored to the geometrically complex panoramic space, where Supervised Fine-tuning (SFT) anchors reasoning to panoramic evidence (e.g., bearings, proximity) and GRPO penalizes geometrically incoherent paths to consolidate global 360° spatial consistency. Through OmniCoT, we aim to recalibrate the difficulty of panoramic spatial reasoning to better align with the intrinsic capabilities of panoramic imagery, thereby fostering meaningful progress in this research area.
+
+## 领衔机构
+
+- google deepmind
+
+## 机构
+
+- google deepmind
+
+## 来源信息
+
+- Citations: 0
+- Source: arXiv fallback
+- Matched query: (all:"Field AI" OR all:"Intrinsic" OR all:"Google DeepMind" OR all:"NVIDIA" OR all:"Tesla") AND (all:"embodied AI" OR all:"robot foundation model" OR all:"vision-language-action model" OR all:"humanoid robot" OR all:"embodied intelligence" OR all:"vision-language-action" OR all:"robot learning" OR all:"physical AI")
+- Company match: google deepmind
+- DOI: 
+- Source ID: http://arxiv.org/abs/2606.30378v1
+- Link: http://arxiv.org/abs/2606.30378v1

@@ -369,6 +369,40 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("已拒绝 title/abstract/query 文本命中", md)
         self.assertIn("> 本次触发没有产出可推荐论文。", md)
 
+    def test_update_sidebar_links_empty_hot_run_and_prunes_old_hot_runs(self):
+        with tempfile.TemporaryDirectory() as d:
+            sidebar = Path(d) / "_sidebar.md"
+            sidebar.write_text(
+                "\n".join(
+                    [
+                        "* [首页](/)",
+                        "* Daily Papers",
+                        "  * 旧热点 <!--dpr-date:hot-old-->",
+                        "    * 速读区",
+                        "      * [Wrong Paper](/manual/hot-old/wrong)",
+                        "  * 2026-06-30 <!--dpr-date:20260630-->",
+                        "    * [Valid Paper](/202606/30/valid)",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            self.mod.update_sidebar(
+                str(sidebar),
+                "hot-20260701-test",
+                [],
+                [],
+                {},
+                date_label="热点论文筛选 · 最近 30 天 · 具身智能公司领衔",
+            )
+            text = sidebar.read_text(encoding="utf-8")
+
+        self.assertIn("<!--dpr-date:hot-20260701-test-->", text)
+        self.assertIn("[运行结果](/manual/hot-20260701-test/README)", text)
+        self.assertNotIn("hot-old", text)
+        self.assertIn("<!--dpr-date:20260630-->", text)
+
     def test_maybe_generate_paper_figures_keeps_legacy_return(self):
         original = self.mod.ensure_paper_media
         self.mod.ensure_paper_media = lambda **kwargs: (

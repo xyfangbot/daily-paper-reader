@@ -1852,6 +1852,24 @@ def update_sidebar(
         lines.append("* Daily Papers\n")
         daily_idx = len(lines) - 1
 
+    if str(date_str or "").startswith("hot-"):
+        i = daily_idx + 1
+        while i < len(lines):
+            line = lines[i]
+            if line.startswith("* "):
+                break
+            if "<!--dpr-date:hot-" in line and marker not in line:
+                end = i + 1
+                while end < len(lines):
+                    if lines[end].startswith("* "):
+                        break
+                    if lines[end].startswith("  * ") and not lines[end].startswith("    * "):
+                        break
+                    end += 1
+                del lines[i:end]
+                continue
+            i += 1
+
     day_idx = -1
     for i in range(daily_idx + 1, len(lines)):
         line = lines[i]
@@ -1875,6 +1893,9 @@ def update_sidebar(
         del lines[day_idx:end]
 
     block: List[str] = [day_heading]
+    if not deep_entries and not quick_entries:
+        report_href = build_day_report_href(date_str)
+        block.append(f"    * [运行结果]({report_href})\n")
     if deep_entries:
         block.append("    * 精读区\n")
         for paper_id, title, tags in deep_entries:
@@ -2804,20 +2825,16 @@ def main() -> None:
     log_substep("6.4", "生成当日日报并同步首页 README", "END")
 
     sidebar_path = os.path.join(docs_dir, "_sidebar.md")
-    if deep_entries or quick_entries:
-        log_substep("6.5", "更新侧边栏", "START")
-        update_sidebar(
-            sidebar_path,
-            date_str,
-            deep_entries,
-            quick_entries,
-            sidebar_evidence_by_id,
-            date_label=args.sidebar_date_label,
-        )
-        log_substep("6.5", "更新侧边栏", "END")
-    else:
-        log_substep("6.5", "更新侧边栏", "SKIP")
-        log("[INFO] 本次无推荐论文，不写入 Sidebar 日期目录。")
+    log_substep("6.5", "更新侧边栏", "START")
+    update_sidebar(
+        sidebar_path,
+        date_str,
+        deep_entries,
+        quick_entries,
+        sidebar_evidence_by_id,
+        date_label=args.sidebar_date_label,
+    )
+    log_substep("6.5", "更新侧边栏", "END")
 
     log_substep("6.6", "生成可下载元数据索引（JSON）", "START")
     try:

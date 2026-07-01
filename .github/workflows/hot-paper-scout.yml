@@ -1,0 +1,80 @@
+name: Hot Paper Scout
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile_tag:
+        description: "Comma-separated DPR profile tags"
+        required: false
+        default: ""
+      days_window:
+        description: "Recent window in days: 7 or 14"
+        required: false
+        default: "14"
+      institution_filter:
+        description: "all / company / university"
+        required: false
+        default: "all"
+      max_results:
+        description: "Maximum papers to keep"
+        required: false
+        default: "30"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hot-paper-scout
+  cancel-in-progress: false
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+      OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyyaml>=6"
+
+      - name: Scout hot papers
+        run: |
+          set -euo pipefail
+          python src/hot_paper_scout.py \
+            --profile-tag "${{ github.event.inputs.profile_tag }}" \
+            --days-window "${{ github.event.inputs.days_window }}" \
+            --institution-filter "${{ github.event.inputs.institution_filter }}" \
+            --max-results "${{ github.event.inputs.max_results }}"
+
+      - name: Commit results
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="${GITHUB_REF_NAME:-main}"
+
+          git add docs archive
+          if git diff --cached --quiet; then
+            echo "No hot paper changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[chore] hot paper scout"
+          git status --short
+          git fetch origin "$branch"
+          git rebase -X theirs "origin/$branch"
+          git push origin HEAD:"$branch"

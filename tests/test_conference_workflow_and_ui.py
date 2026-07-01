@@ -103,6 +103,54 @@ class ConferenceWorkflowAndUiTest(unittest.TestCase):
         self.assertNotIn("dpr-run-confirm", css)
         self.assertNotIn("runConferenceMaintain(conf, years)", manager)
 
+    def test_hot_paper_scout_workflow_and_ui(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        workflow_path = root / ".github" / "workflows" / "hot-paper-scout.yml"
+        text = workflow_path.read_text(encoding="utf-8")
+        workflow = yaml.safe_load(text) or {}
+        on_block = workflow.get("on") or workflow.get(True) or {}
+        inputs = (((on_block.get("workflow_dispatch") or {}).get("inputs")) or {})
+        runner = (root / "app" / "workflows.runner.js").read_text(encoding="utf-8")
+        manager = (root / "app" / "subscriptions.manager.js").read_text(encoding="utf-8")
+        server = (root / "src" / "local_debug_server.py").read_text(encoding="utf-8")
+        docsify = (root / "app" / "docsify-plugin.js").read_text(encoding="utf-8")
+        css = (root / "app" / "app.css").read_text(encoding="utf-8")
+
+        self.assertIn("profile_tag", inputs)
+        self.assertEqual((inputs.get("days_window") or {}).get("default"), "14")
+        self.assertEqual((inputs.get("institution_filter") or {}).get("default"), "all")
+        self.assertEqual((inputs.get("max_results") or {}).get("default"), "30")
+        self.assertIn("cancel-in-progress: false", text)
+        self.assertIn("python src/hot_paper_scout.py", text)
+        self.assertIn("--profile-tag", text)
+        self.assertIn("--days-window", text)
+        self.assertIn("--institution-filter", text)
+        self.assertIn("--max-results", text)
+
+        self.assertIn("hot-paper-scout.yml", runner)
+        self.assertIn("runHotPaperScout", runner)
+        self.assertIn("profile_tag: profileTag", runner)
+        self.assertIn("days_window: daysWindow", runner)
+        self.assertIn("institution_filter: institutionFilter", runner)
+
+        self.assertIn("arxiv-admin-hot-scout-btn", manager)
+        self.assertIn("runHotPaperScoutFromSelection", manager)
+        self.assertIn("window.DPRWorkflowRunner.runHotPaperScout", manager)
+        self.assertIn("profile_tag: tags.join(',')", manager)
+        self.assertIn("days_window: daysWindow", manager)
+        self.assertIn("institution_filter: institutionFilter", manager)
+        self.assertIn("max_results: '30'", manager)
+
+        self.assertIn("hot-paper-scout.yml", server)
+        self.assertIn("src/hot_paper_scout.py", server)
+        self.assertIn("--institution-filter", server)
+
+        self.assertIn("^hot\\/[^/]+\\/(?!README\\.md$).+\\.md", docsify)
+        self.assertIn("^hot\\/[^/]+\\/README\\.md", docsify)
+        self.assertIn("#\\/hot\\/[^/]+\\/(?!README$).+", docsify)
+        self.assertIn("#\\/hot\\/[^/]+\\/README", docsify)
+        self.assertIn(".dpr-hot-scout-module", css)
+
     def test_manual_pdf_upload_workflow_and_ui(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         workflow_path = root / ".github" / "workflows" / "manual-paper-upload.yml"

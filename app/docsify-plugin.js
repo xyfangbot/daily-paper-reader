@@ -2843,7 +2843,8 @@ window.$docsify = {
         return (
           /^(?:\d{6}\/\d{2}|\d{8}-\d{8})\/(?!README\.md$).+\.md$/i.test(f) ||
           /^manual\/[^/]+\/(?!README\.md$).+\.md$/i.test(f) ||
-          /^conference\/[^/]+\/(?!README\.md$).+\.md$/i.test(f)
+          /^conference\/[^/]+\/(?!README\.md$).+\.md$/i.test(f) ||
+          /^hot\/[^/]+\/(?!README\.md$).+\.md$/i.test(f)
         );
       };
 
@@ -2851,7 +2852,8 @@ window.$docsify = {
         const f = String(file || '');
         return (
           /^(?:\d{6}\/\d{2}|\d{8}-\d{8})\/README\.md$/i.test(f) ||
-          /^manual\/[^/]+\/README\.md$/i.test(f)
+          /^manual\/[^/]+\/README\.md$/i.test(f) ||
+          /^hot\/[^/]+\/README\.md$/i.test(f)
         );
       };
 
@@ -3258,10 +3260,12 @@ window.$docsify = {
         // - 区间路径：#/YYYYMMDD-YYYYMMDD/slug
         // - 手动上传路径：#/manual/<batch-token>/slug
         // - 会议路径：#/conference/<conference-year>/slug
+        // - 热点筛选路径：#/hot/<run-token>/slug
         return (
           /^#\/(?:\d{6}\/\d{2}|\d{8}-\d{8})\/(?!README$).+/i.test(h) ||
           /^#\/manual\/[^/]+\/(?!README$).+/i.test(h) ||
-          /^#\/conference\/[^/]+\/(?!README$).+/i.test(h)
+          /^#\/conference\/[^/]+\/(?!README$).+/i.test(h) ||
+          /^#\/hot\/[^/]+\/(?!README$).+/i.test(h)
         );
       };
 
@@ -3271,9 +3275,11 @@ window.$docsify = {
         // - 传统路径：#/YYYYMM/DD/README
         // - 区间路径：#/YYYYMMDD-YYYYMMDD/README
         // - 手动上传路径：#/manual/<batch-token>/README
+        // - 热点筛选路径：#/hot/<run-token>/README
         return (
           /^#\/(?:\d{6}\/\d{2}|\d{8}-\d{8})\/README$/i.test(h) ||
-          /^#\/manual\/[^/]+\/README$/i.test(h)
+          /^#\/manual\/[^/]+\/README$/i.test(h) ||
+          /^#\/hot\/[^/]+\/README$/i.test(h)
         );
       };
 

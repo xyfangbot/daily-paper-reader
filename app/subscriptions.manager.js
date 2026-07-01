@@ -18,6 +18,10 @@ window.SubscriptionsManager = (function () {
   let quickRunManualUploadBtn = null;
   let quickRunOpenWorkflowPanelBtn = null;
   let quickRunConferenceBtn = null;
+  let hotPaperScoutBtn = null;
+  let hotPaperScoutDaysEl = null;
+  let hotPaperScoutInstitutionEl = null;
+  let hotPaperScoutMsgEl = null;
   let quickRunMsgEl = null;
   let quickRunSelectionCountEl = null;
   let conferenceSelectionCountEl = null;
@@ -634,6 +638,7 @@ window.SubscriptionsManager = (function () {
     renderProfilePickers();
     [
       [quickRunStartBtn, dailyBlocked],
+      [hotPaperScoutBtn, dailyBlocked],
       [quickRunConferenceBtn, conferenceBlocked],
     ].forEach(([btn, blocked]) => {
       if (!btn) return;
@@ -642,7 +647,13 @@ window.SubscriptionsManager = (function () {
       let title = btn.getAttribute('data-default-title') || btn.textContent || '';
       if (blocked) {
         if (hasUnsavedChanges) {
-          title = btn === quickRunConferenceBtn ? '请先保存后再检索会议论文。' : '请先保存后再抓取。';
+          if (btn === quickRunConferenceBtn) {
+            title = '请先保存后再检索会议论文。';
+          } else if (btn === hotPaperScoutBtn) {
+            title = '请先保存后再筛选热点论文。';
+          } else {
+            title = '请先保存后再抓取。';
+          }
         } else if (selectedProfileCount < 1) {
           title = '请先在上方选择至少一个词条。';
         } else if (btn === quickRunConferenceBtn && !selectedConferenceYearPairs.size) {
@@ -667,6 +678,10 @@ window.SubscriptionsManager = (function () {
       quickRunMsgEl.textContent = '有未保存修改，请先保存。';
       quickRunMsgEl.style.color = '#c00';
     }
+    if (hasUnsavedChanges && hotPaperScoutMsgEl) {
+      hotPaperScoutMsgEl.textContent = '有未保存修改，请先保存。';
+      hotPaperScoutMsgEl.style.color = '#c00';
+    }
     const conferenceMsgEl = document && typeof document.getElementById === 'function'
       ? document.getElementById('arxiv-admin-conference-run-msg')
       : null;
@@ -689,6 +704,10 @@ window.SubscriptionsManager = (function () {
       conferenceMsgEl.textContent = '配置已保存，可以发起会议论文检索。';
       conferenceMsgEl.style.color = '#080';
     }
+    if (hotPaperScoutMsgEl && /未保存修改|先保存|先点击/.test(hotPaperScoutMsgEl.textContent || '')) {
+      hotPaperScoutMsgEl.textContent = '配置已保存，可以筛选热点论文。';
+      hotPaperScoutMsgEl.style.color = '#080';
+    }
   };
 
   const setQuickRunMessage = (text, color) => {
@@ -699,6 +718,18 @@ window.SubscriptionsManager = (function () {
     if (msgEl && msgEl !== quickRunMsgEl) {
       msgEl.textContent = text || '';
       msgEl.style.color = color || '#666';
+    }
+  };
+
+  const setHotPaperScoutMessage = (text, color) => {
+    if (hotPaperScoutMsgEl) {
+      hotPaperScoutMsgEl.textContent = text || '';
+      hotPaperScoutMsgEl.style.color = color || '#666';
+      return;
+    }
+    if (quickRunMsgEl) {
+      quickRunMsgEl.textContent = text || '';
+      quickRunMsgEl.style.color = color || '#666';
     }
   };
 
@@ -824,6 +855,49 @@ window.SubscriptionsManager = (function () {
       return runSelectedQuickFetch(30, { fetchMode: 'standard' });
     }
     return runSelectedQuickFetch(10);
+  };
+
+  const runHotPaperScoutFromSelection = async () => {
+    if (hasUnsavedChanges) {
+      const text = '检测到未保存修改，请先点击“保存”后再筛选热点论文。';
+      setHotPaperScoutMessage(text, '#c00');
+      setQuickRunMessage(text, '#c00');
+      refreshQuickRunButtons();
+      return false;
+    }
+    const tags = getDailySelectedProfileTagsForRun();
+    if (!tags.length) {
+      setHotPaperScoutMessage('请先勾选至少一个词条。', '#c00');
+      refreshQuickRunButtons();
+      return false;
+    }
+    if (!window.DPRWorkflowRunner || typeof window.DPRWorkflowRunner.runHotPaperScout !== 'function') {
+      setHotPaperScoutMessage('热点论文工作流触发器未加载到当前页面。', '#c00');
+      return false;
+    }
+    const daysWindow = hotPaperScoutDaysEl && hotPaperScoutDaysEl.value === '7' ? '7' : '14';
+    const rawInstitution = normalizeText(hotPaperScoutInstitutionEl && hotPaperScoutInstitutionEl.value).toLowerCase();
+    const institutionFilter = ['all', 'company', 'university'].includes(rawInstitution)
+      ? rawInstitution
+      : 'all';
+    const result = await window.DPRWorkflowRunner.runHotPaperScout({
+      profile_tag: tags.join(','),
+      days_window: daysWindow,
+      institution_filter: institutionFilter,
+      max_results: '30',
+    });
+    if (result === false) {
+      setHotPaperScoutMessage('热点论文筛选未成功触发，请检查权限或工作流配置。', '#c00');
+      return false;
+    }
+    const label = {
+      all: '全部机构',
+      company: '科技公司',
+      university: '高校',
+    }[institutionFilter] || '全部机构';
+    setHotPaperScoutMessage(`已对 ${tags.length} 个词条发起最近 ${daysWindow} 天热点论文筛选（${label}）。`, '#080');
+    showWorkflowSuccessEffects();
+    return true;
   };
 
   const runQuickConferenceRetrieval = async (msgEl) => {
@@ -1207,6 +1281,30 @@ window.SubscriptionsManager = (function () {
                 <div id="arxiv-admin-quick-run-msg" class="chat-quick-run-msg"></div>
               </div>
 
+              <div class="dpr-hot-scout-module">
+                <div class="chat-quick-run-title">热点论文筛选</div>
+                <div class="dpr-task-danger-desc">OpenAlex · 最近高热论文</div>
+                <div class="dpr-hot-scout-controls">
+                  <label class="dpr-hot-scout-field">
+                    <span>时间范围</span>
+                    <select id="arxiv-admin-hot-days" class="dpr-manual-upload-input" aria-label="热点论文时间范围">
+                      <option value="14" selected>14 天</option>
+                      <option value="7">7 天</option>
+                    </select>
+                  </label>
+                  <label class="dpr-hot-scout-field">
+                    <span>机构筛选</span>
+                    <select id="arxiv-admin-hot-institution" class="dpr-manual-upload-input" aria-label="热点论文机构筛选">
+                      <option value="all" selected>全部</option>
+                      <option value="company">科技公司</option>
+                      <option value="university">高校</option>
+                    </select>
+                  </label>
+                </div>
+                <button id="arxiv-admin-hot-scout-btn" class="chat-quick-run-run-btn dpr-hot-scout-run-btn" type="button">筛选热点论文</button>
+                <div id="arxiv-admin-hot-scout-msg" class="chat-quick-run-msg"></div>
+              </div>
+
               <div class="dpr-task-danger-module">
                 <div class="chat-quick-run-title">危险区域</div>
                 <div class="dpr-task-danger-desc">恢复初始论文；不删除设置</div>
@@ -1472,6 +1570,10 @@ window.SubscriptionsManager = (function () {
     quickRunConferenceBtn = document.getElementById(
       'arxiv-admin-quick-run-conference-run-btn',
     );
+    hotPaperScoutBtn = document.getElementById('arxiv-admin-hot-scout-btn');
+    hotPaperScoutDaysEl = document.getElementById('arxiv-admin-hot-days');
+    hotPaperScoutInstitutionEl = document.getElementById('arxiv-admin-hot-institution');
+    hotPaperScoutMsgEl = document.getElementById('arxiv-admin-hot-scout-msg');
     quickRunMsgEl = document.getElementById('arxiv-admin-quick-run-msg');
     quickRunSelectionCountEl = null;
     conferenceSelectionCountEl = null;
@@ -1489,6 +1591,10 @@ window.SubscriptionsManager = (function () {
       quickRunConferenceBtn.setAttribute('data-default-title', '一次性触发会议论文拉取任务');
       quickRunConferenceBtn.title = '一次性触发会议论文拉取任务';
     }
+    if (hotPaperScoutBtn) {
+      hotPaperScoutBtn.setAttribute('data-default-title', '筛选最近热点论文');
+      hotPaperScoutBtn.title = '筛选最近热点论文';
+    }
     initializeConferenceChoices();
     renderConferenceChoiceButtons();
     if (quickRunStartBtn && !quickRunStartBtn.dataset.defaultTitle) {
@@ -1500,6 +1606,13 @@ window.SubscriptionsManager = (function () {
       quickRunStartBtn._bound = true;
       quickRunStartBtn.addEventListener('click', () => {
         runSelectedQuickFetchByMode();
+      });
+    }
+
+    if (hotPaperScoutBtn && !hotPaperScoutBtn._bound) {
+      hotPaperScoutBtn._bound = true;
+      hotPaperScoutBtn.addEventListener('click', () => {
+        runHotPaperScoutFromSelection();
       });
     }
 
@@ -1681,6 +1794,16 @@ window.SubscriptionsManager = (function () {
       __setQuickRunConferenceBtn: (el) => {
         quickRunConferenceBtn = el || null;
       },
+      __setHotPaperScoutBtn: (el) => {
+        hotPaperScoutBtn = el || null;
+      },
+      __setHotPaperScoutMsgEl: (el) => {
+        hotPaperScoutMsgEl = el || null;
+      },
+      __setHotPaperScoutControls: (daysEl, institutionEl) => {
+        hotPaperScoutDaysEl = daysEl || null;
+        hotPaperScoutInstitutionEl = institutionEl || null;
+      },
       __setUnsavedChanges: (value) => {
         hasUnsavedChanges = !!value;
       },
@@ -1694,6 +1817,7 @@ window.SubscriptionsManager = (function () {
       __initializeConferenceChoices: () => initializeConferenceChoices(),
       __getSelectedConferenceYearPairs: () => Array.from(selectedConferenceYearPairs),
       runSelectedQuickFetch,
+      runHotPaperScoutFromSelection,
       refreshQuickRunButtons,
       clearQuickRunUnsavedMessage,
     },

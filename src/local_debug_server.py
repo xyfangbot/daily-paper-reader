@@ -379,6 +379,20 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
         ])
         return ["bash", "-lc", script]
 
+    if workflow_file == "hot-paper-scout.yml" or workflow_key == "hot-paper-scout":
+        return [
+            python,
+            "src/hot_paper_scout.py",
+            "--profile-tag",
+            str(inputs.get("profile_tag") or ""),
+            "--days-window",
+            str(inputs.get("days_window") or "14"),
+            "--institution-filter",
+            str(inputs.get("institution_filter") or "all"),
+            "--max-results",
+            str(inputs.get("max_results") or "30"),
+        ]
+
     if workflow_file == "reset-content.yml" or workflow_key == "reset-content":
         return [python, "-c", "import shutil, pathlib; root=pathlib.Path('.'); shutil.rmtree(root/'docs', ignore_errors=True); shutil.copytree(root/'docs_init', root/'docs'); print('docs reset from docs_init')"]
 

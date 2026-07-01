@@ -43,6 +43,17 @@ window.DPRWorkflowRunner = (function () {
       name: '上传 PDF 解析',
       desc: '上传 PDF/ZIP，生成与每日论文相同格式的阅读页面。',
     },
+    {
+      key: 'hot-paper-scout',
+      id: 'hot-paper-scout.yml',
+      name: '热点论文筛选',
+      desc: '按选中词条从 OpenAlex 筛选最近 7/14 天高热论文。',
+      dispatchInputs: {
+        days_window: '14',
+        institution_filter: 'all',
+        max_results: '30',
+      },
+    },
   ];
 
   const QUICK_FETCH_PRESETS = {
@@ -1993,6 +2004,24 @@ window.DPRWorkflowRunner = (function () {
   const runConferenceMaintain = async (conference, years) =>
     runConferenceRetrieval(conference, years);
 
+  const runHotPaperScout = async (options = {}) => {
+    const opts = options && typeof options === 'object' ? options : {};
+    const profileTag = String(opts.profile_tag || opts.profileTag || '').trim();
+    const daysText = String(opts.days_window || opts.daysWindow || '14').trim();
+    const daysWindow = daysText === '7' ? '7' : '14';
+    const institutionRaw = String(opts.institution_filter || opts.institutionFilter || 'all').trim().toLowerCase();
+    const institutionFilter = ['all', 'company', 'university'].includes(institutionRaw)
+      ? institutionRaw
+      : 'all';
+    const maxResults = String(opts.max_results || opts.maxResults || '30').trim() || '30';
+    return runWorkflowByKey('hot-paper-scout', {
+      profile_tag: profileTag,
+      days_window: daysWindow,
+      institution_filter: institutionFilter,
+      max_results: maxResults,
+    });
+  };
+
   if (!document._dprManualUploadOpenEventBound) {
     document._dprManualUploadOpenEventBound = true;
     document.addEventListener('dpr-open-manual-upload', () => {
@@ -2014,5 +2043,6 @@ window.DPRWorkflowRunner = (function () {
     runManualUpload,
     runConferenceRetrieval,
     runConferenceMaintain,
+    runHotPaperScout,
   };
 })();

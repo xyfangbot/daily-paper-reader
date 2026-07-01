@@ -15,11 +15,14 @@ const {
   clearQuickRunUnsavedMessage,
   __setQuickRunMsgEl,
   __setQuickRunConferenceBtn,
+  __setHotPaperScoutMsgEl,
+  __setHotPaperScoutControls,
   __setUnsavedChanges,
   __setRunSelectionState,
   __initializeConferenceChoices,
   __getSelectedConferenceYearPairs,
   runSelectedQuickFetch,
+  runHotPaperScoutFromSelection,
 } = global.window.SubscriptionsManager.__test;
 
 function buildBaseConfig() {
@@ -281,6 +284,49 @@ async function testQuickFetchIncludesAnySelectedProfile() {
   delete global.window.confirm;
 }
 
+async function testHotPaperScoutPassesSelectedProfilesAndControls() {
+  const calls = [];
+  const msgEl = {
+    textContent: '',
+    style: {
+      color: '',
+    },
+  };
+  global.window.DPRWorkflowRunner = {
+    runHotPaperScout(options) {
+      calls.push(options);
+      return true;
+    },
+  };
+  global.window.SubscriptionsSmartQuery = {
+    getSelectedProfilesForRun() {
+      return [
+        { tag: 'ACTIVE', temporary: false, paused: false },
+        { tag: 'CONF', temporary: true, paused: false },
+      ];
+    },
+  };
+  __setHotPaperScoutMsgEl(msgEl);
+  __setHotPaperScoutControls({ value: '7' }, { value: 'company' });
+  __setUnsavedChanges(false);
+
+  assert.equal(await runHotPaperScoutFromSelection(), true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], {
+    profile_tag: 'ACTIVE,CONF',
+    days_window: '7',
+    institution_filter: 'company',
+    max_results: '30',
+  });
+  assert.match(msgEl.textContent, /最近 7 天热点论文筛选/);
+  assert.equal(msgEl.style.color, '#080');
+
+  __setHotPaperScoutMsgEl(null);
+  __setHotPaperScoutControls(null, null);
+  delete global.window.DPRWorkflowRunner;
+  delete global.window.SubscriptionsSmartQuery;
+}
+
 (async () => {
   testNormalizeSubscriptionsAddsBiorxivBackend();
   testNormalizeSubscriptionsPreservesCustomBiorxivBackendFields();
@@ -291,6 +337,7 @@ async function testQuickFetchIncludesAnySelectedProfile() {
   testQuickRunUnsavedMessageClearsAfterSave();
   testConferenceRunDisabledWhenUnsaved();
   await testQuickFetchIncludesAnySelectedProfile();
+  await testHotPaperScoutPassesSelectedProfilesAndControls();
 
   console.log('subscriptions manager tests passed');
 })().catch((error) => {

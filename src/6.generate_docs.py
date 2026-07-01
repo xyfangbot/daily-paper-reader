@@ -644,6 +644,73 @@ def generate_deep_summary(
     return last or None
 
 
+def build_deep_summary_fallback(paper: Dict[str, Any], title: str, abstract: str) -> str:
+    """Build a conservative deep-summary block when full-text LLM summarization fails."""
+    evidence = str(paper.get("canonical_evidence") or "").strip()
+    glance = str(paper.get("_glance_overview") or "").strip()
+    fields = {
+        "tldr": "",
+        "motivation": "",
+        "method": "",
+        "result": "",
+        "conclusion": "",
+    }
+    for line in glance.splitlines():
+        clean = line.strip().rstrip("\\").strip()
+        m = re.match(r"^\*\*(TLDR|Motivation|Method|Result|Conclusion)\*\*[：:]\s*(.*)$", clean)
+        if not m:
+            continue
+        fields[m.group(1).lower()] = ensure_single_sentence_end((m.group(2) or "").strip())
+
+    abstract_text = ensure_single_sentence_end((abstract or "").strip())
+    title_text = (title or "该论文").strip()
+    motivation = fields["motivation"] or fields["tldr"] or "摘要未明确给出独立研究动机。"
+    method = fields["method"] or "摘要未明确展开完整方法细节。"
+    result = fields["result"] or "摘要未明确给出完整实验结果。"
+    conclusion = fields["conclusion"] or fields["tldr"] or "可先依据摘要与论文原文进一步判断贡献。"
+
+    return "\n".join(
+        [
+            "# 论文详细中文总结",
+            "",
+            "> 注：全文级 LLM 精读总结未成功返回；以下为基于论文摘要、速览字段与检索证据生成的保守降级总结。",
+            "",
+            "## 一、论文的核心问题与整体含义（研究动机和背景）",
+            f"- 论文题目：{title_text}",
+            f"- 研究动机：{motivation}",
+            f"- 摘要依据：{abstract_text if abstract_text else '当前元数据未提供摘要。'}",
+            "",
+            "## 二、论文提出的方法论",
+            f"- 方法概括：{method}",
+            "- 关键技术细节：降级总结未读取完整正文，需打开论文原文确认算法、系统结构或实现细节。",
+            "",
+            "## 三、实验设计",
+            f"- 实验与验证：{result}",
+            "- 数据集、benchmark 与对比方法：若摘要未明确列出，请以论文正文为准。",
+            "",
+            "## 四、资源与算力",
+            "- 摘要或元数据中未必包含完整算力信息；如需 GPU 型号、训练时长或部署资源，请进一步查看论文正文。",
+            "",
+            "## 五、实验数量与充分性",
+            "- 当前仅基于摘要判断实验覆盖，无法替代完整正文精读。",
+            "- 建议重点核对实验任务数量、场景覆盖、消融实验和真实机器人验证是否充分。",
+            "",
+            "## 六、论文的主要结论与发现",
+            f"- 主要结论：{conclusion}",
+            "",
+            "## 七、优点",
+            "- 与具身智能公司/平台/方向存在明确相关信号，适合作为热点方向候选继续跟进。",
+            f"- 检索证据：{evidence if evidence else '无额外 evidence。'}",
+            "",
+            "## 八、不足与局限",
+            "- 降级总结不能确认正文中的全部局限、失败案例与实验边界。",
+            "- 建议后续结合 PDF 原文、图表和实验视频进一步判断实际价值。",
+            "",
+            "（完）",
+        ]
+    )
+
+
 def generate_glance_overview(
     title: str,
     abstract: str,
@@ -1731,6 +1798,8 @@ def process_paper(
             pdf_url = str(paper.get("link") or paper.get("pdf_url") or "").strip()
             ensure_text_content(pdf_url, txt_path, local_pdf_path=local_pdf_path)
             summary = generate_deep_summary(md_path, txt_path, client=paper_llm_client)
+            if not summary:
+                summary = build_deep_summary_fallback(paper, title, abstract_en)
             if summary:
                 upsert_auto_block(md_path, "论文详细总结（自动生成）", summary)
             return paper_id, title
@@ -1778,6 +1847,8 @@ def process_paper(
     # 精读区：生成详细总结
     if section == "deep":
         summary = generate_deep_summary(md_path, txt_path, client=paper_llm_client)
+        if not summary:
+            summary = build_deep_summary_fallback(paper, title, abstract_en)
         if summary:
             upsert_auto_block(md_path, "论文详细总结（自动生成）", summary)
     # 速读区：不生成额外的总结，只保留速览和摘要

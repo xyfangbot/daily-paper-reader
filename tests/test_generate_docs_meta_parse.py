@@ -369,6 +369,31 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("已拒绝 search query 本身命中", md)
         self.assertIn("> 本次触发没有产出可推荐论文。", md)
 
+    def test_deep_summary_fallback_preserves_expected_sections(self):
+        summary = self.mod.build_deep_summary_fallback(
+            {
+                "canonical_evidence": "company_relation_match=unitree; relation_source=abstract",
+                "_glance_overview": "\n".join(
+                    [
+                        "**TLDR**：本文研究人形机器人操作系统。 \\",
+                        "**Motivation**：现有系统适应复杂任务较慢。 \\",
+                        "**Method**：结合行为树和全身控制。 \\",
+                        "**Result**：可部署到真实机器人。 \\",
+                        "**Conclusion**：系统提升行为开发效率。",
+                    ]
+                ),
+            },
+            "Robot System",
+            "This paper studies humanoid robot behavior systems.",
+        )
+
+        self.assertIn("# 论文详细中文总结", summary)
+        self.assertIn("## 一、论文的核心问题与整体含义", summary)
+        self.assertIn("## 八、不足与局限", summary)
+        self.assertIn("基于论文摘要、速览字段与检索证据", summary)
+        self.assertIn("company_relation_match=unitree", summary)
+        self.assertIn("（完）", summary)
+
     def test_update_sidebar_links_empty_hot_run_and_prunes_old_hot_runs(self):
         with tempfile.TemporaryDirectory() as d:
             sidebar = Path(d) / "_sidebar.md"

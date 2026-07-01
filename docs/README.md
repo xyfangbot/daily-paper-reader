@@ -7,7 +7,7 @@
 
 ## 每次日报
 - 最新运行日期：热点论文筛选 · 最近 30 天 · 具身智能公司领衔
-- 运行时间：2026-07-01 09:05:07 UTC
+- 运行时间：2026-07-01 09:08:31 UTC
 - 运行状态：成功
 - 本次总论文数：0
 - 精读区：0
@@ -23,7 +23,7 @@
 - OpenAlex 查询失败：具身智能 / humanoid robot: HTTPError: HTTP Error 503: Service Unavailable
 - arXiv fallback 未发现 first/last author affiliation 明确匹配具身智能公司的论文；已拒绝 title/abstract/query 文本命中，避免误判公司领衔。
 - OpenAlex 返回 0 篇匹配论文。
-- 详情：[/manual/hot-20260701-090435-embodied-ai-robot-foundation-model-5e9e40b3/README](/manual/hot-20260701-090435-embodied-ai-robot-foundation-model-5e9e40b3/README)
+- 详情：[/manual/hot-20260701-090800-embodied-ai-robot-foundation-model-2997e2ba/README](/manual/hot-20260701-090800-embodied-ai-robot-foundation-model-2997e2ba/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。

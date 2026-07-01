@@ -1525,14 +1525,6 @@ def process_paper(
     glance = ""
 
     if os.path.exists(md_path):
-        # 即使是 glance-only，也要确保生成/补齐 .txt（用于前端聊天上下文等）
-        if glance_only and (pdf_url or local_pdf_path):
-            try:
-                ensure_text_content(pdf_url, txt_path, local_pdf_path=local_pdf_path)
-            except Exception:
-                # 不阻塞文档生成流程：txt 拉取失败时继续（避免因为网络/源站问题导致整批中断）
-                pass
-
         try:
             with open(md_path, "r", encoding="utf-8") as f:
                 existing = f.read()
@@ -1542,7 +1534,7 @@ def process_paper(
         existing_meta = _parse_front_matter(existing)
         has_figures_json = bool(str(existing_meta.get("figures_json") or "").strip()) if existing_meta else False
         has_tables_json = bool(str(existing_meta.get("tables_json") or "").strip()) if existing_meta else False
-        if not has_figures_json or not has_tables_json:
+        if (not glance_only) and (not has_figures_json or not has_tables_json):
             figures, tables = maybe_generate_paper_media(
                 paper,
                 docs_dir=docs_dir,
@@ -1707,22 +1699,6 @@ def process_paper(
 
     # 新文件：如果只需要速览，则不拉取 PDF/Jina 文本，直接用元数据生成页面
     if glance_only:
-        # 速览模式也需要生成/补齐全文 txt（优先 jina，失败则 pymupdf 兜底）
-        if pdf_url or local_pdf_path:
-            try:
-                ensure_text_content(pdf_url, txt_path, local_pdf_path=local_pdf_path)
-            except Exception:
-                pass
-        figures, tables = maybe_generate_paper_media(
-            paper,
-            docs_dir=docs_dir,
-            paper_id=paper_id,
-            pdf_url=pdf_url,
-        )
-        if figures:
-            paper["_figure_assets"] = figures
-        if tables:
-            paper["_table_assets"] = tables
         glance = generate_glance_overview(title, abstract_en, client=paper_llm_client) or build_glance_fallback(paper)
         if glance:
             paper["_glance_overview"] = glance

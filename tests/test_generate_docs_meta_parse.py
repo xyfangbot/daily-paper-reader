@@ -238,6 +238,71 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
             "manual-manual-batch-manual-001",
         )
 
+    def test_process_paper_glance_only_skips_text_and_media_generation(self):
+        calls = []
+
+        def fail_ensure_text(*args, **kwargs):
+            calls.append(("text", args, kwargs))
+            raise AssertionError("glance_only must not fetch or extract PDF text")
+
+        def fail_media(*args, **kwargs):
+            calls.append(("media", args, kwargs))
+            raise AssertionError("glance_only must not generate figures or tables")
+
+        def fake_glance(*args, **kwargs):
+            return "\n".join(
+                [
+                    "**TLDR**：基于摘要生成的真实速览。 \\",
+                    "**Motivation**：研究机器人策略迁移问题。 \\",
+                    "**Method**：使用具身智能策略学习方法。 \\",
+                    "**Result**：摘要显示策略可迁移到机器人。 \\",
+                    "**Conclusion**：该工作适合后续速读评估。",
+                ]
+            )
+
+        original_ensure = self.mod.ensure_text_content
+        original_media = self.mod.maybe_generate_paper_media
+        original_glance = self.mod.generate_glance_overview
+        self.mod.ensure_text_content = fail_ensure_text
+        self.mod.maybe_generate_paper_media = fail_media
+        self.mod.generate_glance_overview = fake_glance
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                paper_id, _title = self.mod.process_paper(
+                    {
+                        "id": "2606.12345v1",
+                        "title": "Unitree Humanoid Robot Learning",
+                        "authors": ["Alice Example"],
+                        "abstract": "We study embodied AI policies with Unitree robots.",
+                        "published": "2026-06-30",
+                        "link": "https://arxiv.org/pdf/2606.12345v1",
+                        "source": "arxiv",
+                        "selection_source": "hot_paper_scout",
+                        "llm_score": 8.0,
+                        "llm_tags": ["query:热点论文筛选"],
+                    },
+                    "quick",
+                    "hot-step6-test",
+                    d,
+                    glance_only=True,
+                    force_glance=True,
+                )
+                md_path = Path(d) / f"{paper_id}.md"
+                txt_path = Path(d) / f"{paper_id}.txt"
+                text = md_path.read_text(encoding="utf-8")
+                txt_exists = txt_path.exists()
+        finally:
+            self.mod.ensure_text_content = original_ensure
+            self.mod.maybe_generate_paper_media = original_media
+            self.mod.generate_glance_overview = original_glance
+
+        self.assertEqual(calls, [])
+        self.assertIn("selection_source: hot_paper_scout", text)
+        self.assertIn("motivation:", text)
+        self.assertIn("## Abstract", text)
+        self.assertNotIn("figures_json", text)
+        self.assertFalse(txt_exists)
+
     def test_maybe_generate_paper_figures_keeps_legacy_return(self):
         original = self.mod.ensure_paper_media
         self.mod.ensure_paper_media = lambda **kwargs: (

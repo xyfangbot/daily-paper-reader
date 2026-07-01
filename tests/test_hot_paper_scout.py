@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import sys
 import tempfile
@@ -213,7 +214,7 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(paper["lead_institution_names"], ["unitree"])
         self.assertEqual(paper["pdf_url"], "http://arxiv.org/pdf/2606.12345v1")
 
-    def test_hot_outputs_follow_daily_paper_format(self):
+    def test_hot_outputs_write_step6_recommend_not_custom_markdown(self):
         paper = {
             "id": "http://arxiv.org/abs/2606.12345v1",
             "arxiv_id": "2606.12345v1",
@@ -234,6 +235,27 @@ class HotPaperScoutTest(unittest.TestCase):
             "institution_names": ["unitree"],
             "lead_institution_names": ["unitree"],
         }
+        item = hot_paper_scout.paper_to_recommend_item(
+            paper,
+            1,
+            institution_filter="company",
+            days_window=30,
+        )
+
+        self.assertEqual(item["id"], "2606.12345v1")
+        self.assertEqual(item["source"], "arxiv")
+        self.assertEqual(item["selection_source"], "hot_paper_scout")
+        self.assertEqual(item["llm_score"], 8.0)
+        self.assertEqual(item["llm_tldr_cn"], "")
+        self.assertIn("query:热点论文筛选", item["llm_tags"])
+        self.assertIn("query:具身智能公司领衔", item["llm_tags"])
+        self.assertIn("paper:arXiv:2606.12345v1", item["llm_tags"])
+        self.assertIn("hot-paper-scout: arXiv fallback", item["canonical_evidence"])
+        self.assertNotIn("motivation", item)
+        self.assertNotIn("method", item)
+        self.assertNotIn("result", item)
+        self.assertNotIn("conclusion", item)
+
         result = hot_paper_scout.ScoutResult(
             papers=[paper],
             warnings=["OpenAlex 查询失败：demo"],
@@ -245,40 +267,23 @@ class HotPaperScoutTest(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = pathlib.Path(tmp)
-            readme_path = tmp_path / "README.md"
-            paper_path = tmp_path / "paper.md"
+            old_root = hot_paper_scout.ROOT_DIR
+            try:
+                hot_paper_scout.ROOT_DIR = pathlib.Path(tmp)
+                recommend_path = hot_paper_scout.write_recommend_file(
+                    result,
+                    days_window=30,
+                    institution_filter="company",
+                )
+                payload = json.loads(recommend_path.read_text(encoding="utf-8"))
+            finally:
+                hot_paper_scout.ROOT_DIR = old_root
 
-            hot_paper_scout.write_readme(readme_path, result, 30, "company")
-            hot_paper_scout.write_paper_markdown(paper_path, paper, 1, "company")
-
-            readme = readme_path.read_text(encoding="utf-8")
-            paper_md = paper_path.read_text(encoding="utf-8")
-
-        self.assertIn("# 日报 · 热点论文筛选", readme)
-        self.assertIn("- 当次推荐总数：1", readme)
-        self.assertIn("## 今日简报（AI）", readme)
-        self.assertIn("## 精读区", readme)
-        self.assertIn("## 速读区", readme)
-        self.assertIn("使用键盘方向键可在日报/论文之间快速切换。", readme)
-        self.assertNotIn("## Warning", readme)
-        self.assertNotIn("## 结果", readme)
-        self.assertNotIn("论文数：1", readme)
-
-        self.assertIn("selection_source: hot_paper_scout", paper_md)
-        self.assertIn("source: arxiv", paper_md)
-        self.assertIn("score: 9.0", paper_md)
-        self.assertIn('arxiv_id: "2606.12345v1"', paper_md)
-        self.assertIn("tldr:", paper_md)
-        self.assertIn("motivation:", paper_md)
-        self.assertIn("method:", paper_md)
-        self.assertIn("result:", paper_md)
-        self.assertIn("conclusion:", paper_md)
-        self.assertIn("## 摘要", paper_md)
-        self.assertIn("## Abstract", paper_md)
-        self.assertNotIn("## 领衔机构", paper_md)
-        self.assertNotIn("## 机构", paper_md)
-        self.assertNotIn("## 来源信息", paper_md)
+        self.assertEqual(recommend_path.name, "arxiv_papers_hot-test.standard.json")
+        self.assertEqual(payload["source"], "hot_paper_scout")
+        self.assertEqual(payload["deep_dive"], [])
+        self.assertEqual(len(payload["quick_skim"]), 1)
+        self.assertEqual(payload["quick_skim"][0]["id"], "2606.12345v1")
 
 
 if __name__ == "__main__":

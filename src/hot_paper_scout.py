@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import html
 import json
 import os
 import re
@@ -122,13 +121,6 @@ def safe_slug(value: str, fallback: str = "paper") -> str:
 
 def single_line(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
-
-
-def yaml_escape(value: Any) -> str:
-    text = str(value or "")
-    if not text:
-        return "''"
-    return json.dumps(text, ensure_ascii=False)
 
 
 def parse_csv(value: str) -> list[str]:
@@ -657,15 +649,9 @@ def scout_hot_papers(
     )
 
 
-def paper_slug(paper: dict[str, Any], index: int) -> str:
-    base = paper.get("arxiv_id") or paper.get("doi") or paper.get("openalex_id") or paper.get("title") or f"paper-{index}"
-    base = str(base).replace("https://doi.org/", "").replace("https://openalex.org/", "")
-    return f"{index:03d}-{safe_slug(base, f'paper-{index}')}"
-
-
 def paper_display_score(paper: dict[str, Any]) -> float:
     if paper.get("source") == "arxiv_fallback":
-        return 9.0
+        return 8.0
     cited = int(paper.get("cited_by_count") or 0)
     if cited >= 100:
         return 10.0
@@ -680,222 +666,146 @@ def paper_display_score(paper: dict[str, Any]) -> float:
     return 7.5
 
 
-def first_sentence(text: str, limit: int = 180) -> str:
-    clean = single_line(text)
-    if not clean:
-        return ""
-    parts = re.split(r"(?<=[.!?。！？])\s+", clean, maxsplit=1)
-    sentence = parts[0].strip() if parts else clean
-    if len(sentence) <= limit:
-        return sentence
-    return sentence[: limit - 1].rstrip() + "…"
+def paper_identifier(paper: dict[str, Any], index: int) -> str:
+    arxiv_id = str(paper.get("arxiv_id") or "").strip()
+    if arxiv_id:
+        return arxiv_id
+    openalex_id = str(paper.get("openalex_id") or paper.get("id") or "").strip()
+    if openalex_id:
+        tail = openalex_id.rstrip("/").rsplit("/", 1)[-1]
+        if tail:
+            return safe_slug(tail, f"hot-{index:03d}")
+    doi = str(paper.get("doi") or "").strip()
+    if doi:
+        return safe_slug(doi.replace("https://doi.org/", ""), f"hot-{index:03d}")
+    return f"hot-{index:03d}"
 
 
-def paper_tldr(paper: dict[str, Any]) -> str:
-    company = str(paper.get("company_match") or "").strip()
-    source = "arXiv fallback" if paper.get("source") == "arxiv_fallback" else "OpenAlex"
-    lead = ", ".join(paper.get("lead_institution_names") or []) or company or "具身智能公司"
-    abstract_hint = first_sentence(str(paper.get("abstract") or ""), 160)
-    if abstract_hint:
-        return f"{lead} 相关近期论文；来源 {source}。{abstract_hint}"
-    return f"{lead} 相关近期论文；来源 {source}，建议打开 PDF 精读。"
-
-
-def paper_glance(paper: dict[str, Any]) -> dict[str, str]:
-    lead = ", ".join(paper.get("lead_institution_names") or []) or paper.get("company_match") or "具身智能公司"
-    source = "arXiv" if paper.get("source") == "arxiv_fallback" else "OpenAlex"
-    cited = int(paper.get("cited_by_count") or 0)
-    return {
-        "motivation": f"筛选最近 30 天内由{lead}相关文本命中的具身智能论文。",
-        "method": first_sentence(str(paper.get("abstract") or ""), 120) or "方法细节请参考摘要与原文。",
-        "result": f"来源 {source}；OpenAlex 引用数 {cited}；匹配 query：{paper.get('matched_query') or '具身智能'}。",
-        "conclusion": "适合纳入热点论文精读队列，建议结合 PDF 进一步确认机构与贡献。",
-    }
-
-
-def write_paper_markdown(path: Path, paper: dict[str, Any], index: int, institution_filter: str) -> None:
+def paper_recommend_tags(paper: dict[str, Any], institution_filter: str) -> list[str]:
     paper_source = str(paper.get("source") or "openalex")
-    source_label = "arxiv" if paper_source == "arxiv_fallback" else "openalex"
-    source_note = "arXiv fallback" if paper_source == "arxiv_fallback" else "OpenAlex"
-    score = paper_display_score(paper)
     tags = [
+        "query:热点论文筛选",
         f"query:{paper.get('profile_tag') or 'hot'}",
         f"query:{institution_filter_label(institution_filter)}",
-        "paper:arXiv" if paper_source == "arxiv_fallback" else "paper:OpenAlex",
     ]
-    abstract = str(paper.get("abstract") or "").strip()
-    authors = ", ".join(paper.get("authors") or []) or "Unknown"
-    source_link = paper.get("pdf_url") or paper.get("link") or paper.get("doi") or paper.get("openalex_id") or ""
-    tldr = paper_tldr(paper)
-    glance = paper_glance(paper)
     if paper_source == "arxiv_fallback":
-        evidence = f"arXiv fallback；具身智能公司文本命中：{paper.get('company_match') or ''}"
+        arxiv_id = str(paper.get("arxiv_id") or "").strip()
+        tags.append(f"paper:arXiv:{arxiv_id}" if arxiv_id else "paper:arXiv")
     else:
-        evidence = f"OpenAlex cited_by_count={paper.get('cited_by_count') or 0}; query={paper.get('matched_query') or ''}"
-    lines = [
-        "---",
-        f"title: {yaml_escape(paper.get('title'))}",
-        f"authors: {yaml_escape(authors)}",
-        f"date: {yaml_escape(paper.get('publication_date') or 'Unknown')}",
-    ]
-    if source_link:
-        lines.append(f"pdf: {yaml_escape(source_link)}")
-    if paper.get("arxiv_id"):
-        lines.append(f"arxiv_id: {yaml_escape(paper.get('arxiv_id'))}")
-    if paper.get("arxiv_url"):
-        lines.append(f"arxiv_url: {yaml_escape(paper.get('arxiv_url'))}")
-    if paper.get("doi"):
-        lines.append(f"doi: {yaml_escape(paper.get('doi'))}")
-    lines.extend(
-        [
-            f"source: {source_label}",
-            "selection_source: hot_paper_scout",
-            f"tags: [{', '.join(yaml_escape(tag) for tag in tags)}]",
-            f"score: {score:.1f}",
-            f"evidence: {yaml_escape(evidence)}",
-            f"tldr: {yaml_escape(tldr)}",
-            f"motivation: {yaml_escape(glance['motivation'])}",
-            f"method: {yaml_escape(glance['method'])}",
-            f"result: {yaml_escape(glance['result'])}",
-            f"conclusion: {yaml_escape(glance['conclusion'])}",
-            "---",
-            "",
-            "## 摘要",
-            "",
-            tldr,
-            "",
-            "## Abstract",
-            "",
+        tags.append("paper:OpenAlex")
+    company = str(paper.get("company_match") or "").strip()
+    if company:
+        tags.append(f"query:{company}")
+    return list(dict.fromkeys(tag for tag in tags if tag))
+
+
+def paper_recommend_evidence(paper: dict[str, Any], institution_filter: str, days_window: int) -> str:
+    matched_query = single_line(str(paper.get("matched_query") or ""))
+    cited = int(paper.get("cited_by_count") or 0)
+    if paper.get("source") == "arxiv_fallback":
+        company = str(paper.get("company_match") or "").strip()
+        parts = [f"hot-paper-scout: arXiv fallback", f"window={days_window}d"]
+        if company:
+            parts.append(f"company_text_match={company}")
+        if matched_query:
+            parts.append(f"query={matched_query}")
+        parts.append("institution_source=text-match")
+    else:
+        institutions = ", ".join((paper.get("lead_institution_names") or paper.get("institution_names") or [])[:3])
+        parts = [
+            "hot-paper-scout: OpenAlex",
+            f"window={days_window}d",
+            f"cited_by_count={cited}",
+            f"institution_filter={normalize_institution_filter(institution_filter)}",
         ]
+        if institutions:
+            parts.append(f"institutions={institutions}")
+        if matched_query:
+            parts.append(f"query={matched_query}")
+    return "; ".join(parts)
+
+
+def paper_to_recommend_item(
+    paper: dict[str, Any],
+    index: int,
+    *,
+    institution_filter: str,
+    days_window: int,
+) -> dict[str, Any]:
+    paper_source = str(paper.get("source") or "openalex")
+    source_label = "arxiv" if paper_source == "arxiv_fallback" else "openalex"
+    pdf_or_link = (
+        str(paper.get("pdf_url") or "").strip()
+        or str(paper.get("link") or "").strip()
+        or str(paper.get("doi") or "").strip()
+        or str(paper.get("openalex_id") or "").strip()
     )
-    lines.append(abstract or f"{source_note} did not provide an abstract for this paper.")
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-
-
-def write_readme(path: Path, result: ScoutResult, days_window: int, institution_filter: str) -> None:
-    label = institution_filter_label(institution_filter)
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    total = len(result.papers)
-    brief = (
-        f"1) 本期筛选最近 {days_window} 天具身智能公司相关论文，共 {total} 篇进入精读区。\n"
-        f"2) 机构筛选口径：{label}；领域 query：{'; '.join(result.domain_queries) or '无'}。\n"
-        "3) 建议优先查看精读区靠前论文，并结合 PDF 确认公司/机构贡献。"
-    )
-    lines = [
-        f"# 日报 · 热点论文筛选 · {label}",
-        "",
-        f"- 生成时间：{generated_at}",
-        f"- 当次推荐总数：{total}",
-        f"- 精读区：{total}",
-        "- 速读区：0",
-        "",
-        "## 今日简报（AI）",
-        brief,
-        "",
-    ]
-    if not result.papers:
-        lines.extend(["> 本次触发没有产出可推荐论文。", ""])
-    else:
-        lines.extend(["## 精读区"])
-        for index, paper in enumerate(result.papers, start=1):
-            slug = paper_slug(paper, index)
-            title = paper.get("title") or f"Paper {index}"
-            score = f"{paper_display_score(paper):.1f}/10"
-            lines.append(f"{index}. [{title}]({slug}) （{score}）")
-        lines.append("")
-    lines.extend(["## 速读区", "- 本次无速读推荐。", ""])
-    if result.warnings and not result.papers:
-        lines.extend(["## 数据源提示", ""])
-        lines.extend(f"- {warning}" for warning in result.warnings[:12])
-        lines.append("")
-    lines.extend(["---", "使用键盘方向键可在日报/论文之间快速切换。", ""])
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-
-
-def sidebar_payload(title: str, href: str, paper: dict[str, Any] | None = None) -> str:
-    source_tag = "arXiv" if paper and paper.get("source") == "arxiv_fallback" else "OpenAlex"
-    tags = [{"kind": "paper", "label": "Hot"}, {"kind": "paper", "label": source_tag}]
-    score = "-"
-    evidence = ""
-    link = href
-    if paper:
-        score = str(paper.get("cited_by_count") or 0)
-        evidence = (
-            f"arXiv fallback; company_match={paper.get('company_match') or ''}"
-            if paper.get("source") == "arxiv_fallback"
-            else f"OpenAlex cited_by_count={score}"
-        )
-        link = str(paper.get("link") or href)
-        if paper.get("profile_tag"):
-            tags.insert(0, {"kind": "query", "label": str(paper.get("profile_tag"))})
-    payload = {
-        "title": title,
-        "link": link,
-        "score": score,
-        "tags": tags,
+    item = {
+        "id": paper_identifier(paper, index),
+        "paper_id": paper_identifier(paper, index),
+        "title": single_line(str(paper.get("title") or f"Hot Paper {index}")),
+        "authors": [str(author).strip() for author in paper.get("authors") or [] if str(author).strip()],
+        "abstract": str(paper.get("abstract") or "").strip(),
+        "published": str(paper.get("publication_date") or "").strip(),
+        "link": pdf_or_link,
+        "pdf_url": str(paper.get("pdf_url") or pdf_or_link).strip(),
+        "arxiv_id": str(paper.get("arxiv_id") or "").strip(),
+        "arxiv_url": str(paper.get("arxiv_url") or "").strip(),
+        "doi": str(paper.get("doi") or "").strip(),
+        "source": source_label,
+        "selection_source": "hot_paper_scout",
+        "llm_score": paper_display_score(paper),
+        "canonical_evidence": paper_recommend_evidence(paper, institution_filter, days_window),
+        "llm_tldr_cn": "",
+        "llm_tags": paper_recommend_tags(paper, institution_filter),
+        "hot_paper_metadata": {
+            "source": paper_source,
+            "openalex_id": paper.get("openalex_id") or "",
+            "cited_by_count": int(paper.get("cited_by_count") or 0),
+            "matched_query": paper.get("matched_query") or "",
+            "company_match": paper.get("company_match") or "",
+            "institution_names": paper.get("institution_names") or [],
+            "lead_institution_names": paper.get("lead_institution_names") or [],
+        },
     }
-    if evidence:
-        payload["evidence"] = evidence
-    return html.escape(json.dumps(payload, ensure_ascii=False), quote=True)
+    return item
 
 
-def update_hot_sidebar(sidebar_path: Path, result: ScoutResult, days_window: int, institution_filter: str) -> None:
-    sidebar_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = sidebar_path.read_text(encoding="utf-8").splitlines(keepends=True) if sidebar_path.exists() else []
-    if not lines:
-        lines = ['* <a class="dpr-sidebar-root-link" href="#/">首页</a>\n']
-    section_idx = -1
-    for idx, line in enumerate(lines):
-        if line.strip().startswith("* Hot Papers"):
-            section_idx = idx
-            break
-    if section_idx == -1:
-        insert_idx = len(lines)
-        for idx, line in enumerate(lines):
-            if line.strip().startswith("* Daily Papers"):
-                insert_idx = idx
-                break
-        lines[insert_idx:insert_idx] = ["* Hot Papers\n"]
-        section_idx = insert_idx
-
-    marker = f"<!--dpr-hot:{result.run_token}-->"
-    block_idx = -1
-    for idx in range(section_idx + 1, len(lines)):
-        if lines[idx].startswith("* "):
-            break
-        if marker in lines[idx]:
-            block_idx = idx
-            break
-    if block_idx != -1:
-        end = block_idx + 1
-        while end < len(lines):
-            if lines[end].startswith("  * ") and not lines[end].startswith("    * "):
-                break
-            if lines[end].startswith("* "):
-                break
-            end += 1
-        del lines[block_idx:end]
-
-    title = f"热点论文 · {datetime.now(timezone.utc).strftime('%Y-%m-%d')} · {days_window}天 · {institution_filter_label(institution_filter)}"
-    block = [f"  * {title} {marker}\n"]
-    readme_href = f"#/hot/{result.run_token}/README"
-    block.append(
-        "    * "
-        f'<a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="{readme_href}" '
-        f'data-sidebar-item="{sidebar_payload(title, readme_href)}">结果概览</a>\n'
-    )
-    for index, paper in enumerate(result.papers, start=1):
-        slug = paper_slug(paper, index)
-        href = f"#/hot/{result.run_token}/{slug}"
-        safe_title = html.escape(str(paper.get("title") or slug))
-        block.append(
-            "    * "
-            f'<a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="{href}" '
-            f'data-sidebar-item="{sidebar_payload(str(paper.get("title") or slug), href, paper)}">{safe_title}</a>\n'
+def write_recommend_file(
+    result: ScoutResult,
+    *,
+    days_window: int,
+    institution_filter: str,
+    section: str = "quick",
+) -> Path:
+    recommend_dir = ROOT_DIR / "archive" / result.run_token / "recommend"
+    recommend_dir.mkdir(parents=True, exist_ok=True)
+    items = [
+        paper_to_recommend_item(
+            paper,
+            index,
+            institution_filter=institution_filter,
+            days_window=days_window,
         )
-
-    lines[section_idx + 1 : section_idx + 1] = block
-    sidebar_path.write_text("".join(lines), encoding="utf-8")
+        for index, paper in enumerate(result.papers, start=1)
+    ]
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": "hot_paper_scout",
+        "run_token": result.run_token,
+        "from_date": result.from_date,
+        "days_window": days_window,
+        "institution_filter": normalize_institution_filter(institution_filter),
+        "profiles": [p.get("tag") for p in result.profiles],
+        "domain_queries": result.domain_queries,
+        "queries": result.queries,
+        "warnings": result.warnings,
+        "deep_dive": items if section == "deep" else [],
+        "quick_skim": items if section != "deep" else [],
+    }
+    path = recommend_dir / f"arxiv_papers_{result.run_token}.standard.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def write_outputs(
@@ -905,12 +815,13 @@ def write_outputs(
     days_window: int,
     institution_filter: str,
 ) -> None:
-    run_dir = docs_dir / "hot" / result.run_token
-    run_dir.mkdir(parents=True, exist_ok=True)
-    write_readme(run_dir / "README.md", result, days_window, institution_filter)
-    for index, paper in enumerate(result.papers, start=1):
-        write_paper_markdown(run_dir / f"{paper_slug(paper, index)}.md", paper, index, institution_filter)
-    update_hot_sidebar(docs_dir / "_sidebar.md", result, days_window, institution_filter)
+    del docs_dir
+    recommend_path = write_recommend_file(
+        result,
+        days_window=days_window,
+        institution_filter=institution_filter,
+        section="quick",
+    )
     archive_dir = ROOT_DIR / "archive" / datetime.now(timezone.utc).strftime("%Y%m%d") / "hot"
     archive_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -923,6 +834,8 @@ def write_outputs(
         "domain_queries": result.domain_queries,
         "queries": result.queries,
         "warnings": result.warnings,
+        "recommend_path": str(recommend_path.relative_to(ROOT_DIR)),
+        "report_route": f"/manual/{result.run_token}/README",
         "papers": result.papers,
     }
     (archive_dir / f"{result.run_token}.json").write_text(
@@ -974,6 +887,7 @@ def main() -> None:
         log(f"[WARN] {warning}")
     log(f"[OK] Hot paper scout generated {len(result.papers)} paper(s).")
     log(f"HOT_RUN_TOKEN={result.run_token}")
+    log(f"HOT_REPORT_ROUTE=/manual/{result.run_token}/README")
 
 
 if __name__ == "__main__":

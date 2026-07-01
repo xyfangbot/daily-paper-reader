@@ -380,7 +380,15 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
         return ["bash", "-lc", script]
 
     if workflow_file == "hot-paper-scout.yml" or workflow_key == "hot-paper-scout":
-        return [
+        days_window = str(inputs.get("days_window") or "30")
+        institution_filter = str(inputs.get("institution_filter") or "company")
+        if institution_filter == "company":
+            filter_label = "具身智能公司领衔"
+        elif institution_filter == "university":
+            filter_label = "高校"
+        else:
+            filter_label = "全部机构"
+        scout_cmd = [
             python,
             "src/hot_paper_scout.py",
             "--profile-tag",
@@ -388,12 +396,30 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
             "--domain-query",
             str(inputs.get("domain_query") or ""),
             "--days-window",
-            str(inputs.get("days_window") or "30"),
+            days_window,
             "--institution-filter",
-            str(inputs.get("institution_filter") or "company"),
+            institution_filter,
             "--max-results",
             str(inputs.get("max_results") or "30"),
         ]
+        script = "\n".join([
+            "set -euo pipefail",
+            "LOG_FILE=$(mktemp)",
+            f"{' '.join(shlex.quote(part) for part in scout_cmd)} | tee \"$LOG_FILE\"",
+            "HOT_RUN_TOKEN=$(grep -oE 'HOT_RUN_TOKEN=[^[:space:]]+' \"$LOG_FILE\" | tail -n 1 | cut -d= -f2)",
+            "if [ -z \"$HOT_RUN_TOKEN\" ]; then echo '[ERROR] HOT_RUN_TOKEN not found'; exit 1; fi",
+            (
+                f"{shlex.quote(python)} src/6.generate_docs.py "
+                "--date \"$HOT_RUN_TOKEN\" "
+                "--mode standard "
+                "--docs-dir docs "
+                f"--sidebar-date-label {shlex.quote(f'热点论文筛选 · 最近 {days_window} 天 · {filter_label}')} "
+                "--glance-only "
+                "--force-glance "
+                "--docs-concurrency 2"
+            ),
+        ])
+        return ["bash", "-lc", script]
 
     if workflow_file == "reset-content.yml" or workflow_key == "reset-content":
         return [python, "-c", "import shutil, pathlib; root=pathlib.Path('.'); shutil.rmtree(root/'docs', ignore_errors=True); shutil.copytree(root/'docs_init', root/'docs'); print('docs reset from docs_init')"]

@@ -304,6 +304,79 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertNotIn("figures_json", text)
         self.assertFalse(txt_exists)
 
+    def test_process_paper_deep_hot_fallback_writes_full_glance_fields(self):
+        def fake_generate_glance(*args, **kwargs):
+            return None
+
+        def fake_ensure_text(_pdf_url, txt_path, **kwargs):
+            Path(txt_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(txt_path).write_text("full text placeholder", encoding="utf-8")
+
+        def fake_media(*args, **kwargs):
+            return [], []
+
+        def fake_translate(*args, **kwargs):
+            return "中文标题", "中文摘要"
+
+        def fake_deep_summary(*args, **kwargs):
+            return None
+
+        original_glance = self.mod.generate_glance_overview
+        original_ensure = self.mod.ensure_text_content
+        original_media = self.mod.maybe_generate_paper_media
+        original_translate = self.mod.translate_title_and_abstract_to_zh
+        original_deep = self.mod.generate_deep_summary
+        self.mod.generate_glance_overview = fake_generate_glance
+        self.mod.ensure_text_content = fake_ensure_text
+        self.mod.maybe_generate_paper_media = fake_media
+        self.mod.translate_title_and_abstract_to_zh = fake_translate
+        self.mod.generate_deep_summary = fake_deep_summary
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                paper_id, _title = self.mod.process_paper(
+                    {
+                        "id": "2606.54321v1",
+                        "title": "Fast Loco-Manipulation for Humanoid Robots",
+                        "authors": ["Alice Example"],
+                        "abstract": (
+                            "Robot foundation models promise generalizable control but struggle "
+                            "with real-world humanoid deployment. This paper presents a fast "
+                            "loco-manipulation system for Unitree G1 robots. Experiments "
+                            "demonstrate robust walking and object interaction on hardware. "
+                            "The results show improved adaptation under disturbances."
+                        ),
+                        "published": "2026-06-30",
+                        "link": "https://arxiv.org/pdf/2606.54321v1",
+                        "source": "arxiv",
+                        "selection_source": "hot_paper_scout",
+                        "llm_score": 8.0,
+                        "llm_tags": ["query:热点论文筛选", "query:具身智能公司相关"],
+                        "canonical_evidence": "company_relation_match=unitree; relation_source=abstract",
+                    },
+                    "deep",
+                    "hot-step6-test",
+                    d,
+                    force_glance=True,
+                )
+                text = (Path(d) / f"{paper_id}.md").read_text(encoding="utf-8")
+        finally:
+            self.mod.generate_glance_overview = original_glance
+            self.mod.ensure_text_content = original_ensure
+            self.mod.maybe_generate_paper_media = original_media
+            self.mod.translate_title_and_abstract_to_zh = original_translate
+            self.mod.generate_deep_summary = original_deep
+
+        self.assertIn("selection_source: hot_paper_scout", text)
+        self.assertIn("tldr:", text)
+        self.assertIn("motivation:", text)
+        self.assertIn("method:", text)
+        self.assertIn("result:", text)
+        self.assertIn("conclusion:", text)
+        self.assertIn("## 摘要", text)
+        self.assertIn("## Abstract", text)
+        self.assertIn("## 论文详细总结（自动生成）", text)
+        self.assertIn("## 八、不足与局限", text)
+
     def test_glance_fallback_does_not_fabricate_detail_fields(self):
         glance = self.mod.build_glance_fallback(
             {
@@ -321,6 +394,52 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertNotIn("结果与对比结论", glance)
         self.assertNotIn("适合纳入热点论文", glance)
         self.assertNotIn("总体而言", glance)
+
+    def test_glance_fallback_can_fill_hot_deep_detail_fields_from_abstract(self):
+        glance = self.mod.build_glance_fallback(
+            {
+                "abstract": (
+                    "Robot foundation models promise generalizable control but struggle with "
+                    "real-world humanoid deployment. This paper presents a fast "
+                    "loco-manipulation system for Unitree G1 robots that combines whole-body "
+                    "control with policy learning. Experiments demonstrate robust walking, "
+                    "recovery, and object interaction on hardware. The results show that the "
+                    "system improves adaptation under disturbances."
+                ),
+                "canonical_evidence": "company_relation_match=unitree; relation_source=abstract",
+            },
+            include_detail_fields=True,
+        )
+
+        self.assertIn("**TLDR**", glance)
+        self.assertIn("**Motivation**：摘要线索：Robot foundation models promise", glance)
+        self.assertIn("**Method**：摘要线索：This paper presents", glance)
+        self.assertIn("**Result**：摘要线索：Experiments demonstrate", glance)
+        self.assertIn("**Conclusion**：摘要线索：The results show", glance)
+        self.assertNotIn("Robot foundation models promise generalizable control but struggle with real-world humanoid deployment. This paper presents a fast loco-manipulation system for Unitree G1 robots that combines whole-body control with policy learning. Experiments demonstrate", glance)
+        self.assertNotIn("方法与实现细节", glance)
+        self.assertNotIn("结果与对比结论", glance)
+
+    def test_sync_front_matter_glance_fields_updates_existing_page(self):
+        updated, changed = self.mod.sync_front_matter_glance_fields(
+            "---\ntitle: Existing Hot Paper\n---\n\n## 速览\n**TLDR**：旧内容。\n",
+            "\n".join(
+                [
+                    "**TLDR**：新的完整速览。 \\",
+                    "**Motivation**：研究动机。 \\",
+                    "**Method**：方法概括。 \\",
+                    "**Result**：结果概括。 \\",
+                    "**Conclusion**：结论概括。",
+                ]
+            ),
+        )
+
+        self.assertTrue(changed)
+        self.assertIn("tldr: 新的完整速览。", updated)
+        self.assertIn("motivation: 研究动机。", updated)
+        self.assertIn("method: 方法概括。", updated)
+        self.assertIn("result: 结果概括。", updated)
+        self.assertIn("conclusion: 结论概括。", updated)
 
     def test_glance_retry_count_can_be_overridden_by_env(self):
         old = os.environ.get("STEP6_GLANCE_MAX_RETRIES")

@@ -806,49 +806,148 @@ def generate_glance_overview(
     return None
 
 
-def build_glance_fallback(paper: Dict[str, Any]) -> str:
+def split_abstract_sentences(text: str) -> List[str]:
+    """Split abstracts into compact sentence-like chunks for conservative fallbacks."""
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+    if not normalized:
+        return []
+    parts = re.split(r"(?<=[。！？.!?])\s+", normalized)
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def compact_glance_excerpt(text: str, limit: int = 260) -> str:
+    s = re.sub(r"\s+", " ", (text or "").strip())
+    if len(s) <= limit:
+        return s
+    return s[: max(0, limit - 3)].rstrip() + "..."
+
+
+def should_use_complete_glance_fallback(paper: Dict[str, Any], section: str) -> bool:
+    selection_source = str(paper.get("selection_source") or "").strip()
+    return section == "deep" or selection_source == "hot_paper_scout"
+
+
+def build_glance_fallback(paper: Dict[str, Any], include_detail_fields: bool = False) -> str:
     """
     当 LLM 额度不足/不可用时的降级速览：
     - TLDR 优先用 llm_tldr_cn/llm_tldr；否则用摘要首句；
-    - 仅在摘要中明确出现方法/结果信号时补充对应字段，避免编造速览卡片内容。
+    - 默认仅在摘要中明确出现方法/结果信号时补充对应字段，避免编造速览卡片内容；
+    - deep/hot 页面可启用 include_detail_fields，从摘要句子中抽取完整五字段，保证页面结构一致。
     """
     abstract = str(paper.get("abstract") or "").strip()
     tldr = (
         str(paper.get("llm_tldr_cn") or paper.get("llm_tldr") or paper.get("llm_tldr_en") or "").strip()
     )
     evidence = str(paper.get("canonical_evidence") or "").strip()
+    abstract_sentences = split_abstract_sentences(abstract)
 
     def first_sentence(text: str) -> str:
-        s = (text or "").strip()
-        if not s:
-            return ""
-        parts = re.split(r"(?<=[。！？.!?])\\s+", s)
-        return (parts[0] if parts else s).strip()
+        parts = split_abstract_sentences(text)
+        return (parts[0] if parts else "").strip()
+
+    def find_sentence(patterns: List[str]) -> str:
+        for sentence in abstract_sentences:
+            if any(re.search(pattern, sentence, re.I) for pattern in patterns):
+                return sentence
+        return ""
 
     if not tldr:
-        tldr = first_sentence(abstract)
+        if include_detail_fields and len(abstract_sentences) >= 2:
+            tldr = " ".join(abstract_sentences[:2])
+        else:
+            tldr = first_sentence(abstract)
     if not tldr and evidence:
         tldr = evidence
-    tldr = ensure_single_sentence_end(tldr or "基于摘要生成的速览信息。")
+    tldr = ensure_single_sentence_end(compact_glance_excerpt(tldr or "基于摘要生成的速览信息。"))
     lines = [f"**TLDR**：{tldr}"]
 
     method_hint = ""
     if abstract:
-        m = re.search(r"(we (?:propose|present|introduce|develop)[^\\.]{0,200})\\.", abstract, re.I)
-        if m:
-            method_hint = m.group(1).strip()
+        method_hint = find_sentence(
+            [
+                r"\bwe (?:propose|present|introduce|develop|build|design|use|combine|leverage)\b",
+                r"\bthis (?:paper|work|study|thesis) (?:proposes|presents|introduces|develops|builds|uses)\b",
+                r"\bour (?:method|approach|framework|system|model|policy)\b",
+            ]
+        )
     if method_hint:
-        lines.append(f"**Method**：{ensure_single_sentence_end(method_hint)}")
+        method_hint = compact_glance_excerpt(method_hint)
 
     result_hint = ""
     if abstract:
-        m = re.search(r"(experiments? (?:show|demonstrate)[^\\.]{0,200})\\.", abstract, re.I)
-        if m:
-            result_hint = m.group(1).strip()
+        result_hint = find_sentence(
+            [
+                r"\bexperiments? (?:show|demonstrate|indicate|evaluate)\b",
+                r"\bresults? (?:show|demonstrate|indicate|suggest)\b",
+                r"\bwe (?:evaluate|demonstrate|show|achieve)\b",
+                r"\bachieves?\b",
+            ]
+        )
+
+    if include_detail_fields:
+        motivation_hint = find_sentence(
+            [
+                r"\b(?:challenge|problem|limitation|struggle|gap|need|requires?|motivat)\b",
+                r"\b(?:however|despite|while)\b",
+            ]
+        ) or (abstract_sentences[0] if abstract_sentences else "")
+        if not method_hint and len(abstract_sentences) >= 2:
+            method_hint = abstract_sentences[1]
+        if not result_hint and abstract_sentences:
+            result_hint = abstract_sentences[-1]
+        conclusion_hint = find_sentence(
+            [
+                r"\b(?:conclude|suggest|underscore|highlight)\b",
+                r"\bresults? (?:show|demonstrate|indicate|suggest)\b",
+                r"\b(?:enables?|improves?|outperforms?|supports?)\b",
+            ]
+        ) or result_hint or (abstract_sentences[-1] if abstract_sentences else "")
+
+        def detail_line(value: str) -> str:
+            source = compact_glance_excerpt(value or evidence or tldr)
+            return ensure_single_sentence_end(f"摘要线索：{source}")
+
+        lines.extend(
+            [
+                f"**Motivation**：{detail_line(motivation_hint)}",
+                f"**Method**：{detail_line(method_hint)}",
+                f"**Result**：{detail_line(result_hint)}",
+                f"**Conclusion**：{detail_line(conclusion_hint)}",
+            ]
+        )
+        return " \\\n".join(lines)
+
+    if method_hint:
+        lines.append(f"**Method**：{ensure_single_sentence_end(method_hint)}")
     if result_hint:
+        result_hint = compact_glance_excerpt(result_hint)
         lines.append(f"**Result**：{ensure_single_sentence_end(result_hint)}")
 
     return " \\\n".join(lines)
+
+
+def parse_glance_overview_fields(glance: str) -> Dict[str, str]:
+    fields = {
+        "tldr": "",
+        "motivation": "",
+        "method": "",
+        "result": "",
+        "conclusion": "",
+    }
+    key_map = {
+        "TLDR": "tldr",
+        "Motivation": "motivation",
+        "Method": "method",
+        "Result": "result",
+        "Conclusion": "conclusion",
+    }
+    for line in str(glance or "").splitlines():
+        clean = line.strip().rstrip("\\").strip()
+        m = re.match(r"^\*\*(TLDR|Motivation|Method|Result|Conclusion)\*\*[：:]\s*(.*)$", clean)
+        if not m:
+            continue
+        fields[key_map[m.group(1)]] = ensure_single_sentence_end((m.group(2) or "").strip())
+    return fields
 
 
 def build_tags_html(section: str, llm_tags: List[str]) -> str:
@@ -1470,6 +1569,19 @@ def upsert_front_matter_field(md_text: str, key: str, value: str) -> Tuple[str, 
     return updated, updated != normalized
 
 
+def sync_front_matter_glance_fields(md_text: str, glance: str) -> Tuple[str, bool]:
+    updated = md_text
+    changed_any = False
+    fields = parse_glance_overview_fields(glance)
+    for key in ["tldr", "motivation", "method", "result", "conclusion"]:
+        value = fields.get(key) or ""
+        if not value:
+            continue
+        updated, changed = upsert_front_matter_field(updated, key, yaml_escape_value(value))
+        changed_any = changed_any or changed
+    return updated, changed_any
+
+
 def build_markdown_content(
     paper: Dict[str, Any],
     section: str,
@@ -1738,9 +1850,17 @@ def process_paper(
         # 已存在速览则默认不重复生成（避免重复 LLM 调用），除非 force_glance=true
         has_glance = "## 速览" in existing
         if force_glance or not has_glance:
-            glance = generate_glance_overview(title, abstract_en, client=paper_llm_client) or build_glance_fallback(paper)
+            glance = generate_glance_overview(title, abstract_en, client=paper_llm_client) or build_glance_fallback(
+                paper,
+                include_detail_fields=should_use_complete_glance_fallback(paper, section),
+            )
             if glance:
                 paper["_glance_overview"] = glance
+                updated, changed = sync_front_matter_glance_fields(existing, glance)
+                if changed:
+                    with open(md_path, "w", encoding="utf-8") as f:
+                        f.write(updated + ("\n" if not updated.endswith("\n") else ""))
+                    existing = updated
 
         # 修复历史格式：TLDR 行末尾不应带反斜杠
         fixed, changed = normalize_meta_tldr_line(existing)
@@ -1809,7 +1929,10 @@ def process_paper(
 
     # 新文件：如果只需要速览，则不拉取 PDF/Jina 文本，直接用元数据生成页面
     if glance_only:
-        glance = generate_glance_overview(title, abstract_en, client=paper_llm_client) or build_glance_fallback(paper)
+        glance = generate_glance_overview(title, abstract_en, client=paper_llm_client) or build_glance_fallback(
+            paper,
+            include_detail_fields=should_use_complete_glance_fallback(paper, section),
+        )
         if glance:
             paper["_glance_overview"] = glance
         tags_list = build_tags_list(section, paper.get("llm_tags") or [])
@@ -1835,7 +1958,10 @@ def process_paper(
 
     zh_title, zh_abstract = translate_title_and_abstract_to_zh(title, abstract_en, client=paper_llm_client)
     tags_list = build_tags_list(section, paper.get("llm_tags") or [])
-    glance = generate_glance_overview(title, abstract_en, client=paper_llm_client) or build_glance_fallback(paper)
+    glance = generate_glance_overview(title, abstract_en, client=paper_llm_client) or build_glance_fallback(
+        paper,
+        include_detail_fields=should_use_complete_glance_fallback(paper, section),
+    )
     if glance:
         paper["_glance_overview"] = glance
     content = build_markdown_content(paper, section, zh_title, zh_abstract, tags_list)

@@ -338,7 +338,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.mod.LLM_CLIENT = None
         try:
             brief = self.mod.build_daily_brief_summary(
-                "热点论文筛选 · 最近 30 天 · 具身智能公司领衔",
+                "热点论文筛选 · 最近 30 天 · 具身智能公司相关",
                 [],
                 [("paper-1", "Robot Foundation Model", [("score", "8.0")])],
                 1,
@@ -354,19 +354,19 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
     def test_day_report_displays_recommend_warnings(self):
         md = self.mod.build_day_report_markdown(
             "hot-20260701-test",
-            "热点论文筛选 · 最近 30 天 · 具身智能公司领衔",
+            "热点论文筛选 · 最近 30 天 · 具身智能公司相关",
             [],
             [],
             True,
             [
                 "OpenAlex 查询失败：具身智能 / embodied AI: HTTPError: HTTP Error 503",
-                "arXiv fallback 未发现 first/last author affiliation 明确匹配具身智能公司的论文；已拒绝 title/abstract/query 文本命中，避免误判公司领衔。",
+                "arXiv fallback 未发现 title/abstract/first-last author affiliation 明确匹配具身智能公司或平台的论文；已拒绝 search query 本身命中，避免把检索词误当作论文证据。",
             ],
         )
 
         self.assertIn("## 运行提示", md)
         self.assertIn("OpenAlex 查询失败", md)
-        self.assertIn("已拒绝 title/abstract/query 文本命中", md)
+        self.assertIn("已拒绝 search query 本身命中", md)
         self.assertIn("> 本次触发没有产出可推荐论文。", md)
 
     def test_update_sidebar_links_empty_hot_run_and_prunes_old_hot_runs(self):
@@ -394,7 +394,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
                 [],
                 [],
                 {},
-                date_label="热点论文筛选 · 最近 30 天 · 具身智能公司领衔",
+                date_label="热点论文筛选 · 最近 30 天 · 具身智能公司相关",
             )
             text = sidebar.read_text(encoding="utf-8")
 

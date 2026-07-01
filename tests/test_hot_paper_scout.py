@@ -216,10 +216,11 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(paper["source"], "arxiv_fallback")
         self.assertEqual(paper["company_match"], "unitree robotics")
         self.assertEqual(paper["lead_institution_names"], ["unitree robotics"])
-        self.assertEqual(paper["institution_source"], "arxiv-author-affiliation")
+        self.assertEqual(paper["company_relation_source"], "lead-affiliation")
+        self.assertEqual(paper["institution_source"], "arxiv-lead-affiliation")
         self.assertEqual(paper["pdf_url"], "http://arxiv.org/pdf/2606.12345v1")
 
-    def test_arxiv_fallback_rejects_query_or_abstract_company_text_without_affiliation(self):
+    def test_arxiv_fallback_accepts_title_or_abstract_company_relation_without_affiliation(self):
         xml = """
         <entry xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
           <id>http://arxiv.org/abs/2606.54321v1</id>
@@ -229,6 +230,30 @@ class HotPaperScoutTest(unittest.TestCase):
           <author><name>Alice Example</name></author>
           <author><name>Bob Example</name></author>
           <link title="pdf" href="http://arxiv.org/pdf/2606.54321v1" rel="related" type="application/pdf"/>
+        </entry>
+        """
+        entry = ET.fromstring(xml)
+        paper = hot_paper_scout.arxiv_entry_to_paper(
+            entry,
+            'all:"Unitree" AND all:"embodied AI"',
+            "2026-06-01",
+            "company",
+        )
+
+        self.assertIsNotNone(paper)
+        self.assertEqual(paper["company_match"], "unitree")
+        self.assertEqual(paper["company_relation_source"], "title")
+
+    def test_arxiv_fallback_rejects_query_only_company_match(self):
+        xml = """
+        <entry xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+          <id>http://arxiv.org/abs/2606.54322v1</id>
+          <published>2026-06-30T00:00:00Z</published>
+          <title>Dexterous Humanoid Manipulation Dataset</title>
+          <summary>This dataset studies robot manipulation with a generic humanoid platform.</summary>
+          <author><name>Alice Example</name></author>
+          <author><name>Bob Example</name></author>
+          <link title="pdf" href="http://arxiv.org/pdf/2606.54322v1" rel="related" type="application/pdf"/>
         </entry>
         """
         entry = ET.fromstring(xml)
@@ -259,6 +284,7 @@ class HotPaperScoutTest(unittest.TestCase):
             "profile_tag": "embodied-ai",
             "matched_query": 'all:"Unitree" AND all:"embodied AI"',
             "company_match": "unitree",
+            "company_relation_source": "abstract",
             "institution_names": ["unitree"],
             "lead_institution_names": ["unitree"],
         }
@@ -275,10 +301,11 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(item["llm_score"], 8.0)
         self.assertEqual(item["llm_tldr_cn"], "")
         self.assertIn("query:热点论文筛选", item["llm_tags"])
-        self.assertIn("query:具身智能公司领衔", item["llm_tags"])
+        self.assertIn("query:具身智能公司相关", item["llm_tags"])
         self.assertIn("paper:arXiv:2606.12345v1", item["llm_tags"])
         self.assertIn("hot-paper-scout: arXiv fallback", item["canonical_evidence"])
-        self.assertIn("company_affiliation_match=unitree", item["canonical_evidence"])
+        self.assertIn("company_relation_match=unitree", item["canonical_evidence"])
+        self.assertIn("relation_source=abstract", item["canonical_evidence"])
         self.assertNotIn("company_text_match", item["canonical_evidence"])
         self.assertNotIn("motivation", item)
         self.assertNotIn("method", item)
@@ -310,9 +337,9 @@ class HotPaperScoutTest(unittest.TestCase):
 
         self.assertEqual(recommend_path.name, "arxiv_papers_hot-test.standard.json")
         self.assertEqual(payload["source"], "hot_paper_scout")
-        self.assertEqual(payload["deep_dive"], [])
-        self.assertEqual(len(payload["quick_skim"]), 1)
-        self.assertEqual(payload["quick_skim"][0]["id"], "2606.12345v1")
+        self.assertEqual(len(payload["deep_dive"]), 1)
+        self.assertEqual(payload["quick_skim"], [])
+        self.assertEqual(payload["deep_dive"][0]["id"], "2606.12345v1")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,6 @@ DEFAULT_DOMAIN_QUERY = (
 )
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
 EMBODIED_AI_COMPANY_ALIASES = {
-    "1x",
     "1x technologies",
     "agibot",
     "agility robotics",
@@ -52,13 +51,12 @@ EMBODIED_AI_COMPANY_ALIASES = {
     "engineai",
     "everyday robots",
     "field ai",
-    "figure",
     "figure ai",
     "fourier intelligence",
     "galbot",
     "google deepmind",
     "google robotics",
-    "intrinsic",
+    "intrinsic ai",
     "nvidia",
     "nvidia research",
     "physical intelligence",
@@ -225,7 +223,7 @@ def normalize_institution_filter(value: str) -> str:
 def institution_filter_label(value: str) -> str:
     return {
         "all": "全部机构",
-        "company": "具身智能公司领衔",
+        "company": "具身智能公司相关",
         "university": "高校",
     }.get(normalize_institution_filter(value), "全部机构")
 
@@ -282,6 +280,32 @@ def matched_embodied_ai_company_name(text: str) -> str:
     return ""
 
 
+def work_company_relation(work: dict[str, Any]) -> tuple[str, str]:
+    lead_institutions = extract_institutions(work, lead_only=True)
+    lead_names = " ".join(inst.get("name") or "" for inst in lead_institutions)
+    match = matched_embodied_ai_company_name(lead_names)
+    if match:
+        return match, "lead-affiliation"
+
+    institutions = extract_institutions(work)
+    institution_names = " ".join(inst.get("name") or "" for inst in institutions)
+    match = matched_embodied_ai_company_name(institution_names)
+    if match:
+        return match, "affiliation"
+
+    title = single_line(str(work.get("display_name") or ""))
+    match = matched_embodied_ai_company_name(title)
+    if match:
+        return match, "title"
+
+    abstract = inverted_index_to_text(work.get("abstract_inverted_index"))
+    match = matched_embodied_ai_company_name(abstract)
+    if match:
+        return match, "abstract"
+
+    return "", ""
+
+
 def work_matches_institution_filter(work: dict[str, Any], mode: str) -> bool:
     normalized = normalize_institution_filter(mode)
     if normalized == "all":
@@ -290,10 +314,8 @@ def work_matches_institution_filter(work: dict[str, Any], mode: str) -> bool:
     if normalized == "university":
         return any(inst.get("type") == "education" for inst in institutions)
     if normalized == "company":
-        lead_institutions = extract_institutions(work, lead_only=True)
-        company_scope = lead_institutions or institutions
-        names = " ".join(inst.get("name") or "" for inst in company_scope)
-        return bool(matched_embodied_ai_company_name(names))
+        company, _source = work_company_relation(work)
+        return bool(company)
     return True
 
 
@@ -341,6 +363,7 @@ def normalize_work(work: dict[str, Any], profile_tag: str, query: str) -> dict[s
     institutions = extract_institutions(work)
     lead_institutions = extract_institutions(work, lead_only=True)
     abstract = inverted_index_to_text(work.get("abstract_inverted_index"))
+    company_match, company_relation_source = work_company_relation(work)
     return {
         "id": openalex_id,
         "openalex_id": openalex_id,
@@ -361,6 +384,8 @@ def normalize_work(work: dict[str, Any], profile_tag: str, query: str) -> dict[s
         "profile_tag": profile_tag,
         "matched_query": query,
         "source": "openalex",
+        "company_match": company_match,
+        "company_relation_source": company_relation_source,
     }
 
 
@@ -404,6 +429,19 @@ def arxiv_lead_affiliation_company_match(author_records: list[dict[str, str]]) -
     return matched_embodied_ai_company_name(affiliation_text)
 
 
+def arxiv_company_relation(title: str, abstract: str, author_records: list[dict[str, str]]) -> tuple[str, str]:
+    match = arxiv_lead_affiliation_company_match(author_records)
+    if match:
+        return match, "lead-affiliation"
+    match = matched_embodied_ai_company_name(title)
+    if match:
+        return match, "title"
+    match = matched_embodied_ai_company_name(abstract)
+    if match:
+        return match, "abstract"
+    return "", ""
+
+
 def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institution_filter: str) -> dict[str, Any] | None:
     title = single_line(entry.findtext("atom:title", default="", namespaces=ARXIV_NS))
     abstract = single_line(entry.findtext("atom:summary", default="", namespaces=ARXIV_NS))
@@ -416,12 +454,11 @@ def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institut
     arxiv_id = arxiv_id_from_url(entry_id)
     doi = single_line(entry.findtext("arxiv:doi", default="", namespaces=ARXIV_NS))
     mode = normalize_institution_filter(institution_filter)
-    matched_company = arxiv_lead_affiliation_company_match(author_records)
+    matched_company, relation_source = arxiv_company_relation(title, abstract, author_records)
     if mode == "company":
-        # arXiv Atom search results do not reliably expose institutions.  Title,
-        # abstract, author names, or the search query itself are not evidence of
-        # company leadership; accept fallback items only when first/last author
-        # affiliations explicitly name an embodied-AI company.
+        # Query text is never evidence.  Accept arXiv fallback items only when
+        # the entry's own metadata (title/abstract/lead affiliation) names a
+        # relevant embodied-AI company or robot platform.
         if not matched_company:
             return None
     company_label = matched_company or "arXiv metadata"
@@ -448,7 +485,8 @@ def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institut
         "matched_query": query,
         "source": "arxiv_fallback",
         "company_match": matched_company,
-        "institution_source": "arxiv-author-affiliation" if matched_company else "",
+        "company_relation_source": relation_source,
+        "institution_source": f"arxiv-{relation_source}" if matched_company else "",
     }
 
 
@@ -503,8 +541,8 @@ def fetch_arxiv_fallback(
             time.sleep(3.0)
     if mode == "company" and not papers:
         warnings.append(
-            "arXiv fallback 未发现 first/last author affiliation 明确匹配具身智能公司的论文；"
-            "已拒绝 title/abstract/query 文本命中，避免误判公司领衔。"
+            "arXiv fallback 未发现 title/abstract/first-last author affiliation 明确匹配具身智能公司或平台的论文；"
+            "已拒绝 search query 本身命中，避免把检索词误当作论文证据。"
         )
     return list(papers.values()), warnings
 
@@ -655,7 +693,7 @@ def scout_hot_papers(
         if fallback_papers:
             warnings.append(
                 "OpenAlex 当前无可用候选，已启用 arXiv fallback；"
-                "具身智能公司模式仅接受 first/last author affiliation 明确匹配的条目。"
+                "具身智能公司相关模式仅接受论文 title/abstract/first-last author affiliation 明确匹配的条目。"
             )
         for item in fallback_papers:
             key = (item.get("doi") or item.get("id") or item.get("title") or "").lower()
@@ -735,20 +773,29 @@ def paper_recommend_evidence(paper: dict[str, Any], institution_filter: str, day
     cited = int(paper.get("cited_by_count") or 0)
     if paper.get("source") == "arxiv_fallback":
         company = str(paper.get("company_match") or "").strip()
+        relation_source = str(paper.get("company_relation_source") or "").strip()
         parts = [f"hot-paper-scout: arXiv fallback", f"window={days_window}d"]
         if company:
-            parts.append(f"company_affiliation_match={company}")
+            parts.append(f"company_relation_match={company}")
+        if relation_source:
+            parts.append(f"relation_source={relation_source}")
         if matched_query:
             parts.append(f"query={matched_query}")
-        parts.append("institution_source=arxiv-author-affiliation" if company else "institution_source=arxiv-metadata")
+        parts.append(f"institution_source=arxiv-{relation_source}" if relation_source else "institution_source=arxiv-metadata")
     else:
         institutions = ", ".join((paper.get("lead_institution_names") or paper.get("institution_names") or [])[:3])
+        company = str(paper.get("company_match") or "").strip()
+        relation_source = str(paper.get("company_relation_source") or "").strip()
         parts = [
             "hot-paper-scout: OpenAlex",
             f"window={days_window}d",
             f"cited_by_count={cited}",
             f"institution_filter={normalize_institution_filter(institution_filter)}",
         ]
+        if company:
+            parts.append(f"company_relation_match={company}")
+        if relation_source:
+            parts.append(f"relation_source={relation_source}")
         if institutions:
             parts.append(f"institutions={institutions}")
         if matched_query:
@@ -795,6 +842,7 @@ def paper_to_recommend_item(
             "cited_by_count": int(paper.get("cited_by_count") or 0),
             "matched_query": paper.get("matched_query") or "",
             "company_match": paper.get("company_match") or "",
+            "company_relation_source": paper.get("company_relation_source") or "",
             "institution_names": paper.get("institution_names") or [],
             "lead_institution_names": paper.get("lead_institution_names") or [],
         },
@@ -807,7 +855,7 @@ def write_recommend_file(
     *,
     days_window: int,
     institution_filter: str,
-    section: str = "quick",
+    section: str = "deep",
 ) -> Path:
     recommend_dir = ROOT_DIR / "archive" / result.run_token / "recommend"
     recommend_dir.mkdir(parents=True, exist_ok=True)
@@ -851,7 +899,7 @@ def write_outputs(
         result,
         days_window=days_window,
         institution_filter=institution_filter,
-        section="quick",
+        section="deep",
     )
     archive_dir = ROOT_DIR / "archive" / datetime.now(timezone.utc).strftime("%Y%m%d") / "hot"
     archive_dir.mkdir(parents=True, exist_ok=True)

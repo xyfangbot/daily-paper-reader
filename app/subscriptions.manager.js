@@ -900,7 +900,7 @@ window.SubscriptionsManager = (function () {
     }
     const label = {
       all: '全部机构',
-      company: '具身智能公司领衔',
+      company: '具身智能公司相关',
       university: '高校',
     }[institutionFilter] || '全部机构';
     const targetText = domainQuery || `${tags.length} 个词条`;
@@ -1292,7 +1292,7 @@ window.SubscriptionsManager = (function () {
 
               <div class="dpr-hot-scout-module">
                 <div class="chat-quick-run-title">热点论文筛选</div>
-                <div class="dpr-task-danger-desc">OpenAlex · 具身智能公司领衔</div>
+                <div class="dpr-task-danger-desc">OpenAlex / arXiv · 具身智能公司相关</div>
                 <div class="dpr-hot-scout-controls">
                   <label class="dpr-hot-scout-field dpr-hot-scout-field--wide">
                     <span>领域关键词</span>
@@ -1315,7 +1315,7 @@ window.SubscriptionsManager = (function () {
                   <label class="dpr-hot-scout-field">
                     <span>机构筛选</span>
                     <select id="arxiv-admin-hot-institution" class="dpr-manual-upload-input" aria-label="热点论文机构筛选">
-                      <option value="company" selected>具身智能公司领衔</option>
+                      <option value="company" selected>具身智能公司相关</option>
                       <option value="all">全部</option>
                       <option value="university">高校</option>
                     </select>

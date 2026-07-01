@@ -16,7 +16,7 @@ on:
         required: false
         default: "30"
       institution_filter:
-        description: "all / company / university; company means embodied-AI-company-led"
+        description: "all / company / university; company means embodied-AI-company-related"
         required: false
         default: "company"
       max_results:
@@ -34,7 +34,7 @@ concurrency:
 jobs:
   scout:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 180
     env:
       PYTHONUNBUFFERED: "1"
       OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
@@ -44,13 +44,15 @@ jobs:
       SUMMARY_API_KEY: ${{ secrets.SUMMARY_API_KEY }}
       SUMMARY_BASE_URL: ${{ secrets.SUMMARY_BASE_URL }}
       SUMMARY_MODEL: ${{ secrets.SUMMARY_MODEL }}
-      DPR_LLM_REQUEST_TIMEOUT: "5"
+      DPR_LLM_REQUEST_TIMEOUT: "45"
       DPR_LLM_REQUEST_ATTEMPTS: "1"
       DPR_LLM_STRUCTURED_FORMAT: "prompt_only"
-      STEP6_STRUCTURED_MAX_TOKENS: "2048"
+      STEP6_STRUCTURED_MAX_TOKENS: "4096"
       STEP6_GLANCE_MAX_RETRIES: "1"
       PAPER_MEDIA_WEBP_QUALITY: "94"
-      PAPERCROPPER_DISABLE: "1"
+      PAPERCROPPER_IMGSZ: "1280"
+      PAPERCROPPER_DPI: "300"
+      PAPERCROPPER_PNG_DPI: "360"
 
     steps:
       - name: Checkout
@@ -63,10 +65,80 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache Python deps
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.cache/torch
+            ~/.cache/dpr-tools/papercropper
+          key: ${{ runner.os }}-dpr-hot-paper-scout-deps-v1-${{ hashFiles('requirements-paper-media.txt') }}
+
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           python -m pip install "pyyaml>=6" requests "PyMuPDF>=1.24" Pillow
+
+      - name: Prepare PaperCropper (optional)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          TOOL_DIR="$HOME/.cache/dpr-tools/papercropper"
+          SRC_DIR="$TOOL_DIR/PaperCropper"
+          MODEL_DIR="$TOOL_DIR/models"
+          MODEL_PATH="$MODEL_DIR/doclayout_yolo_docstructbench_imgsz1280_2501.pt"
+
+          mkdir -p "$TOOL_DIR" "$MODEL_DIR"
+          if [ ! -f "$SRC_DIR/extract.py" ]; then
+            rm -rf "$SRC_DIR"
+            git clone --depth 1 https://github.com/fake-learn/PaperCropper "$SRC_DIR"
+          fi
+
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torchvision==0.20.1+cpu"
+          python -m pip install -r requirements-paper-media.txt
+          python -m pip install --no-deps "doclayout-yolo==0.0.4"
+          if [ ! -f "$MODEL_PATH" ]; then
+            MODEL_DIR="$MODEL_DIR" python - <<'PY'
+          import os
+          from huggingface_hub import hf_hub_download
+
+          filename = "doclayout_yolo_docstructbench_imgsz1280_2501.pt"
+          path = hf_hub_download(
+              repo_id="juliozhao/DocLayout-YOLO-DocStructBench-imgsz1280-2501",
+              filename=filename,
+              local_dir=os.environ["MODEL_DIR"],
+              local_dir_use_symlinks=False,
+          )
+          print(path)
+          PY
+          fi
+
+          PAPERCROPPER_MODEL="$MODEL_PATH" python - <<'PY'
+          import os
+          import cv2
+          import fitz
+          import torch
+          import torchvision
+          from doclayout_yolo import YOLOv10
+
+          model_path = os.environ["PAPERCROPPER_MODEL"]
+          if not os.path.exists(model_path):
+              raise FileNotFoundError(model_path)
+          print(
+              "PaperCropper smoke OK:",
+              {
+                  "torch": torch.__version__,
+                  "torchvision": torchvision.__version__,
+                  "cv2": cv2.__version__,
+                  "fitz": getattr(fitz, "__doc__", "")[:20],
+                  "YOLOv10": YOLOv10.__name__,
+              },
+          )
+          PY
+
+          echo "PAPERCROPPER_SCRIPT=$SRC_DIR/extract.py" >> "$GITHUB_ENV"
+          echo "PAPERCROPPER_MODEL=$MODEL_PATH" >> "$GITHUB_ENV"
 
       - name: Scout hot papers
         run: |
@@ -93,7 +165,7 @@ jobs:
             exit 1
           fi
           case "${{ github.event.inputs.institution_filter }}" in
-            company) FILTER_LABEL="具身智能公司领衔" ;;
+            company) FILTER_LABEL="具身智能公司相关" ;;
             university) FILTER_LABEL="高校" ;;
             *) FILTER_LABEL="全部机构" ;;
           esac
@@ -102,9 +174,8 @@ jobs:
             --mode standard \
             --docs-dir docs \
             --sidebar-date-label "热点论文筛选 · 最近 ${{ github.event.inputs.days_window }} 天 · ${FILTER_LABEL}" \
-            --glance-only \
             --force-glance \
-            --docs-concurrency 6
+            --docs-concurrency 3
 
       - name: Commit results
         run: |

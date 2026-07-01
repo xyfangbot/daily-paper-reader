@@ -333,6 +333,24 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
             else:
                 os.environ["STEP6_GLANCE_MAX_RETRIES"] = old
 
+    def test_daily_brief_does_not_recommend_empty_deep_section(self):
+        original_client = self.mod.LLM_CLIENT
+        self.mod.LLM_CLIENT = None
+        try:
+            brief = self.mod.build_daily_brief_summary(
+                "热点论文筛选 · 最近 30 天 · 具身智能公司领衔",
+                [],
+                [("paper-1", "Robot Foundation Model", [("score", "8.0")])],
+                1,
+                "success",
+            )
+        finally:
+            self.mod.LLM_CLIENT = original_client
+
+        self.assertIn("精读 0 篇，速读 1 篇", brief)
+        self.assertIn("速读区高分论文", brief)
+        self.assertNotIn("建议先看精读区", brief)
+
     def test_maybe_generate_paper_figures_keeps_legacy_return(self):
         original = self.mod.ensure_paper_media
         self.mod.ensure_paper_media = lambda **kwargs: (

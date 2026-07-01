@@ -1001,10 +1001,15 @@ def build_daily_brief_summary(
             f"- 已完成今日生成，共收录 {total_count} 篇（精读 {len(deep_entries)} 篇，速读 {len(quick_entries)} 篇）。"
         )
 
+    if deep_preview:
+        next_step = "建议先看精读区论文的关键问题与方法。"
+    else:
+        next_step = "建议先从速读区高分论文开始筛选需要精读的候选。"
+
     fallback = (
         f"- 今日共生成 {total_count} 篇推荐（精读 {len(deep_entries)} 篇，速读 {len(quick_entries)} 篇）\n"
         + "\n".join(highlight)
-        + "\n- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。"
+        + f"\n- 这些结果覆盖了当下较热的方向，{next_step}"
     )
 
     if LLM_CLIENT is None:

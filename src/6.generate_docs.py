@@ -56,6 +56,16 @@ def resolve_step6_structured_max_tokens(default: int = 16 * 1024) -> int:
 STEP6_STRUCTURED_MAX_TOKENS = resolve_step6_structured_max_tokens()
 
 
+def resolve_step6_glance_max_retries(default: int = 3) -> int:
+    raw = os.getenv("STEP6_GLANCE_MAX_RETRIES") or os.getenv("DPR_STEP6_GLANCE_MAX_RETRIES")
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return default
+
+
 def create_llm_client() -> DeepSeekClient | None:
     if not DEEPSEEK_API_KEY:
         return None
@@ -637,7 +647,7 @@ def generate_deep_summary(
 def generate_glance_overview(
     title: str,
     abstract: str,
-    max_retries: int = 3,
+    max_retries: int | None = None,
     client: DeepSeekClient | None = None,
 ) -> str | None:
     """
@@ -648,6 +658,8 @@ def generate_glance_overview(
     if active_client is None:
         log("[WARN] 未配置 LLM_CLIENT，跳过速览生成。")
         return None
+    if max_retries is None:
+        max_retries = resolve_step6_glance_max_retries()
 
     system_prompt = "你是论文速览助手，请用中文生成信息密度高、但不冗长的论文速览。"
     payload = {"title": title, "abstract": abstract}
@@ -722,7 +734,8 @@ def generate_glance_overview(
                 log(f"[WARN] 速览生成失败（额度不足，停止重试）：{e}")
                 break
             log(f"[WARN] 速览生成失败（第 {attempt} 次）：{e}")
-            time.sleep(2 * attempt)
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
     return None
 
 
@@ -730,7 +743,7 @@ def build_glance_fallback(paper: Dict[str, Any]) -> str:
     """
     当 LLM 额度不足/不可用时的降级速览：
     - TLDR 优先用 llm_tldr_cn/llm_tldr；否则用摘要首句；
-    - 其余字段用“基于摘要的启发式”生成，保证 5 段齐全。
+    - 仅在摘要中明确出现方法/结果信号时补充对应字段，避免编造速览卡片内容。
     """
     abstract = str(paper.get("abstract") or "").strip()
     tldr = (
@@ -750,36 +763,25 @@ def build_glance_fallback(paper: Dict[str, Any]) -> str:
     if not tldr and evidence:
         tldr = evidence
     tldr = ensure_single_sentence_end(tldr or "基于摘要生成的速览信息。")
-
-    motivation = ensure_single_sentence_end(
-        first_sentence(evidence) or "本文关注一个具有代表性的研究问题，并尝试提升现有方法的效果或可解释性。"
-    )
+    lines = [f"**TLDR**：{tldr}"]
 
     method_hint = ""
     if abstract:
         m = re.search(r"(we (?:propose|present|introduce|develop)[^\\.]{0,200})\\.", abstract, re.I)
         if m:
             method_hint = m.group(1).strip()
-    method = ensure_single_sentence_end(method_hint or "方法与实现细节请参考摘要与正文。")
+    if method_hint:
+        lines.append(f"**Method**：{ensure_single_sentence_end(method_hint)}")
 
     result_hint = ""
     if abstract:
         m = re.search(r"(experiments? (?:show|demonstrate)[^\\.]{0,200})\\.", abstract, re.I)
         if m:
             result_hint = m.group(1).strip()
-    result = ensure_single_sentence_end(result_hint or "结果与对比结论请参考摘要与正文。")
+    if result_hint:
+        lines.append(f"**Result**：{ensure_single_sentence_end(result_hint)}")
 
-    conclusion = ensure_single_sentence_end("总体而言，该工作在所述任务上展示了有效性，并提供了可复用的思路或工具。")
-
-    return "\n".join(
-        [
-            f"**TLDR**：{tldr} \\",
-            f"**Motivation**：{motivation} \\",
-            f"**Method**：{method} \\",
-            f"**Result**：{result} \\",
-            f"**Conclusion**：{conclusion}",
-        ]
-    )
+    return " \\\n".join(lines)
 
 
 def build_tags_html(section: str, llm_tags: List[str]) -> str:

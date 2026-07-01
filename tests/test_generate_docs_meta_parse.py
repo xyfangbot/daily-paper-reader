@@ -304,6 +304,35 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertNotIn("figures_json", text)
         self.assertFalse(txt_exists)
 
+    def test_glance_fallback_does_not_fabricate_detail_fields(self):
+        glance = self.mod.build_glance_fallback(
+            {
+                "abstract": "We study embodied AI policies with Unitree robots.",
+                "canonical_evidence": "筛选最近 30 天内由 Unitree 相关文本命中的具身智能论文。",
+            }
+        )
+
+        self.assertIn("**TLDR**", glance)
+        self.assertNotIn("**Motivation**", glance)
+        self.assertNotIn("**Method**", glance)
+        self.assertNotIn("**Result**", glance)
+        self.assertNotIn("**Conclusion**", glance)
+        self.assertNotIn("方法与实现细节", glance)
+        self.assertNotIn("结果与对比结论", glance)
+        self.assertNotIn("适合纳入热点论文", glance)
+        self.assertNotIn("总体而言", glance)
+
+    def test_glance_retry_count_can_be_overridden_by_env(self):
+        old = os.environ.get("STEP6_GLANCE_MAX_RETRIES")
+        try:
+            os.environ["STEP6_GLANCE_MAX_RETRIES"] = "1"
+            self.assertEqual(self.mod.resolve_step6_glance_max_retries(), 1)
+        finally:
+            if old is None:
+                os.environ.pop("STEP6_GLANCE_MAX_RETRIES", None)
+            else:
+                os.environ["STEP6_GLANCE_MAX_RETRIES"] = old
+
     def test_maybe_generate_paper_figures_keeps_legacy_return(self):
         original = self.mod.ensure_paper_media
         self.mod.ensure_paper_media = lambda **kwargs: (

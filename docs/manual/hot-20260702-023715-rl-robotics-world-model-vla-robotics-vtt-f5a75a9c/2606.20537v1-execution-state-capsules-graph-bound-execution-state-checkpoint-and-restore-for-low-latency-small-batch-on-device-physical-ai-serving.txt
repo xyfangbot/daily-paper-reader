@@ -1,0 +1,671 @@
+Title: Execution-State Capsules: Graph-Bound Execution-State Checkpoint and Restore for Low-Latency, Small-Batch, On-Device Physical-AI Serving
+
+URL Source: https://arxiv.org/pdf/2606.20537v1
+
+Published Time: Fri, 19 Jun 2026 01:19:26 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Execution-State Capsules 
+
+Graph-Bound Execution-State Checkpoint and Restore for Low-Latency, Small-Batch, On-Device Physical-AI Serving Liang Su 
+
+7thuniversels@gmail.com https://github.com/flashrt-project/FlashRT 
+
+Abstract 
+
+Mainstream LLM serving reuses prefix work through paged or radix key–value (KV) caches— vLLM’s PagedAttention [ 6] and SGLang’s RadixAttention [ 15 ]—which manage one positionally addressable fragment of execution state (the KV cache) under eager or piecewise execution. Both use CUDA Graphs [ 9 ], but their graphs deliberately do not bind the KV as a self-contained buffer set: attention reads through mutable block-table inputs so a single captured graph can gather from arbitrary physical blocks. That indirection is the precondition for block reuse, but it also means the captured graph plus its bound buffers never constitute a self-contained, freezable snapshot of the whole forward pass. We present a two-layer answer for the opposite regime—extreme low latency at small batch (single- or few-stream), on-device/edge, the physical-world interactive loops of §1. First , FlashRT is a white-box, backend-facing kernel runtime (this paper evaluates its NVIDIA CUDA backend) whose hot path is a captured graph over contiguous static buffers with no block-table indirection (in the measured LLM path a single CUDA graph launch in the NVIDIA backend for the selected shape bucket; the contract equally permits a DAG of named subgraphs—granularity is a performance choice, not the abstraction). On the identical hybrid model and GPU its cold time-to-first-token is 2.6–2.8× lower than vLLM’s, a measured low-latency execution floor for this setup. Second , because that computation graph runs over a fixed, named buffer set, the complete state needed to continue the next replay at any committed token boundary is exactly that closed, named buffer set; freezing it—the execution-state capsule —is a checkpoint and restore of the graph-bound execution state , turning restore , fork , and rollback of a session into a single copy of that buffer set, and prefix reuse from a recompute problem (compute bound) into a bandwidth-bound copy-and-rebuild that preserves the floor across session reuse, branch, interruption, and re-entry. (We use “graph-bound execution state” rather than “whole graph”: the captured plan may be one graph or several subgraphs—what is checkpointed is the closed buffer set its live state depends on.) Crucially these are not two independent features: the same design choice—static contiguous buffers and graph replay over them, no block-table indirection—is simultaneously what makes the runtime fast and what makes the state freezable. The capsule rests on a minimal execution contract—three handle types, one opaque shape key, a strict mechanism-not-policy boundary—which it extends by a single mechanism. One minimal contract spans three scenarios: at the execution-mechanism level , an LLM coding agent’s warm start and a robot reinforcement-learning (RL) rollout’s episode reset are the same snapshot/restore verb, and a hierarchical planner–actor hand-off is the contract’s zero-copy buffer pass. On an RTX 5090, capsule restore is exact at the tested level: byte-identical stored state, token-identical greedy decode for the LLM, and byte-identical action replay (reported also as cosine 1.0) for a vision-language-action (VLA) diffusion policy—including a chunk-alignment condition that exact reuse of a chunked linear-attention scan requires. GPU-resident snapshot and restore are sub-millisecond (host/disk tiers add a one-time transfer), and the time-to-first-token speedup over a cold prefill widens with prefix length (3.9× at 2k to 27 × at 16 k; measured 
+
+1
+
+> arXiv:2606.20537v1 [cs.LG] 18 Jun 2026
+
+to the first base-logit token, with decode-side MTP excluded for fairness). Measured to that same TTFT, the capsule is lower than vLLM’s automatic prefix caching on the warm reuse it does ( ∼1.4–2.8×), while additionally reusing the recurrent state that block/radix caches do not expose as a first-class managed object—an ablation confirms the gain is the state mechanism, not the runtime alone (a restore that keeps the positional KV but drops the recurrent fold diverges, while the full capsule is token-exact). In one line, capsules move the unit of reuse from token-addressed KV fragments to graph-bound execution-state boundaries : this is not a better KV cache, but a latency-first runtime substrate plus a third managed object—execution state—that together define a serving design point high-throughput stacks intentionally do not optimize for. We replicate the LLM results and robot-policy mechanism tests on two unified-memory on-device systems—a Jetson AGX Thor ( sm_110 ) and a DGX Spark (GB10, sm_121 )—where the same correctness and structural properties hold; on Thor, whose cold prefill costs seconds, the cold →capsule speedup widens to 9–76 ×.
+
+# 1 Introduction 
+
+Premise and positioning. vLLM [ 6] and SGLang [ 15 ] are the state-of-the-art serving infrastruc-tures; each defines a clear, highly efficient regime—maximizing aggregate throughput under high concurrency, with KV-cache management (paging, radix prefix reuse) engineered to that end—and we take that as given, not as something to beat. By physical-AI serving we mean low-latency, small-batch (single- or few-stream) interactive inference loops whose outputs drive language, speech, or action in real time—latency-first LLMs (coding agents/assistants), voice/TTS front-ends, and vision-language-action (VLA)/robot policies—typically on one on-device or edge GPU. Our ob-servation is that under the constraints of single-stream, on-device, physical-AI serving —one or a few interactive streams, a small on-device VRAM budget, intermittent sessions bound to a control loop, and hard responsiveness deadlines—those throughput-optimized mechanisms cannot reach their peak efficiency, because the assumption that makes them efficient (many concurrent requests amortizing a shared, in-process, automatically-managed cache) does not hold. The issue is not kernel quality or implementation maturity; it is that the managed object (a positional KV cache) and its automatic retention policy are optimized for a different objective. Concretely, the limiting question in this regime is not only whether a shared prefix can be matched and its KV reused—paged and radix caches do that well, and the KV cache remains essential—but whether the system can quickly recover a valid continuation state after the interaction changes: a new turn or branch, an interrupt, a re-entry, a fresh session bound to a control loop. A positional KV cache is part of that state, not the whole control surface for it. This paper builds the serving system for that regime, and the system has two layers, because the regime needs two things: a low-overhead execution substrate that makes a single stream’s cold path cheap, and explicit control of execution state that keeps it cheap across reuse. FlashRT 1 provides both—a latency-first white-box runtime (§2) and, on top of it, the execution-state capsule (§3). The runtime establishes the low-latency execution floor; the capsule preserves that floor across session reuse, branch, interruption, and re-entry. It is a complementary design point, not a replacement. 
+
+What “latency-first” means here (and what it does not claim). We use latency-first / single-stream lowest latency in a precise sense: minimizing per-request wall-clock latency at concurrency 1,under a fixed model, precision, hardware, and correctness target, counting graph-replay and state-preparation cost but excluding tokenizer and network. “Lowest” means lowest observed among the 
+
+> 1Name note. This work is unrelated to the 2026 arXiv work “FlashRT” on efficient red-teaming for prompt injection and knowledge corruption; here FlashRT denotes a kernel-level serving/runtime system and its execution-state capsule mechanism.
+
+2open serving paths we test under this setup , not a theoretical optimum. We correspondingly do not 
+
+claim high-concurrency throughput, distributed/cluster serving, dynamic arbitrary-shape batching, or cross-node KV reuse; every comparison in this paper is single-stream (concurrency 1) latency. A serving system is defined by what it treats as the managed state object . PagedAttention [ 6]treats serving as memory management: the KV cache is paged, a block table maps logical positions to arbitrary physical blocks, and near-zero fragmentation lets the engine batch more requests. RadixAttention [ 15 ] treats it as prefix reuse: KV prefixes form a radix tree so shared prefixes across calls are matched and reused automatically. Both manage the same object—the KV cache, a positionally addressable fragment of the model’s execution state. 
+
+The unit of reuse is the central distinction. In paged or radix serving, tokens identify the reusable object: a block table maps token positions to KV pages, and a radix tree matches token prefixes to cached KV subtrees. A capsule keeps token boundaries only as metadata —a position and a prefix digest used for validation and chunk alignment (§5)—and the object it reuses is instead the 
+
+committed execution state at that boundary: the closed set of graph-bound buffers needed to continue computation, recurrent and convolution state included. Capsules thus move the unit of reuse from token-addressed KV fragments to graph-bound execution-state boundaries .This paper introduces a third managed object. FlashRT captures the entire forward pass as a graph plan over contiguous static buffers (with no block-table indirection); the complete execution state at a committed token boundary is therefore a fixed set of named device buffers. We freeze that set into an execution-state capsule . We say graph-bound execution state (rather than whole graph ) for this closed live-buffer set , never a requirement that a deployment be captured as one monolithic CUDA graph: FlashRT may run a single graph or a DAG of named subgraphs (the contract supports both, §4), and a capsule snapshots the complete live-buffer closure at the boundary regardless—graph granularity is a performance choice. All serving verbs—warm start, fork, branch, episode reset, interruption and re-entry—become operations on capsules: state , rather than memory or prefixes, is the first-class object (Table 1). The clinching evidence is structural, not a speed claim: for the hybrid model, restoring positional KV alone is incorrect —the linear-attention recurrent fold is load-bearing—so a full capsule restore is token-exact while a KV-only restore diverges at the first token (§7.2). 
+
+Regime (the premise of this paper). We do not propose a replacement for high-throughput serving. We define and build the serving mechanism for the opposite regime: single-stream / few-stream, latency-first, on-device interactive serving for physical AI —a coding agent, a robot policy, an interactive assistant running on one consumer or edge GPU at concurrency 1. The dominant cost here is not steady-state throughput but responsiveness : warm-start time-to-first-token (TTFT) for LLMs, time-to-first-action / first-audio (TTFA) for embodied and streaming models. A coding agent resends the same large prefix every turn—system prompt, tool schemas, repository index, project memory, often 10 k– 50 k tokens—and every fresh session or branch cold-prefills it; a robot must react and re-enter within a control tick. This is the regime today’s throughput-first stacks were not built for. Paged/radix caches own high-concurrency throughput; capsules own single-stream latency and the embodied, hybrid, cross-domain cases that come with it. The two are complementary points in the design space, not competitors—and so every comparison in this paper is single-stream (concurrency 1) latency; we never make a throughput claim. Contributions. 
+
+1. A latency-first single-stream runtime substrate (§2): a white-box, backend-facing kernel runtime (evaluated here on its NVIDIA CUDA backend) whose hot path is a captured graph plan 
+
+3Table 1: Three managed objects for serving. The key difference is not whether the system uses CUDA Graphs (all do), but whether the captured graph plus its bound buffers are a freezable, self-contained execution state.             
+
+> System Managed object Addressed by Enables vLLM (PagedAttention) KV memory pages position (block) high-throughput batching SGLang (RadixAttention) KV prefix subtree prefix (radix) cross-call prefix reuse
+> FlashRT (Capsule) graph-bound execution state boundary restore / fork / rollback
+
+Table 2: The two layers, read down the stack. vLLM/SGLang optimize the top of the stack (substrate) for throughput and the middle (managed object) for automatic KV reuse; FlashRT optimizes the substrate for single-stream latency and makes the managed object the whole execution boundary under explicit policy. The capsule (middle/bottom rows) only makes sense because of the substrate row.         
+
+> Layer vLLM / SGLang FlashRT execution substrate high-throughput batching, flexible KV paging latency-first single-stream execution managed state object KV blocks / radix prefixes whole execution boundary reuse control automatic cache policy (LRU) explicit serving policy (pin/fork)
+
+over contiguous static buffers with no block-table indirection (a single backend graph replay—one CUDA graph launch on NVIDIA—in the measured LLM path, or a DAG of named subgraphs), designed for concurrency-1 on-device serving. We show it is a measured low-latency execution floor under this setup: on the identical hybrid model and GPU its cold TTFT is 2.6–2.8× below vLLM’s, with a tight latency tail (§7). We measure responsiveness (TTFT/TTFA) throughout and treat decode throughput and speculative decoding as out of scope. 2. The execution-state capsule (§3): on that substrate, the complete restorable state at a committed boundary, frozen as a fixed set of named device buffers, with four verbs (snapshot, restore, fork, rollback) and a cost model that turns prefix reuse from recompute into copy-and-rebuild. The same design choice that makes the substrate fast is what makes the state freezable. 3. A correctness envelope (§5): three layers (byte restore, state completeness, token equivalence); the stored state is byte-exact and the tested paths are token-identical under greedy decode (the VLA action replay is byte-identical, cosine 1.0)—we do not separately claim byte-identical logits. A KV-only restore (positional KV without the recurrent fold) diverges, and we identify the chunk-alignment condition under which exact reuse of a chunked linear-attention recurrent scan holds. 4. Regime evidence across the layers (§6, §7): the runtime floor, the capsule’s gain over our own cold path, and the retention-control gain over an automatic prefix cache under a target embodied working set—plus one minimal contract serving an LLM coding agent’s warm start, a robot RL rollout’s episode reset, and a planner–actor hand-off. We scope this paper deliberately thin: it establishes the mechanism, its correctness, and a controlled latency benchmark. Production multi-turn agent serving and on-robot evaluation are explicitly future work (§8). 42 The Latency-First Runtime Substrate 
+
+This is the first layer of the system and the precondition for everything after it: before the capsule manages which state to compute from, the runtime must make a single stream’s computation cheap. We first contrast the throughput-first substrate that paged/radix engines are built on with the latency-first substrate we need, then describe FlashRT’s design and the one choice that ties the runtime’s speed to the capsule’s existence. The substrate is evaluated directly in §7 (the runtime floor: cold TTFT and tail), not assumed. 
+
+The shared premise. Paged and radix KV caches rest on a common premise: the KV cache is a positionally addressable set of blocks, and the attention kernel can gather KV from arbitrary physical blocks each step. This is what lets vLLM share blocks copy-on-write and lets SGLang match the longest common prefix in a radix tree. Both systems do use CUDA Graphs for low launch overhead. In vLLM v1 the default mode runs attention eagerly (“piecewise”) while capturing the rest, or captures full decode-step graphs; in SGLang the decode step is always captured and variable-length prefill uses piecewise capture with attention split out. In every case the attention operator reads KV through a mutable block-table / index input so that one captured graph can be replayed against different physical blocks on successive steps. 
+
+Why this mechanism is mismatched to our regime. Two constraints make a block/radix design ill-suited here—by construction, not by preference. 
+
+(1) The captured graph is not a freezable state. Because attention reads KV through mutable indices into a separately managed paged pool, the graph plus its bound buffers never hold the whole forward’s state; the real KV lives in the allocator, addressed by indices that change every step. There is no fixed buffer set to freeze, fork, or rewind. FlashRT instead captures the whole forward (attention included) over contiguous static buffers with no indirection—so the bound buffers are the complete state. 
+
+(2) Hybrid recurrent state is not prefix-addressable. Our flagship LLM is a hybrid linear-attention / full-attention model. The full-attention KV is positional and can be sliced by prefix, but the linear-attention recurrent state and convolution state are a fold over the entire prefix [4, 13 ]: the state at position N is a function of all N tokens, with no sub-slice for “the first 1000 tokens.” Positional KV reuse alone cannot reconstruct this state; a radix tree of KV blocks does not expose it as a reusable object. Snapshotting the whole state does. The viewpoint flip is: others give up self-contained graph state to gain block flexibility; FlashRT keeps a closed static-buffer graph plan and buys prefix reuse back with a state snapshot. This is the crux of the differentiation, and it is sharp. Reusing a shared text prefix is not what distinguishes capsules—vLLM’s automatic prefix caching and SGLang’s radix tree already do that, and we make no claim to beat them on it. What a block/radix cache does not expose as a first-class managed object , and a capsule does, is three things: (i) reuse of hybrid recurrent state , which has no addressable block; (ii) fork of one whole boundary into N live sessions; and (iii) rollback to an earlier boundary. 
+
+To be precise about the claim: we do not argue that paged/radix engines cannot be extended to copy extra state—any system can add buffers. The distinction is whether the whole continuation state is the first-class managed object . In paged/radix systems it is not: the graph is replayable but not self-contained (attention reads KV through mutable indices into an external pool, and recurrent/conv state is managed in a separate cache), so a whole-boundary snapshot/restore/fork would mean adding a new state-snapshot object outside the KV/radix cache. That added object is precisely what we call a capsule—which FlashRT can make first-class because it already holds the 5whole committed state as a closed buffer set, not addressable fragments, while keeping the latency of static-buffer graph-plan replay. 
+
+The substrate: a white-box latency-first runtime. FlashRT is a white-box, backend-facing kernel runtime with a thin per-model pipeline, not a compiler or graph rewriter, and it is built for concurrency-1 latency rather than aggregate throughput; the backend evaluated in this paper is NVIDIA CUDA. Memory-bound operators (normalization, activations, fused residual/norm/quant, QKV split with rotary embedding) are hand-written backend kernels over contiguous buffers (CUDA kernels in the NVIDIA backend); GEMMs are thin wrappers over the backend’s vendor libraries (cuBLASLt / CUTLASS FP8 and NVFP4 on NVIDIA). Setup work (weight load, calibration, autotuning, capturing the whole forward as a graph plan) runs once in a Python frontend; in the measured LLM path the hot path is a single backend graph replay (one cudaGraphLaunch on NVIDIA) that is byte-identical to the un-captured baseline, while the contract equally permits a DAG of named subgraphs (§4)— the load-bearing property is the closed buffer set, not the graph count. This is the layer we evaluate as the runtime floor (§7): on the same hybrid model and GPU it has 2.6–2.8× lower cold TTFT than vLLM with a tight latency tail. We measure responsiveness (TTFT/TTFA) and treat steady-state decode throughput and speculative decoding as orthogonal and out of scope. 
+
+One design choice, two consequences. The decisive point is that this is not two separate features bolted together. vLLM/SGLang accept block-table indirection to win block flexibility (high throughput, many requests, low fragmentation), at the cost that the graph-bound state is never self-contained. FlashRT makes the opposite choice—static contiguous buffers and graph-plan replay over them, no indirection—and that single choice is simultaneously why the kernels are fast (no gather, byte-identical replay, no per-step launch/Python overhead) and why the forward can be captured whole so that the state at any boundary is a fixed, freezable buffer set. Latency-first execution and capsule state management are two consequences of one design choice, not two independent mechanisms. Freezing that buffer set is the capsule (§3). 
+
+# 3 Execution-State Capsules 
+
+Definition. A capsule freezes a committed execution boundary at position P into a fixed set of named device buffers. For the hybrid LLM it contains: a small fixed-size part (linear-attention recurrent state, convolution state, the multi-token-prediction (MTP) tail and compact cache with its valid range, the last hidden as an MTP seed, and boundary metadata such as cur_pos and a token-prefix digest); and the KV region (the persistent full-attention KV valid over [0 , P ), plus the long-context FP8 dequantization stage’s valid end). The small part is fixed-size and cheap to snapshot; the KV region grows with P and dominates the footprint (FP8-KV roughly halves it). Capsules are therefore taken only at meaningful boundaries—a pinned shared prefix, an episode start, a turn boundary—never on a dense token grid. 
+
+The graph executable is not the capsule. A captured graph alone (a CUDA Graph in the NVIDIA backend) is only a replayable computation —a command DAG for “how to compute”—and vLLM and SGLang capture graphs too. The capsule is that computation together with the exact buffer state at a committed boundary: the byte snapshot of the graph-bound live buffers (KV, recurrent, conv, MTP, metadata) plus the boundary descriptor. Restore copies those bytes back into the live buffers and replays the same captured graph. Low latency comes from the two stacked: 6(a) Paged / radix (vLLM, SGLang)                          
+
+> managed object: token -indexed KV
+> tokens t0. . . t N
+> radix match / block table
+> B3B0B2B1paged pool (mutable index)
+> recurrent +conv: a sep-arate cache (no block)
+> ⇒live state is spread over an indexed pool +
+> side caches: the captured graph is not self-contained
+> (b) FlashRT capsule
+> managed object: the execution state at P
+> one contiguous, graph-bound buffer set:
+> KV [0 :P)recurrent conv MTP meta
+
+snapshot : freeze the       
+
+> whole set =capsule
+> ⇒the live state is one freezable object: no indirection, no side caches
+
+Figure 1: What each system manages, drawn concretely. (a) A paged/radix engine addresses reuse by token : a radix match or block table maps token positions/prefixes to KV pages scattered in an external pool through mutable indices (shown out of order, B3B0B2B1), and the hybrid recurrent/convolution state sits in a separate cache with no addressable block—so the captured graph is replayable but its live state is spread across an indexed pool and side caches, not self-contained. 
+
+(b) FlashRT captures the forward as a graph plan over contiguous static buffers, so the committed boundary’s live state is one named, ordered buffer set {KV, recurrent, conv, MTP, meta } bound to the graph; freezing that set whole is the capsule. The unit of reuse moves from a token-addressed KV fragment to the graph-bound execution-state boundary. Table 3: Cost structure. Capsule turns shared-prefix reuse from a compute-bound recompute into a bandwidth-bound state copy. Both scale with L; the win is the slope, not a constant-time restore. 
+
+Operation Cost Scaling 
+
+snapshot freeze a small + KV buffer set Θ( bytes ), bandwidth-bound copy 
+
+restore copy bytes back + re-bind (lazy dequant) Θ( bytes ), bandwidth-bound copy cold prefill recompute the shared prefix compute-bound, ∝ prefix length 
+
+graph replay avoids launch / Python / recapture overhead, and state restore avoids prefix recompute. The new managed object is therefore the execution state , not the graph—which is why “we also use CUDA Graphs” is not the claim. What makes it freezable is that FlashRT’s graph is captured over contiguous static buffers, so the boundary state is a fixed, self-contained buffer set (Table 1); a graph whose attention reads a mutable paged pool has no such self-contained set to freeze. 
+
+Cost model. Let L be the shared-prefix length. A cold turn pays Tprefill (L + s) for prefix plus suffix s; a capsule turn pays Trestore (L) + Tappend (s). Both touch L, but at very different rates: cold 
+
+recomputes the prefix (compute-bound, and on the short route also re-captures a graph per position), whereas restore only copies the capsule’s Θ( L) bytes at memory bandwidth and re-binds a bounded boundary (the FP8 BF16 working stage is rebuilt lazily on the next read, not eagerly in restore). The benefit is the compute-vs-bandwidth asymmetry: 
+
+Tprefill (L) ≫ Trestore (L),
+
+and since prefill grows with L while a bandwidth copy of the state stays cheap, the gap widens with 
+
+L. By construction the capsule touches only prefill/TTFT, never steady-state decode. We do not 71. snapshot                
+
+> KV RCM
+> frozen capsule
+> C0(whole set)
+> 2. restore +append
+> C0KV RC+s
+> 3. fork 1→N
+> C0sess. A
+> sess. B
+> sess. C
+> 4. rollback
+> C0C1C2
+> restore earlier
+
+Figure 2: The serving verbs as operations on the buffer set (cf. Algorithm 1). 1. snapshot freezes the whole live set (KV, recurrent R, conv C, MTP M) into a tiered capsule C0. 2. restore copies 
+
+C0 back into the live buffers and appends only the new suffix s, then replays the already-captured graph —no recapture, no prefix recompute. 3. fork restores one C0 into N independent live sessions (token-exact, §7.5). 4. rollback restores an earlier committed boundary of the same session (undo a turn / retry). A hard interrupt is the host overwriting a bound sub-buffer (e.g. a subgoal) between replays—consumed on the next tick with no recapture (§7). A KV/radix object exposes none of fork 
+
+(1→N whole boundary), rollback , or recurrent-state reuse as a first-class operation (Table 11). 
+
+Algorithm 1: Capsule lifecycle over the committed boundary’s buffer closure. rollback is  
+
+> restore
+
+of an earlier boundary of the same session. 
+
+Data: live buffer set B = {KV, recurrent, conv, MTP } over contiguous static buffers; chunk size C; captured graph table Graph[key] 
+
+Function snapshot( P ):
+
+P ′ ← ⌊ P/C ⌋ · C // chunk-align the boundary (§5) 
+
+cap. bytes ← device-copy of B valid at P ′
+
+cap. desc ← (P ′, token-prefix digest , KV/dequant valid-ends )
+
+return tiered handle cap (GPU | host | disk) 
+
+Function restore( cap , suf f ix , key ):assert cap. desc.digest matches the deployment (weights, quant, kernel, bucket) 
+
+if cap not GPU-resident then promote cap // only non-sub-ms step 
+
+copy cap. bytes back into B; rebind cap. desc replay Graph[ key ]; append suf f ix // no recapture, no prefix recompute 
+
+Function fork( cap , n):return n sessions, each restore( cap, ·, ·) // one boundary → N live sessions 
+
+claim restore is O(1) : it is Θ( L) bytes of copy: the point is that copying state is far cheaper than recomputing it. 
+
+Four verbs. (i) snapshot : freeze a boundary (to GPU, host RAM, or disk). (ii) restore : copy the capsule back into the live buffers and rebuild the boundary, then reuse the same captured graphs —no recapture. (iii) fork : restore one capsule into several sessions—one prefill of a shared prefix feeds N
+
+branches (tree-of-thought, best-of-N , parallel tool-calls). (iv) rollback : restore an earlier committed boundary of the same session (undo a turn / retry from a checkpoint). Verbs (iii) and (iv) are not native to a KV/radix cache alone; supporting them as whole-session operations would require an additional state-snapshot object (the capsule makes that object explicit). Algorithm 1 gives the mechanism: each verb is a byte-copy of the boundary’s buffer closure plus a replay of the already-captured graph—never a recapture or a prefix recompute. 84 The Execution Contract 
+
+Capsules sit on a minimal C ABI with zero dependency on the kernel layer (Listing 1). It fixes 
+
+mechanism , never scenario policy .
+
+> /* Buffer: the only state primitive. KV, scales, noise, subgoal embeddings are all Buffers; the framework owns lifetime+pointer, never append/fork/evict verbs. */
+> frt_buffer frt_buffer_alloc(frt_ctx, const char* name, size_t bytes); frt_buffer frt_buffer_wrap (frt_ctx, const char* name, void* dptr, size_t); int frt_buffer_copy (frt_ctx, frt_buffer dst, size_t doff, frt_buffer src, size_t soff, size_t n, int stream);
+> /* Graph: a table ShapeKey -> captured graph-exec. Capture our own, or adopt an externally instantiated (e.g. torch) graph-exec. */
+> int frt_graph_capture(frt_graph, frt_shape_key, void(*rec)(void*,void*), void*); int frt_graph_adopt (frt_graph, frt_shape_key, void* external_graph_exec); int frt_graph_bind (frt_graph, const char* port, frt_buffer); int frt_graph_replay (frt_graph, frt_shape_key, int stream_id);
+> /* Plan: a dumb DAG of (graph,key) nodes; data dependencies only. */ /* ShapeKey: opaque u64 encoding (B,S,...); batch is one field, not an axis. */
+
+Listing 1: Core of the execution contract (abridged from the 188-line header). It sees only streams, graphs, events, and named buffers. The contract is capture-agnostic : a captured graph may wrap FlashRT kernels, torch ops, or native backend kernels, which is why one contract drives both LLM and VLA models. Two graphs sharing one Buffer on matching ports is the entire multi-model hand-off mechanism (zero copy). The mechanism-not-policy rule is a hard boundary: the contract never learns about sessions, KV append/fork/evict, or schedulers; those live one layer up (a four-layer stack: serving/ policy →
+
+flash_rt/ frontend → exec/ contract → csrc/ kernels). The capsule is the rule’s best example: it adds one mechanism to the contract—host-backed buffers plus cross-space asynchronous copy, so a capsule can be parked off-GPU—and everything else (digest matching, pinning, LRU, restore-versus-rebuild) is serving-layer policy. 
+
+Serving-layer semantics. The contract is deliberately mechanism-only, but the capsule surfaces as serving verbs one layer up (Listing 2): a session snapshots a named, tiered, optionally pinned boundary; restores it with a suffix and shape key; forks it into N branches; and a registry promotes/evicts capsules across the GPU → host → disk tiers under an explicit policy. These are the operations a serving system exposes; the contract below them never learns what a “session” is.    
+
+> cap = session.snapshot(boundary="turn", tier="gpu", pin=True) session.restore(cap, suffix=new_tokens, shape_key=key) # no recapture
+> branches = session.fork(cap, n) # 1 boundary -> N live sessions
+> session.rollback(cap_earlier) # restore an earlier committed boundary
+> registry.promote(cap, tier="gpu"); registry.evict(policy="lru")
+
+Listing 2: Serving-layer capsule semantics (policy layer, above the contract). The names denote what the serving system offers; pinning, tiering, and eviction are explicit policy, not automatic cache behaviour. 
+
+restore is the load-bearing verb; its mechanism is the small, fixed sequence of Algorithm 1 (digest check, GPU-tier promotion if needed, byte-copy of the buffer closure, metadata rebind, captured-graph replay—no recapture). Pinning is the one policy knob: a pinned capsule is exempt from evict 
+
+9while its session is live; under GPU pressure the registry demotes unpinned capsules to host/disk first, and a restore of a demoted capsule pays one promotion transfer (the only non-sub-millisecond step). 
+
+# 5 Correctness: Byte-State Restore, Token Equivalence, and Chunk Alignment 
+
+We define correctness in three layers, of increasing strength. (1) Byte restore : the stored buffers are copied back byte-for-byte—trivially exact in isolation. (2) State completeness : the capsule names every live buffer the next step depends on, with nothing dangling. We test this adversarially: snapshot, fully overwrite every live buffer with an unrelated prompt and decode it, then restore and decode—the output is token-identical to never having run the other prompt; a missed recurrent register, convolution window, MTP entry, or metadata field would diverge. (3) End-to-end equivalence :greedy decode after restore is token-identical to the path it replaces (pure restore vs. a cold prefill of the same prefix; restore +append vs. the append path; fork branches match). We verify (1)–(3); we report token-level equivalence under greedy decode and do not separately claim byte-identical logits/hidden states (only that the emitted token stream matches). 
+
+Recurrent-state completeness: the differentiator. The capsule snapshots and restores the linear-attention recurrent state and convolution state, not just the positional KV. This is the reuse a block/radix cache does not expose as a first-class object, and we verify it is exact : at a chunk-aligned boundary, restore +append reproduces a cold full prefill token-for-token, recurrent state included (below). 
+
+The chunk-alignment condition. The long chunked linear-attention prefill folds its recurrent state per chunk , so the state at a position depends on where chunk boundaries fall. A cold full prefill of length F places boundaries at multiples of the prefill chunk size C. If a capsule/append boundary 
+
+P is not a multiple of C, the append introduces a chunk split the cold prefill never had, and the two diverge under FP8 rounding (small, but it compounds through greedy decode). The fix respects model structure rather than working around it: snapshot at an aligned boundary P ′ = ⌊P/C ⌋ · C.Then restore (P ′) + append (suffix ) + decode = cold-full-prefill + decode token-for-token, with the sub-chunk remainder ( < C tokens) cheaply re-prefilled by the append. This is itself a finding: exact reuse of a chunked recurrent scan requires respecting its chunk boundaries. 
+
+# 6 One Mechanism, Three Domains 
+
+Because a capsule is just “the committed state as a set of buffers,” one contract spans LLM, VLA, and robot control. We are precise about what is unified: the LLM warm start and the robot episode reset are the same snapshot/restore verb; the planner–actor case needs no capsule and uses the contract’s zero-copy hand-off instead. The claim is therefore that one minimal contract expresses this spectrum—restore along the time axis, hand-off along the space axis—not that every scenario needs a capsule. Figure 3 draws the four scenarios concretely. 10 pinned capsule (invariant state) appended suffix / fresh input model output overwrite / interrupt                     
+
+> (a) Coding agent: warm multi-turn
+> pinned prefix C0
+> system +
+> tools +repo
+> +turn 1 answer 1
+> +turn 2 answer 2
+> each turn =
+> restore (C0)+ append (not re-prefill)
+> (b) Fork: tree-of-thought / best-of-N
+> C0
+> shared
+> branch A
+> branch B
+> branch C
+> out
+> B.1
+> one capsule →Nindepen-dent sessions (each token-exact)
+> (c) Robot RL rollout: episode reset
+> episode-init C0
+> obs/act chunk action
+> per-chunk loop
+> reset =restore (C0)
+> (d) Interrupt +re-entry
+> planner ctx (pinned)
+> subgoal act t1
+> new subgoal act t2
+> overwrite the bound subgoal buffer; next replay consumes it — no recapture
+
+Figure 3: Physical-AI serving scenarios and the capsule (cf. the verbs in Fig. 2). (a) A coding agent pins the large shared prefix as C0; every turn restore s C0 and appends only the new turn, never re-prefilling the 10 –50 k-token prefix. (b) fork restores one C0 into N independent branches (tree-of-thought, best-of-N , parallel tool-calls), each continuing token-exactly. (c) A robot RL rollout snapshots the episode-initial boundary; the host replays one action chunk per tick, and episode 
+
+reset is restore (C0)—no model/graph re-warm. (d) A planner pins its context and writes a bound 
+
+subgoal buffer the actor reads each tick; a mid-run interrupt overwrites that buffer (orange) and the next actor tick consumes the new subgoal with no graph recapture. All four are the same contract: 
+
+snapshot /restore /fork of state along the time axis (a–c) and a zero-copy bound-buffer hand-off along the space axis (d). 
+
+LLM coding agent. The boundary is a large hybrid state, so the frontend exposes a model-specific 
+
+snapshot_capsule() / restore_capsule() . A shared prefix is cold-prefilled once and pinned; each later turn, fresh session, or branch restores it and prefills only the new suffix (§7). 
+
+Robot-policy execution mechanism (offline, not an on-robot result). A monolithic while True: act(obs) rollout loop has no episode-boundary control—a real complaint from RL users who cannot stop to reset the robot. The fix is a host-side episode state machine over the contract’s interruptible, per-chunk replay: each loop iteration replays one action chunk, the host checks a termination predicate (a value-function critic, a keyboard event, or a timeout) between chunks, and reset restores the episode-initial boundary with no recapture. Here the boundary is light (a diffusion seed; in production also the observation), so the same capsule mechanism is expressed directly through the contract: a capsule is a frt Buffer; snapshot/restore is a frt device-to-device copy; no model-specific API. Episode reset is the same verb the coding agent uses. 
+
+Planner–actor hand-off (a contrast). A hierarchical planner →actor loop needs no capsule: it is a zero-copy buffer hand-off. A low-rate planner and a high-rate actor co-host in one context; the planner writes a shared subtask Buffer, the actor reads it each tick, and a mid-episode correction overwrites that Buffer so the next actor replay consumes the new goal with no recapture. This marks the boundary: a capsule restores or forks a whole session state along the time axis; a hand-off 
+
+passes a value between live models along the space axis. Both are mechanisms the contract already 11 provides. 
+
+Compute-state recovery, not physical reversal. A capsule in an embodied setting recovers 
+
+computation , never the world. The physical state—pose, object positions, pixels—changes at high frequency and is irreversible; the capsule makes no attempt to roll it back. What it restores is the 
+
+invariant computational substrate (planner context, task stack, skill phase, warm graph/runtime), which a disturbance does not invalidate; the volatile observation is always re-bound from the current world, never from the capsule. The expensive thing to rebuild after an interruption is not the motion but the computation—re-prefilling a long planner context and re-warming the runtime—and that is exactly what the capsule makes cheap. Restoring stale computation against a changed world would be unsafe, so restore is gated by 
+
+bounded re-entry : choose the recovery depth by a validity check (actor state only if the scene is essentially unchanged; otherwise the planner context with a fresh observation; otherwise a safe fallback), re-observe, verify preconditions, then resume, replan, or hand to a human. The capsule provides the mechanism (a fast, byte-exact restore of the stored computational state); the validity predicate and fallback are serving-layer safety policy. We verify only the mechanism here (byte-exact stored state, token/action-identical output, §7); a safety study and on-robot evaluation are future work (§8). 
+
+When the latency floor holds. The capsule recovers the restore-not-recompute latency floor— when the selected boundary is valid and GPU-resident—under exactly this envelope, which covers the common physical-world disturbances: (i) same deployment —identical weights, quantization/scales, kernel version, and captured-graph bucket/ShapeKey; (ii) the chosen boundary is pinned in the GPU-resident tier (host/disk tiers add a one-time transfer on promotion); (iii) the suffix falls within a captured shape bucket; (iv) for hybrid models, the boundary is chunk-aligned (§5); and (v) for embodied control, the volatile observation is re-bound from the current world and a validity check passes for the chosen depth (actor/skill/planner). A changing instruction, subgoal, or interrupt does not break the floor: the invariant substrate (planner context, skill, warm runtime) stays pinned and is restored, while only the new observation/suffix is computed. The floor does not apply when these fail—a new shape needing capture, a host/disk first restore, changed weights/quant/kernels, an unaligned hybrid boundary, or an actor-level state invalidated by the world (which falls back to planner re-entry). This is the precise envelope in which we claim stable low latency. 
+
+# 7 Evaluation 
+
+Setup. The main measurements are on a single NVIDIA GeForce RTX 5090 ( sm_120 , 33 .7 GB), CUDA 13, and the LLM/robot results are replicated on-device on a Jetson AGX Thor ( sm_110 ) and a DGX Spark (GB10, sm_121 ; both in §7.5), single-stream (concurrency 1) throughout—the regime of §1, not a throughput setting—with the hybrid LLM in NVFP4 and speculative decode via multi-token-prediction heads ( K=3) [ 7, 1]. We compare two ways to serve each turn: cold 
+
+re-prefills prefix +suffix every turn; capsule prefills the prefix once, snapshots, then per turn restores and appends only the suffix. Correctness is checked inline (cold and capsule must emit identical tokens). TTFT is wall-clock to the first base-logit token; the MTP draft-cache tail fill (decode-side speculation prep, which the prefill call otherwise runs inline) is excluded, the same convention on all devices (§7.1)—so the metric is comparable across hardware and fair against vLLM, which has no MTP. Two roles for the baselines, stated up front: vLLM is our same-hybrid-model latency baseline (§7.3); SGLang appears structurally, as the radix-prefix managed-object representative (Table 11, 12 from source), and experimentally only through a SGLang-native Higgs-TTS runtime sanity check (§7.4). We bind performance numbers to vLLM and managed-object comparison to SGLang. A same-hybrid-model SGLang latency number is deferred for fairness: it is not core to our claims (the managed-object distinction is established from source), the regime here is single-GPU single-stream, and SGLang’s current release does not support this checkpoint’s NVFP4 weight-only quantization—so a clean number is not available without re-quantizing the model or patching SGLang, both of which would be unfair. We document the full attempt and this caveat in Appendix A rather than report a forced number. Peak GPU memory is torch’s max_memory_allocated after model load, graph capture, and all resident state/capsules; for vLLM we use its reported KV-cache size and reserved GPU memory. Reproduction commands and raw artifacts are released with the code [12]. 
+
+Target workload. The regime of §1 is a concrete workload, and we state it so each experiment maps to a property of it (Table 4): concurrency 1–few; a repeated large stable prefix (system prompt, tool schemas, repo/persona context); intermittent branch/restart and interrupt/re-entry; a working set of skill/subgoal/persona contexts cycled over time; a hard TTFT/TTFA budget; a limited on-device VRAM budget; a bounded shape set; correctness requiring exact (or near-exact) state reuse; and throughput as a non-goal. Our evaluation is organized in three layers— runtime floor 
+
+(the substrate, §2), mechanism gain (capsule over our own cold path), and retention-control gain 
+
+(capsule over an automatic prefix cache under this working set)—so that the capsule’s benefit is never conflated with the runtime simply being fast. Table 4: Target workload properties and the experiment that exercises each.       
+
+> workload property experiment single-stream runtime floor cold TTFT p50/90/99 + peak mem (Tab. 6) repeated stable prefix cold-vs-capsule scaling (Tab. 7, Fig. 4) exact state reuse (hybrid) KV-only vs full-state ablation (Tab. 8) working set + residency pressure embodied loop,
+
+num_cached_tokens (Fig. 5) interruption / re-entry LLM+TTS barge-in, composed (Fig. 6) cross-model hand-off robot planner →actor + interrupt (§7) streaming TTFA Higgs TTS runtime check (Fig. 7) 
+
+Table 5: Evidence level per claim (single-stream; no high-concurrency claim).           
+
+> claim evidence not claimed runtime floor (substrate) cold TTFT p50/90/99 + peak mem (Tab. 6) decode throughput / MTP LLM capsule reuse measured TTFT + token-exact (R1, Tab. 7) high-concurrency throughput whole-state (not KV memcpy) KV-only restore diverges vs full (Tab. 8) a tuned hybrid baseline APC miss mode embodied working set +
+
+num_cached_tokens            
+
+> logs universal APC failure LLM+TTS barge-in composed :measured LLM re-entry +separate TTS term co-resident end-to-end pipeline recurrent reuse token-exact chunk-aligned (R1) + source a tuned hybrid baseline robot reset / hand-off offline graph mechanism test, cos = 1 .0on-robot task success / safety TTS runtime single-stream latency sanity check capsule reuse
+
+What we claim, and what we do not. The baseline is FlashRT’s own no-reuse cold path, which isolates the capsule mechanism (reuse vs. no reuse) within one runtime. We do not claim 13 to beat vLLM’s automatic prefix caching or SGLang’s radix tree on shared-prefix reuse, nor to win on high-concurrency throughput—those are a different design point (§2, §8). The speedup magnitude below should be read as “what reuse buys over recompute in this runtime,” and the differentiating claims are the structural ones a block/radix cache does not expose as first-class objects: recurrent-state reuse (§5), fork, and rollback, with static-buffer graph capture preserved. 
+
+Correctness gate. A pytest suite of nine tests is the correctness contract, all passing on the hardware above: pure-restore equals cold prefill; restore survives a dirtied state; restore +append equals the non-capsule append path; fork branches match; the chunk-aligned long boundary equals a cold full prefill; and the not-yet-wired long “TQ” KV mode raises rather than producing a partial capsule. Every capsule result reported below is token-exact versus its cold reference. Fork and rollback are verified token-exact, not asserted (on Thor, §7.5): from one capsule, branch A equals a cold prefill of prefix +A (0/40 mismatch) and branch B equals cold prefix +B with A̸ = B (true independent divergence, not identical replay); and rolling back—descend A, restore the earlier boundary, descend 
+
+B—yields B = cold prefix +B. This is exactly the physical-world re-entry invariant for the LLM: restore the invariant prefix, supply a changed input, get a valid different continuation equal to recomputing it. 
+
+7.1 Layer 1: the runtime floor (substrate) 
+
+Before any reuse, the substrate must make a single stream cheap, and the metric is time-to-first-token 
+
+(TTFT)—the responsiveness the regime is defined by, not throughput. TTFT convention (used throughout, all devices): TTFT is the time to the first base-logit token; the MTP draft-cache tail fill, which the prefill call otherwise runs inline, is decode-side speculation prep (out of scope, §3) and is excluded—so the measured TTFT is comparable across hardware and fair against vLLM (no MTP). We measure the runtime floor on the same hybrid model and GPU (long FP8-KV route, 
+
+4096 -token prefix, 30 repeats; Table 6). Cold TTFT is 366 .8 ms with a tight tail (p99 367 .2 ms, p90 −p50 < 0.5 ms)—the hard-responsiveness property the regime needs is met not just at the median but at the tail—and peak GPU memory is 22 .8 GB after load and graph capture, so the low latency is not bought with an outsized memory budget. Against a throughput-first runtime this same-model cold floor is 2.6–2.8× lower (Table 9); the capsule (next layer) preserves it at ∼53 ms. Table 6: Runtime floor, single-stream, 4096 -token prefix (same model/GPU; paper TTFT, MTP tail excluded). TTFT has a tight tail (p99 within ∼0.5 ms of p50) and peak memory is modest; against a throughput-first runtime the cold floor is 2.6–2.8× lower (Table 9).                    
+
+> metric p50 p90 p99 note cold TTFT (ms) 366 .8367 .2367 .2full prefix +suffix prefill capsule TTFT (ms) 53 .053 .053 .1restore +append (same run) peak GPU mem (GB) 22 .8(load +capture) capsule 224 MB
+
+The tight tail is not specific to 4k: the per-size breakdown (Table 7) shows capsule TTFT flat at 
+
+51 –57 ms and cold rising 200 → 1541 ms across 2k– 16 k, all token-exact, so the hard-responsiveness property holds across the prefix range, not at one point. 
+
+Scope: TTFT/TTFA, not decode throughput. We deliberately make the responsiveness metric (TTFT, and time-to-first-audio for streaming) the axis of every comparison, and we treat 
+
+steady-state decode throughput and speculative decoding (multi-token prediction, MTP) as out of 
+
+14 scope . They are an orthogonal accelerator of the post-first-token stream: FlashRT uses MTP and this vLLM run does not, so a head-to-head decode rate would compare two different speculation choices, not the runtime floor or the capsule mechanism. The first token comes from the base logit, so MTP does not affect TTFT; the capsule touches only prefill/first-token and never steady-state decode (§3)—so we do not characterize decode rate here. The same contiguous-static-buffer, replay-whole design that yields this TTFT floor is what makes the boundary state freezable (§2)—the next layer. 
+
+7.2 Layer 2: the capsule mechanism 
+
+Capsule operation breakdown and scaling. We isolate each capsule operation and sweep the shared-prefix length on the long FP8-KV route (chunked prefill, no per-position capture, so cold cost is genuine prefill compute), median of 15 repeats (Table 7). Table 7: Capsule cost breakdown vs. prefix length (paper TTFT: first base-logit token, MTP draft-cache tail excluded; §7.1). Snapshot, restore, and the suffix append are all small and flat; cold grows with length, so the speedup widens monotonically 3.9× → 27 ×.                                                                
+
+> prefix capsule snapshot restore append cold TTFT capsule TTFT speedup tok-exact
+> 2048 160 MB 0.3ms 0.3ms 25 ms 200 ms 51 ms 3.92 ×yes
+> 4096 224 MB 0.4ms 0.4ms 26 ms 365 ms 53 ms 6.91 ×yes
+> 8192 352 MB 0.7ms 0.7ms 28 ms 723 ms 54 ms 13 .33 ×yes
+> 16384 608 MB 1.2ms 1.2ms 28 ms 1541 ms 57 ms 26 .94 ×yes
+
+Snapshot and restore are sub-millisecond —a bandwidth-bound copy of the 160 –608 MB capsule, scaling with size—and the suffix append is flat at ∼25 –28 ms , so the capsule TTFT stays flat ( 51 –57 ms) while cold TTFT grows 200 → 1541 ms over 2k→16 k. The speedup therefore widens monotonically with prefix length , reaching 26 .94 × at 16 k and continuing toward the 10 k– 50 k prefixes a coding agent resends each turn. Output is token-exact versus a cold full prefill at every size. (Measuring TTFT to the first base-logit token—excluding the decode-side MTP draft-cache tail fill, §7.1—is what makes the append flat; an earlier draft that timed the whole prefill call counted that tail and saw a non-monotonic append. A separate short, in-GPU route is also token-exact at 
+
+89 .85 MB for a 185 -token prefix; its cold includes per-position graph capture, so we do not read its absolute TTFT as a prefill baseline.) 
+
+Not a better KV cache: the KV-only ablation. The sharpest test that the capsule is a 
+
+whole-execution-state object—not “static buffers plus a KV memcpy”—is to restore only what a positional KV cache structurally holds and show it is not enough. We snapshot a 4096 -token boundary, then decode greedily ( K=0) three ways and compare to the full-restore reference (Table 8). A full restore is token-exact. A KV-only restore—keep the positional full-attention KV, but drop the linear-attention recurrent +convolution fold (zero it)—diverges at the first token ( 97 .9% of tokens mismatch). Restoring the KV but leaving a stale recurrent fold from an unrelated prompt diverges by the third token ( 93 .8% ). The recurrent state is a fold over the whole prefix with no positional block (§2); positional KV reuse alone cannot reconstruct it, so a reuse path built on positional KV alone is wrong here, not merely slow. This is the capability the capsule adds, verified by divergence rather than asserted. 15 Table 8: KV-only vs full-state capsule ( 4096 -token boundary, greedy K=0, vs the full-restore reference). Keeping the positional KV but dropping/staling the recurrent +conv fold diverges almost immediately—the capsule’s whole-state restore is load-bearing, not a KV memcpy.                       
+
+> restore variant first divergence tokens mismatched token-exact full state (KV +recurrent +conv +MTP) —0/48 yes
+> KV only, recurrent fold dropped (zeroed) token 147 /48 (97 .9% )no KV only, recurrent fold stale (other prompt) token 345 /48 (93 .8% )no
+
+7.3 Layer 3: retention control vs an automatic cache 
+
+Versus vLLM on the same model and GPU. We compare against vLLM 0.22 .0 [6](torch 2.11 /CUDA 13 ) at its best low-latency config: NVFP4 ( compressed-tensors ), full CUDA-graph mode (not eager), automatic prefix caching (APC) on, max_num_seqs = 1 , max_model_len = 12288 ,
+
+> gpu_memory_utilization
+
+= 0 .96 (vLLM reports a 35 ,746 -token GPU KV cache here; the working-set run in Figure 5 uses 0.95 , reporting 34 ,629 tokens); the exact command and engine logs are released with the code. TTFT is wall-clock to first token ( max_tokens = 1 ); its ∼54 tok/s single-stream decode confirms a healthy, un-crippled baseline. We report absolute TTFT, not speedup ratios (a slower system shows a larger ratio). Table 9. Table 9: Absolute TTFT (ms) on the identical model/GPU (paper TTFT, MTP tail excluded; vLLM has no MTP). No reuse: FlashRT cold is 2.6–2.8× lower than vLLM. With reuse: the capsule is 1.4–2.8× lower than vLLM-APC.                              
+
+> no reuse (cold) with reuse prefix vLLM cold FlashRT cold vLLM APC FlashRT capsule
+> 2048 519 ms 200 ms 143 ms 51 ms
+> 4096 1026 ms 365 ms 76 ms 53 ms
+> 8192 2057 ms 723 ms 120 ms 54 ms
+
+The APC example—the crux of the mechanism argument. vLLM’s APC is a top-tier prefix-reuse mechanism, and on the reuse it is built for it is fast. Measured to the same first-base-logit-token TTFT (MTP excluded), the capsule’s warm reuse is nonetheless lower than an APC hit ( 51 /53 /54 vs. 
+
+143 /76 /120 ms, 1.4–2.8×): an APC hit still re-runs attention over the cached blocks and re-prefills the non-cached remainder plus the suffix, whereas a capsule restores the whole boundary as a ms-scale buffer copy and appends only the flat ∼25 ms suffix. But the magnitude is not the point we lean on; the structural point is that an APC hit is opportunistic and cache-policy-controlled —resident only while an in-process, automatically LRU-managed, positional-only cache keeps the exact prefix—whereas a capsule is an explicitly named, policy-pinned execution boundary. The miss modes we target are not a corner case for this regime—we model a common physical-AI pattern (cycling skills/subgoals, interrupt-resume) below: a fresh process, a restart, eviction under a small on-device budget (or the recurrent-retention limit measured below), an intermittent control-loop session, a not-yet-seen branch. There vLLM’s TTFT is the cold column ( 519 –2057 ms): the cold column is 
+
+APC’s miss-path latency. A GPU-resident capsule holds its 51 –54 ms reuse latency for any pinned boundary ( ∼10 –38 × below vLLM’s miss path; 27 × vs. cold at 16 k, Figure 4); host/disk-backed capsules add durability but pay a transfer on first promotion back to the GPU tier (§3). (Decode is not compared head-to-head: FlashRT uses MTP speculative decode, this vLLM run does not—and 16 2k 4k 8k 16k 
+
+> shared-prefix length (tokens)
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> time-to-first-token (ms)
+
+TTFT vs prefix length (same model, RTX 5090) 
+
+> vLLM cold = APC miss
+> FlashRT cold
+> vLLM APC (warm hit)
+> FlashRT capsule (always)
+
+Figure 4: Runtime floor and state-reuse floor, identical model/GPU, single-stream. FlashRT cold 
+
+isolates the latency-first runtime substrate (the floor); FlashRT capsule adds the state mechanism that preserves it. vLLM APC is the best-case automatic KV-cache hit; vLLM cold is its miss path (fresh process, eviction, unseen prefix—common in the embodied regime). The capsule sits below 
+
+the APC warm hit and holds its ∼53 ms for any explicitly pinned, GPU-resident boundary (not dependent on automatic cache residency), extending to 16 k where its speedup over cold is 27 ×. The vLLM comparison is reported up to 8k under the tested max_model_len = 12288 ; the 16 k point is FlashRT cold-vs-capsule scaling only. the TTFT here excludes it on both sides for fairness.) The four numbers separate the two layers cleanly (Table 10): the substrate difference is the cold column (latency-first runtime 200 vs throughput-first runtime 519 ms), and the mechanism difference is within each runtime (reuse object vs none). The capsule’s reuse latency is held by explicit pinning, whereas the APC hit is held only while the automatic cache still resides the prefix—so under the working set below, vLLM falls back to its cold (miss) row while the capsule stays on its reuse row. Table 10: Four serving paths = two substrates × {no reuse, reuse object}, at a 2048 -token prefix (ms, from Table 9). The capsule row is the runtime floor preserved by an explicitly pinned whole-boundary object. 
+
+path runtime substrate reuse object TTFT vLLM cold throughput-first none 519 
+
+vLLM APC hit throughput-first positional KV blocks (auto) 143 
+
+FlashRT cold latency-first none 200 
+
+FlashRT capsule latency-first whole boundary (pinned) 51 
+
+The embodied loop, measured. The miss path is not a corner case in this regime: we model a common physical-AI pattern—an agent cycling among several contexts (skills, subgoals, interrupt-resume), each with its own prefix. We cycle a working set of N distinct 2048 -token contexts, revisit each single-stream, and read vLLM’s per-request num_cached_tokens as ground truth (Figure 5). vLLM-APC reuses each context ( 1568 cached tokens— 2 full 784 -token hybrid blocks of the 2048 -token 17 10 20 30 40    
+
+> working-set size (k tokens cycled)
+> 100
+> 200
+> 300
+> 400
+> 500
+> revisit TTFT (ms)
+> vLLM KV capacity
+> 34.6k tok
+> Embodied loop, single-stream
+> vLLM APC
+> FlashRT capsule
+> 10 20 30 40
+> working-set size (k tokens)
+> 0
+> 250
+> 500
+> 750
+> 1000
+> 1250
+> 1500
+> APC cached tokens / revisit
+> APC cached tokens collapse
+
+Figure 5: Embodied loop, single-stream, under comparable reported device residency (capsule peak 
+
+27 .5 GB torch-allocator vs vLLM ∼30 GB reported residency; different accounting semantics, no memory-win claim). Left: an agent cycles N distinct 2048 -token contexts (skill/subgoal switch, interrupt-resume) and revisits each; vLLM-APC reverts to cold prefill once reuse collapses, the capsule stays flat. Right: ground truth—APC’s cached tokens per revisit drop 1568 → 0 at ≈ 16 ktokens, below half the reported 34 .6k full-attention KV capacity, so raw KV capacity alone does not explain the collapse; in this hybrid run the limiting path is the implementation’s hybrid/recurrent prefix-cache retention. prefix; the partial third block is not a reusable full block—TTFT 144 ms) up to a ≈ 8k-token working set; beyond that its cached-token count collapses to zero and TTFT reverts to cold prefill ( 519 ms). Critically, the collapse occurs at ≈ 16 k tokens— less than half of vLLM’s own measured 34 ,629 -token full-attention KV-cache capacity. The limiting factor in this hybrid-mode APC run is therefore not raw full-attention KV capacity alone, but the implementation’s hybrid/recurrent prefix-cache retention path (an implementation-level limit, marked experimental by vLLM—not a universal APC failure). The capsule store is explicit and persistable, so each context’s whole boundary stays pinned: TTFT is flat at ≈ 50 ms across all N (below even an APC hit), while holding all 20 contexts ( 3.4 GB of capsules) within a 27 .5 GB peak (torch allocator), comparable to vLLM’s ∼30 GB reported GPU residency—so the flat latency holds under comparable reported device residency , despite different accounting semantics. The two frameworks measure memory differently (torch allocator vs vLLM’s reported KV/reserved pool); we release both numbers and make no memory-budget win claim. vLLM offers opt-in CPU/disk KV-offload tiers that would raise the threshold, but they remain automatic, block-level, positional-only, and add transfer latency; they are not explicit per-context pinning, a session snapshot, fork, or rollback (Table 11). 
+
+What block/radix caches do not make first-class. The differentiation is not TTFT magnitude but what is a reusable object. A KV cache can share positional KV, but it does not expose a whole-boundary snapshot that includes the recurrent, convolution, MTP, and graph-bound state— supporting that would require an additional state-snapshot mechanism outside the KV/radix object. Concretely, in both baselines the recurrent state is handled by a separate, special-cased mamba cache ,not the prefix cache: vLLM logs that “prefix caching in Mamba cache ‘align’ mode is. . . experimental” and forces the 784 -token block above; SGLang’s qwen3_next attaches RadixAttention only to the full-attention layers and keeps the gated-delta-net state in a separate cache. The capsule makes 18 the entire boundary one explicit object and restores it as a single byte-exact snapshot, verified by token-exact end-to-end behavior (Table 8, 11). Table 11: Mechanism comparison: what can be reused, and how that reuse is controlled and persisted. “No” means the KV/radix managed object does not expose this as a first-class operation, not that the codebase could never be extended with an additional snapshot system (§2). ∗vLLM’s hybrid prefix caching is marked experimental and forces a 784 -token attention block. †Capsule bytes persist to host/disk, but the latency floor returns only after the runtime/graph is rebuilt and the capsule is promoted to the GPU tier (not a cross-restart warm floor). ‡Recurrent/conv state is restored within the byte snapshot and verified by end-to-end token-exactness (Table 8), not a per-buffer numerical compare.                            
+
+> vLLM APC SGLang radix FlashRT capsule
+> what is reused
+> positional (full-attn) KV yes yes yes linear-attn recurrent state exp. ∗sep. cache yes ‡
+> conv state sep. cache sep. cache yes ‡
+> how it is controlled
+> whole-boundary fork ( 1→N, incl. recurren-t/conv) no no yes
+> rollback to an earlier whole boundary no no yes
+> explicit pin / what-to-keep auto LRU auto LRU policy
+> session bytes persist across restart †no no yes
+
+7.4 Cross-domain: one contract 
+
+Multi-model interactive serving: LLM+TTS barge-in (composed estimate). The capsule mechanism spans model types. A voice assistant carries a fixed persona/system prefix; the user barges in with a new instruction. We report a composed barge-in latency— not a co-resident end-to-end pipeline measurement: we measure the LLM persona re-entry (Qwen3.6) and add a separately measured fixed TTS first-audio term ( 94 ms, the fp8 number below; co-loading 27B LLM + TTS exceeds the GPU at the long-route max_seq ). The two ways to handle the LLM persona re-entry (Figure 6): naive re-prefills the 2048 -token persona from cold; capsule restores the pinned persona and appends only the new instruction. Since the TTS term is identical for both arms, the difference is exactly the LLM persona re-entry: the capsule cuts it from ∼203 to ∼53 ms, so the composed TTFA-after-barge-in is 147 vs. 297 ms ( 2.02 ×); the capsule arm is flat ( 145 –148 ms) while the naive arm varies with re-prefill ( 296 –369 ms). This is the same restore-not-recompute advantage as the LLM working-set, in an interactive two-model framing. (One-context co-hosting itself is the contract mechanism validated by the robot hand-off, §7; a co-resident end-to-end pipeline with streaming overlap is future work.) 
+
+Runtime sanity check on a SGLang-native model: Higgs TTS. To test the same single-stream regime against SGLang where it is the well-tuned, native path, we run Higgs Audio v3 TTS (4B; its architecture ships only in sglang-omni, which is therefore the canonical reference), RTX 5090, concurrency 1 (Figure 7). The user-facing metric is time-to-first-audio (TTFA): at matched precision (bf16), FlashRT’s TTFA is 139 ms versus sglang-omni’s ∼358 ms ( 2.6× lower), and our fp8 path reaches 94 ms ( 3.8×); streaming output is cosine 1.0 vs. one-shot. Steady-state real-time factor is on par at matched precision (RTF 0.161 vs. 0.161 long) and 1.6–1.8× better in fp8. Crucially, the matched-precision per-frame compute is comparable—FlashRT’s responsiveness edge is clean, 
+
+19 naive 
+
+> (re-prefill persona)
+> capsule
+> (restore persona)
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> time-to-first-audio after barge-in (ms)
+> 297 ms
+> 147 ms
+> LLM+TTS barge-in (single-stream)
+> capsule cuts persona re-entry, 2.02x
+> LLM persona re-entry
+> TTS first-audio (fixed)
+
+Figure 6: LLM+TTS barge-in, single-stream, composed latency: measured LLM persona re-entry +
+
+a separately measured fixed TTS first-audio term ( 94 ms), not a co-resident end-to-end measurement. After an interrupt, capsule (restore the pinned persona) cuts the LLM re-entry vs naive (re-prefill); the TTS term is identical for both, so the capsule is the 2.02 × difference. 
+
+low-overhead execution and tight chunking, not a faster kernel . (FlashRT also resides in 6.6–10 .3 GB vs. 28 .3 GB, since sglang reserves a KV/batch pool unused at concurrency 1—relevant for on-device deployment, but not the point here.) This experiment does not evaluate capsules; it checks that the same latency-first execution contract also helps a different single-stream workload—supporting evidence for the runtime, not for the capsule mechanism. 
+
+Robot side (byte-identical action replay). On an FP8 advantage-conditioned (classifier-free-guidance) π0-style diffusion policy [ 10 ], the rollout boundary is snapshotted into a 640 -byte contract Buffer and restored; replaying the captured policy graph reproduces the action byte-for-byte (cosine 
+
+1.000000 ), including after the live boundary buffer is deliberately overwritten by an unrelated episode. The capsule here is literally one frt Buffer and a device-to-device copy—no model-specific API—so episode reset is the same verb as the LLM capsule. The same contract also drives VLA inference 
+
+usability for exactly the state changes this regime demands: in a planner →actor hand-off (two co-hosted Pi05 policies, one exec context, 1 : 4 multi-rate), a mid-run interrupt that injects a new subgoal overwrites a shared buffer and the next actor tick consumes it with no graph recapture 
+
+(verified). These are offline policy-graph mechanism tests , not on-robot success-rate results: they establish that episode reset, interrupt, and subgoal injection are correct, zero-recapture contract operations. Quantified on-robot rollout latency, task success, and a safety study are future work. 20 short medium long   
+
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> RTF (wall / audio sec, lower better)  Higgs TTS real-time factor (RTX 5090, conc=1)
+> SGLang bf16 (ref) FlashRT bf16 FlashRT fp8
+> SGLang
+> bf16
+> FlashRT
+> bf16
+> FlashRT
+> fp8
+> 0
+> 100
+> 200
+> 300
+> 400
+> TTFA (ms, lower better)
+> time-to-first-audio
+
+Figure 7: Higgs TTS, RTX 5090, single-stream (concurrency 1). Left: real-time factor (lower better). Right: time-to-first-audio. At matched precision (bf16) FlashRT’s TTFA is 2.6× lower than sglang-omni and per-frame RTF is on par; fp8 adds a further speedup. The edge is low-overhead execution, not a faster kernel. 
+
+7.5 On-device replication: Jetson AGX Thor (SM110) and DGX Spark (GB10) 
+
+The regime’s defining target is the edge, so we replicate the LLM and robot-policy mechanism evidence on two real on-device systems, both aarch64 with unified memory. 
+
+Jetson AGX Thor ( sm_110 ). An NVIDIA Jetson AGX Thor (aarch64, sm_110 , CUDA 13 .1,
+
+122 GiB unified LPDDR5X), same Qwen3.6 NVFP4-W4A16 model, single-stream, same paper-TTFT convention (MTP tail excluded). Every claim that held on the 5090 holds here, and the headline transfers stronger . The capsule is correct (token/byte-exact incl. the chunk-alignment condition, plus the adversarial dirtied-state test), tight-tailed (at 4k, cold p99 within ∼1 ms of p50, capsule within 
+
+∼0.5 ms), and a whole-execution-state object (KV-only restore diverges 97 .9% at the first token—the recurrent fold is load-bearing on SM110 too). Cold prefill on the edge device costs seconds (2.2–17 .9 sover 2k– 16 k), while capsule restore is a 2.5–13 ms buffer copy and the append is flat ( ∼150 ms), so the cold →capsule speedup is 9–76 ×, wider than the 5090’s 27 × because the eliminated cold cost is larger. Against vLLM 0.23 .0 on the same Thor (NVFP4-W4A16 via vLLM’s Marlin FP4-weight kernel— Thor has no native FP4, vLLM’s own warning; APC on, max_num_seqs = 1 ), absolute within-device TTFT, FlashRT wins all eight cells (Table 12): cold is 1.15 –1.21 × below vLLM’s cold, and the capsule is 1.5–4.4× below a vLLM-APC hit, widening with prefix. Robot (T4) episode reset is byte-identical (cos 1.0) through the exec contract, planner →actor hand-off with a mid-run interrupt runs with no recapture (T5), and fork and rollback are token-exact (T9, below). One honest difference from the 5090: vLLM-APC does not collapse on Thor (capsule flat 173 ms vs APC flat 664 ms to a 
+
+41 k working set), because Thor’s large unified memory gives a ∼474 k-token KV with no eviction pressure—so the APC-collapse contrast (Fig. 5) is a 5090 discrete-VRAM effect, and the Thor reuse win is simply the lower absolute capsule TTFT. (FlashRT’s MTP decode kernel on Thor is unoptimized; decode stays out of scope, the axis is TTFT.) 
+
+DGX Spark (GB10, sm_121 ). A second unified-memory on-device system—an NVIDIA DGX Spark (GB10 Grace–Blackwell, aarch64, capability (12 , 1) , 121 GiB unified LPDDR5X; same Qwen3.6 21 Table 12: Jetson AGX Thor (SM110), same model, within-device absolute TTFT (ms), paper-TTFT convention. FlashRT is lower in all eight cells; cold →capsule speedup 9–76 × (wider than the 5090’s because Thor’s cold prefill is in seconds).                      
+
+> no reuse (cold) with reuse prefix vLLM cold FlashRT cold vLLM APC FlashRT capsule
+> 2048 2529 2196 663 240
+> 4096 5197 4208 332 225
+> 8192 10121 8502 586 244
+> 16384 20748 17922 1036 236
+
+NVFP4-W4A16 model, single-stream, same paper-TTFT convention)—reproduces every property. Because its capability is not (11 , 0) , the engine auto-selects the same Blackwell frontend as the 5090 and the capsule API is inherited unchanged. The gate is token/byte-exact (incl. the chunk-alignment condition and the adversarial dirtied-state test); the tail is tight (at 4k, cold p99 within 0.5% of p50, capsule within 1.2% ); and a KV-only restore diverges at the first token while the full capsule is token-exact (whole-execution-state). Cold TTFT grows with prefix ( 0.9–6.6 s over 2k– 16 k) while the capsule is flat ( ∼183 –202 ms; restore 1.8–6.6 ms, append ∼0.1 s), so the cold →capsule speedup is 
+
+5–33 ×—smaller than Thor’s only because Spark’s faster GPU makes the eliminated cold cost smaller; the capsule TTFT itself is the same ∼0.2 s. Against vLLM 0.23 .0 (again the Marlin FP4-weight fallback—no native FP4 on sm_121 either; APC on, max_num_seqs = 1 ), FlashRT cold is 2.3–2.5×
+
+below vLLM cold and the capsule is 1.7–4.2× below a vLLM-APC hit at every prefix (Table 13); 
+
+fork and rollback are token-exact. As on Thor, vLLM-APC does not collapse out to a 41 k-token working set (the large unified KV has no eviction pressure), so the reuse win is again the lower absolute capsule TTFT. The mechanism thus holds identically across three architectures— sm_120 
+
+(5090), sm_110 (Thor), sm_121 (Spark)—and the cold →capsule multiplier simply tracks each device’s recompute cost while the capsule TTFT stays ∼0.2 s (Fig. 8). The embodied working-set picture is likewise consistent across devices (Fig. 9): the capsule revisit TTFT is flat as N distinct 2k-token contexts are cycled out to a 41 k working set on all three (5090 ∼50 ms, Thor ∼173 ms, Spark ∼186 ms; 
+
+20 pinned Spark capsules use 3.35 GB), whereas vLLM-APC collapses to a cold miss only on the 5090 (its discrete VRAM evicts past the 34 .6k-token KV) and stays flat-but-higher on Thor/Spark, whose large unified memory has no eviction pressure—so APC retention is device-dependent while capsule retention is not. Table 13: NVIDIA DGX Spark (GB10, sm_121 ), same model, within-device absolute TTFT (ms), paper-TTFT convention. FlashRT is lower in all eight cells; cold →capsule speedup 5–33 ×. vLLM-APC is non-monotonic in prefix (at 2k only part of the prefix is cached, so more is re-prefilled); the capsule TTFT is flat regardless.                      
+
+> no reuse (cold) with reuse prefix vLLM cold FlashRT cold vLLM APC FlashRT capsule
+> 2048 2122 906 571 183
+> 4096 4056 1652 302 182
+> 8192 7935 3221 482 192
+> 16384 16129 6613 839 202
+
+22 2k 4k 8k 16k 
+
+shared-prefix length (tokens) 
+
+10 2
+
+10 3
+
+10 4
+
+> time-to-first-token (ms, log)
+
+Cold vs capsule TTFT across three devices 
+
+> RTX 5090 (sm_120) cold
+> RTX 5090 (sm_120) capsule
+> DGX Spark (sm_121) cold
+> DGX Spark (sm_121) capsule
+> Jetson Thor (sm_110) cold
+> Jetson Thor (sm_110) capsule
+
+2k 4k 8k 16k 
+
+shared-prefix length (tokens) 
+
+10 
+
+20 
+
+30 
+
+40 
+
+50 
+
+60 
+
+70 
+
+> cold  capsule TTFT speedup
+> 27x
+> 33x
+> 76x
+
+Speedup widens with prefix and device cold cost 
+
+> RTX 5090 (sm_120)
+> DGX Spark (sm_121)
+> Jetson Thor (sm_110)
+
+Figure 8: Cross-device, single-stream, paper-TTFT convention (first base-logit token, MTP tail excluded). Left: cold vs capsule TTFT vs prefix length on all three devices (log scale)—cold prefill rises with prefix and is ordered by device compute (Thor > Spark > 5090), while the capsule is flat and clustered low ( ∼50 –240 ms) on every device. Right: the cold →capsule speedup widens with prefix and tracks each device’s recompute cost ( 27 × on the 5090, 33 × on Spark, 76 × on Thor at 
+
+16 k). The capsule TTFT itself stays ∼0.05 –0.24 s independent of prefix and architecture; only the eliminated cold cost differs. 5 10 15 20 25 30 35 40 
+
+working-set size (k tokens cycled) 
+
+100 
+
+200 
+
+300 
+
+400 
+
+500 
+
+600 
+
+> revisit TTFT (ms)
+> 5090 KV capacity
+> 34.6k tok
+
+Embodied working set across devices, single-stream 
+
+> RTX 5090 (sm_120) vLLM-APC
+> RTX 5090 (sm_120) capsule
+> DGX Spark (sm_121) vLLM-APC
+> DGX Spark (sm_121) capsule
+> Jetson Thor (sm_110) vLLM-APC
+> Jetson Thor (sm_110) capsule
+
+Figure 9: Embodied working set across the three devices, single-stream: revisit TTFT as N distinct 
+
+2048 -token contexts are cycled (working set 4.1–41 k tokens). The capsule (solid) is flat on every device ( ∼50 /173 /186 ms on 5090/Thor/Spark). vLLM-APC (dashed) collapses to a cold miss only on the 5090, whose discrete VRAM evicts past its 34 .6k-token KV capacity; on Thor and Spark the large unified memory keeps APC flat (but still 3–4× above the capsule). Under this pinned working set, capsule revisit latency is set by explicit residency rather than automatic cache eviction, whereas APC retention is device-dependent. 23 8 Scope and Limitations 
+
+We are deliberately explicit about boundaries. 
+
+• A capsule is a binary state blob bound to exact weights, quantization, kernel version, and graph bucketing. Persistence (disk, shared store) is for warm-starting the same deployment or sharing within a team— not a portable, cross-version, token-level text cache. 
+
+• Static-buffer graph-plan capture trades flexibility for latency. It requires a bounded set of shape variants (the ShapeKey table with LRU eviction) and a fixed maximum sequence length; this suits low-concurrency, few-shape workloads and is ill-suited to many concurrent, highly variable shapes, where paged/radix engines are the right tool. The capsule lives on the latency-first side of that trade by design, not by oversight. 
+
+• Single node, latency-first, low concurrency. The registry tiers naturally (GPU → host RAM → disk) but is single-node; large-cluster distributed KV is intentionally out of scope. We make no high-concurrency throughput claim and do not compete with paged/radix engines on their main turf. 
+
+• Capsules are opt-in and additive: they do not change the execution contract beyond the one mechanism of §4, and do not change steady-state decode. 
+
+• Production agent integration is ongoing. A controlled microbenchmark isolates the capsule mechanism; a full multi-turn server (automatic prefix matching, OpenAI-style full-history clients, graph-cache robustness) has open engineering issues and is future work. 
+
+• On-robot evaluation is future work , by us and collaborating institutions. This paper establishes the mechanism and its correctness (byte-exact stored state, token/action-identical output), not a robotics result. 
+
+• Baselines. We benchmark vLLM directly on the same hybrid model. We use SGLang primarily as the representative of the radix-prefix managed object , not as a same-model latency baseline: it serves this arch but, like vLLM, special-cases the recurrent state outside its radix cache, so the capability gap is established from source (§7). The Higgs TTS numbers are a single-stream 
+
+runtime sanity check on a model SGLang serves natively, not a substitute for a same-model capsule comparison; a same-model SGLang latency race is deferred to a follow-up. 
+
+• The long “TQ” KV mode is not yet wired; snapshot_capsule() fails loudly rather than producing a partial capsule. 
+
+# 9 Related Work 
+
+Paged and radix KV caches. PagedAttention/vLLM [ 6] manage KV memory as OS-style pages with copy-on-write sharing and automatic prefix caching; RadixAttention/SGLang [ 15 ] reuse longest common prefixes via a radix tree with cache-aware scheduling. Both manage a positional KV fragment under eager/piecewise execution; capsules manage the whole graph-bound execution state under static-buffer graph-plan capture, and additionally express fork, rollback, and hybrid recurrent-state reuse. Contiguous-KV alternatives. vAttention [ 11 ] keeps KV virtually contiguous via CUDA virtual memory rather than paging, sharing our preference for contiguity but still managing only the KV cache, not the whole graph-bound execution state. Stateful serving and shared prefixes. Unlike process checkpoint/restore [ 2], a capsule is not a full process snapshot but the model-specific graph-bound continuation state needed for the next replay; and unlike shared-prefix 24 mechanisms—Pensieve [ 14 ] caches multi-turn conversation state across requests, Hydragen [ 5] and Prompt Cache [ 3] reuse shared-prefix attention/KV state—the reused object is not KV-derived prefix state but the closed graph-bound buffer set (recurrent/conv included), and capsules add fork/rollback. CUDA Graphs [ 9] are the low-latency primitive our static-buffer graph capture builds on; mainstream serving uses them while keeping KV out of the graph, which is the distinction we draw in §2. Hybrid / linear-attention models [ 4, 13 ] have a recurrent state that is a fold over the whole prefix; we show its prefix reuse must go through a state snapshot, with a chunk-alignment condition for exactness. Checkpoint/restore and VM snapshots [2] inspire the verbs; capsules bring freeze/restore/fork to the execution state of a captured-graph inference. VLA policies. 
+
+π0-style flow/diffusion policies [ 10 , 8] are the robot models we drive; capsules provide their episode reset and warm re-entry. 
+
+# 10 Conclusion 
+
+Treating an inference session as a checkpointable, forkable object—rather than a stream over a paged cache—gives a third managed object for serving systems. By capturing the whole forward as a graph plan over contiguous static buffers, FlashRT makes the committed state a fixed buffer set; freezing it into an execution-state capsule turns prefix reuse into a bandwidth-bound copy-and-rebuild, makes fork and rollback first-class operations through the same copy-and-restore primitive, and unifies—at the execution-mechanism level—an LLM agent’s warm start with a robot rollout’s episode reset under one mechanism. Restore is byte-exact for the stored state and token-exact for the tested LLM paths, and the TTFT speedup widens with prefix length. The graph decides how to compute; the capsule decides which state to compute from; each step pays only for the current input. 
+
+# A Same-model SGLang latency: attempt and fairness caveat 
+
+For completeness we attempted a same-hybrid-model SGLang latency point to sit beside the vLLM numbers (§7.3), in a dedicated environment (SGLang 0.5.13 , transformers 5.8.1,
+
+> sgl_kernel
+
++flashinfer , same RTX 5090). The architecture is supported: transformers recognizes  
+
+> Qwen3_5ForConditionalGeneration
+
+and SGLang ships a matching model ( models/qwen3_5.py ), so the engine loads the config and begins building the model . It then aborts inside the compressed-tensors 
+
+quantization path: our checkpoint is NVFP4 weight-only (W4A16— weights : 4-bit float, 
+
+> input_activations
+
+: None ), and SGLang 0.5.13 ’s scheme detector has no weight-only-NVFP4 case and dereferences the absent activation-quant ( AttributeError: ’NoneType’ ...num_bits 
+
+in _is_static_tensor_w8a8 ). vLLM serves exactly this scheme (§7.3); this SGLang release does not. A clean number therefore awaits either a SGLang release that supports NVFP4-W4A16  
+
+> compressed-tensors
+
+or a re-export of the model to a SGLang-supported scheme (which would no longer be the identical checkpoint). We deliberately do not work around it by patching SGLang, rewriting the checkpoint’s quantization, or changing its model_type , since any of these yields a non-canonical, unfair configuration. We therefore report SGLang structurally (radix-prefix managed object, from source, Table 11) and experimentally only through the SGLang-native Higgs-TTS runtime check (§7.4); a same-model SGLang latency number is left to the multi-hardware follow-up. The attempt is fully reproducible: repro/sglang_qwen36_ttft.py with the environment and traceback recorded in the released artifacts. 25 References 
+
+[1] Tianle Cai, Yuhong Li, Zhengyang Geng, Hongwu Peng, Jason D. Lee, Deming Chen, and Tri Dao. Medusa: Simple LLM inference acceleration framework with multiple decoding heads. arXiv preprint arXiv:2401.10774 , 2024. [2] CRIU Project. CRIU: Checkpoint/restore in userspace. GitHub repository, https://github.com/ checkpoint-restore/criu , 2024. [3] In Gim, Guojun Chen, Seung seob Lee, Nikhil Sarda, Anurag Khandelwal, and Lin Zhong. Prompt cache: Modular attention reuse for low-latency inference. In Proceedings of Machine Learning and Systems (MLSys) , 2024. https://arxiv.org/abs/2311.04934 .[4] Albert Gu and Tri Dao. Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 , 2023. [5] Jordan Juravsky, Bradley Brown, Ryan Ehrlich, Daniel Y. Fu, Christopher Ré, and Azalia Mirhoseini. Hydragen: High-throughput LLM inference with shared prefixes. arXiv preprint arXiv:2402.05099 , 2024. [6] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language model serving with PagedAttention. In Proceedings of the 29th Symposium on Operating Systems Principles (SOSP) ,2023. https://arxiv.org/abs/2309.06180 .[7] Yaniv Leviathan, Matan Kalman, and Yossi Matias. Fast inference from transformers via speculative decoding. In International Conference on Machine Learning (ICML) , 2023. [8] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. arXiv preprint arXiv:2210.02747 , 2022. [9] NVIDIA. CUDA C++ programming guide: CUDA graphs. https://docs.nvidia.com/cuda/ cuda-c-programming-guide/ , 2024. [10] Physical Intelligence, Kevin Black, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [11] Ramya Prabhu, Ajay Nayak, Jayashree Mohan, Ramachandran Ramjee, and Ashish Panwar. vAttention: Dynamic memory management for serving LLMs without PagedAttention. In Proceedings of the 30th International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) , 2025. https://arxiv.org/abs/2405.04437 .[12] Liang Su. FlashRT: A white-box kernel-level inference runtime. https://github.com/ flashrt-project/FlashRT , 2026. [13] Songlin Yang, Jan Kautz, and Ali Hatamizadeh. Gated delta networks: Improving Mamba2 with delta rule. arXiv preprint arXiv:2412.06464 , 2024. [14] Lingfan Yu, Jinkun Lin, and Jinyang Li. Stateful large language model serving with Pensieve. In 
+
+Proceedings of the Twentieth European Conference on Computer Systems (EuroSys) , 2025. https: //arxiv.org/abs/2312.05516 .[15] Lianmin Zheng, Liangsheng Yin, Zhiqiang Xie, Chuyue Sun, Jeff Huang, Cody Hao Yu, Shiyi Cao, Christos Kozyrakis, Ion Stoica, Joseph E. Gonzalez, Clark Barrett, and Ying Sheng. SGLang: Efficient execution of structured language model programs. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. https://arxiv.org/abs/2312.07104 .
+
+26

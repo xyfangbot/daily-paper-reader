@@ -1213,6 +1213,10 @@ def build_daily_brief_summary(
         + f"\n- 这些结果覆盖了当下较热的方向，{next_step}"
     )
 
+    # 热点筛选报告需要严格保留计数、方向、公司等结构化信息，避免 LLM 改写时把数量说错。
+    if "热点论文筛选" in str(date_label or ""):
+        return fallback
+
     if LLM_CLIENT is None:
         return fallback
 

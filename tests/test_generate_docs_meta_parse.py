@@ -529,6 +529,27 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("公司：unitree", md)
         self.assertIn("《Unitree Humanoid Robot Learning》（8.0/10，公司：unitree）", md)
 
+    def test_hot_daily_brief_uses_deterministic_counts(self):
+        original_client = self.mod.LLM_CLIENT
+        self.mod.LLM_CLIENT = object()
+        try:
+            brief = self.mod.build_daily_brief_summary(
+                "热点论文筛选 · 最近 30 天 · 具身智能公司相关 · VLA方向",
+                [
+                    ("paper-1", "Paper One", [("score", "8.0"), ("company", "unitree")]),
+                    ("paper-2", "Paper Two", [("score", "7.0"), ("company", "physical intelligence")]),
+                    ("paper-3", "Paper Three", [("score", "6.0"), ("company", "covariant")]),
+                ],
+                [],
+                3,
+                "成功",
+            )
+        finally:
+            self.mod.LLM_CLIENT = original_client
+
+        self.assertIn("今日共生成 3 篇推荐（精读 3 篇，速读 0 篇）", brief)
+        self.assertIn("公司：unitree", brief)
+
     def test_deep_summary_fallback_preserves_expected_sections(self):
         summary = self.mod.build_deep_summary_fallback(
             {

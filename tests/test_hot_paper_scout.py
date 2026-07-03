@@ -125,6 +125,13 @@ class HotPaperScoutTest(unittest.TestCase):
         company = make_work(1, institution_name="Figure AI", institution_type="company")
         alias_company = make_work(2, institution_name="Unitree Robotics", institution_type="facility")
         generic_company = make_work(5, institution_name="OpenAI", institution_type="company")
+        unrelated_company = make_work(8, institution_name="Antea Group", institution_type="company")
+        qwen_company = make_work(
+            6,
+            title="Qwen Robotics Technical Report",
+            institution_name="Alibaba Group",
+            institution_type="company",
+        )
         university = make_work(3, institution_name="Tsinghua University", institution_type="education")
         company_not_lead = make_work(4, institution_name="Tsinghua University", institution_type="education")
         company_not_lead["authorships"].append(
@@ -143,12 +150,33 @@ class HotPaperScoutTest(unittest.TestCase):
 
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(company, "company"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(alias_company, "company"))
-        self.assertFalse(hot_paper_scout.work_matches_institution_filter(generic_company, "company"))
+        self.assertTrue(hot_paper_scout.work_matches_institution_filter(generic_company, "company"))
+        self.assertTrue(hot_paper_scout.work_matches_institution_filter(qwen_company, "company"))
+        self.assertFalse(hot_paper_scout.work_matches_institution_filter(unrelated_company, "company"))
         self.assertFalse(hot_paper_scout.work_matches_institution_filter(university, "company"))
-        self.assertFalse(hot_paper_scout.work_matches_institution_filter(company_not_lead, "company"))
+        self.assertTrue(hot_paper_scout.work_matches_institution_filter(company_not_lead, "company"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(university, "university"))
         self.assertFalse(hot_paper_scout.work_matches_institution_filter(company, "university"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(university, "all"))
+
+        parsed = hot_paper_scout.normalize_work(qwen_company, "topic", "qwen robot")
+        self.assertEqual(parsed["company_match"], "alibaba group")
+        self.assertEqual(parsed["company_relation_source"], "lead-affiliation")
+
+    def test_company_filter_rejects_product_or_platform_mentions_without_company_affiliation(self):
+        unitree_platform_paper = make_work(
+            7,
+            title="Identification of a Physics-Based Electrical Power Consumption Model for the Unitree G1 Humanoid Arm",
+            institution_name="Tsinghua University",
+            institution_type="education",
+        )
+
+        self.assertFalse(hot_paper_scout.work_matches_institution_filter(unitree_platform_paper, "company"))
+        parsed = hot_paper_scout.normalize_work(unitree_platform_paper, "topic", "humanoid robot")
+        self.assertEqual(parsed["company_match"], "")
+        self.assertEqual(parsed["company_relation_source"], "")
+        self.assertEqual(parsed["company_mention"], "unitree")
+        self.assertEqual(parsed["company_mention_source"], "title")
 
     def test_openalex_failure_returns_warning_result(self):
         result = hot_paper_scout.scout_hot_papers(
@@ -250,7 +278,7 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(paper["institution_source"], "arxiv-lead-affiliation")
         self.assertEqual(paper["pdf_url"], "http://arxiv.org/pdf/2606.12345v1")
 
-    def test_arxiv_fallback_accepts_title_or_abstract_company_relation_without_affiliation(self):
+    def test_arxiv_fallback_rejects_title_or_abstract_company_relation_without_affiliation(self):
         xml = """
         <entry xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
           <id>http://arxiv.org/abs/2606.54321v1</id>
@@ -270,9 +298,36 @@ class HotPaperScoutTest(unittest.TestCase):
             "company",
         )
 
+        self.assertIsNone(paper)
+
+    def test_arxiv_fallback_accepts_nonlead_company_affiliation(self):
+        xml = """
+        <entry xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+          <id>http://arxiv.org/abs/2606.54323v1</id>
+          <published>2026-06-30T00:00:00Z</published>
+          <title>Qwen Robotics Technical Report</title>
+          <summary>This report studies embodied policies.</summary>
+          <author><name>Alice University</name><arxiv:affiliation>Tsinghua University</arxiv:affiliation></author>
+          <author><name>Bob Company</name><arxiv:affiliation>Alibaba Cloud</arxiv:affiliation></author>
+          <author><name>Carol University</name><arxiv:affiliation>Peking University</arxiv:affiliation></author>
+          <link title="pdf" href="http://arxiv.org/pdf/2606.54323v1" rel="related" type="application/pdf"/>
+        </entry>
+        """
+        entry = ET.fromstring(xml)
+        paper = hot_paper_scout.arxiv_entry_to_paper(
+            entry,
+            'all:"Qwen" AND all:"robot"',
+            "2026-06-01",
+            "company",
+        )
+
         self.assertIsNotNone(paper)
-        self.assertEqual(paper["company_match"], "unitree")
-        self.assertEqual(paper["company_relation_source"], "title")
+        self.assertEqual(paper["company_match"], "alibaba cloud")
+        self.assertEqual(paper["company_relation_source"], "affiliation")
+        self.assertEqual(paper["institution_names"], ["alibaba cloud"])
+        self.assertEqual(paper["lead_institution_names"], [])
+        self.assertEqual(paper["company_mention"], "qwen")
+        self.assertEqual(paper["company_mention_source"], "title")
 
     def test_arxiv_fallback_rejects_query_only_company_match(self):
         xml = """
@@ -314,9 +369,9 @@ class HotPaperScoutTest(unittest.TestCase):
             "profile_tag": "embodied-ai",
             "matched_query": 'all:"Unitree" AND all:"embodied AI"',
             "company_match": "unitree",
-            "company_relation_source": "abstract",
+            "company_relation_source": "affiliation",
             "institution_names": ["unitree"],
-            "lead_institution_names": ["unitree"],
+            "lead_institution_names": [],
         }
         item = hot_paper_scout.paper_to_recommend_item(
             paper,
@@ -336,7 +391,7 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertIn("paper:arXiv:2606.12345v1", item["llm_tags"])
         self.assertIn("hot-paper-scout: arXiv fallback", item["canonical_evidence"])
         self.assertIn("company_relation_match=unitree", item["canonical_evidence"])
-        self.assertIn("relation_source=abstract", item["canonical_evidence"])
+        self.assertIn("relation_source=affiliation", item["canonical_evidence"])
         self.assertNotIn("company_text_match", item["canonical_evidence"])
         self.assertNotIn("motivation", item)
         self.assertNotIn("method", item)

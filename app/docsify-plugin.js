@@ -4695,8 +4695,9 @@ window.$docsify = {
           if (!tags || !tags.length) return '';
           return tags.map(tag => {
             const [kind, label] = tag.includes(':') ? tag.split(':', 2) : ['other', tag];
-            const css = { keyword: 'tag-green', query: 'tag-blue', paper: 'tag-pink' }[kind] || 'tag-pink';
-            return `<span class="tag-label ${css}">${escapeHtml(label)}</span>`;
+            const css = { keyword: 'tag-green', query: 'tag-blue', company: 'tag-green', paper: 'tag-pink' }[kind] || 'tag-pink';
+            const displayLabel = kind === 'company' ? `公司：${label}` : label;
+            return `<span class="tag-label ${css}">${escapeHtml(displayLabel)}</span>`;
           }).join(' ');
         };
         const renderSourceChips = (source) => {

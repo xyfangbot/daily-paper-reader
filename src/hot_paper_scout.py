@@ -764,7 +764,7 @@ def paper_recommend_tags(paper: dict[str, Any], institution_filter: str) -> list
         tags.append("paper:OpenAlex")
     company = str(paper.get("company_match") or "").strip()
     if company:
-        tags.append(f"query:{company}")
+        tags.append(f"company:{company}")
     return list(dict.fromkeys(tag for tag in tags if tag))
 
 

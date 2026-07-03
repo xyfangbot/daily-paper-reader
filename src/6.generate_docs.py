@@ -973,9 +973,11 @@ def build_tags_html(section: str, llm_tags: List[str]) -> str:
         css = {
             "query": "tag-blue",
             "paper": "tag-pink",
+            "company": "tag-green",
         }.get(kind, "tag-pink")
+        display_label = f"公司：{label}" if kind == "company" else label
         tags_html.append(
-            f'<span class="tag-label {css}">{html.escape(label)}</span>'
+            f'<span class="tag-label {css}">{html.escape(display_label)}</span>'
         )
     return " ".join(tags_html)
 
@@ -1119,6 +1121,9 @@ def _format_entry_tags(tags: List[Tuple[str, str]]) -> str:
             continue
         if not v:
             continue
+        if k == "company":
+            labels.append(f"公司：{v}")
+            continue
         if k in ("keyword", "query", "paper"):
             labels.append(f"{k}:{v}")
         else:
@@ -1139,6 +1144,20 @@ def _entry_score_text(tags: List[Tuple[str, str]]) -> str:
     return ""
 
 
+def _entry_company_text(tags: List[Tuple[str, str]]) -> str:
+    companies: List[str] = []
+    seen: set[str] = set()
+    for kind, label in tags or []:
+        if (kind or "").strip() != "company":
+            continue
+        v = (label or "").strip()
+        if not v or v in seen:
+            continue
+        seen.add(v)
+        companies.append(v)
+    return "、".join(companies)
+
+
 def build_daily_brief_summary(
     date_label: str,
     deep_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
@@ -1152,7 +1171,9 @@ def build_daily_brief_summary(
     def _format_preview_item(paper_id: str, title: str, tags: List[Tuple[str, str]]) -> str:
         name = ((title or "").strip() or paper_id)
         score = _entry_score_text(tags)
-        return f"《{name}》（{score}）" if score else f"《{name}》"
+        company = _entry_company_text(tags)
+        suffix_parts = [part for part in [score, f"公司：{company}" if company else ""] if part]
+        return f"《{name}》（{'，'.join(suffix_parts)}）" if suffix_parts else f"《{name}》"
 
     deep_preview = [_format_preview_item(paper_id, title, tags) for paper_id, title, tags in deep_entries[:2] if (title or paper_id)]
     quick_preview = [_format_preview_item(paper_id, title, tags) for paper_id, title, tags in quick_entries[:3] if (title or paper_id)]
@@ -1304,7 +1325,10 @@ def build_latest_report_section(
         for idx, (paper_id, title, tags) in enumerate(deep_entries, start=1):
             safe_title = (title or "").strip() or paper_id
             evidence = (paper_evidence_by_id.get(str(paper_id).strip(), "") or "").strip()
+            company = _entry_company_text(tags)
             lines.append(f"{idx}. [{safe_title}]({build_docsify_id_href(paper_id)})  ")
+            if company:
+                lines.append(f"   公司：{company}")
             lines.append(f"   标签：{_format_entry_tags(tags)}")
             if evidence:
                 lines.append(f"   evidence：{evidence}")
@@ -1316,7 +1340,10 @@ def build_latest_report_section(
         for idx, (paper_id, title, tags) in enumerate(quick_entries, start=1):
             safe_title = (title or "").strip() or paper_id
             evidence = (paper_evidence_by_id.get(str(paper_id).strip(), "") or "").strip()
+            company = _entry_company_text(tags)
             lines.append(f"{idx}. [{safe_title}]({build_docsify_id_href(paper_id)})  ")
+            if company:
+                lines.append(f"   公司：{company}")
             lines.append(f"   标签：{_format_entry_tags(tags)}")
             if evidence:
                 lines.append(f"   evidence：{evidence}")
@@ -1330,7 +1357,7 @@ def normalize_sidebar_tag(tag: str) -> str:
     text = (tag or "").strip()
     if not text:
         return ""
-    for prefix in ("keyword:", "query:", "paper:", "ref:", "cite:"):
+    for prefix in ("keyword:", "query:", "paper:", "company:", "ref:", "cite:"):
         if text.startswith(prefix):
             return text[len(prefix) :].strip()
     return text
@@ -1341,6 +1368,7 @@ def split_sidebar_tag(tag: str) -> Tuple[str, str]:
     将 tag 解析为 (kind, label)：
     - keyword:xxx -> ("keyword", "xxx")
     - query:xxx   -> ("query", "xxx")
+    - company:xxx -> ("company", "xxx")
     - paper/ref/cite:xxx -> ("paper", "xxx")  # 预留：论文引用/跟踪标签
     - 其它 -> ("other", 原文本)
     """
@@ -1350,6 +1378,7 @@ def split_sidebar_tag(tag: str) -> Tuple[str, str]:
     for prefix, kind in (
         ("keyword:", "keyword"),
         ("query:", "query"),
+        ("company:", "company"),
         ("paper:", "paper"),
         ("ref:", "paper"),
         ("cite:", "paper"),
@@ -1421,6 +1450,7 @@ def extract_sidebar_tags(paper: Dict[str, Any], max_tags: int = 6) -> List[Tuple
     seen_labels = set()
     q: List[Tuple[str, str]] = []
     paper_tags: List[Tuple[str, str]] = []
+    company_tags: List[Tuple[str, str]] = []
     other: List[Tuple[str, str]] = []
 
     for t in raw:
@@ -1436,6 +1466,8 @@ def extract_sidebar_tags(paper: Dict[str, Any], max_tags: int = 6) -> List[Tuple
         seen_labels.add(dedup_key)
         if kind == "query":
             q.append((kind, label))
+        elif kind == "company":
+            company_tags.append((kind, label))
         elif kind == "paper":
             paper_tags.append((kind, label))
         else:
@@ -1444,8 +1476,8 @@ def extract_sidebar_tags(paper: Dict[str, Any], max_tags: int = 6) -> List[Tuple
         if max_tags > 0 and len(seen_labels) >= max_tags:
             break
 
-    # 展示顺序：评分 -> query -> 论文引用(paper) -> 其它
-    tags = q + paper_tags + other
+    # 展示顺序：评分 -> query -> 公司 -> 论文引用(paper) -> 其它
+    tags = q + company_tags + paper_tags + other
     score = paper.get("llm_score")
     score_tag = []
     if score is not None:
@@ -2187,7 +2219,10 @@ def build_day_report_markdown(
             safe_title = (title or "").strip() or paper_id
             score = _entry_score_text(_tags)
             suffix = f"（{score}）" if score else ""
+            company = _entry_company_text(_tags)
             lines.append(f"{idx}. [{safe_title}]({build_docsify_id_href(paper_id)}) {suffix}")
+            if company:
+                lines.append(f"   公司：{company}")
     else:
         lines.append("- 本次无精读推荐。")
     lines.append("")
@@ -2198,7 +2233,10 @@ def build_day_report_markdown(
             safe_title = (title or "").strip() or paper_id
             score = _entry_score_text(_tags)
             suffix = f"（{score}）" if score else ""
+            company = _entry_company_text(_tags)
             lines.append(f"{idx}. [{safe_title}]({build_docsify_id_href(paper_id)}) {suffix}")
+            if company:
+                lines.append(f"   公司：{company}")
     else:
         lines.append("- 本次无速读推荐。")
     lines.append("")

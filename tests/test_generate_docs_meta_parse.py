@@ -116,6 +116,22 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertNotIn(("query", "sr:composite"), tags)
         self.assertEqual(tags.count(("query", "sr")), 1)
 
+    def test_company_tags_are_exposed_for_reports(self):
+        paper = {
+            "llm_score": 8.0,
+            "llm_tags": [
+                "query:热点论文筛选",
+                "query:具身智能公司相关",
+                "company:unitree",
+                "paper:arXiv:2606.12345v1",
+            ],
+        }
+        tags = self.mod.extract_sidebar_tags(paper)
+
+        self.assertIn(("company", "unitree"), tags)
+        self.assertIn("公司：unitree", self.mod._format_entry_tags(tags))
+        self.assertEqual(self.mod._entry_company_text(tags), "unitree")
+
     def test_build_markdown_content_writes_media_json_front_matter(self):
         paper = {
             "title": "Figure Test",
@@ -487,6 +503,30 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("OpenAlex 查询失败", md)
         self.assertIn("已拒绝 search query 本身命中", md)
         self.assertIn("> 本次触发没有产出可推荐论文。", md)
+
+    def test_day_report_displays_company_per_paper(self):
+        original_client = self.mod.LLM_CLIENT
+        self.mod.LLM_CLIENT = None
+        try:
+            md = self.mod.build_day_report_markdown(
+                "hot-20260701-test",
+                "热点论文筛选 · 最近 30 天 · 具身智能公司相关",
+                [
+                    (
+                        "manual/hot-20260701-test/paper",
+                        "Unitree Humanoid Robot Learning",
+                        [("score", "8.0"), ("company", "unitree"), ("query", "具身智能公司相关")],
+                    )
+                ],
+                [],
+                True,
+            )
+        finally:
+            self.mod.LLM_CLIENT = original_client
+
+        self.assertIn("## 精读区", md)
+        self.assertIn("公司：unitree", md)
+        self.assertIn("《Unitree Humanoid Robot Learning》（8.0/10，公司：unitree）", md)
 
     def test_deep_summary_fallback_preserves_expected_sections(self):
         summary = self.mod.build_deep_summary_fallback(

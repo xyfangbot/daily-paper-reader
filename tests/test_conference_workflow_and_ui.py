@@ -180,6 +180,8 @@ class ConferenceWorkflowAndUiTest(unittest.TestCase):
         self.assertIn("^hot\\/[^/]+\\/README\\.md", docsify)
         self.assertIn("#\\/hot\\/[^/]+\\/(?!README$).+", docsify)
         self.assertIn("#\\/hot\\/[^/]+\\/README", docsify)
+        self.assertIn("company: 'tag-green'", docsify)
+        self.assertIn("公司：${label}", docsify)
         self.assertIn(".dpr-hot-scout-module", css)
 
     def test_manual_pdf_upload_workflow_and_ui(self):

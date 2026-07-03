@@ -302,6 +302,7 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(item["llm_tldr_cn"], "")
         self.assertIn("query:热点论文筛选", item["llm_tags"])
         self.assertIn("query:具身智能公司相关", item["llm_tags"])
+        self.assertIn("company:unitree", item["llm_tags"])
         self.assertIn("paper:arXiv:2606.12345v1", item["llm_tags"])
         self.assertIn("hot-paper-scout: arXiv fallback", item["canonical_evidence"])
         self.assertIn("company_relation_match=unitree", item["canonical_evidence"])

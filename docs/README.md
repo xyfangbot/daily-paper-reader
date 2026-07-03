@@ -7,36 +7,32 @@
 
 ## 每次日报
 - 最新运行日期：热点论文筛选 · 最近 30 天 · 具身智能公司相关 · 综合方向
-- 运行时间：2026-07-03 19:02:20 Asia/Shanghai
+- 运行时间：2026-07-03 19:12:01 Asia/Shanghai
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：4
+- 本次总论文数：3
+- 精读区：3
 - 速读区：0
-- 相关公司：alibaba group、nvidia、microsoft research、apple
+- 相关公司：alibaba group
 
 ### 今日简报（AI）
-- 今日共生成 4 篇推荐（精读 4 篇，速读 0 篇）
-- 精读：《Large Models for Time Series and Spatio-Temporal Data: A Survey and Outlook》（9.0/10，公司：alibaba group）, 《Planning-aligned Token Compression for Long-Context Autonomous Driving》（7.5/10，公司：nvidia）
+- 今日共生成 3 篇推荐（精读 3 篇，速读 0 篇）
+- 精读：《Qwen-RobotWorld Technical Report: Unifying Embodied World Modeling through Language-Conditioned Video Generation》（7.5/10，公司：alibaba group）, 《Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models》（7.5/10，公司：alibaba group）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/manual/hot-20260703-190056-embodied-intelligence-embodied-ai-e1bab681/README](/manual/hot-20260703-190056-embodied-intelligence-embodied-ai-e1bab681/README)
+- 详情：[/manual/hot-20260703-191057-qwen-robotmanip-qwen-robotnav-634cfa50/README](/manual/hot-20260703-191057-qwen-robotmanip-qwen-robotnav-634cfa50/README)
 
 ### 精读区论文标签
-1. [Large Models for Time Series and Spatio-Temporal Data: A Survey and Outlook](/manual/hot-20260703-190056-embodied-intelligence-embodied-ai-e1bab681/w4387724855-large-models-for-time-series-and-spatio-temporal-data-a-survey-and-outlook)  
+1. [Qwen-RobotWorld Technical Report: Unifying Embodied World Modeling through Language-Conditioned Video Generation](/manual/hot-20260703-191057-qwen-robotmanip-qwen-robotnav-634cfa50/w7164895536-qwen-robotworld-technical-report-unifying-embodied-world-modeling-through-language-conditioned-video-generation)  
    公司：alibaba group
-   标签：评分：9.0/10、query:热点论文筛选、query:综合方向、query:具身智能公司相关、公司：alibaba group、paper:OpenAlex
-   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=35; institution_filter=company; company_relation_match=alibaba group; relation_source=affiliation; institutions=Griffith University, Center for Inquiry; query=embodied intelligence
-2. [Planning-aligned Token Compression for Long-Context Autonomous Driving](/manual/hot-20260703-190056-embodied-intelligence-embodied-ai-e1bab681/w7164090126-planning-aligned-token-compression-for-long-context-autonomous-driving)  
-   公司：nvidia
-   标签：评分：7.5/10、query:热点论文筛选、query:综合方向、query:具身智能公司相关、公司：nvidia、paper:OpenAlex
-   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=nvidia; relation_source=lead-affiliation; institutions=Nvidia (United Kingdom), University of Hong Kong; query=generalist robot policy
-3. [Multi-agent Framework for Time-Sensitive Complementary Collaboration in Minecraft](/manual/hot-20260703-190056-embodied-intelligence-embodied-ai-e1bab681/w7165065507-multi-agent-framework-for-time-sensitive-complementary-collaboration-in-minecraft)  
-   公司：microsoft research
-   标签：评分：7.5/10、query:热点论文筛选、query:综合方向、query:具身智能公司相关、公司：microsoft research、paper:OpenAlex
-   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=microsoft research; relation_source=lead-affiliation; institutions=Microsoft Research Asia (China); query=generalist robot policy
-4. [Voice AI Systems in Embedded Environments: Operational Challenges in Real-Time Automotive Assistant Platforms](/manual/hot-20260703-190056-embodied-intelligence-embodied-ai-e1bab681/w7166475483-voice-ai-systems-in-embedded-environments-operational-challenges-in-real-time-automotive-assistant-platforms)  
-   公司：apple
-   标签：评分：7.5/10、query:热点论文筛选、query:综合方向、query:具身智能公司相关、公司：apple、paper:OpenAlex
-   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=apple; relation_source=lead-affiliation; institutions=Apple (Israel), Apple (United States); query=vision-language-action model
+   标签：评分：7.5/10、query:热点论文筛选、query:综合方向、query:具身智能公司相关、公司：alibaba group、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=alibaba group; relation_source=branded-title; query=Qwen-RobotWorld
+2. [Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models](/manual/hot-20260703-191057-qwen-robotmanip-qwen-robotnav-634cfa50/w7165218413-qwen-robotmanip-technical-report-alignment-unlocks-scale-for-robotic-manipulation-foundation-models)  
+   公司：alibaba group
+   标签：评分：7.5/10、query:热点论文筛选、query:综合方向、query:具身智能公司相关、公司：alibaba group、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=alibaba group; relation_source=branded-title; query=Qwen-RobotManip
+3. [Qwen-RobotNav Technical Report: A Scalable Navigation Model Designed for an Agentic Navigation System](/manual/hot-20260703-191057-qwen-robotmanip-qwen-robotnav-634cfa50/w7165219808-qwen-robotnav-technical-report-a-scalable-navigation-model-designed-for-an-agentic-navigation-system)  
+   公司：alibaba group
+   标签：评分：7.5/10、query:热点论文筛选、query:综合方向、query:具身智能公司相关、公司：alibaba group、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=alibaba group; relation_source=branded-title; query=Qwen-RobotNav
 
 ### 速读区论文标签
 - 本次无速读推荐。

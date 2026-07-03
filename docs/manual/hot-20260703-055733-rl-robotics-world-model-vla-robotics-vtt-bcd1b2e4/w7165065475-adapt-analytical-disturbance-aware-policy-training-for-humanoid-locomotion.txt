@@ -1,0 +1,701 @@
+Title: ADAPT: Analytical Disturbance-Aware Policy Training for Humanoid Locomotion
+
+URL Source: https://arxiv.org/pdf/2606.16542
+
+Published Time: Tue, 16 Jun 2026 02:06:19 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# ADAPT: Analytical Disturbance-Aware Policy Training for Humanoid Locomotion 
+
+Bofan Lyu 1,∗, Jindou Jia 1,∗, Kuangji Zuo 1, Yanshuo Lu 1, Shijia Han 1, Gen Li 1, Boyu Ma 1, Jingliang Li 1,
+
+Geng Li 1, Jianfei Yang 1,†
+
+> 1
+
+MARS Lab, Nanyang Technological University 
+
+> ∗
+
+Equal contribution , †Corresponding authors 
+
+Humanoids deployed in human-centered environments must handle force-interactive tasks, where external contacts introduce unexpected disturbances that disrupt locomotion accuracy and stability. Existing learning-based approaches rely on broad domain randomization, task-specific force objectives, or learning-based force estimators from motion history, each of which compromises accuracy, task trans-ferability, or out-of-distribution (OOD) robustness. We present Analytical Disturbance-Aware Policy 
+
+Training ( ADAPT ), a framework that equips humanoid policies with a physically grounded disturbance observer. The core of ADAPT is an analytical whole-body disturbance observer that estimates residual force/torque online with the accessible robot dynamics, without requiring force/torque sensors. Fed directly into the policy, the estimated disturbances give the humanoid an explicit, physics-derived sense of external force/torque that can generalize across diverse unseen scenes. Experiments on a Unitree G1 humanoid show that ADAPT achieves accurate disturbance prediction and stronger robustness than a proprioception-only baseline under torso perturbations, standing pushes, and asymmetric hand payloads, with improved velocity tracking even on OOD disturbances. Moreover, ADAPT enables penalizing inferred disturbances at lower-body joints to encourage lighter locomotion.  
+
+> Correspondence:
+
+Jianfei Yang: jianfei.yang@ntu.edu.sg , Bofan Lyu: lyub0002@e.ntu.edu.sg . 
+
+> Project:
+
+https://blyu413.github.io/adapt-locomotion/ .
+
+# 1 Introduction 
+
+Recent progress in learning-based control has greatly advanced humanoid locomotion in the real world (Ra-dosavovic et al., 2024; Liao et al., 2025; Luo et al., 2025; Yuan et al., 2026). As humanoids move toward deployment in human-centered environments, they inevitably encounter force-interactive tasks, in which robots must exert forces while adapting to the resulting reaction forces from the environment. Examples include transporting payloads (Zhang et al., 2025b; Du et al., 2025), pushing loaded carts (Li et al., 2026), opening doors (Xue et al., 2025), and interacting compliantly with humans (Chen et al., 2025; Lu et al., 2025). These physically interactive tasks inevitably introduce a wide range of unseen uncertainties that disrupt the accuracy and stability of the robot’s locomotion. How to clearly characterize these uncertainties and effectively overcome them becomes increasingly critical for reliable humanoid deployment. Existing learning-based methods have explored several ways to handle contact-rich interactive tasks. One line of work aims to improve sim-to-real robustness by exposing the policy to randomized external forces and internal dynamics variations during training (Radosavovic et al., 2024; Long et al., 2024; Zhang et al., 2025c). Another line of work explicitly incorporates force perception into loco-manipulation training for task-specific objectives such as exerting desired forces (Portela et al., 2024), producing compliant responses (Chen et al., 2025; Lu et al., 2025), or enabling force-adaptive control (Zhang et al., 2025b; Xu et al., 2025). A third direction uses learning-based force estimators that infer interaction forces from proprioceptive histories, and then feed the predicted force-related signal to the controller to form force-conditioned policies without additional force/torque sensors (Zhi et al., 2025). However, these methods either rely on broad randomization that sacrifices tracking accuracy, require task-specific design, or generalize poorly to out-of-distribution (OOD) disturbances. This motivates us to seek a more general and minimally policy-invasive disturbance-aware strategy for 1      
+
+> arXiv:2606.16542v1 [cs.RO] 15 Jun 2026 Actor 𝜋 Critic 𝑉
+> RL controller Action
+> Dynamics
+> (MuJoCo )
+> Motor
+> controller
+> Disturbance
+> observer
+> Running on 50 Hz
+> Whole -body disturbance estimation
+> …
+> Observation
+> Reward
+> Baseline ADAPT
+> Lean forward Lean sideways
+> Resist Straighten up
+> Light -footed
+> locomotion
+> Stomping
+> gait
+> Tiptoeing
+> gait
+> Unseen 4 kg
+> payload Figure 1 Overview of ADAPT. ADAPT augments RL-based humanoid control with an analytical disturbance observer that infers whole-body disturbance torques from accessible robot dynamics, proprioception, and expected motor torques. The estimated disturbances are fed into the policy as an explicit observation and used for reward shaping. This enables emergent force-aware behaviors, including push resistance, payload compensation, and light-footed locomotion.
+
+improving the robustness and generalization of humanoid policies. Physics-informed learning has been increasingly shown to be an effective path toward more robust and generalizable policies (Lutter et al., 2019; Jia et al., 2026b). Following this line of thought, we ask whether prior physical knowledge of the humanoid itself can serve as a source of disturbance awareness, one that informs policy learning and, being grounded in physics rather than data, generalizes beyond the training distribution. Analytical disturbance estimation has been extensively explored in classical robot control, exemplified by nonlinear disturbance observers (Chen et al., 2000; Jia et al., 2025) and L1 adaptive estimation (Han, 2009). Yet, integrating such analytical estimates into Reinforcement Learning (RL)-based humanoid policies to improve robustness and generalization remains an open question (Lim et al., 2025). In this work, we introduce the Analytical Disturbance-Aware Policy Training ( ADAPT ) framework for humanoid locomotion, which augments prevailing RL-based policy with explicit whole-body disturbance prediction during training. Specifically, instead of requiring the policy to infer external forces/torques only from motion histories (Portela et al., 2024; Zhi et al., 2025), we estimate unexpected forces/torques online with accessible physical knowledge and feed them directly into the policy. This gives the policy a structured and physically grounded force-related perception channel for disturbance-aware humanoid control. Notably, the analytical disturbance estimation also enables task-specific reward shaping, such as penalizing foot-joint disturbances to encourage lighter locomotion. On the technical side, we further integrate a Fast-LIO (Xu et al., 2022) based odometry module for accurate root linear velocity, which, to our knowledge, is among the earliest uses of LIO-based root velocity estimation as policy inputs in learning-based humanoid whole-body control. We validate ADAPT in both simulation and real-world experiments on a Unitree G1 humanoid. The results show that the proposed whole-body disturbance observer provides a consistent and reliable disturbance signal. With this prediction as policy input, ADAPT improves robustness against external forces, achieving better velocity tracking and smaller directional drift than a proprioception-only baseline. More importantly, the policy also shows an emergent force-aware response. Under asymmetric hand payloads never encountered during training, it actively adjusts the whole-body posture to compensate for the load. Beyond direct policy feedback, the same disturbance prediction can also support contact-aware reward shaping and behavior analysis. 
+
+# 2 Related works  
+
+> Force-aware policy learning.
+
+Handling interaction forces is central to contact-rich humanoid and legged control, where robots must apply, resist, or yield to external contacts while remaining stable. Existing learning-based methods address this challenge in several ways. Some methods improve robustness by training 2policies with randomization of internal dynamics (Radosavovic et al., 2024; Zhang et al., 2025c) and external disturbances (Zhang et al., 2025c; Long et al., 2024). Other methods introduce force interaction through task-specific objectives and rewards, enabling tasks such as payload transport (Zhang et al., 2025b), door opening (Xue et al., 2025), high-intensity pulling (Li et al., 2025), compliant interaction (Chen et al., 2025; Lu et al., 2025; Hou et al., 2025), and collaborative carrying (Du et al., 2025). Another line of work estimates or predicts force-related quantities from proprioceptive histories for direct force control (Portela et al., 2024), unified position and force control (Zhi et al., 2025), or disturbance compensation (Zhang et al., 2025a). These approaches handle external forces by broadening the training distribution, embedding interaction requirements into task objectives, or learning force-related representations from proprioceptive histories. In contrast, ADAPT leverages a physics-derived disturbance prediction with built-in generalization.  
+
+> Sensorless disturbance estimation.
+
+Some methods infer object physical properties or task feasibility from internal robot measurements and a priori physical knowledge, without relying on joint force/torque sensors (Lao et al., 2023; Han et al., 2020). They have been used for disturbance rejection, sensorless torque reasoning, fault detection, and collision monitoring for various robots (Chen et al., 2000; Chen, 2004; De Luca and Mattone, 2003; Haddadin et al., 2017). For humanoids, external torque estimation is more challenging due to high-dimensional, strongly nonlinear dynamics. MOB-Net (Lim et al., 2025) uses a momentum observer to estimate external contact wrenches, primarily for wrench feedback, collision detection, and collision reaction. BeyondMimic (Liao et al., 2025) combines the momentum observer with a Kalman filter for onboard full-state estimation during humanoid deployment. These estimated forces are commonly used for monitoring, identification, or model-based feedback. However, directly incorporating such analytical disturbance estimates into the learned policy as an explicit observation modality remains largely unexplored. 
+
+# 3 Methodology 
+
+3.1 Overview of ADAPT  
+
+> Problem formulation.
+
+The whole-body dynamics of a humanoid (Nenchev et al., 2018) can be formalized as 
+
+M (q) ˙ v + C(q, v )v + g(q) = τm + τe, (1) where q ∈ Rnj +7 and v ∈ Rnj +6 are the generalized coordinate and velocity, and nj denote the number of actuated joints in the humanoid. The dimension mismatch comes from the floating-base representation: q
+
+includes a 3D base position and a 4D unit quaternion, whereas v includes 3D base linear and 3D angular velocities. M (q) is the nominal inertia matrix, C(q, v )v is the nominal Coriolis and centrifugal term, g(q)
+
+is the nominal gravity term, τm is the generalized actuation force induced by joint motors, and τe denotes the generalized disturbance. In practice, τe captures the combined effect of external contacts (e.g., payloads, environmental reactions, human interaction) and internal model mismatch (e.g., friction, inertial uncertainty) on the robot’s generalized motion. Direct access to τe, however, is difficult in practice. Humanoid robots are rarely equipped with a whole-body force/torque sensor. Meanwhile, directly computing τe through Eq. (1) requires the generalized acceleration ˙v,whose estimation is highly susceptible to sensor noise and numerical differentiation errors. Existing force-aware policies often obtain disturbance cues through task-specific curricula (Chen et al., 2025) or learned force estimators from motion history (Zhi et al., 2025), which makes the resulting force representation dependent on the disturbance distribution specified during training and inevitably degrades under out-of-distribution forces.  
+
+> Our solution.
+
+Our ADAPT framework addresses this problem by closing the loop between analytical disturbance estimation and policy control. As illustrated in Fig. 1, ADAPT consists of two main modules: an analytical disturbance estimator and an RL-based whole-body controller. The disturbance estimator, detailed in Sec. 3.2, evaluates the nominal robot dynamics from the current robot state and actuator command, and estimates the whole-body disturbance. The learning-based controller, detailed in Sec. 3.3, takes this estimation as a force-aware proprioceptive signal and feeds it back to the policy as part of its observation or even the upper-level reward. With this feedback channel, the learned controller can condition its whole-body response on the inferred disturbance, enabling disturbance-aware humanoid adaptation. 33.2 Whole-body disturbance observer 
+
+Derived from Eq. (1) , we can easily get a representation of whole-body disturbance through τe = M (q) ˙v +
+
+C(q, v )v + g(q) − τm. However, directly calculating ˙v is impractical, as it is usually unavailable from the sensory system and noisy under numerical differentiation. The disturbance observer avoids this noisy acceleration term by using the generalized momentum, i.e., p = M (q)v. Differentiating the generalized momentum and using the standard Christoffel convention, ˙M (q) = C(q, v ) + C⊤(q, v ) (De Luca and Mattone, 2003), gives 
+
+˙p = ˙M v + M ˙v = Cv + C⊤v + M ˙v. (2) Substitute Eq. (1) into Eq. (2) gives τe = ˙p − β(q, v ) − τm, where β(q, v ) = C⊤(q, v )v − g(q) for simplicity. Now, we can estimate τe using a first-order observer with positive-definite diagonal observer gain Ko, i.e., 
+
+˙ˆτe = Ko(τe − ˆτe). To avoid the use of the inaccessible ˙p, we introduce the auxiliary state z = ˆτe − Kop and obtain 
+
+˙z = −Ko (β + τm + ˆ τe) , (3) 
+
+ˆτe = z + Kop. (4) Note that the observer established in Eqs. (3) -(4) only requires accessible signals including current proprioceptive state, control command, and nominal dynamics terms. As for the nominal dynamics, instead of hand-deriving, we obtain M (q) and β directly from a synchronized MuJoCo model, which is fast enough for large-scale parallel training and deployment. And τm is derived from an ideal motor controller. For efficiency, we approximate β(q, v ) = C⊤(q, v )v − g(q) using the negative MuJoCo bias force −qbias , where qbias = C(q, v )v + g(q). This approximation introduces a velocity-dependent error ˙M (q)v in β, whose effect is shown to be negligible in practice (see Appx. A). The observer gain Ko governs a fundamental trade-off. A larger Ko accelerates convergence and improves estimation accuracy, but also amplifies high-frequency noise from measurement, especially critical on real hardware. To balance responsiveness and noise robustness, we apply a low-pass filter to the raw estimate 
+
+ˆτe before passing it to downstream modules. Moreover, the linear floating-base residual contains a constant gravity bias in the inertial vertical direction. We remove this constant gravity bias and then rotate the floating-base residual into the root frame before feeding it to the policy. We denote the final resulting filtered residual as 
+
+¯τe = ¯τ lin  
+
+> e
+
+, ¯τ ang  
+
+> e
+
+, ¯τ jnt 
+
+> e
+
+ , (5) where ¯τ lin  
+
+> e
+
+∈ R3 and ¯τ ang  
+
+> e
+
+∈ R3 are the linear and angular residuals of the floating base, expressed in the root frame of the humanoid. The term ¯τ jnt  
+
+> e
+
+∈ R29 denotes the residual in the joint coordinates. 
+
+3.3 Disturbance-aware policy 
+
+With the analytical disturbance estimation, we next endeavor to design the RL policy. We use a multi-layer perceptron (MLP) as the whole-body controller. The policy is trained with Proximal Policy Optimization (PPO) (Schulman et al., 2017) and outputs target joint positions, which are tracked by a low-level motor PD controller. The key modification in ADAPT is to augment the actor input with the analytical disturbance estimated by the dynamics-driven observer in Sec. 3.2. This analytical disturbance provides a structured force-related observation channel, enabling the policy to condition its response on explicit whole-body disturbance. See Fig. 1 for the policy structure.  
+
+> Actor-critic architecture.
+
+We use an asymmetric actor-critic architecture trained with PPO (Schulman et al., 2017). Both the actor and critic are three-layer MLPs with hidden dimensions (512 , 256 , 128) and ELU activations. At timestep k, the actor observation oπk consists of a five-step history from k − 4 to k of base linear velocity vbk ∈ R3, base angular velocity ωbk ∈ R3, projected gravity gbk ∈ R3, joint position and velocity 
+
+qjk, ˙qjk ∈ Rnj , velocity command ck ∈ R3, and effort-scaled disturbance estimation ρk ∈ R6+ nj , together with the previous action ak−1 ∈ Rnj , resulting in a 554-dimensional actor observation. Moreover, the critic receives the actor observation and additional privileged foot-contact information, including foot height hf , foot air time tair  
+
+> f
+
+, contact state sf , and contact force Ff . These privileged observations are used only during training for value estimation. 4Training pipeline. To allow the policy to gradually adapt to external disturbance and incorporate the disturbance observation, we train it with a two-stage curriculum. Stage 1 trains the policy to acquire basic locomotion in a disturbance-free setting, while still consuming the disturbance observation as input. Stage 2 introduces a disturbance curriculum with external forces applied to selected bodies, requiring the same policy to track velocity commands under increasing disturbance levels.  
+
+> Disturbance normalization.
+
+For the disturbance observation, standard normalization is not well-suited to our two-stage force curriculum, as the disturbance magnitudes encountered in the two stages differ significantly in scale. We therefore use unified scales for the disturbance observation channels in two stages, i.e., ρ =¯τ lin  
+
+> e
+
+/(mg ), ¯τ ang  
+
+> e
+
+/(mgl ref ), ¯τ jnt  
+
+> e
+
+/τ max 
+
+> j
+
+, where m is the nominal robot mass, g is the gravity magnitude, lref is a user-defined normalization constant, and τ max is the actuator effort limit of each joint. This representation incorporates joint-dependent actuation capacity by expressing each joint’s residual relative to its corresponding effort limit. We apply this unified normalization to the disturbance channels and standard observation normalization to the remaining policy inputs. Appx. E shows the effectiveness of this scaling strategy.  
+
+> Training reward.
+
+Within the ADAPT framework, in addition to the standard rewards for command track-ing (Zakka et al., 2026), ADAPT supports task-specific reward terms defined on the estimated disturbance. Here, we penalize the leg-joint disturbance estimates to encourage lighter, lower-impact locomotion. Let ρsi
+
+denote the scaled leg disturbance residuals of the i-th joint of leg s ∈ { L, R } at a single timestep. For each leg, we define the residual envelope as es =
+
+q 16
+
+P6 
+
+> i=1
+
+(ρsi )2.During training, this value is computed at each timestep, and we use ek = max (eLk , e Rk ) as the lower-body residual envelope at timestep k. Let Hk = {ek−H+1 , . . . , e k} denote a rolling window of length H. We compute the high-tail average ηk = mean (Top 10% (Hk)) as the mean of the largest 10% values in Hk, and the peak value epeak  
+
+> k
+
+= max e∈H k . We define two penalty as ϕη,k = max 
+
+
+
+0, ηk −θη
+
+> δη
+
+
+
+and ϕpeak ,k = max 
+
+
+
+0, epeak  
+
+> k−θpeak
+> δpeak
+
+
+
+.The light-step reward is 
+
+rlight  
+
+> k
+
+= −χk (λη ϕη,k + λpeak ϕpeak ,k ) . (6) where χk ∈ { 0, 1} is a command mask that enables the penalty for locomotion commands and disables it for zero commands, λη and λpeak are penalty weights, θη and θpeak are activation thresholds, and δη and δpeak are margin parameters that scale the excess above the thresholds. These terms penalize high-impact lower-body residual peaks, while preserving the support forces needed for walking. Other instantiations, such as penalizing hand-joint disturbances to encourage compliant pushing or pulling, are left for future exploration. 
+
+3.4 Practical consideration  
+
+> FAST-LIO usage.
+
+The root linear velocity is an important observation for the disturbance observer, but it is not directly available in the current humanoid community. Directly integrating IMU acceleration is unreliable due to drift. We here employ FAST-LIO (Xu et al., 2022) to obtain the robot motion during real-world deployment. Since the LiDAR is mounted on the torso, we convert the raw observation to the root frame before using it in the disturbance observer and policy. Let vLL ∈ R3 be the raw LiDAR linear velocity from FAST-LIO expressed in the LiDAR local frame. Given the current joint position qjnt and the rotation matrix 
+
+RRL (qjnt ) ∈ SO (3) that maps vectors from the LiDAR frame to the root frame, the LiDAR velocity expressed in the root frame is vRL = RRL (qjnt )vLL . We then compute the root linear velocity as vR 
+
+> root
+
+= vRL − JL(qjnt ) ˙qjnt ,where vR 
+
+> root
+
+is the root linear velocity expressed in the root frame, JL(qjnt ) ∈ R3×nj is the LiDAR linear Jacobian with respect to the actuated joints, expressed in the root frame, and ˙qjnt is the measured joint velocity. The term JL(qjnt ) ˙ qjnt represents the relative linear velocity between the LiDAR and the root. 
+
+# 4 Experimental Results 
+
+We evaluate ADAPT in both simulation and real-world experiments on a Unitree G1 humanoid. The experiments are designed to answer three questions: (1) Does the disturbance observer provide accurate disturbance estimation during humanoid locomotion? (2) Does conditioning the policy on the analytical 51 
+
+> Simulation result
+> Time (s)
+> Torque residual (N)
+> Time (s)
+> Real -world result R Shoulder
+> Pitch
+> Waist
+> Pitch
+> L Shoulder
+> Pitch
+> L Elbow Figure 2 Performance of the disturbance observer on the Unitree G1 . The robot walks forward while known disturbance torques (dashed lines) are injected into the left shoulder pitch, left elbow, right shoulder pitch, and waist pitch joints. Solid lines show the observer estimation in simulation ( left ) and real-world ( middle ).
+
+disturbance improve robustness and generalization to external perturbations? (3) Does using the analytical disturbance for reward reshaping bring additional benefits? The experimental setup and parameter setting are detailed in Appx.B. 
+
+4.1 Estimation performance of disturbance observer 
+
+The observer for estimating whole-body disturbance is the core component of our ADAPT framework, as it provides the policy with an explicit force-aware signal for physical interaction. Its performance directly affects the reliability of the learning-based controller built upon it. In both simulation and real test, the robot is commanded to walk forward with a fixed velocity command, vx = 0 .8 m/s. The observer output is not provided to the policy observation and does not affect the control action. Therefore, the measured residuals reflect the standalone estimation behavior of the observer. During the rollout, known disturbance torques are directly injected into selected joints: left shoulder pitch, left elbow, right shoulder pitch, and waist pitch, as shown in the right of Fig. 2. The goal of this experiment is to validate whether the observer remains stable and reliable during locomotion. The test results are shown in Fig. 2. In simulation, the observer closely tracks the injected disturbance profiles across multiple joints, and the estimated residuals remain well isolated among different joint channels. In the real-world test, the observer still captures the onset and relative magnitude of the applied disturbance in each channel, indicating consistent observer behavior between simulation and hardware. Compared with simulation, the observer shows a larger estimation error in the real world. This degradation reflects additional unknown real-world disturbances beyond the injected joint torque, such as joint friction and motor modeling error. 
+
+4.2 Control performance of disturbance-aware policy 
+
+The observer evaluation above shows that the disturbance observer provides a reliable estimation of joint-space disturbances. We next ask whether this estimated signal can be effectively used by a learned policy. To answer this question, we evaluate ADAPT under diverse velocity commands and external force perturbations. Perturbations vary in location and magnitude. We compare ADAPT with a baseline that uses the same policy architecture and training setup but does not receive the explicit disturbance feedback. The comparison is made in both simulation and real-world experiments. We adopt several evaluation metrics, including velocity tracking error evx , lateral drift dy , and yaw drift dψ . Detailed definitions are provided in Appx. D.  
+
+> Torso pulling test.
+
+We first evaluate ADAPT in simulation by applying torso forces in the sagittal plane. The magnitude of forces ranges from 0 N to 60 N, where the maximum force magnitude used during training is 40 
+
+N. Fig. 3 shows the results under sagittal torso forces across different walking speeds. Compared with the baseline, ADAPT achieves lower forward velocity tracking error, lateral drift, and heading drift, especially under stronger perturbations. This shows that the explicit disturbance feedback helps the policy compensate for external forces while maintaining the commanded locomotion behavior. We further evaluate the velocity tracking task under torso perturbations applied from different horizontal directions. The radar maps in Fig. 3 present two force magnitudes, 40 N, which lies within the training range, and 60 N, which exceeds it. ADAPT outperforms the baseline, achieving better locomotion under 61
+
+> Lateral drift
+> (m)
+> Yaw drift
+> (rad)
+> Velocity error
+> (m/s)  Baseline
+> ADAPT
+
+Force (N) Force (N) Force (N) Figure 3 Torso pulling test in simulation. Left: Velocity tracking error, lateral drift, and yaw drift under sagittal torso forces across three command velocities. Right: Radar plots summarize results across disturbance directions. Torso pull Shoulder push     
+
+> Baseline ADAPT ADAPT ADAPT Baseline Baseline
+
+Torso push   
+
+> Figure 4 Stance pulling test.
+
+The policy trained under the ADAPT framework exhibits whole-body posture adjustment to resist external force applied on torso. 
+
+both in-distribution and OOD disturbance magnitudes. These results indicate that the explicit disturbance estimation serves as an effective feedback for the policy, improving its robustness and generalization. 1          
+
+> Sim, 𝐹 =20𝑁
+> Forward distance (m)
+> Lateral drift (m)  Sim ,𝐹 =40𝑁 Real, 𝐿𝑜𝑎𝑑 =4𝑘𝑔
+
+Baseline ADAPT 
+
+4 kg 
+
+payload  
+
+> Baseline
+> ADAPT
+> Figure 5 Asymmetric hand loading test.
+
+Upper : postural response with an OOD 4 kg payload on the right hand. Lower : lateral drift versus forward distance under one-sided hand loads, in both simulation and real tests. 
+
+Stance pulling test. On the real robot, we conduct a standing perturbation test to eval-uate the policy response to external forces. The robot receives a zero-velocity command, while an operator applies external forces to its torso and shoulder. As presented by snap-shots in Fig. 4, compared with the baseline, the ADAPT-trained policy shows stronger resistance to the applied forces and adjusts its whole-body posture to counteract the per-turbation. This indicates that the explicit disturbance estimation provides useful feed-back for improving whole-body robustness during physical interaction. 
+
+Asymmetric hand loading test. We then evalu-ate ADAPT under asymmetric hand loading. In simulation, we apply a constant downward force of 10 –40 , N to one hand. On the real robot, we reproduce this condition by attach-ing weights of 1 to 4 kg to the same hand, 71
+
+Baseline 
+
+ADAPT 
+
+Time (s) 
+
+> Residual envelop
+
+Time (s) 
+
+> Baseline
+
+Simulation result 
+
+> ADAPT
+
+Real -world result Snapshots in tests Figure 6 Light-step Reward Shaping. Disturbance residual envelope over time in simulation ( left ) and on the real robot (middle ). Right: Snapshots of the touchdown phase, showing that ADAPT produces a tiptoeing gait while the baseline exhibits a stomping gait. 
+
+where the 4 kg payload lies outside the training distribution. The added payloads create downward loads comparable to the simulated setting. Under these asymmetric loads, ADAPT and the baseline exhibit markedly different postural responses. As shown in Fig. 5, the proprioception-only baseline is pulled toward the loaded side, resulting in a visibly unbalanced upper-body posture. In contrast, ADAPT tilts the torso away from the loaded side to compensate for the moment caused by the load. We further examine walking robustness under asymmetric loading. The curves in Fig. 5 show that the baseline exhibits increasing lateral drift as the hand load becomes larger. In contrast, ADAPT maintains a straighter walking trajectory across all load magnitudes, indicating better compensation. 
+
+4.3 Reward shaping for lighter locomotion 
+
+Beyond using the disturbance estimation as a direct policy input, we also examine whether it can be used for reward shaping. We focus on foot touchdown as an illustrative test case, considering that abrupt touchdown often produces short disturbance peaks in the lower-body residuals. This allows us to test whether rewards derived from joint-space disturbance estimation can encourage lighter locomotion behavior. The reward shaping strategy is formalized in Eq. (6). We evaluate the light-step reward in both simulation and real-world deployment using the scaled leg disturbance residual envelope, where lower values indicate lighter leg loading and smaller foot-ground impact. As shown in Fig. 6, the light-step policy maintains a consistently lower envelope than the baseline and reduces the periodic loading peaks. This indicates lighter foot contacts during walking. This phenomenon can also be revealed in snapshots of the touchdown phase. Overall, the simulation and real-robot results show that ADAPT-derived envelopes can serve as effective reward-shaping signals for improving contact transitions during locomotion. 
+
+# 5 Conclusion 
+
+We present ADAPT, a framework that augments RL-based humanoid control with an analytical whole-body disturbance observer. The observer provides a physics-grounded, sensorless force-related observation that can be directly fed into the policy as observation or used for reward shaping. Experiments on a Unitree G1 show that ADAPT improves robustness and velocity tracking under external forces, generalizes to OOD perturbations such as asymmetric hand loads, and enables emergent behaviors including light-footed locomotion through disturbance-derived reward shaping. 
+
+# 6 Limitations 
+
+The disturbance observer in ADAPT has a finite convergence time and thus responds with some delay to fast-varying disturbances such as impulsive pushes and foot-ground impacts. Currently, we absorb these fast transients into a single lumped disturbance, and ADAPT still exhibits robust performance in our experiments. However, this lumped treatment can make the learned policy somewhat conservative. Separating fast-varying components from the lumped signal, or designing observers for fast disturbances, could further improve 8responsiveness, which we leave for future work. ADAPT could also be combined with multimodal robot policy backbones (Jia et al., 2026a) to enable more expressive humanoid behaviors under disturbance-aware control. 9References 
+
+Sirui Chen, Zi-ang Cao, Zhengyi Luo, Fernando Castañeda, Chenran Li, Tingwu Wang, Ye Yuan, Linxi Fan, C Karen Liu, and Yuke Zhu. CHIP: Learning adaptive compliance for humanoid control through hindsight perturbation. 
+
+arXiv preprint arXiv:2512.14689 , 2025. Wen-Hua Chen. Disturbance observer based control for nonlinear systems. IEEE/ASME Transactions on Mechatronics ,9(4):706–710, 2004. Wen-Hua Chen, Donald J. Ballance, Peter J. Gawthrop, and John O’Reilly. A nonlinear disturbance observer for robotic manipulators. IEEE Transactions on Industrial Electronics , 47(4):932–938, 2000. A. De Luca and R. Mattone. Actuator failure detection and isolation using generalized momenta. In 2003 IEEE International Conference on Robotics and Automation , volume 1, pages 634–639, 2003. Yushi Du, Yixuan Li, Baoxiong Jia, Yutang Lin, Pei Zhou, Wei Liang, Yanchao Yang, and Siyuan Huang. Learning human-humanoid coordination for collaborative object carrying. arXiv preprint arXiv:2510.14293 , 2025. Sami Haddadin, Alessandro De Luca, and Alin Albu-Schäffer. Robot collisions: A survey on detection, isolation, and identification. IEEE Transactions on Robotics , 33(6):1292–1312, 2017. Jingqing Han. From PID to active disturbance rejection control. IEEE Transactions on Industrial Electronics , 56(3): 900–906, March 2009. Yuanfeng Han, Ruixin Li, and Gregory S. Chirikjian. Can i lift it? humanoid robot reasoning about the feasibility of lifting a heavy box with unknown physical properties. In 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems , pages 3877–3883, 2020. Yifan Hou, Zeyi Liu, Cheng Chi, Eric Cousineau, Naveen Kuppuswamy, Siyuan Feng, Benjamin Burchfiel, and Shuran Song. Adaptive compliance policy: Learning approximate compliance for diffusion guided control. In 2025 IEEE International Conference on Robotics and Automation , pages 4829–4836, 2025. Jindou Jia, Kexin Guo, Yuyang Wang, Sicheng Zhou, Jiayi Zhang, Yuhang Liu, Xiang Yu, Yang Shi, and Lei Guo. FORESEER: Recognize and utilize uncertainties by integrating data-based learning and symbolic feedback. The International Journal of Robotics Research , 2025. Jindou Jia, Tuo An, Yuxuan Hu, Gen Li, Jingliang Li, Bohan Hou, Xiangyu Chen, Jiaqi Bai, Bofan Lyu, and Jianfei Yang. Mars policy: Multimodality only when it matters. arXiv preprint arXiv:2605.29766 , 2026a. Jindou Jia, Shixuan Han, Meng Wang, Gen Li, Zihan Yang, Sicheng Zhou, Kexin Guo, Jianfei Yang, Xiang Yu, Wei Wang, and Lei Guo. Physics filtering favors the generalization of robot learning. Research Square preprint , 2026b. Zizhou Lao, Yuanfeng Han, Yunshan Ma, and Gregory S. Chirikjian. A learning-based approach for estimating inertial properties of unknown objects from encoder discrepancies. IEEE Robotics and Automation Letters , 8(9):5283–5290, 2023. Dongting Li, Xingyu Chen, Qianyang Wu, Bo Chen, Sikai Wu, Hanyu Wu, Guoyao Zhang, Liang Li, Mingliang Zhou, Diyun Xiang, et al. HAIC: Humanoid agile object interaction control via dynamics-aware world model. arXiv preprint arXiv:2602.11758 , 2026. Gangyang Li, Qing Shi, Youhao Hu, Jincheng Hu, Zhongyuan Wang, Xinlong Wang, and Shaqi Luo. Thor: Towards human-level whole-body reactions for intense contact-rich environments. arXiv preprint arXiv:2510.26280 , 2025. Qiayuan Liao, Takara E Truong, Xiaoyu Huang, Yuman Gao, Guy Tevet, Koushil Sreenath, and C Karen Liu. Beyond-Mimic: From motion tracking to versatile humanoid control via guided diffusion. arXiv preprint arXiv:2508.08241 ,2025. Daegyu Lim, Myeong-Ju Kim, Junhyeok Cha, and Jaeheung Park. MOB-Net: Limb-modularized uncertainty torque learning of humanoids for sensorless external torque estimation. The International Journal of Robotics Research , 44 (1):96–128, 2025. Junfeng Long, Wenye Yu, Quanyi Li, ZiRui Wang, Dahua Lin, and Jiangmiao Pang. Learning H-Infinity locomotion control. In 8th Annual Conference on Robot Learning , 2024. Qingzhou Lu, Yao Feng, Baiyu Shi, Michael Piseno, Zhenan Bao, and C Karen Liu. GentleHumanoid: Learning upper-body compliance for contact-rich human and object interaction. arXiv preprint arXiv:2511.04679 , 2025. 
+
+10 Zhengyi Luo, Ye Yuan, Tingwu Wang, Chenran Li, Sirui Chen, Fernando Castaneda, Zi-Ang Cao, Jiefeng Li, David Minor, Qingwei Ben, et al. Sonic: Supersizing motion tracking for natural humanoid whole-body control. arXiv preprint arXiv:2511.07820 , 2025. M Lutter, C Ritter, and Jan Peters. Deep lagrangian networks: Using physics as model prior for deep learning. In 
+
+International Conference on Learning Representations , 2019. Dragomir N Nenchev, Atsushi Konno, and Teppei Tsujita. Humanoid robots: Modeling and control . Butterworth-Heinemann, 2018. Tifanny Portela, Gabriel B Margolis, Yandong Ji, and Pulkit Agrawal. Learning force control for legged manipulation. In 2024 IEEE International Conference on Robotics and Automation , pages 15366–15372, 2024. Ilija Radosavovic, Tete Xiao, Bike Zhang, Trevor Darrell, Jitendra Malik, and Koushil Sreenath. Real-world humanoid locomotion with reinforcement learning. Science Robotics , 9(89):eadi9579, 2024. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. Botian Xu, Haoyang Weng, Qingzhou Lu, Yang Gao, and Huazhe Xu. FACET: Force-adaptive control via impedance reference tracking for legged robots. In 9th Annual Conference on Robot Learning , 2025. Wei Xu, Yixi Cai, Dongjiao He, Jiarong Lin, and Fu Zhang. FAST-LIO2: Fast direct LiDAR-inertial odometry. IEEE Transactions on Robotics , 38(4):2053–2073, 2022. Haoru Xue, Tairan He, Zi Wang, Qingwei Ben, Wenli Xiao, Zhengyi Luo, Xingye Da, Fernando Castañeda, Guanya Shi, Shankar Sastry, et al. Opening the sim-to-real door for humanoid pixel-to-action policy transfer. arXiv preprint arXiv:2512.01061 , 2025. Xichen Yuan, Zhe Li, Bofan Lyu, Kuangji Zuo, Yanshuo Lu, Gen Li, and Jianfei Yang. Roboforge: Physically optimized text-guided whole-body locomotion for humanoids. arXiv preprint arXiv:2603.17927 , 2026. Kevin Zakka, Qiayuan Liao, Brent Yi, Louis Le Lay, Koushil Sreenath, and Pieter Abbeel. mjlab: A lightweight framework for GPU-accelerated robot learning. arXiv preprint arXiv:2601.22074 , 2026. Yang Zhang, Buqing Nie, Zhanxiang Cao, Yangqing Fu, and Yue Gao. Disturbance-aware adaptive compensation in hybrid force-position locomotion policy for legged robots, 2025a. Yuanhang Zhang, Yifu Yuan, Prajwal Gurunath, Ishita Gupta, Shayegan Omidshafiei, Ali-akbar Agha-mohammadi, Marcell Vazquez-Chanlatte, Liam Pedersen, Tairan He, and Guanya Shi. Falcon: Learning force-adaptive humanoid loco-manipulation. arXiv preprint arXiv:2505.06776 , 2025b. Zhikai Zhang, Jun Guo, Chao Chen, Jilong Wang, Chenghuai Lin, Yunrui Lian, Han Xue, Zhenrong Wang, Maoqi Liu, Jiangran Lyu, Huaping Liu, He Wang, and Li Yi. Track any motions under any disturbances, 2025c. Peiyuan Zhi, Peiyang Li, Jianqin Yin, Baoxiong Jia, and Siyuan Huang. Learning a unified policy for position and force control in legged loco-manipulation. In Proceedings of the 9th Conference on Robot Learning , volume 305 of 
+
+Proceedings of Machine Learning Research , pages 652–669. PMLR, 2025. 
+
+11 A Implementation details of disturbance observer  
+
+> Parameters.
+
+The theoretical formulation of the disturbance observer is given in Sec. 3.2. Here, we report the parameters used for hardware deployment. The observer runs at 50 Hz , using the same update rate as the policy. The observer timestep is therefore ∆tobs = 0 .02 s . We use a uniform diagonal observer gain for all generalized velocity coordinates, 
+
+Ko = koI6+ nj , ko = 3 .0, (7) where the first six dimensions correspond to the floating base and the remaining nj dimensions correspond to the actuated joints. All residual channels use the same observer gain in hardware experiments. The raw residual estimation is smoothed before being used by the policy. We apply an online second-order Butterworth low-pass filter independently to each residual channel. The cutoff frequency is fc = 1 .0 Hz . The filtered residual is denoted by ¯τe, consistent with Eq. (5) . It is then normalized and used as the disturbance observation for the policy.  
+
+> Approximation.
+
+The momentum observer requires the bias term β(q, v ) = C⊤(q, v )v − g(q). In the main implementation, we compute the observer with MuJoCo dynamics quantities for efficiency. MuJoCo provides the bias force 
+
+qbias = C(q, v )v + g(q). (8) We therefore approximate β(q, v ) with the negative MuJoCo bias force, 
+
+ˆβmj (q, v ) = −qbias = −C(q, v )v − g(q). (9) Under the same convention used in Sec. 3.2, ˙M (q) = C(q, v ) + C⊤(q, v ). The approximation error in β is then 
+
+ϵβ (q, v ) = β(q, v ) − ˆβmj (q, v ) (10) 
+
+= C⊤(q, v )v − g(q) + C(q, v )v + g(q) (11) 
+
+= ˙M (q)v. (12) Thus, the MuJoCo approximation introduces only a velocity-dependent error in the observer bias term. This error is zero when v = 0 .We test the effect of this approximation with an independent Pinocchio-based observer. Pinocchio computes the exact term β(q, v ) = C⊤(q, v )v − g(q) from the full Coriolis matrix and the generalized gravity vector. The MuJoCo-based and Pinocchio-based observers use the same robot states, commanded torques, observer parameters, and filters. They differ only in the computation of β(q, v ).During walking, we inject known joint-space torques into the left shoulder pitch, left elbow, right shoulder pitch, and waist pitch joints. These injected torques are used as ground truth. We then compare the residuals estimated by the two observers. As shown in Fig. S1, the two observers produce almost identical residuals on all tested joints. Both estimates match the sign, magnitude, and timing of the injected torques. The small differences near the rising and falling edges mainly come from the observer bandwidth and the output filter. This result shows that the velocity-dependent error in β has little effect on the final disturbance estimate. We use the MuJoCo-based observer in the main experiments to keep the computation consistent between policy training and deployment. We also implement the Pinocchio-based observer as an alternative backend for real-robot deployment. 
+
+# B Experiment setup  
+
+> Training setup.
+
+All policies are trained in mjlab (Zakka et al., 2026) with the Unitree G1 model. Training is performed on an NVIDIA RTX 5090 GPU with 4096 parallel environments. The simulator uses a physics timestep of 0.005 s and a control decimation of 4, resulting in a 200 Hz simulation rate and a 50 Hz policy update rate. The policy action is a joint-position offset added to the default pose and tracked by the low-level 12 R Shoulder 
+
+Pitch 
+
+Waist 
+
+Pitch 
+
+L Shoulder 
+
+Pitch 
+
+L Elbow 
+
+Pinocchio 
+
+MuJoCo Figure S1 Effect of approximation in observer. Comparison between MuJoCo-based and Pinocchio-based observer residuals under known joint-space torque perturbations. The two observers produce nearly identical estimates and both match the injected torques, showing that the MuJoCo bias approximation has little practical effect. 
+
+PD controller. We train ADAPT in two stages. Stage 1 trains the nominal walking policy for 15 ,000 iterations. Stage 2 resumes from the Stage-1 checkpoint and trains the disturbance-aware policy for another 20 ,000 
+
+iterations with external wrench perturbations applied on torso and end-effectors.  
+
+> Reward.
+
+The base reward is shared by ADAPT and the corresponding baselines. It consists of velocity tracking terms and regularization terms for posture, smoothness, contact quality, and safety. We denote the commanded velocity by c = [ vcmd  
+
+> x
+
+, v cmd  
+
+> y
+
+, ω cmd  
+
+> z
+
+], where vcmd  
+
+> x
+
+and vcmd  
+
+> y
+
+are the commanded base linear velocities and ωcmd  
+
+> z
+
+is the commanded yaw rate. We use vb and ωb for the base linear and angular velocities in the root frame, qjnt for actuated joint positions, ˙qjnt for actuated joint velocities, a for policy actions, and hf
+
+for foot height. The reward terms are summarized in Table S1. The light-step reward is only used in the reward-shaping experiment. The total reward is computed as a weighted sum, 
+
+r = X
+
+> i
+
+wiri, (13) where ri is the raw reward or penalty term and wi is its weight. For compact notation, let F denote the set of feet, sf ∈ 0, 1 denote the contact state of foot f , vf denote the foot velocity, and h⋆f = 0 .1 m denote the target foot height. We use χcmd = I(|[vcmd  
+
+> x
+
+, v cmd  
+
+> y
+
+]| > 0.05 or |ωcmd  
+
+> z
+
+| > 0.05) to mask foot-related rewards when the robot is commanded to stand. hpeak  
+
+> f
+
+denotes the maximum foot height reached during the preceding swing phase, and Ifc  
+
+> f
+
+indicates the first-contact event of foot f . 
+
+> Domain randomization.
+
+We apply domain randomization to improve sim-to-real transfer. The randomized quantities are listed in Table S2. Here, μ denotes the ground friction coefficient, bq denotes encoder bias, 
+
+∆pcom denotes the torso center-of-mass offset, αpi denotes the pseudo-inertia scaling factor, τ rand fric denotes the randomized joint friction term, and sd denotes the joint damping multiplier. The pseudo-inertia randomization 13 Table S1 Reward terms. 
+
+Term Raw term ri wi
+
+Linear velocity tracking exp 
+
+
+
+− ∥vbxy −[vcmd   
+
+> x,v cmd
+> y]∥2
+> 0.25
+
+
+
+2.0
+
+Yaw-rate tracking exp 
+
+
+
+− (ωbz −ωcmd  
+
+> z)2
+> 0.25
+
+
+
+3.0
+
+Vertical velocity (vbz )2 −2.0
+
+Upright torso exp 
+
+
+
+− ∥gbxy ∥2
+
+> 0.2
+
+
+
+1.0
+
+Joint posture exp − qjnt −qdef jnt 
+
+> σq
+> 2
+
+!
+
+1.0
+
+Joint position limits Pnj
+
+> i=1
+
+max( qjnt ,i − qmax jnt ,i , 0) 2 + max( qmin jnt ,i − qjnt ,i , 0) 2 −1.0
+
+Action rate ∥a − aprev ∥2 −0.1
+
+Foot clearance χcmd 
+
+P  
+
+> f∈F
+
+∥vf,xy ∥2 |hf − h⋆f | −2.0
+
+Swing-foot height χcmd 
+
+P  
+
+> f∈F
+
+Ifc 
+
+> f
+
+ hpeak 
+
+> f
+> h⋆f
+
+− 1
+
+2
+
+−0.25 
+
+Foot slip χcmd 
+
+P  
+
+> f∈F
+
+sf ∥vf,xy ∥2 −0.1
+
+Soft landing χcmd 
+
+P  
+
+> f∈F
+
+I(sf = 1) ∥vf,z ∥2 −1.0 × 10 −5
+
+Torso angular velocity ∥ωbxy ∥2 −0.05 
+
+Angular momentum ∥Lroot ∥2 −0.02 
+
+Self-collision Iself −1.0
+
+Light-step reward Eq. (6) experiment-specific 
+
+scales mass and inertia consistently for the leg, torso, and arm links. For joint friction and damping, the ranges in the table denote the final values reached by the curriculum during Stage 2. 
+
+Deployment setup. All real-world experiments are conducted on the Unitree G1 humanoid. The high-level controller runs on an external laptop with an NVIDIA RTX 5070 Ti Laptop GPU. The laptop is connected to the robot through wired Ethernet. It receives joint positions, joint velocities, IMU measurements, and motor command information from the robot. It sends joint-position targets back to the robot. The onboard low-level controller tracks these targets with PD control. FAST-LIO (Xu et al., 2022) runs on the onboard computer of the G1. It publishes odometry at 100 Hz . The odometry provides velocity estimation and global localization. The laptop uses the latest FAST-LIO message to compute the root linear velocity, following vR 
+
+> root
+
+= vRL − JL(qjnt ) ˙qjnt . This velocity is used by both the policy observation and the disturbance observer. The policy and the disturbance observer run on the laptop at 50 Hz , matching the policy update rate used during training. At each control step, the laptop first builds the current robot state from proprioception and FAST-LIO odometry. It then writes this state and the latest motor command into a local MuJoCo model. MuJoCo is not used to simulate future robot motion during deployment. Instead, it serves as a synchronized nominal dynamics model. After state synchronization, we call MuJoCo forward dynamics to compute the nominal dynamics terms required by the momentum observer. The observer updates the filtered residual using these nominal dynamics terms and the measured robot state. The filtered residual is normalized and concatenated with the policy observation. The policy then outputs the next joint-position target for onboard PD tracking. 
+
+# C Task descriptions. 
+
+Torso pulling test. We evaluate torso-level disturbance rejection in simulation by applying constant horizontal forces to the robot torso while it tracks a fixed forward velocity command. Each rollout starts from the reset state, followed by a 1.0 s settling phase with zero command and zero external force. The robot is then 14 Table S2 Domain randomization.                                                             
+
+> Term Description Range / setting
+> μGround friction coefficient [0 .3,1.2]
+> bqEncoder bias [−0.015 ,0.015] rad ∆pcom ,x Torso COM offset along x[−0.025 ,0.025] m ∆pcom ,y Torso COM offset along y[−0.025 ,0.025] m ∆pcom ,z Torso COM offset along z[−0.03 ,0.03] m
+> αpi Pseudo-inertia scaling factor [−0.05 ,0.05]
+> τrand fric ,leg Leg joint friction [0 .05 ,1.5]
+> τrand fric ,waist Waist joint friction [0 .05 ,1.0]
+> τrand fric ,arm Arm joint friction [0 .05 ,0.8]
+> sd, leg Leg joint damping scale [0 .5,1.5]
+> sd, waist Waist joint damping scale [0 .7,1.3]
+> sd, arm Arm joint damping scale [0 .7,1.3]
+> ϵvbBase linear velocity noise [−0.5,0.5] m /s
+> ϵωbBase angular velocity noise [−0.2,0.2] rad /s
+> ϵgbProjected gravity noise [−0.05 ,0.05]
+> ϵqjnt Joint position noise [−10 −4,10 −4] rad
+> ϵ˙qjnt Joint velocity noise [−0.03 ,0.03] rad /s
+
+commanded with vcmd = [ vcmd  
+
+> x
+
+, 0, 0] for 10 .0 s , while a constant world-frame force is applied to torso_link .The applied wrench has zero moment and zero vertical-force component. For the sagittal-force evaluation, we set vcmd  
+
+> x
+
+∈ { 0.5, 0.8, 1.1} m/s and apply Fx ∈ {− 60 , −40 , −20 , 0, 20 , 40 , 60 } N with Fy = 0 . For the directional evaluation, we fix vcmd  
+
+> x
+
+= 1 .1 m/s and apply forces with magnitudes of 40 N and 60 N along eight horizontal directions. Each simulated condition is evaluated with ten random seeds, and rollouts are recorded at the policy control rate. 
+
+Asymmetric hand loading test. We evaluate asymmetric loading by applying a unilateral downward load to the right hand. In simulation, the load is modeled as a constant force applied to right_wrist_yaw_link .The commanded velocity is vcmd = [ vcmd  
+
+> x
+
+, 0, 0] , where vcmd  
+
+> x
+
+∈ { 0.5, 0.8, 1.1} m/s, and the downward force magnitude is varied over {10 , 20 , 40 } N. Each condition is evaluated with ten random seeds for both the baseline policy and ADAPT. For the real-robot test, the load is physically attached to the right hand. We use payloads of 1 kg , 2 kg , and 4 kg with forward commands of 0.8 m/s and 1.1 m/s. The reported real-world comparison uses three repeated trials per policy for each command-load condition. 
+
+Light-step reward shaping. We evaluate light-step reward shaping during forward walking, without external payloads or applied disturbances. The robot tracks a fixed command vcmd = [0 .8, 0, 0] . In simulation, we compare the baseline policy and the policy trained with the light-step reward over 20 random seeds per policy. For each trajectory, the observer is already running before the walking command starts. We then collect command-following data to compute the reported curves. For the real-robot evaluation, we use the same forward command and compare the baseline policy with the reward-shaped policy. Since the real robot does not provide ground-truth foot contact forces, we report the observer-based leg disturbance envelope instead of measured contact force. The envelope is computed from the normalized residuals of the 12 leg joints. We first compute the envelope for each leg and then take the maximum over the left and right leg envelopes. The reported real-world comparison uses seven completed trials per policy. 
+
+# D Evaluation criterion 
+
+We report three metrics for fixed-command locomotion. The forward velocity tracking error is computed as the root-mean-square error between the commanded forward velocity vcmd  
+
+> x
+
+and the forward velocity vbx,k of root in over the evaluation window T
+
+evx =
+
+s 1
+
+|T | 
+
+X
+
+> k∈T
+
+
+
+vbx,k − vcmd 
+
+> x
+
+2
+
+. (14) In forward-velocity tracking tasks, the robot is expected not only to maintain the commanded speed but also to preserve its walking direction. We therefore evaluate directional stability using two metrics: lateral drift 
+
+15 Baseline 
+
+> ADAPT
+> Lateral drift
+> (m)
+> Yaw drift
+> (rad)
+> Velocity error
+> (m/s)
+
+Force (N) Force (N) Force (N) Figure S2 Unified-scale normalization ablation. The baseline here denotes a variant of ADAPT using standard-normalization instead of our unified normalization. Left: Velocity tracking error, lateral drift, and yaw drift under sagittal torso forces across three command velocities. Right: Radar plots summarize results across disturbance directions. 
+
+and yaw drift 
+
+dy = ykend − ykstart , (15) where the position is measured in the world frame, and kstart and kend denote the first and last timesteps of the evaluation window. The yaw drift is computed as the wrapped heading change, 
+
+dψ = wrap [−π,π ] (ψkend − ψkstart ) . (16) For policy comparison, we report the magnitudes |dy | and |dψ |, where lower values indicate better rejection of lateral and rotational deviations under external disturbances or asymmetric payloads. 
+
+# E Unified-scale ablation 
+
+We evaluate unified-scaled normalization for two stages in velocity tracking under external force perturbations as the baseline. We compare ADAPT with a standard-normalization variant, where the estimated disturbances are normalized by standard statistics instead of a unified normalization. As shown in Fig. S2, ADAPT tracks the velocity more robustly under perturbations with lower drift. This result shows that joint effort provides a useful scale for representing disturbance estimates. 
+
+# F Supplementary experiment results  
+
+> Asymmetric hand loading test.
+
+Fig. S3 provides additional results for the asymmetric hand loading test. In simulation, we apply one-sided downward forces on the robot hand with magnitudes of 10 N , 20 N , and 40 N .In the real-world experiment, we attach asymmetric payloads to one hand, including 1 kg , 2 kg and 4 kg loads. For both simulation and real-world tests, we evaluate fixed-forward-velocity walking under two commands, 
+
+vcmd  
+
+> x
+
+= 0 .8 m/s and vcmd  
+
+> x
+
+= 1 .1 m/s, the supplementary comparison reports the matching simulation results under the same two forward velocity commands. The plots show the lateral drift with respect to the forward walking distance. Across both simulation and real-world experiments, ADAPT produces smaller lateral drift than the baseline under asymmetric loading. This indicates that ADAPT can better maintain the commanded walking direction under unbalanced disturbances. 16 1
+
+Real, 𝐿𝑜𝑎𝑑 = 1𝑘𝑔 Real , 𝐿𝑜𝑎𝑑 = 2𝑘𝑔 Real, 𝐿𝑜𝑎𝑑 = 4𝑘𝑔 
+
+Forward distance (m) 
+
+> Lateral drift (m) Lateral dri6 (m)
+
+Sim, 𝐹 = 10𝑁 Sim, 𝐹 = 20𝑁 Sim, 𝐹 = 40𝑁 
+
+Forward distance (m) 
+
+Baseline 
+
+ADAPT Figure S3 Supplementary results for the asymmetric hand loading test. We report lateral drift trajectories under one-sided hand loads in simulation and on the real robot. ADAPT maintains a straighter walking direction than the baseline under asymmetric disturbances. 
+
+17

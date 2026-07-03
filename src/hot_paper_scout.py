@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
     import yaml  # type: ignore
@@ -136,6 +137,21 @@ ARXIV_DOMAIN_FALLBACK_TERMS = [
     "robot learning",
     "physical AI",
 ]
+
+
+def run_timezone_name() -> str:
+    return (os.getenv("DPR_TIMEZONE") or "Asia/Shanghai").strip() or "Asia/Shanghai"
+
+
+def run_timezone() -> timezone | ZoneInfo:
+    try:
+        return ZoneInfo(run_timezone_name())
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def run_now() -> datetime:
+    return datetime.now(timezone.utc).astimezone(run_timezone())
 
 
 def log(message: str) -> None:
@@ -743,7 +759,7 @@ def scout_hot_papers(
     requested_tags = parse_csv(profile_tag)
     domain_query_groups, domain_queries, topic_directions = build_domain_query_groups(domain_query, topic_direction)
     profiles = iter_profiles(config, requested_tags) if requested_tags or not domain_queries else []
-    now = datetime.now(timezone.utc)
+    now = run_now()
     from_date = (now - timedelta(days=max(int(days_window or 30), 1))).strftime("%Y-%m-%d")
     domain_token = safe_slug("-".join(domain_queries[:2]), "domain")[:40]
     tags_token = "-".join(requested_tags or [str(p.get("tag") or "all") for p in profiles[:3]]) or domain_token or "all"
@@ -992,7 +1008,7 @@ def write_recommend_file(
         for index, paper in enumerate(result.papers, start=1)
     ]
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": run_now().isoformat(),
         "source": "hot_paper_scout",
         "run_token": result.run_token,
         "from_date": result.from_date,
@@ -1025,10 +1041,10 @@ def write_outputs(
         institution_filter=institution_filter,
         section="deep",
     )
-    archive_dir = ROOT_DIR / "archive" / datetime.now(timezone.utc).strftime("%Y%m%d") / "hot"
+    archive_dir = ROOT_DIR / "archive" / run_now().strftime("%Y%m%d") / "hot"
     archive_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": run_now().isoformat(),
         "run_token": result.run_token,
         "from_date": result.from_date,
         "days_window": days_window,

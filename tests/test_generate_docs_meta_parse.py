@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -575,6 +576,19 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("company_relation_match=unitree", summary)
         self.assertIn("（完）", summary)
 
+    def test_format_run_timestamp_uses_shanghai_timezone(self):
+        old_tz = os.environ.get("DPR_TIMEZONE")
+        os.environ["DPR_TIMEZONE"] = "Asia/Shanghai"
+        try:
+            text = self.mod.format_run_timestamp(datetime(2026, 7, 1, 17, 30, tzinfo=timezone.utc))
+        finally:
+            if old_tz is None:
+                os.environ.pop("DPR_TIMEZONE", None)
+            else:
+                os.environ["DPR_TIMEZONE"] = old_tz
+
+        self.assertEqual(text, "2026-07-02 01:30:00 Asia/Shanghai")
+
     def test_update_sidebar_links_empty_hot_run_and_prunes_old_hot_runs(self):
         with tempfile.TemporaryDirectory() as d:
             sidebar = Path(d) / "_sidebar.md"
@@ -582,6 +596,9 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
                 "\n".join(
                     [
                         "* [首页](/)",
+                        "* Hot Papers",
+                        "  * 热点论文 · 2026-07-01 <!--dpr-hot:hot-old-legacy-->",
+                        "    * [Legacy Hot](/hot/hot-old-legacy/README)",
                         "* Daily Papers",
                         "  * 旧热点 <!--dpr-date:hot-old-->",
                         "    * 速读区",
@@ -607,6 +624,8 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.assertIn("<!--dpr-date:hot-20260701-test-->", text)
         self.assertIn("[运行结果](/manual/hot-20260701-test/README)", text)
         self.assertNotIn("hot-old", text)
+        self.assertNotIn("* Hot Papers", text)
+        self.assertNotIn("Legacy Hot", text)
         self.assertIn("<!--dpr-date:20260630-->", text)
 
     def test_maybe_generate_paper_figures_keeps_legacy_return(self):

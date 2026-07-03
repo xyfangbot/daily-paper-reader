@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 from urllib.parse import quote_plus
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import fitz  # PyMuPDF
 import requests
@@ -33,7 +34,32 @@ except Exception:  # pragma: no cover
     from src.paper_figures import ensure_paper_media
 
 CONFIG_FILE = os.path.join(ROOT_DIR, "config.yaml")
-TODAY_STR = str(os.getenv("DPR_RUN_DATE") or "").strip() or datetime.now(timezone.utc).strftime("%Y%m%d")
+
+
+def run_timezone_name() -> str:
+    return (os.getenv("DPR_TIMEZONE") or "Asia/Shanghai").strip() or "Asia/Shanghai"
+
+
+def run_timezone() -> timezone | ZoneInfo:
+    try:
+        return ZoneInfo(run_timezone_name())
+    except ZoneInfoNotFoundError:
+        return timezone.utc
+
+
+def run_now() -> datetime:
+    return datetime.now(timezone.utc).astimezone(run_timezone())
+
+
+def format_run_timestamp(dt: datetime | None = None) -> str:
+    value = dt or run_now()
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=run_timezone())
+    value = value.astimezone(run_timezone())
+    return value.strftime("%Y-%m-%d %H:%M:%S") + f" {run_timezone_name()}"
+
+
+TODAY_STR = str(os.getenv("DPR_RUN_DATE") or "").strip() or run_now().strftime("%Y%m%d")
 RANGE_DATE_RE = re.compile(r"^(\d{8})-(\d{8})$")
 MANUAL_DATE_RE = re.compile(r"^manual-(\d{8})(?:-(\d{6}))?$")
 
@@ -2035,6 +2061,23 @@ def process_paper(
     return paper_id, title
 
 
+def prune_legacy_hot_papers_section(lines: List[str]) -> Tuple[List[str], bool]:
+    """Remove the old top-level `Hot Papers` sidebar section superseded by Daily Papers."""
+    out = list(lines or [])
+    changed = False
+    i = 0
+    while i < len(out):
+        if out[i].strip() != "* Hot Papers":
+            i += 1
+            continue
+        end = i + 1
+        while end < len(out) and not out[end].startswith("* "):
+            end += 1
+        del out[i:end]
+        changed = True
+    return out, changed
+
+
 def update_sidebar(
     sidebar_path: str,
     date_str: str,
@@ -2090,6 +2133,7 @@ def update_sidebar(
     if os.path.exists(sidebar_path):
         with open(sidebar_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
+    lines, _removed_legacy_hot = prune_legacy_hot_papers_section(lines)
 
     daily_idx = -1
     for i, line in enumerate(lines):
@@ -2196,7 +2240,7 @@ def build_day_report_markdown(
     recommend_warnings: List[str] | None = None,
 ) -> str:
     effective_label = (date_label or "").strip() or format_date_str(date_str)
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    generated_at = format_run_timestamp()
     total = len(deep_entries) + len(quick_entries)
     run_status = "成功" if recommend_exists else "未产出 recommend 文件（视为无结果）"
     warnings = normalize_recommend_warnings(recommend_warnings)
@@ -2426,7 +2470,7 @@ def write_run_daily_log(
     payload = {
         "date": format_date_str(date_str),
         "mode": mode,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": run_now().isoformat(),
         "recommend_path": recommend_path,
         "recommend_exists": bool(recommend_exists),
         "deep_count": int(deep_count),
@@ -3058,7 +3102,7 @@ def main() -> None:
         log_substep("6.3", "生成速读区文章", "END")
 
     log_substep("6.4", "生成当日日报并同步首页 README", "START")
-    run_generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    run_generated_at = format_run_timestamp()
     day_readme = write_day_report_readme(
         docs_dir=docs_dir,
         date_str=date_str,

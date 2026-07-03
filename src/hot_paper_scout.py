@@ -274,6 +274,15 @@ EMBODIED_AI_SIGNAL_RE = re.compile(
     r")",
     flags=re.IGNORECASE,
 )
+EMBODIED_AI_TITLE_ANCHOR_RE = re.compile(
+    r"\b("
+    r"embodied|physical\s+ai|robot|robotic|robotics|humanoid|quadruped|"
+    r"legged|wheeled[-\s]legged|locomotion|manipulation|autonomous\s+driving|self[-\s]driving|"
+    r"vision[-\s]language[-\s]action|vision[-\s]language\s+navigation|vla|vln|"
+    r"world\s+model|foundation\s+model|policy|policies"
+    r")\b",
+    flags=re.IGNORECASE,
+)
 BRANDED_COMPANY_TITLE_PATTERNS = [
     (
         re.compile(
@@ -628,12 +637,22 @@ def text_has_embodied_ai_signal(text: str) -> bool:
     return bool(EMBODIED_AI_SIGNAL_RE.search(str(text or "")))
 
 
+def title_anchors_embodied_ai(title: str) -> bool:
+    return bool(EMBODIED_AI_TITLE_ANCHOR_RE.search(str(title or "")))
+
+
+def title_anchored_embodied_ai_signal(title: str, abstract: str) -> bool:
+    if text_has_embodied_ai_signal(title):
+        return True
+    return title_anchors_embodied_ai(title) and text_has_embodied_ai_signal(f"{title} {abstract}")
+
+
 def work_has_embodied_ai_signal(work: dict[str, Any]) -> bool:
     title = single_line(str(work.get("display_name") or ""))
     abstract = inverted_index_to_text(work.get("abstract_inverted_index"))
     if branded_company_from_title(title) and re.search(r"\brobot\w*\b", title, flags=re.IGNORECASE):
         return True
-    return text_has_embodied_ai_signal(f"{title} {abstract}")
+    return title_anchored_embodied_ai_signal(title, abstract)
 
 
 def primary_source(work: dict[str, Any]) -> dict[str, Any]:
@@ -658,7 +677,7 @@ def work_is_scholarly_paper(work: dict[str, Any]) -> bool:
 
 
 def arxiv_entry_has_embodied_ai_signal(title: str, abstract: str) -> bool:
-    return text_has_embodied_ai_signal(f"{title} {abstract}")
+    return title_anchored_embodied_ai_signal(title, abstract)
 
 
 def work_company_relation(work: dict[str, Any]) -> tuple[str, str]:

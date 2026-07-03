@@ -85,6 +85,10 @@ def make_work(
     }
 
 
+def abstract_index(text: str) -> dict:
+    return {word: [idx] for idx, word in enumerate(text.split())}
+
+
 class FakeClient:
     def __init__(self, works=None, *, exc=None, institutions=None, institution_works=None):
         self.works = list(works or [])
@@ -299,6 +303,9 @@ class HotPaperScoutTest(unittest.TestCase):
             title="T-800: An 800 Hz Data Glove for Precise Hand Gesture Tracking",
             institution_name="Beijing Academy of Artificial Intelligence",
             institution_type="nonprofit",
+        )
+        data_glove["abstract_inverted_index"] = abstract_index(
+            "This glove records human motion for robotic manipulation and future control policies"
         )
         installation_robot = make_work(
             19,

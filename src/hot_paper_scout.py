@@ -170,6 +170,23 @@ ARXIV_DOMAIN_FALLBACK_TERMS = [
     "robot learning",
     "physical AI",
 ]
+EMBODIED_AI_SIGNAL_RE = re.compile(
+    r"\b("
+    r"robot|robotic|robotics|humanoid|quadruped|locomotion|manipulation|manipulator|"
+    r"embodied|physical ai|vision language action|vision-language-action|vla|"
+    r"navigation|autonomous driving|autonomous vehicle|self driving|world model"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+BRANDED_COMPANY_TITLE_PATTERNS = [
+    (
+        re.compile(
+            r"(?:^|\b)qwen[\w.-]*(?:\b.*\btechnical report\b|[-:]\s*robot\w*)",
+            flags=re.IGNORECASE,
+        ),
+        "alibaba group",
+    ),
+]
 
 
 def run_timezone_name() -> str:
@@ -475,6 +492,28 @@ def weak_company_mention_for_work(work: dict[str, Any]) -> tuple[str, str]:
     return "", ""
 
 
+def branded_company_from_title(title: str) -> str:
+    text = single_line(title)
+    for pattern, company in BRANDED_COMPANY_TITLE_PATTERNS:
+        if pattern.search(text):
+            return company
+    return ""
+
+
+def text_has_embodied_ai_signal(text: str) -> bool:
+    return bool(EMBODIED_AI_SIGNAL_RE.search(str(text or "")))
+
+
+def work_has_embodied_ai_signal(work: dict[str, Any]) -> bool:
+    title = single_line(str(work.get("display_name") or ""))
+    abstract = inverted_index_to_text(work.get("abstract_inverted_index"))
+    return text_has_embodied_ai_signal(f"{title} {abstract}")
+
+
+def arxiv_entry_has_embodied_ai_signal(title: str, abstract: str) -> bool:
+    return text_has_embodied_ai_signal(f"{title} {abstract}")
+
+
 def work_company_relation(work: dict[str, Any]) -> tuple[str, str]:
     lead_institutions = extract_institutions(work, lead_only=True)
     match = company_name_from_institutions(lead_institutions)
@@ -485,6 +524,10 @@ def work_company_relation(work: dict[str, Any]) -> tuple[str, str]:
     match = company_name_from_institutions(institutions)
     if match:
         return match, "affiliation"
+
+    match = branded_company_from_title(str(work.get("display_name") or ""))
+    if match:
+        return match, "branded-title"
 
     return "", ""
 
@@ -504,6 +547,60 @@ def work_matches_institution_filter(work: dict[str, Any], mode: str) -> bool:
 
 def chunked(values: list[str], size: int) -> list[list[str]]:
     return [values[idx : idx + size] for idx in range(0, len(values), size)]
+
+
+def candidate_keys_for_paper(item: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+
+    def add(value: str) -> None:
+        if value and value not in keys:
+            keys.append(value)
+
+    doi = str(item.get("doi") or "").strip().lower()
+    if doi:
+        add(f"doi:{doi}")
+    arxiv_id = str(item.get("arxiv_id") or "").strip().lower()
+    if arxiv_id:
+        add(f"arxiv:{arxiv_id}")
+    title_key = normalize_alias_text(str(item.get("title") or item.get("display_name") or ""))
+    if title_key:
+        add(f"title:{title_key}")
+    fallback_id = str(item.get("openalex_id") or item.get("id") or "").strip().lower()
+    if fallback_id:
+        add(f"id:{fallback_id}")
+    return keys
+
+
+def paper_rank_tuple(item: dict[str, Any]) -> tuple[int, str]:
+    return int(item.get("cited_by_count") or 0), str(item.get("publication_date") or "")
+
+
+def upsert_candidate(
+    candidates: dict[str, dict[str, Any]],
+    candidate_aliases: dict[str, str],
+    item: dict[str, Any],
+) -> None:
+    keys = candidate_keys_for_paper(item)
+    if not keys:
+        return
+    primary_key = next((candidate_aliases[key] for key in keys if key in candidate_aliases), keys[0])
+
+    for key in keys:
+        other_key = candidate_aliases.get(key)
+        if not other_key or other_key == primary_key:
+            continue
+        other_item = candidates.pop(other_key, None)
+        if other_item and (primary_key not in candidates or paper_rank_tuple(other_item) > paper_rank_tuple(candidates[primary_key])):
+            candidates[primary_key] = other_item
+        for alias, mapped_key in list(candidate_aliases.items()):
+            if mapped_key == other_key:
+                candidate_aliases[alias] = primary_key
+
+    existing = candidates.get(primary_key)
+    if existing is None or paper_rank_tuple(item) > paper_rank_tuple(existing):
+        candidates[primary_key] = item
+    for key in keys:
+        candidate_aliases[key] = primary_key
 
 
 def authors_for_work(work: dict[str, Any]) -> list[str]:
@@ -637,6 +734,9 @@ def arxiv_company_relation(title: str, abstract: str, author_records: list[dict[
     match = arxiv_affiliation_company_match(author_records)
     if match:
         return match, "affiliation"
+    match = branded_company_from_title(title)
+    if match:
+        return match, "branded-title"
     return "", ""
 
 
@@ -655,9 +755,13 @@ def arxiv_entry_to_paper(entry: ET.Element, query: str, from_date: str, institut
     matched_company, relation_source = arxiv_company_relation(title, abstract, author_records)
     company_mention, company_mention_source = arxiv_weak_company_mention(title, abstract)
     if mode == "company":
-        # Query/title/abstract text is not authorship evidence.  Accept arXiv
-        # fallback items only when author affiliation names a company/lab.
+        # Query/title/abstract product mentions are not authorship evidence.
+        # Accept arXiv fallback items only when author affiliation names a
+        # company/lab, or when the title matches a narrow company-branded
+        # technical-report pattern such as Qwen-Robot*.
         if not matched_company:
+            return None
+        if not arxiv_entry_has_embodied_ai_signal(title, abstract):
             return None
     company_label = matched_company or "arXiv metadata"
     inferred_institutions = [{"id": "", "name": company_label, "type": "company", "author_position": "inferred"}] if matched_company else []
@@ -708,6 +812,7 @@ def fetch_arxiv_fallback(
     domain_clause = "(" + " OR ".join(f'all:"{term}"' for term in domain_terms[:12]) + ")"
     company_batches = chunked(ARXIV_COMPANY_QUERY_NAMES, 5) if mode == "company" else [[]]
     papers: dict[str, dict[str, Any]] = {}
+    paper_aliases: dict[str, str] = {}
     warnings: list[str] = []
 
     for batch_idx, company_batch in enumerate(company_batches, start=1):
@@ -736,15 +841,13 @@ def fetch_arxiv_fallback(
             paper = arxiv_entry_to_paper(entry, search_query, from_date, mode)
             if not paper:
                 continue
-            key = (paper.get("doi") or paper.get("id") or paper.get("title") or "").lower()
-            if key:
-                papers[key] = paper
+            upsert_candidate(papers, paper_aliases, paper)
         if len(company_batches) > 1:
             time.sleep(3.0)
     if mode == "company" and not papers:
         warnings.append(
-            "arXiv fallback 未发现作者 affiliation 明确匹配公司的论文；"
-            "已拒绝 search query/title/abstract 的公司名命中，避免把设备、产品或检索词误当作公司产出证据。"
+            "arXiv fallback 未发现作者 affiliation 或公司品牌技术报告标题明确匹配公司的论文；"
+            "已拒绝 search query/title/abstract 的普通公司名命中，避免把设备、产品或检索词误当作公司产出证据。"
         )
     return list(papers.values()), warnings
 
@@ -837,6 +940,7 @@ def scout_hot_papers(
     warnings: list[str] = []
     query_specs: list[dict[str, str]] = []
     candidates: dict[str, dict[str, Any]] = {}
+    candidate_aliases: dict[str, str] = {}
     per_page = max(25, min(100, int(max_results or 30) * 3))
 
     if requested_tags and not profiles:
@@ -870,21 +974,12 @@ def scout_hot_papers(
                     warnings.append(f"OpenAlex 查询失败：{tag} / {query}: {type(exc).__name__}: {single_line(str(exc))[:200]}")
                     continue
                 for work in works:
+                    if mode == "company" and not work_has_embodied_ai_signal(work):
+                        continue
                     if not work_matches_institution_filter(work, mode):
                         continue
                     item = normalize_work(work, tag, query)
-                    key = (item.get("doi") or item.get("openalex_id") or item.get("title") or "").lower()
-                    if not key:
-                        continue
-                    existing = candidates.get(key)
-                    if existing is None or (
-                        int(item.get("cited_by_count") or 0),
-                        str(item.get("publication_date") or ""),
-                    ) > (
-                        int(existing.get("cited_by_count") or 0),
-                        str(existing.get("publication_date") or ""),
-                    ):
-                        candidates[key] = item
+                    upsert_candidate(candidates, candidate_aliases, item)
                 time.sleep(0.08)
 
     if not candidates and domain_queries:
@@ -898,12 +993,10 @@ def scout_hot_papers(
         if fallback_papers:
             warnings.append(
                 "OpenAlex 当前无可用候选，已启用 arXiv fallback；"
-                "公司相关模式仅接受作者 affiliation 明确匹配公司的条目。"
+                "公司相关模式仅接受作者 affiliation 或公司品牌技术报告标题明确匹配公司的条目。"
             )
         for item in fallback_papers:
-            key = (item.get("doi") or item.get("id") or item.get("title") or "").lower()
-            if key:
-                candidates[key] = item
+            upsert_candidate(candidates, candidate_aliases, item)
 
     papers = sorted(
         candidates.values(),

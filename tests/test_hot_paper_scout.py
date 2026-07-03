@@ -178,6 +178,56 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(parsed["company_mention"], "unitree")
         self.assertEqual(parsed["company_mention_source"], "title")
 
+        qwen_usage_paper = make_work(
+            11,
+            title="A Benchmark of Qwen for Robot Planning",
+            institution_name="Tsinghua University",
+            institution_type="education",
+        )
+        self.assertFalse(hot_paper_scout.work_matches_institution_filter(qwen_usage_paper, "company"))
+
+    def test_qwen_branded_technical_report_counts_as_company_output_without_affiliation(self):
+        branded_work = make_work(
+            12,
+            title="Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models",
+            institution_name="",
+            institution_type="",
+        )
+
+        self.assertTrue(hot_paper_scout.work_matches_institution_filter(branded_work, "company"))
+        parsed = hot_paper_scout.normalize_work(branded_work, "topic", "qwen robot")
+        self.assertEqual(parsed["company_match"], "alibaba group")
+        self.assertEqual(parsed["company_relation_source"], "branded-title")
+
+    def test_company_scout_requires_company_affiliation_and_embodied_domain_signal(self):
+        off_topic_company = make_work(
+            9,
+            title="Large Models for Time Series and Spatio-Temporal Data",
+            institution_name="Alibaba Group",
+            institution_type="company",
+            cited_by_count=99,
+        )
+        on_topic_company = make_work(
+            10,
+            title="Qwen Robotics Technical Report",
+            institution_name="Alibaba Group",
+            institution_type="company",
+            cited_by_count=1,
+        )
+
+        result = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query="Qwen robotics",
+            topic_direction="all",
+            days_window=30,
+            institution_filter="company",
+            max_results=10,
+            client=FakeClient([off_topic_company, on_topic_company]),
+        )
+
+        self.assertEqual([paper["title"] for paper in result.papers], ["Qwen Robotics Technical Report"])
+
     def test_openalex_failure_returns_warning_result(self):
         result = hot_paper_scout.scout_hot_papers(
             build_config(),
@@ -217,6 +267,38 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(dois.count("https://doi.org/10.1234/dup"), 1)
         duplicate = next(paper for paper in result.papers if paper["doi"] == "https://doi.org/10.1234/dup")
         self.assertEqual(duplicate["cited_by_count"], 80)
+
+    def test_dedupe_by_title_when_openalex_has_duplicate_records_without_doi(self):
+        first = make_work(
+            41,
+            title="Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models",
+            cited_by_count=1,
+            institution_name="",
+            institution_type="",
+        )
+        second = make_work(
+            42,
+            title="Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models",
+            cited_by_count=3,
+            institution_name="",
+            institution_type="",
+        )
+        for work in [first, second]:
+            work["doi"] = ""
+            work["ids"]["doi"] = ""
+        result = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query="Qwen robotics",
+            topic_direction="all",
+            days_window=30,
+            institution_filter="company",
+            max_results=10,
+            client=FakeClient([first, second]),
+        )
+
+        self.assertEqual(len(result.papers), 1)
+        self.assertEqual(result.papers[0]["cited_by_count"], 3)
 
     def test_topic_direction_expands_queries_and_ignores_default_domain_query(self):
         groups, queries, directions = hot_paper_scout.build_domain_query_groups(
@@ -328,6 +410,32 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(paper["lead_institution_names"], [])
         self.assertEqual(paper["company_mention"], "qwen")
         self.assertEqual(paper["company_mention_source"], "title")
+
+    def test_arxiv_fallback_accepts_qwen_branded_title_without_affiliation(self):
+        xml = """
+        <entry xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+          <id>http://arxiv.org/abs/2606.54324v1</id>
+          <published>2026-06-30T00:00:00Z</published>
+          <title>Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models</title>
+          <summary>This report studies robotic manipulation policies.</summary>
+          <author><name>Alice Example</name></author>
+          <author><name>Bob Example</name></author>
+          <link title="pdf" href="http://arxiv.org/pdf/2606.54324v1" rel="related" type="application/pdf"/>
+        </entry>
+        """
+        entry = ET.fromstring(xml)
+        paper = hot_paper_scout.arxiv_entry_to_paper(
+            entry,
+            'all:"Qwen" AND all:"robot"',
+            "2026-06-01",
+            "company",
+        )
+
+        self.assertIsNotNone(paper)
+        self.assertEqual(paper["company_match"], "alibaba group")
+        self.assertEqual(paper["company_relation_source"], "branded-title")
+        self.assertEqual(paper["institution_names"], ["alibaba group"])
+        self.assertEqual(paper["lead_institution_names"], [])
 
     def test_arxiv_fallback_rejects_query_only_company_match(self):
         xml = """

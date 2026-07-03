@@ -74,6 +74,23 @@ TOPIC_DIRECTION_QUERIES = {
     ],
 }
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
+OPENALEX_SCHOLARLY_TYPES = {
+    "article",
+    "book-chapter",
+    "dissertation",
+    "preprint",
+    "proceedings-article",
+    "report",
+    "review",
+}
+OPENALEX_NON_PAPER_TYPES = {
+    "dataset",
+    "editorial",
+    "letter",
+    "other",
+    "paratext",
+    "reference-entry",
+}
 EMBODIED_AI_COMPANY_ALIASES = {
     "1x technologies",
     "agibot",
@@ -595,6 +612,27 @@ def work_has_embodied_ai_signal(work: dict[str, Any]) -> bool:
     return text_has_embodied_ai_signal(f"{title} {abstract}")
 
 
+def primary_source(work: dict[str, Any]) -> dict[str, Any]:
+    primary = work.get("primary_location") if isinstance(work.get("primary_location"), dict) else {}
+    source = primary.get("source") if isinstance(primary.get("source"), dict) else {}
+    return source
+
+
+def work_is_scholarly_paper(work: dict[str, Any]) -> bool:
+    work_type = single_line(str(work.get("type") or "")).lower()
+    if work_type in OPENALEX_SCHOLARLY_TYPES:
+        return True
+    if work_type in OPENALEX_NON_PAPER_TYPES:
+        return False
+    source = primary_source(work)
+    source_type = single_line(str(source.get("type") or "")).lower()
+    if source_type in {"journal", "conference"}:
+        return True
+    if source_type == "repository":
+        return bool(str(work.get("doi") or "").strip() and inverted_index_to_text(work.get("abstract_inverted_index")))
+    return not work_type
+
+
 def arxiv_entry_has_embodied_ai_signal(title: str, abstract: str) -> bool:
     return text_has_embodied_ai_signal(f"{title} {abstract}")
 
@@ -725,6 +763,7 @@ def normalize_work(work: dict[str, Any], profile_tag: str, query: str) -> dict[s
     doi = str(work.get("doi") or ids.get("doi") or "").strip()
     openalex_id = str(work.get("id") or ids.get("openalex") or "").strip()
     title = single_line(str(work.get("display_name") or "Untitled work"))
+    source = primary_source(work)
     institutions = extract_institutions(work)
     lead_institutions = extract_institutions(work, lead_only=True)
     abstract = inverted_index_to_text(work.get("abstract_inverted_index"))
@@ -750,6 +789,9 @@ def normalize_work(work: dict[str, Any], profile_tag: str, query: str) -> dict[s
         "profile_tag": profile_tag,
         "matched_query": query,
         "source": "openalex",
+        "openalex_type": single_line(str(work.get("type") or "")),
+        "venue_name": single_line(str(source.get("display_name") or "")),
+        "venue_type": single_line(str(source.get("type") or "")),
         "company_match": company_match,
         "company_relation_source": company_relation_source,
         "company_mention": company_mention,
@@ -1207,6 +1249,8 @@ def scout_hot_papers(
                     warnings.append(f"OpenAlex 查询失败：{tag} / {query}: {type(exc).__name__}: {single_line(str(exc))[:200]}")
                     continue
                 for work in works:
+                    if not work_is_scholarly_paper(work):
+                        continue
                     if mode == "company" and not work_has_embodied_ai_signal(work):
                         continue
                     if not work_matches_institution_filter(work, mode):
@@ -1235,6 +1279,8 @@ def scout_hot_papers(
                 )
                 continue
             for work in works:
+                if not work_is_scholarly_paper(work):
+                    continue
                 if not work_has_embodied_ai_signal(work):
                     continue
                 if not work_matches_institution_filter(work, mode):

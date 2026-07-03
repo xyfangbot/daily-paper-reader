@@ -42,6 +42,7 @@ def make_work(
     institution_name: str = "OpenAI",
     institution_type: str = "company",
     author_position: str = "first",
+    work_type: str = "article",
 ) -> dict:
     return {
         "id": f"https://openalex.org/W{idx}",
@@ -51,6 +52,7 @@ def make_work(
         },
         "doi": doi or f"https://doi.org/10.1234/hot.{idx}",
         "display_name": title or f"Hot Paper {idx}",
+        "type": work_type,
         "publication_date": "2026-06-30",
         "publication_year": 2026,
         "cited_by_count": cited_by_count,
@@ -75,6 +77,10 @@ def make_work(
         "primary_location": {
             "landing_page_url": f"https://example.org/papers/{idx}",
             "pdf_url": f"https://example.org/papers/{idx}.pdf",
+            "source": {
+                "display_name": "Example Journal",
+                "type": "journal",
+            },
         },
     }
 
@@ -252,6 +258,28 @@ class HotPaperScoutTest(unittest.TestCase):
         )
 
         self.assertEqual([paper["title"] for paper in result.papers], ["Qwen Robotics Technical Report"])
+
+    def test_openalex_other_type_is_not_treated_as_paper(self):
+        other_item = make_work(
+            15,
+            title="Building the Ultimate DIY Moving Fleet",
+            institution_name="Google DeepMind",
+            institution_type="company",
+            work_type="other",
+        )
+        self.assertFalse(hot_paper_scout.work_is_scholarly_paper(other_item))
+        result = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query="robot",
+            topic_direction="all",
+            days_window=30,
+            institution_filter="company",
+            max_results=10,
+            client=FakeClient([other_item]),
+        )
+
+        self.assertEqual(result.papers, [])
 
     def test_company_scout_uses_spotlight_institution_id_lookup(self):
         baai_work = make_work(

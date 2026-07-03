@@ -50,6 +50,29 @@ def safe_path_token(value: Any, fallback: str = "upload") -> str:
     return text or fallback
 
 
+def hot_topic_direction_label(value: Any) -> str:
+    aliases = {
+        "all": "综合方向",
+        "general": "综合方向",
+        "default": "综合方向",
+        "vln": "VLN方向",
+        "vla": "VLA方向",
+        "world-model": "世界模型方向",
+        "world model": "世界模型方向",
+        "worldmodel": "世界模型方向",
+    }
+    labels: list[str] = []
+    seen: set[str] = set()
+    for raw in re.split(r"[\n;,，；]+", norm_text(value).lower().replace("_", "-")):
+        key = " ".join(raw.strip().split())
+        label = aliases.get(key) or aliases.get(key.replace(" ", "-"))
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        labels.append(label)
+    return "、".join(labels) if labels else "综合方向"
+
+
 def build_secret_env(secret: dict[str, Any] | None) -> dict[str, str]:
     if not isinstance(secret, dict):
         return {}
@@ -382,12 +405,14 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
     if workflow_file == "hot-paper-scout.yml" or workflow_key == "hot-paper-scout":
         days_window = str(inputs.get("days_window") or "30")
         institution_filter = str(inputs.get("institution_filter") or "company")
+        topic_direction = str(inputs.get("topic_direction") or "all")
         if institution_filter == "company":
             filter_label = "具身智能公司相关"
         elif institution_filter == "university":
             filter_label = "高校"
         else:
             filter_label = "全部机构"
+        direction_label = hot_topic_direction_label(topic_direction)
         scout_cmd = [
             python,
             "src/hot_paper_scout.py",
@@ -395,6 +420,8 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
             str(inputs.get("profile_tag") or ""),
             "--domain-query",
             str(inputs.get("domain_query") or ""),
+            "--topic-direction",
+            topic_direction,
             "--days-window",
             days_window,
             "--institution-filter",
@@ -415,7 +442,7 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
                 "--date \"$HOT_RUN_TOKEN\" "
                 "--mode standard "
                 "--docs-dir docs "
-                f"--sidebar-date-label {shlex.quote(f'热点论文筛选 · 最近 {days_window} 天 · {filter_label}')} "
+                f"--sidebar-date-label {shlex.quote(f'热点论文筛选 · 最近 {days_window} 天 · {filter_label} · {direction_label}')} "
                 "--force-glance "
                 "--docs-concurrency 3"
             ),

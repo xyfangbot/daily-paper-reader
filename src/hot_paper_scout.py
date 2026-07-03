@@ -38,6 +38,39 @@ DEFAULT_DOMAIN_QUERY = (
     "vision-language-action model; robot foundation model; "
     "generalist robot policy; humanoid robot policy; robot learning foundation model"
 )
+DEFAULT_UI_DOMAIN_QUERY = (
+    "embodied intelligence; embodied AI; embodied agents; "
+    "vision-language-action model; robot foundation model"
+)
+TOPIC_DIRECTION_LABELS = {
+    "all": "综合方向",
+    "vln": "VLN方向",
+    "vla": "VLA方向",
+    "world-model": "世界模型方向",
+}
+TOPIC_DIRECTION_QUERIES = {
+    "vln": [
+        "vision language navigation robot",
+        "VLN embodied navigation",
+        "language guided robot navigation",
+        "zero-shot semantic navigation robot",
+        "visual language navigation embodied AI",
+    ],
+    "vla": [
+        "vision-language-action model robot",
+        "VLA model robot policy",
+        "generalist robot policy vision language action",
+        "robot foundation model action prediction",
+        "multimodal robot manipulation policy",
+    ],
+    "world-model": [
+        "robot world model",
+        "embodied world model",
+        "predictive world model robotics",
+        "spatial world model robot learning",
+        "generative world model embodied AI",
+    ],
+}
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
 EMBODIED_AI_COMPANY_ALIASES = {
     "1x technologies",
@@ -145,6 +178,92 @@ def parse_query_list(value: str) -> list[str]:
         seen.add(key)
         out.append(item)
     return out
+
+
+def normalize_topic_directions(value: str) -> list[str]:
+    aliases = {
+        "all": "all",
+        "general": "all",
+        "default": "all",
+        "综合": "all",
+        "综合方向": "all",
+        "vln": "vln",
+        "vision-language-navigation": "vln",
+        "vision-language navigation": "vln",
+        "visual-language-navigation": "vln",
+        "视觉语言导航": "vln",
+        "导航": "vln",
+        "vla": "vla",
+        "vision-language-action": "vla",
+        "vision-language action": "vla",
+        "视觉语言动作": "vla",
+        "world-model": "world-model",
+        "world model": "world-model",
+        "worldmodel": "world-model",
+        "wm": "world-model",
+        "世界模型": "world-model",
+    }
+    selected: list[str] = []
+    seen: set[str] = set()
+    for raw in re.split(r"[\n;,，；]+", str(value or "")):
+        item = single_line(raw).lower().replace("_", "-")
+        item = re.sub(r"\s+", " ", item)
+        key = aliases.get(item) or aliases.get(item.replace(" ", "-"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        selected.append(key)
+    if not selected:
+        return ["all"]
+    if "all" in seen and len(selected) > 1:
+        selected = [item for item in selected if item != "all"]
+    return selected or ["all"]
+
+
+def topic_direction_label(value: str) -> str:
+    return "、".join(TOPIC_DIRECTION_LABELS.get(item, item) for item in normalize_topic_directions(value))
+
+
+def is_default_domain_query(value: str) -> bool:
+    raw = [item.lower() for item in parse_query_list(value)]
+    defaults = [
+        [item.lower() for item in parse_query_list(DEFAULT_DOMAIN_QUERY)],
+        [item.lower() for item in parse_query_list(DEFAULT_UI_DOMAIN_QUERY)],
+    ]
+    return raw in defaults
+
+
+def build_domain_query_groups(domain_query: str, topic_direction: str) -> tuple[list[tuple[str, list[str]]], list[str], list[str]]:
+    directions = normalize_topic_directions(topic_direction)
+    custom_queries = parse_query_list(domain_query)
+    use_direction_queries = any(item != "all" for item in directions)
+    groups: list[tuple[str, list[str]]] = []
+    all_queries: list[str] = []
+    seen: set[str] = set()
+
+    def add_group(label: str, queries: list[str]) -> None:
+        group_queries: list[str] = []
+        for query in queries:
+            clean = single_line(query)
+            key = clean.lower()
+            if not clean or key in seen:
+                continue
+            seen.add(key)
+            group_queries.append(clean)
+            all_queries.append(clean)
+        if group_queries:
+            groups.append((label, group_queries))
+
+    if use_direction_queries:
+        for direction in directions:
+            if direction == "all":
+                continue
+            add_group(TOPIC_DIRECTION_LABELS.get(direction, direction), TOPIC_DIRECTION_QUERIES.get(direction, []))
+        if custom_queries and not is_default_domain_query(domain_query):
+            add_group("自定义方向", custom_queries[:8])
+    else:
+        add_group("综合方向", custom_queries[:8])
+    return groups, all_queries, directions
 
 
 def inverted_index_to_text(index: Any) -> str:
@@ -604,6 +723,7 @@ class ScoutResult:
     warnings: list[str]
     profiles: list[dict[str, Any]]
     domain_queries: list[str]
+    topic_directions: list[str]
     queries: list[dict[str, str]]
     from_date: str
     run_token: str
@@ -614,19 +734,22 @@ def scout_hot_papers(
     *,
     profile_tag: str,
     domain_query: str,
+    topic_direction: str,
     days_window: int,
     institution_filter: str,
     max_results: int,
     client: OpenAlexClient,
 ) -> ScoutResult:
     requested_tags = parse_csv(profile_tag)
-    domain_queries = parse_query_list(domain_query)
+    domain_query_groups, domain_queries, topic_directions = build_domain_query_groups(domain_query, topic_direction)
     profiles = iter_profiles(config, requested_tags) if requested_tags or not domain_queries else []
     now = datetime.now(timezone.utc)
     from_date = (now - timedelta(days=max(int(days_window or 30), 1))).strftime("%Y-%m-%d")
     domain_token = safe_slug("-".join(domain_queries[:2]), "domain")[:40]
     tags_token = "-".join(requested_tags or [str(p.get("tag") or "all") for p in profiles[:3]]) or domain_token or "all"
-    token_hash = hashlib.sha1(f"{tags_token}|{domain_query}|{days_window}|{institution_filter}|{now.isoformat()}".encode("utf-8")).hexdigest()[:8]
+    if not requested_tags and not profiles and any(item != "all" for item in topic_directions):
+        tags_token = "-".join(topic_directions)
+    token_hash = hashlib.sha1(f"{tags_token}|{domain_query}|{topic_direction}|{days_window}|{institution_filter}|{now.isoformat()}".encode("utf-8")).hexdigest()[:8]
     run_token = f"hot-{now.strftime('%Y%m%d-%H%M%S')}-{safe_slug(tags_token, 'all')[:40]}-{token_hash}"
     warnings: list[str] = []
     query_specs: list[dict[str, str]] = []
@@ -640,8 +763,7 @@ def scout_hot_papers(
 
     mode = normalize_institution_filter(institution_filter)
     query_groups: list[tuple[str, list[str]]] = []
-    if domain_queries:
-        query_groups.append(("具身智能", domain_queries[:8]))
+    query_groups.extend(domain_query_groups)
     for profile in profiles:
         tag = str(profile.get("tag") or "").strip()
         queries = profile_queries(profile, limit=8)
@@ -712,6 +834,7 @@ def scout_hot_papers(
         warnings=warnings,
         profiles=profiles,
         domain_queries=domain_queries,
+        topic_directions=topic_directions,
         queries=query_specs,
         from_date=from_date,
         run_token=run_token,
@@ -877,6 +1000,7 @@ def write_recommend_file(
         "institution_filter": normalize_institution_filter(institution_filter),
         "profiles": [p.get("tag") for p in result.profiles],
         "domain_queries": result.domain_queries,
+        "topic_directions": result.topic_directions,
         "queries": result.queries,
         "warnings": result.warnings,
         "deep_dive": items if section == "deep" else [],
@@ -911,6 +1035,7 @@ def write_outputs(
         "institution_filter": normalize_institution_filter(institution_filter),
         "profiles": [p.get("tag") for p in result.profiles],
         "domain_queries": result.domain_queries,
+        "topic_directions": result.topic_directions,
         "queries": result.queries,
         "warnings": result.warnings,
         "recommend_path": str(recommend_path.relative_to(ROOT_DIR)),
@@ -927,6 +1052,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Find recent hot papers from OpenAlex for DPR profiles.")
     parser.add_argument("--profile-tag", default="", help="Comma-separated profile tags. Empty means all enabled profiles.")
     parser.add_argument("--domain-query", default=DEFAULT_DOMAIN_QUERY, help="Semicolon/comma separated domain queries.")
+    parser.add_argument("--topic-direction", default="all", help="Comma-separated topic directions: all, vln, vla, world-model.")
     parser.add_argument("--days-window", type=int, choices=(7, 14, 30), default=30)
     parser.add_argument("--institution-filter", choices=("all", "company", "university"), default="company")
     parser.add_argument("--max-results", type=int, default=30)
@@ -951,6 +1077,7 @@ def main() -> None:
         config,
         profile_tag=args.profile_tag,
         domain_query=args.domain_query,
+        topic_direction=args.topic_direction,
         days_window=args.days_window,
         institution_filter=args.institution_filter,
         max_results=args.max_results,

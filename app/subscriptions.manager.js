@@ -22,6 +22,7 @@ window.SubscriptionsManager = (function () {
   let hotPaperScoutDomainEl = null;
   let hotPaperScoutDaysEl = null;
   let hotPaperScoutInstitutionEl = null;
+  let hotPaperScoutDirectionEls = [];
   let hotPaperScoutMsgEl = null;
   let quickRunMsgEl = null;
   let quickRunSelectionCountEl = null;
@@ -629,13 +630,51 @@ window.SubscriptionsManager = (function () {
     });
   };
 
+  const getHotPaperScoutDirections = () => {
+    const checked = Array.from(hotPaperScoutDirectionEls || [])
+      .filter((input) => input && input.checked)
+      .map((input) => normalizeText(input.value).toLowerCase())
+      .filter(Boolean);
+    const selected = checked.filter((value) => value !== 'all');
+    return selected.length ? selected : ['all'];
+  };
+
+  const formatHotPaperScoutDirections = (directions) => {
+    const labels = {
+      all: '综合方向',
+      vln: 'VLN方向',
+      vla: 'VLA方向',
+      'world-model': '世界模型方向',
+    };
+    const values = Array.isArray(directions) && directions.length ? directions : ['all'];
+    return values.map((value) => labels[value] || value).join('、');
+  };
+
+  const syncHotPaperScoutDirections = (changedInput) => {
+    const inputs = Array.from(hotPaperScoutDirectionEls || []);
+    if (!inputs.length) return;
+    const allInput = inputs.find((input) => input && input.value === 'all');
+    if (changedInput && changedInput.value === 'all' && changedInput.checked) {
+      inputs.forEach((input) => {
+        if (input !== changedInput) input.checked = false;
+      });
+    } else if (changedInput && changedInput.value !== 'all' && changedInput.checked && allInput) {
+      allInput.checked = false;
+    }
+    if (!inputs.some((input) => input.checked) && allInput) {
+      allInput.checked = true;
+    }
+  };
+
   const refreshQuickRunButtons = () => {
     const selectedProfiles = getSelectedProfilesForRun();
     const selectedProfileCount = selectedProfiles.length;
     const dailySelectedProfileCount = selectedProfileCount;
     const hotDomainQuery = normalizeText(hotPaperScoutDomainEl && hotPaperScoutDomainEl.value);
+    const hotDirections = getHotPaperScoutDirections();
+    const hasSpecificHotDirection = hotDirections.some((value) => value !== 'all');
     const dailyBlocked = hasUnsavedChanges || dailySelectedProfileCount < 1;
-    const hotBlocked = hasUnsavedChanges || (dailySelectedProfileCount < 1 && !hotDomainQuery);
+    const hotBlocked = hasUnsavedChanges || (dailySelectedProfileCount < 1 && !hotDomainQuery && !hasSpecificHotDirection);
     const conferenceBlocked =
       hasUnsavedChanges || selectedProfileCount < 1 || selectedConferenceYearPairs.size < 1;
     renderProfilePickers();
@@ -872,8 +911,10 @@ window.SubscriptionsManager = (function () {
     }
     const tags = getDailySelectedProfileTagsForRun();
     const domainQuery = normalizeText(hotPaperScoutDomainEl && hotPaperScoutDomainEl.value);
-    if (!tags.length && !domainQuery) {
-      setHotPaperScoutMessage('请填写领域关键词，或先勾选至少一个词条。', '#c00');
+    const topicDirections = getHotPaperScoutDirections();
+    const hasSpecificDirection = topicDirections.some((value) => value !== 'all');
+    if (!tags.length && !domainQuery && !hasSpecificDirection) {
+      setHotPaperScoutMessage('请填写领域关键词、选择方向，或先勾选至少一个词条。', '#c00');
       refreshQuickRunButtons();
       return false;
     }
@@ -890,6 +931,7 @@ window.SubscriptionsManager = (function () {
     const result = await window.DPRWorkflowRunner.runHotPaperScout({
       profile_tag: tags.join(','),
       domain_query: domainQuery,
+      topic_direction: topicDirections.join(','),
       days_window: daysWindow,
       institution_filter: institutionFilter,
       max_results: '30',
@@ -903,8 +945,9 @@ window.SubscriptionsManager = (function () {
       company: '具身智能公司相关',
       university: '高校',
     }[institutionFilter] || '全部机构';
-    const targetText = domainQuery || `${tags.length} 个词条`;
-    setHotPaperScoutMessage(`已发起「${targetText}」最近 ${daysWindow} 天热点论文筛选（${label}）。`, '#080');
+    const directionText = formatHotPaperScoutDirections(topicDirections);
+    const targetText = domainQuery || (hasSpecificDirection ? directionText : `${tags.length} 个词条`);
+    setHotPaperScoutMessage(`已发起「${targetText}」最近 ${daysWindow} 天热点论文筛选（${label} · ${directionText}）。`, '#080');
     showWorkflowSuccessEffects();
     return true;
   };
@@ -1320,6 +1363,27 @@ window.SubscriptionsManager = (function () {
                       <option value="university">高校</option>
                     </select>
                   </label>
+                  <div class="dpr-hot-scout-field dpr-hot-scout-field--wide">
+                    <span>方向</span>
+                    <div id="arxiv-admin-hot-direction" class="dpr-hot-direction-options" role="group" aria-label="热点论文方向">
+                      <label class="dpr-hot-direction-option">
+                        <input type="checkbox" name="dpr-hot-direction" value="all" checked>
+                        <span>综合</span>
+                      </label>
+                      <label class="dpr-hot-direction-option">
+                        <input type="checkbox" name="dpr-hot-direction" value="vln">
+                        <span>VLN</span>
+                      </label>
+                      <label class="dpr-hot-direction-option">
+                        <input type="checkbox" name="dpr-hot-direction" value="vla">
+                        <span>VLA</span>
+                      </label>
+                      <label class="dpr-hot-direction-option">
+                        <input type="checkbox" name="dpr-hot-direction" value="world-model">
+                        <span>世界模型</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
                 <button id="arxiv-admin-hot-scout-btn" class="chat-quick-run-run-btn dpr-hot-scout-run-btn" type="button">筛选热点论文</button>
                 <div id="arxiv-admin-hot-scout-msg" class="chat-quick-run-msg"></div>
@@ -1594,6 +1658,7 @@ window.SubscriptionsManager = (function () {
     hotPaperScoutDomainEl = document.getElementById('arxiv-admin-hot-domain');
     hotPaperScoutDaysEl = document.getElementById('arxiv-admin-hot-days');
     hotPaperScoutInstitutionEl = document.getElementById('arxiv-admin-hot-institution');
+    hotPaperScoutDirectionEls = Array.from(document.querySelectorAll('input[name="dpr-hot-direction"]'));
     hotPaperScoutMsgEl = document.getElementById('arxiv-admin-hot-scout-msg');
     quickRunMsgEl = document.getElementById('arxiv-admin-quick-run-msg');
     quickRunSelectionCountEl = null;
@@ -1643,6 +1708,14 @@ window.SubscriptionsManager = (function () {
         refreshQuickRunButtons();
       });
     }
+    hotPaperScoutDirectionEls.forEach((input) => {
+      if (!input || input._bound) return;
+      input._bound = true;
+      input.addEventListener('change', () => {
+        syncHotPaperScoutDirections(input);
+        refreshQuickRunButtons();
+      });
+    });
 
     document
       .querySelectorAll('input[name="dpr-quick-run-mode"]')
@@ -1828,10 +1901,11 @@ window.SubscriptionsManager = (function () {
       __setHotPaperScoutMsgEl: (el) => {
         hotPaperScoutMsgEl = el || null;
       },
-      __setHotPaperScoutControls: (daysEl, institutionEl, domainEl) => {
+      __setHotPaperScoutControls: (daysEl, institutionEl, domainEl, directionEls) => {
         hotPaperScoutDaysEl = daysEl || null;
         hotPaperScoutInstitutionEl = institutionEl || null;
         hotPaperScoutDomainEl = domainEl || null;
+        hotPaperScoutDirectionEls = Array.isArray(directionEls) ? directionEls : [];
       },
       __setUnsavedChanges: (value) => {
         hasUnsavedChanges = !!value;

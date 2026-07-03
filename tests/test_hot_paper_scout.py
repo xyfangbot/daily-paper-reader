@@ -155,6 +155,7 @@ class HotPaperScoutTest(unittest.TestCase):
             build_config(),
             profile_tag="rl-robotics",
             domain_query="",
+            topic_direction="all",
             days_window=14,
             institution_filter="all",
             max_results=30,
@@ -175,6 +176,7 @@ class HotPaperScoutTest(unittest.TestCase):
             build_config(),
             profile_tag="rl-robotics",
             domain_query="embodied intelligence; robot foundation model",
+            topic_direction="all",
             days_window=14,
             institution_filter="all",
             max_results=30,
@@ -187,6 +189,34 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(dois.count("https://doi.org/10.1234/dup"), 1)
         duplicate = next(paper for paper in result.papers if paper["doi"] == "https://doi.org/10.1234/dup")
         self.assertEqual(duplicate["cited_by_count"], 80)
+
+    def test_topic_direction_expands_queries_and_ignores_default_domain_query(self):
+        groups, queries, directions = hot_paper_scout.build_domain_query_groups(
+            hot_paper_scout.DEFAULT_UI_DOMAIN_QUERY,
+            "vln",
+        )
+
+        self.assertEqual(directions, ["vln"])
+        self.assertEqual(groups[0][0], "VLN方向")
+        self.assertTrue(any("navigation" in query.lower() for query in queries))
+        self.assertNotIn("embodied agents", queries)
+
+    def test_scout_uses_topic_direction_as_query_tag(self):
+        result = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query=hot_paper_scout.DEFAULT_UI_DOMAIN_QUERY,
+            topic_direction="vla",
+            days_window=14,
+            institution_filter="all",
+            max_results=3,
+            client=FakeClient([make_work(1, cited_by_count=10)]),
+        )
+
+        self.assertEqual(result.topic_directions, ["vla"])
+        self.assertTrue(result.queries)
+        self.assertEqual(result.queries[0]["profile_tag"], "VLA方向")
+        self.assertEqual(result.papers[0]["profile_tag"], "VLA方向")
 
     def test_arxiv_fallback_entry_parse_marks_company_source(self):
         xml = """
@@ -318,6 +348,7 @@ class HotPaperScoutTest(unittest.TestCase):
             warnings=["OpenAlex 查询失败：demo"],
             profiles=[],
             domain_queries=["embodied AI"],
+            topic_directions=["all"],
             queries=[],
             from_date="2026-06-01",
             run_token="hot-test",

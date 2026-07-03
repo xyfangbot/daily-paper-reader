@@ -315,6 +315,7 @@ async function testHotPaperScoutPassesSelectedProfilesAndControls() {
   assert.deepEqual(calls[0], {
     profile_tag: 'ACTIVE,CONF',
     domain_query: 'embodied intelligence',
+    topic_direction: 'all',
     days_window: '30',
     institution_filter: 'company',
     max_results: '30',
@@ -355,6 +356,7 @@ async function testHotPaperScoutCanRunWithDomainOnly() {
   assert.deepEqual(calls[0], {
     profile_tag: '',
     domain_query: 'embodied AI',
+    topic_direction: 'all',
     days_window: '30',
     institution_filter: 'company',
     max_results: '30',
@@ -362,6 +364,48 @@ async function testHotPaperScoutCanRunWithDomainOnly() {
 
   __setHotPaperScoutMsgEl(null);
   __setHotPaperScoutControls(null, null, null);
+  delete global.window.DPRWorkflowRunner;
+  delete global.window.SubscriptionsSmartQuery;
+}
+
+async function testHotPaperScoutCanRunWithDirectionOnly() {
+  const calls = [];
+  const msgEl = {
+    textContent: '',
+    style: {
+      color: '',
+    },
+  };
+  global.window.DPRWorkflowRunner = {
+    runHotPaperScout(options) {
+      calls.push(options);
+      return true;
+    },
+  };
+  global.window.SubscriptionsSmartQuery = {
+    getSelectedProfilesForRun() {
+      return [];
+    },
+  };
+  const allDirection = { value: 'all', checked: false };
+  const vlaDirection = { value: 'vla', checked: true };
+  __setHotPaperScoutMsgEl(msgEl);
+  __setHotPaperScoutControls({ value: '30' }, { value: 'company' }, { value: '' }, [allDirection, vlaDirection]);
+  __setUnsavedChanges(false);
+
+  assert.equal(await runHotPaperScoutFromSelection(), true);
+  assert.deepEqual(calls[0], {
+    profile_tag: '',
+    domain_query: '',
+    topic_direction: 'vla',
+    days_window: '30',
+    institution_filter: 'company',
+    max_results: '30',
+  });
+  assert.match(msgEl.textContent, /VLA方向/);
+
+  __setHotPaperScoutMsgEl(null);
+  __setHotPaperScoutControls(null, null, null, []);
   delete global.window.DPRWorkflowRunner;
   delete global.window.SubscriptionsSmartQuery;
 }
@@ -378,6 +422,7 @@ async function testHotPaperScoutCanRunWithDomainOnly() {
   await testQuickFetchIncludesAnySelectedProfile();
   await testHotPaperScoutPassesSelectedProfilesAndControls();
   await testHotPaperScoutCanRunWithDomainOnly();
+  await testHotPaperScoutCanRunWithDirectionOnly();
 
   console.log('subscriptions manager tests passed');
 })().catch((error) => {

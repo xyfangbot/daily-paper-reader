@@ -50,6 +50,7 @@ window.DPRWorkflowRunner = (function () {
       desc: '按领域和选中词条从 OpenAlex 筛选最近 7/14/30 天高热论文。',
       dispatchInputs: {
         domain_query: 'embodied intelligence; embodied AI; embodied agents; vision-language-action model; robot foundation model; generalist robot policy; humanoid robot policy; robot learning foundation model',
+        topic_direction: 'all',
         days_window: '30',
         institution_filter: 'company',
         max_results: '30',
@@ -2009,6 +2010,7 @@ window.DPRWorkflowRunner = (function () {
     const opts = options && typeof options === 'object' ? options : {};
     const profileTag = String(opts.profile_tag || opts.profileTag || '').trim();
     const domainQuery = String(opts.domain_query || opts.domainQuery || '').trim();
+    const topicDirection = String(opts.topic_direction || opts.topicDirection || 'all').trim() || 'all';
     const daysText = String(opts.days_window || opts.daysWindow || '30').trim();
     const daysWindow = ['7', '14', '30'].includes(daysText) ? daysText : '30';
     const institutionRaw = String(opts.institution_filter || opts.institutionFilter || 'company').trim().toLowerCase();
@@ -2019,6 +2021,7 @@ window.DPRWorkflowRunner = (function () {
     return runWorkflowByKey('hot-paper-scout', {
       profile_tag: profileTag,
       domain_query: domainQuery,
+      topic_direction: topicDirection,
       days_window: daysWindow,
       institution_filter: institutionFilter,
       max_results: maxResults,

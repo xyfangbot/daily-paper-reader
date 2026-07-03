@@ -1158,6 +1158,20 @@ def _entry_company_text(tags: List[Tuple[str, str]]) -> str:
     return "、".join(companies)
 
 
+def _entries_company_text(*entry_groups: List[Tuple[str, str, List[Tuple[str, str]]]]) -> str:
+    companies: List[str] = []
+    seen: set[str] = set()
+    for entries in entry_groups:
+        for _paper_id, _title, tags in entries or []:
+            for company in _entry_company_text(tags).split("、"):
+                v = company.strip()
+                if not v or v in seen:
+                    continue
+                seen.add(v)
+                companies.append(v)
+    return "、".join(companies)
+
+
 def build_daily_brief_summary(
     date_label: str,
     deep_entries: List[Tuple[str, str, List[Tuple[str, str]]]],
@@ -1308,6 +1322,9 @@ def build_latest_report_section(
     lines.append(f"- 本次总论文数：{total}")
     lines.append(f"- 精读区：{len(deep_entries)}")
     lines.append(f"- 速读区：{len(quick_entries)}")
+    companies = _entries_company_text(deep_entries, quick_entries)
+    if companies:
+        lines.append(f"- 相关公司：{companies}")
     if summary:
         lines.append("")
         lines.append("### 今日简报（AI）")
@@ -2194,6 +2211,9 @@ def build_day_report_markdown(
     lines.append(f"- 当次推荐总数：{total}")
     lines.append(f"- 精读区：{len(deep_entries)}")
     lines.append(f"- 速读区：{len(quick_entries)}")
+    companies = _entries_company_text(deep_entries, quick_entries)
+    if companies:
+        lines.append(f"- 相关公司：{companies}")
     if summary:
         lines.append("")
         lines.append("## 今日简报（AI）")

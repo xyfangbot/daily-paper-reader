@@ -525,6 +525,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
             self.mod.LLM_CLIENT = original_client
 
         self.assertIn("## 精读区", md)
+        self.assertIn("- 相关公司：unitree", md)
         self.assertIn("公司：unitree", md)
         self.assertIn("《Unitree Humanoid Robot Learning》（8.0/10，公司：unitree）", md)
 

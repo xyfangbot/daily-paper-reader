@@ -281,6 +281,55 @@ class HotPaperScoutTest(unittest.TestCase):
 
         self.assertEqual(result.papers, [])
 
+    def test_embodied_relevance_rejects_generic_robotics_results(self):
+        generic_platform = make_work(
+            16,
+            title="Design and motion control of a planar mobile robotic platform",
+            institution_name="Beijing Academy of Artificial Intelligence",
+            institution_type="nonprofit",
+        )
+        ship_control = make_work(
+            17,
+            title="Research on Data-Driven Linear Prediction and Real-Time Control Method for Ship Rolling Control System in Beam Sea",
+            institution_name="Beijing Academy of Artificial Intelligence",
+            institution_type="nonprofit",
+        )
+        data_glove = make_work(
+            18,
+            title="T-800: An 800 Hz Data Glove for Precise Hand Gesture Tracking",
+            institution_name="Beijing Academy of Artificial Intelligence",
+            institution_type="nonprofit",
+        )
+        installation_robot = make_work(
+            19,
+            title="Design, analysis, and experimental research on installation robot for hanging column",
+            institution_name="Huawei Technologies",
+            institution_type="company",
+        )
+        manipulation_policy = make_work(
+            20,
+            title="Hybrid Consistency Policy: Decoupling Multi-Modal Diversity and Real-Time Efficiency in Robotic Manipulation",
+            institution_name="Shanghai Artificial Intelligence Laboratory",
+            institution_type="facility",
+        )
+
+        for work in [generic_platform, ship_control, data_glove, installation_robot]:
+            self.assertFalse(hot_paper_scout.work_has_embodied_ai_signal(work), work["display_name"])
+        self.assertTrue(hot_paper_scout.work_has_embodied_ai_signal(manipulation_policy))
+
+        result = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query="robot",
+            topic_direction="all",
+            days_window=30,
+            institution_filter="company",
+            max_results=10,
+            client=FakeClient([generic_platform, ship_control, data_glove, installation_robot, manipulation_policy]),
+        )
+
+        self.assertEqual([paper["title"] for paper in result.papers], [manipulation_policy["display_name"]])
+
     def test_company_scout_uses_spotlight_institution_id_lookup(self):
         baai_work = make_work(
             14,

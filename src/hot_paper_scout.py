@@ -245,11 +245,33 @@ ARXIV_DOMAIN_FALLBACK_TERMS = [
     "physical AI",
 ]
 EMBODIED_AI_SIGNAL_RE = re.compile(
-    r"\b("
-    r"robot|robotic|robotics|humanoid|quadruped|locomotion|manipulation|manipulator|"
-    r"embodied|physical ai|vision language action|vision-language-action|vla|"
-    r"navigation|autonomous driving|autonomous vehicle|self driving|world model"
-    r")\b",
+    r"("
+    r"\bembodied(?:\s+(?:ai|intelligence|agent|agents|robot|robots|world))?\b|"
+    r"\bphysical\s+ai\b|"
+    r"\bvision[-\s]language[-\s]action\b|"
+    r"\bvision[-\s]language\s+navigation\b|"
+    r"\b(?:vla|vln)\b|"
+    r"\b(?:robot|robotic|robotics)\s+foundation\s+model(?:s)?\b|"
+    r"\bfoundation\s+model(?:s)?\s+(?:for|of)\s+(?:robot|robotic|robotics|embodied)\b|"
+    r"\bgeneralist\s+(?:robot|robotic)\s+(?:policy|policies|model|models)\b|"
+    r"\b(?:robot|robotic)\s+(?:learning|policy|policies|manipulation|navigation)\b|"
+    r"\brobotic\s+manipulation\b|"
+    r"\bmanipulation\s+(?:policy|policies|learning|foundation\s+model)\b|"
+    r"\b(?:humanoid|quadruped|legged|wheeled[-\s]legged)\s+(?:robot|robotic|locomotion)\b|"
+    r"\b(?:robot|robotic)\s+locomotion\b|"
+    r"\blearning[-\s]based\s+(?:hybrid\s+)?locomotion\s+control\b|"
+    r"\blanguage[-\s]guided\s+(?:robot|robotic)\s+navigation\b|"
+    r"\bzero[-\s]shot\s+semantic\s+navigation\b|"
+    r"\b(?:visuomotor|visual[-\s]motor)\b|"
+    r"\bdiffusion\s+policy\b|"
+    r"\bimitation\s+learning\b|"
+    r"\breinforcement\s+learning\b.*\b(?:robot|robotic|humanoid|quadruped|manipulation|locomotion|navigation)\b|"
+    r"\b(?:robot|robotic|humanoid|quadruped|manipulation|locomotion|navigation)\b.*\breinforcement\s+learning\b|"
+    r"\bworld\s+model(?:s)?\b.*\b(?:robot|robotic|embodied|autonomous\s+driving|self[-\s]driving)\b|"
+    r"\b(?:robot|robotic|embodied|autonomous\s+driving|self[-\s]driving)\b.*\bworld\s+model(?:s)?\b|"
+    r"\bautonomous\s+driving\b.*\b(?:planning|policy|world\s+model|end[-\s]to[-\s]end)\b|"
+    r"\bplanning[-\s]aligned\b.*\bautonomous\s+driving\b"
+    r")",
     flags=re.IGNORECASE,
 )
 BRANDED_COMPANY_TITLE_PATTERNS = [
@@ -609,6 +631,8 @@ def text_has_embodied_ai_signal(text: str) -> bool:
 def work_has_embodied_ai_signal(work: dict[str, Any]) -> bool:
     title = single_line(str(work.get("display_name") or ""))
     abstract = inverted_index_to_text(work.get("abstract_inverted_index"))
+    if branded_company_from_title(title) and re.search(r"\brobot\w*\b", title, flags=re.IGNORECASE):
+        return True
     return text_has_embodied_ai_signal(f"{title} {abstract}")
 
 
@@ -1111,16 +1135,17 @@ def spotlight_domain_queries(domain_queries: list[str], topic_directions: list[s
         for query in TOPIC_DIRECTION_QUERIES.get(direction, [])[:3]:
             add(query)
     for query in [
-        "robot",
-        "robotics",
-        "robot learning",
         "robot foundation model",
-        "robot manipulation",
-        "humanoid robot",
         "vision-language-action model",
-        "embodied AI robot",
-        "robot navigation",
         "generalist robot policy",
+        "robot learning policy",
+        "robotic manipulation policy",
+        "multimodal robot manipulation",
+        "humanoid robot policy",
+        "quadruped robot locomotion",
+        "embodied AI robot",
+        "language guided robot navigation",
+        "zero-shot semantic navigation robot",
         "world model robotics",
         "autonomous driving world model",
     ]:

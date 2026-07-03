@@ -122,7 +122,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
             "llm_score": 8.0,
             "llm_tags": [
                 "query:热点论文筛选",
-                "query:具身智能公司相关",
+                "query:科技公司/研究机构产出",
                 "company:unitree",
                 "paper:arXiv:2606.12345v1",
             ],
@@ -367,7 +367,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
                         "source": "arxiv",
                         "selection_source": "hot_paper_scout",
                         "llm_score": 8.0,
-                        "llm_tags": ["query:热点论文筛选", "query:具身智能公司相关"],
+                        "llm_tags": ["query:热点论文筛选", "query:科技公司/研究机构产出"],
                         "canonical_evidence": "company_relation_match=unitree; relation_source=abstract",
                     },
                     "deep",
@@ -474,7 +474,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.mod.LLM_CLIENT = None
         try:
             brief = self.mod.build_daily_brief_summary(
-                "热点论文筛选 · 最近 30 天 · 具身智能公司相关",
+                "热点论文筛选 · 最近 30 天 · 科技公司/研究机构产出",
                 [],
                 [("paper-1", "Robot Foundation Model", [("score", "8.0")])],
                 1,
@@ -490,19 +490,19 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
     def test_day_report_displays_recommend_warnings(self):
         md = self.mod.build_day_report_markdown(
             "hot-20260701-test",
-            "热点论文筛选 · 最近 30 天 · 具身智能公司相关",
+            "热点论文筛选 · 最近 30 天 · 科技公司/研究机构产出",
             [],
             [],
             True,
             [
                 "OpenAlex 查询失败：具身智能 / embodied AI: HTTPError: HTTP Error 503",
-                "arXiv fallback 未发现 title/abstract/first-last author affiliation 明确匹配具身智能公司或平台的论文；已拒绝 search query 本身命中，避免把检索词误当作论文证据。",
+                "arXiv fallback 未发现作者 affiliation 或公司品牌技术报告标题明确匹配公司的论文；已拒绝 search query/title/abstract 的普通公司名命中，避免把设备、产品或检索词误当作公司产出证据。",
             ],
         )
 
         self.assertIn("## 运行提示", md)
         self.assertIn("OpenAlex 查询失败", md)
-        self.assertIn("已拒绝 search query 本身命中", md)
+        self.assertIn("已拒绝 search query/title/abstract 的普通公司名命中", md)
         self.assertIn("> 本次触发没有产出可推荐论文。", md)
 
     def test_day_report_displays_company_per_paper(self):
@@ -511,12 +511,12 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         try:
             md = self.mod.build_day_report_markdown(
                 "hot-20260701-test",
-                "热点论文筛选 · 最近 30 天 · 具身智能公司相关",
+                "热点论文筛选 · 最近 30 天 · 科技公司/研究机构产出",
                 [
                     (
                         "manual/hot-20260701-test/paper",
                         "Unitree Humanoid Robot Learning",
-                        [("score", "8.0"), ("company", "unitree"), ("query", "具身智能公司相关")],
+                        [("score", "8.0"), ("company", "unitree"), ("query", "科技公司/研究机构产出")],
                     )
                 ],
                 [],
@@ -535,7 +535,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
         self.mod.LLM_CLIENT = object()
         try:
             brief = self.mod.build_daily_brief_summary(
-                "热点论文筛选 · 最近 30 天 · 具身智能公司相关 · VLA方向",
+                "热点论文筛选 · 最近 30 天 · 科技公司/研究机构产出 · VLA方向",
                 [
                     ("paper-1", "Paper One", [("score", "8.0"), ("company", "unitree")]),
                     ("paper-2", "Paper Two", [("score", "7.0"), ("company", "physical intelligence")]),
@@ -617,7 +617,7 @@ class GenerateDocsMetaParseTest(unittest.TestCase):
                 [],
                 [],
                 {},
-                date_label="热点论文筛选 · 最近 30 天 · 具身智能公司相关",
+                date_label="热点论文筛选 · 最近 30 天 · 科技公司/研究机构产出",
             )
             text = sidebar.read_text(encoding="utf-8")
 

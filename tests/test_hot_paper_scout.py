@@ -80,9 +80,11 @@ def make_work(
 
 
 class FakeClient:
-    def __init__(self, works=None, *, exc=None):
+    def __init__(self, works=None, *, exc=None, institutions=None, institution_works=None):
         self.works = list(works or [])
         self.exc = exc
+        self.institutions = list(institutions or [])
+        self.institution_works = dict(institution_works or {})
         self.calls = []
 
     def list_works(self, query, from_date, institution_filter, per_page):
@@ -96,6 +98,27 @@ class FakeClient:
         if self.exc:
             raise self.exc
         return self.works
+
+    def search_institutions(self, query, per_page=5):
+        self.calls.append(("institution-search", query, per_page))
+        if self.exc:
+            raise self.exc
+        return [item for item in self.institutions if hot_paper_scout.institution_record_matches_query(item, query)]
+
+    def list_works_for_institution(self, institution_id, query, from_date, per_page):
+        self.calls.append(("institution-works", institution_id, query, from_date, per_page))
+        if self.exc:
+            raise self.exc
+        return list(self.institution_works.get(institution_id, []))
+
+    def list_works_for_institutions(self, institution_ids, query, from_date, per_page):
+        self.calls.append(("institution-works-batch", list(institution_ids), query, from_date, per_page))
+        if self.exc:
+            raise self.exc
+        works = []
+        for institution_id in institution_ids:
+            works.extend(self.institution_works.get(institution_id, []))
+        return works
 
 
 class HotPaperScoutTest(unittest.TestCase):
@@ -132,6 +155,7 @@ class HotPaperScoutTest(unittest.TestCase):
             institution_name="Alibaba Group",
             institution_type="company",
         )
+        baai = make_work(13, institution_name="Beijing Academy of Artificial Intelligence", institution_type="nonprofit")
         university = make_work(3, institution_name="Tsinghua University", institution_type="education")
         company_not_lead = make_work(4, institution_name="Tsinghua University", institution_type="education")
         company_not_lead["authorships"].append(
@@ -152,6 +176,7 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(alias_company, "company"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(generic_company, "company"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(qwen_company, "company"))
+        self.assertTrue(hot_paper_scout.work_matches_institution_filter(baai, "company"))
         self.assertFalse(hot_paper_scout.work_matches_institution_filter(unrelated_company, "company"))
         self.assertFalse(hot_paper_scout.work_matches_institution_filter(university, "company"))
         self.assertTrue(hot_paper_scout.work_matches_institution_filter(company_not_lead, "company"))
@@ -227,6 +252,34 @@ class HotPaperScoutTest(unittest.TestCase):
         )
 
         self.assertEqual([paper["title"] for paper in result.papers], ["Qwen Robotics Technical Report"])
+
+    def test_company_scout_uses_spotlight_institution_id_lookup(self):
+        baai_work = make_work(
+            14,
+            title="BAAI Robot Foundation Model for Embodied Manipulation",
+            institution_name="Beijing Academy of Artificial Intelligence",
+            institution_type="nonprofit",
+        )
+        client = FakeClient(
+            works=[],
+            institution_works={"I4210100255": [baai_work]},
+        )
+        result = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query="robot foundation model",
+            topic_direction="all",
+            days_window=30,
+            institution_filter="company",
+            max_results=10,
+            client=client,
+        )
+
+        self.assertEqual(len(result.papers), 1)
+        self.assertEqual(result.papers[0]["company_match"], "beijing academy of artificial intelligence")
+        self.assertTrue(
+            any(call[0] == "institution-works-batch" and "I4210100255" in call[1] for call in client.calls)
+        )
 
     def test_openalex_failure_returns_warning_result(self):
         result = hot_paper_scout.scout_hot_papers(
@@ -494,7 +547,7 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertEqual(item["llm_score"], 8.0)
         self.assertEqual(item["llm_tldr_cn"], "")
         self.assertIn("query:热点论文筛选", item["llm_tags"])
-        self.assertIn("query:具身智能公司相关", item["llm_tags"])
+        self.assertIn("query:科技公司/研究机构产出", item["llm_tags"])
         self.assertIn("company:unitree", item["llm_tags"])
         self.assertIn("paper:arXiv:2606.12345v1", item["llm_tags"])
         self.assertIn("hot-paper-scout: arXiv fallback", item["canonical_evidence"])

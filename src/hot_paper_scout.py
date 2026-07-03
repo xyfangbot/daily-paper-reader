@@ -28,6 +28,7 @@ except Exception:  # pragma: no cover
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
+OPENALEX_INSTITUTIONS_URL = "https://api.openalex.org/institutions"
 ARXIV_API_URL = "http://export.arxiv.org/api/query"
 ARXIV_NS = {
     "atom": "http://www.w3.org/2005/Atom",
@@ -78,6 +79,7 @@ EMBODIED_AI_COMPANY_ALIASES = {
     "agibot",
     "agility robotics",
     "agile robots",
+    "ai2",
     "alibaba",
     "alibaba cloud",
     "alibaba group",
@@ -88,10 +90,15 @@ EMBODIED_AI_COMPANY_ALIASES = {
     "apple",
     "baidu",
     "baidu research",
+    "baai",
+    "beijing academy of artificial intelligence",
+    "beijing institute for general artificial intelligence",
     "boston dynamics",
     "bytedance",
+    "bytedance seed",
     "covariant",
     "deepmind",
+    "deepseek",
     "engineai",
     "everyday robots",
     "facebook ai research",
@@ -109,8 +116,11 @@ EMBODIED_AI_COMPANY_ALIASES = {
     "meta ai",
     "microsoft",
     "microsoft research",
+    "minimax",
+    "moonshot ai",
     "nvidia",
     "nvidia research",
+    "01 ai",
     "openai",
     "physical intelligence",
     "qwen",
@@ -118,6 +128,9 @@ EMBODIED_AI_COMPANY_ALIASES = {
     "sanctuary ai",
     "skild",
     "skild ai",
+    "shanghai ai lab",
+    "shanghai artificial intelligence laboratory",
+    "stepfun",
     "tesla",
     "tesla bot",
     "tencent",
@@ -127,12 +140,27 @@ EMBODIED_AI_COMPANY_ALIASES = {
     "unitree robotics",
     "xiaomi robotics",
     "xpeng robotics",
+    "z ai",
+    "zhipu",
+    "zhipu ai",
+    "zhiyuan institute",
     "zhiyuan robotics",
 }
-ARXIV_COMPANY_QUERY_NAMES = [
+INSTITUTION_SPOTLIGHT_QUERY_NAMES = [
     "Alibaba",
     "Alibaba Cloud",
     "Qwen",
+    "BAAI",
+    "Beijing Academy of Artificial Intelligence",
+    "Beijing Institute for General Artificial Intelligence",
+    "Shanghai AI Lab",
+    "Shanghai Artificial Intelligence Laboratory",
+    "Zhipu AI",
+    "Z.ai",
+    "DeepSeek",
+    "Moonshot AI",
+    "MiniMax",
+    "StepFun",
     "Physical Intelligence",
     "Figure AI",
     "Skild AI",
@@ -150,10 +178,15 @@ ARXIV_COMPANY_QUERY_NAMES = [
     "Microsoft Research",
     "Meta AI",
     "OpenAI",
+    "AI2",
     "Baidu",
+    "Baidu Research",
     "Huawei",
+    "Huawei Noah",
     "Tencent",
+    "Tencent AI Lab",
     "ByteDance",
+    "ByteDance Seed",
     "Tesla",
     "Fourier Intelligence",
     "UBTECH",
@@ -161,6 +194,30 @@ ARXIV_COMPANY_QUERY_NAMES = [
     "XPeng Robotics",
     "Zhiyuan Robotics",
 ]
+INSTITUTION_SPOTLIGHTS = [
+    {"name": "Alibaba", "openalex_ids": ["I45928872"]},
+    {"name": "BAAI", "openalex_ids": ["I4210100255"]},
+    {"name": "Beijing Institute for General Artificial Intelligence", "openalex_ids": ["I4392738278"]},
+    {"name": "Shanghai Artificial Intelligence Laboratory", "openalex_ids": ["I4391012619"]},
+    {"name": "Zhipu AI", "openalex_ids": ["I4401726915"]},
+    {"name": "DeepSeek", "openalex_ids": ["I4405257960"]},
+    {"name": "Moonshot AI", "openalex_ids": ["I4405260227"]},
+    {"name": "MiniMax", "openalex_ids": ["I4405258935"]},
+    {"name": "StepFun", "openalex_ids": ["I4405260255"]},
+    {"name": "Unitree Robotics", "openalex_ids": ["I4405261279"]},
+    {"name": "Apptronik", "openalex_ids": ["I4210127010"]},
+    {"name": "Boston Dynamics", "openalex_ids": ["I4210143335"]},
+    {"name": "Google DeepMind", "openalex_ids": ["I4210090411"]},
+    {"name": "NVIDIA", "openalex_ids": ["I4210127875"]},
+    {"name": "Microsoft Research Asia", "openalex_ids": ["I4210113369"]},
+    {"name": "OpenAI", "openalex_ids": ["I4210161460"]},
+    {"name": "AI2", "openalex_ids": ["I4210156221"]},
+    {"name": "Baidu", "openalex_ids": ["I98301712"]},
+    {"name": "Huawei", "openalex_ids": ["I2250955327"]},
+    {"name": "Tencent", "openalex_ids": ["I2250653659"]},
+    {"name": "ByteDance", "openalex_ids": ["I4405256866"]},
+]
+ARXIV_COMPANY_QUERY_NAMES = INSTITUTION_SPOTLIGHT_QUERY_NAMES
 ARXIV_DOMAIN_FALLBACK_TERMS = [
     "embodied AI",
     "embodied intelligence",
@@ -408,7 +465,7 @@ def normalize_institution_filter(value: str) -> str:
 def institution_filter_label(value: str) -> str:
     return {
         "all": "全部机构",
-        "company": "具身智能公司相关",
+        "company": "科技公司/研究机构产出",
         "university": "高校",
     }.get(normalize_institution_filter(value), "全部机构")
 
@@ -477,6 +534,34 @@ def company_name_from_institutions(institutions: list[dict[str, str]]) -> str:
         if match:
             return match
     return ""
+
+
+def institution_record_names(record: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+
+    def add(value: Any) -> None:
+        text = single_line(str(value or ""))
+        if text:
+            names.append(text)
+
+    add(record.get("display_name"))
+    for key in ["display_name_acronyms", "display_name_alternatives"]:
+        values = record.get(key)
+        if isinstance(values, list):
+            for value in values:
+                add(value)
+    return list(dict.fromkeys(names))
+
+
+def institution_record_matches_query(record: dict[str, Any], query: str) -> bool:
+    query_norm = normalize_alias_text(query)
+    if not query_norm:
+        return False
+    names_norm = [normalize_alias_text(name) for name in institution_record_names(record)]
+    if any(query_norm == name or query_norm in f" {name} " for name in names_norm):
+        return True
+    query_tokens = [token for token in query_norm.split() if len(token) > 1]
+    return bool(query_tokens) and any(all(token in name.split() for token in query_tokens) for name in names_norm)
 
 
 def weak_company_mention_for_work(work: dict[str, Any]) -> tuple[str, str]:
@@ -871,6 +956,62 @@ class OpenAlexClient:
         filters = [f"from_publication_date:{from_date}", "has_abstract:true"]
         return self._request(query, filters, per_page)
 
+    def search_institutions(self, query: str, per_page: int = 5) -> list[dict[str, Any]]:
+        params = {
+            "search": query,
+            "per-page": str(max(1, min(int(per_page or 5), 25))),
+        }
+        if self.mailto:
+            params["mailto"] = self.mailto
+        url = f"{OPENALEX_INSTITUTIONS_URL}?{urllib.parse.urlencode(params)}"
+        payload = self._get_json(url)
+        results = payload.get("results") if isinstance(payload, dict) else []
+        return [item for item in results if isinstance(item, dict)]
+
+    def list_works_for_institution(
+        self,
+        institution_id: str,
+        query: str,
+        from_date: str,
+        per_page: int,
+    ) -> list[dict[str, Any]]:
+        return self.list_works_for_institutions([institution_id], query, from_date, per_page)
+
+    def list_works_for_institutions(
+        self,
+        institution_ids: list[str],
+        query: str,
+        from_date: str,
+        per_page: int,
+    ) -> list[dict[str, Any]]:
+        short_ids = [openalex_short_id(value) for value in institution_ids]
+        short_ids = list(dict.fromkeys(item for item in short_ids if item))
+        if not short_ids:
+            return []
+        filters = [
+            f"from_publication_date:{from_date}",
+            "authorships.institutions.id:" + "|".join(short_ids[:100]),
+        ]
+        return self._request(query, filters, per_page)
+
+    def _get_json(self, url: str) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(1, self.retries + 1):
+            request = urllib.request.Request(url, headers={"User-Agent": OPENALEX_USER_AGENT})
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                last_error = exc
+                if exc.code not in RETRYABLE_HTTP_STATUS or attempt >= self.retries:
+                    raise
+            except (TimeoutError, urllib.error.URLError) as exc:
+                last_error = exc
+                if attempt >= self.retries:
+                    raise
+            time.sleep(retry_delay_for_error(last_error, attempt))
+        raise last_error or RuntimeError("OpenAlex request failed")
+
     def _request(self, query: str, filters: list[str], per_page: int) -> list[dict[str, Any]]:
         params = {
             "search": query,
@@ -881,24 +1022,7 @@ class OpenAlexClient:
         if self.mailto:
             params["mailto"] = self.mailto
         url = f"{OPENALEX_WORKS_URL}?{urllib.parse.urlencode(params)}"
-        last_error: Exception | None = None
-        for attempt in range(1, self.retries + 1):
-            request = urllib.request.Request(url, headers={"User-Agent": OPENALEX_USER_AGENT})
-            try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-                break
-            except urllib.error.HTTPError as exc:
-                last_error = exc
-                if exc.code not in RETRYABLE_HTTP_STATUS or attempt >= self.retries:
-                    raise
-            except (TimeoutError, urllib.error.URLError) as exc:
-                last_error = exc
-                if attempt >= self.retries:
-                    raise
-            time.sleep(min(1.5 * attempt, 5.0))
-        else:
-            raise last_error or RuntimeError("OpenAlex request failed")
+        payload = self._get_json(url)
         results = payload.get("results") if isinstance(payload, dict) else []
         return [item for item in results if isinstance(item, dict)]
 
@@ -913,6 +1037,115 @@ class ScoutResult:
     queries: list[dict[str, str]]
     from_date: str
     run_token: str
+
+
+def spotlight_institution_limit() -> int:
+    try:
+        default_limit = str(len(INSTITUTION_SPOTLIGHTS))
+        return max(0, min(int(os.getenv("DPR_HOT_SPOTLIGHT_INSTITUTION_LIMIT") or default_limit), 80))
+    except Exception:
+        return len(INSTITUTION_SPOTLIGHTS)
+
+
+def spotlight_query_limit() -> int:
+    try:
+        return max(1, min(int(os.getenv("DPR_HOT_SPOTLIGHT_QUERY_LIMIT") or "6"), 10))
+    except Exception:
+        return 6
+
+
+def spotlight_domain_queries(domain_queries: list[str], topic_directions: list[str]) -> list[str]:
+    queries: list[str] = []
+
+    def add(value: str) -> None:
+        text = single_line(value)
+        key = text.lower()
+        if text and key not in {item.lower() for item in queries}:
+            queries.append(text)
+
+    for direction in topic_directions:
+        if direction == "all":
+            continue
+        for query in TOPIC_DIRECTION_QUERIES.get(direction, [])[:3]:
+            add(query)
+    for query in [
+        "robot",
+        "robotics",
+        "robot learning",
+        "robot foundation model",
+        "robot manipulation",
+        "humanoid robot",
+        "vision-language-action model",
+        "embodied AI robot",
+        "robot navigation",
+        "generalist robot policy",
+        "world model robotics",
+        "autonomous driving world model",
+    ]:
+        add(query)
+    for query in domain_queries[:6]:
+        add(query)
+    return queries[:spotlight_query_limit()]
+
+
+def resolve_spotlight_institutions(
+    client: OpenAlexClient,
+    warnings: list[str],
+) -> list[dict[str, str]]:
+    resolved: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    seeded_spotlights = INSTITUTION_SPOTLIGHTS[:spotlight_institution_limit()]
+    for spotlight in seeded_spotlights:
+        name = single_line(str(spotlight.get("name") or ""))
+        for raw_id in spotlight.get("openalex_ids") or []:
+            inst_id = openalex_short_id(str(raw_id))
+            if not name or not inst_id or inst_id in seen_ids:
+                continue
+            seen_ids.add(inst_id)
+            resolved.append({"id": inst_id, "name": name, "query_name": name})
+    if len(seeded_spotlights) >= spotlight_institution_limit():
+        return resolved
+
+    remaining_names = INSTITUTION_SPOTLIGHT_QUERY_NAMES[:spotlight_institution_limit()]
+    for name in remaining_names:
+        if any(name.lower() == item.get("query_name", "").lower() for item in resolved):
+            continue
+        try:
+            records = client.search_institutions(name, per_page=5)
+        except Exception as exc:
+            warnings.append(f"OpenAlex 机构解析失败：{name}: {type(exc).__name__}: {single_line(str(exc))[:200]}")
+            continue
+        for record in records:
+            inst_id = str(record.get("id") or "").strip()
+            if not inst_id or inst_id in seen_ids:
+                continue
+            if not institution_record_matches_query(record, name):
+                continue
+            display_name = single_line(str(record.get("display_name") or name))
+            if not matched_embodied_ai_company_name(" ".join(institution_record_names(record))):
+                continue
+            seen_ids.add(inst_id)
+            resolved.append({"id": inst_id, "name": display_name, "query_name": name})
+            break
+    return resolved
+
+
+def openalex_short_id(value: str) -> str:
+    text = str(value or "").strip()
+    return text.rstrip("/").rsplit("/", 1)[-1] if text else ""
+
+
+def retry_delay_for_error(exc: Exception, attempt: int) -> float:
+    if isinstance(exc, urllib.error.HTTPError):
+        retry_after = exc.headers.get("Retry-After") if exc.headers else ""
+        if retry_after:
+            try:
+                return max(1.0, min(float(retry_after), 60.0))
+            except Exception:
+                pass
+        if exc.code == 429:
+            return min(8.0 * attempt, 30.0)
+    return min(1.5 * attempt, 5.0)
 
 
 def scout_hot_papers(
@@ -980,9 +1213,54 @@ def scout_hot_papers(
                         continue
                     item = normalize_work(work, tag, query)
                     upsert_candidate(candidates, candidate_aliases, item)
-                time.sleep(0.08)
+                if isinstance(client, OpenAlexClient):
+                    time.sleep(0.08)
 
-    if not candidates and domain_queries:
+    if mode == "company":
+        spotlight_institutions = resolve_spotlight_institutions(client, warnings)
+        spotlight_queries = spotlight_domain_queries(domain_queries, topic_directions)
+        spotlight_ids = [openalex_short_id(institution.get("id") or "") for institution in spotlight_institutions]
+        spotlight_ids = list(dict.fromkeys(item for item in spotlight_ids if item))
+        for query in spotlight_queries:
+            if not spotlight_ids:
+                break
+            tag = "机构产出"
+            query_specs.append({"profile_tag": tag, "query": query})
+            try:
+                works = client.list_works_for_institutions(spotlight_ids, query, from_date, max(per_page, 100))
+            except Exception as exc:
+                warnings.append(
+                    "OpenAlex 机构论文批量查询失败："
+                    f"{query}: {type(exc).__name__}: {single_line(str(exc))[:200]}"
+                )
+                continue
+            for work in works:
+                if not work_has_embodied_ai_signal(work):
+                    continue
+                if not work_matches_institution_filter(work, mode):
+                    continue
+                item = normalize_work(work, tag, query)
+                upsert_candidate(candidates, candidate_aliases, item)
+            if isinstance(client, OpenAlexClient):
+                time.sleep(0.35)
+
+    enable_network_fallback = isinstance(client, OpenAlexClient)
+    if mode == "company" and domain_queries and enable_network_fallback:
+        fallback_papers, fallback_warnings = fetch_arxiv_fallback(
+            domain_queries,
+            from_date=from_date,
+            institution_filter=mode,
+            max_results=max_results,
+        )
+        warnings.extend(fallback_warnings)
+        if fallback_papers:
+            warnings.append(
+                "已启用 arXiv 机构/品牌兜底；"
+                "公司相关模式仅接受作者 affiliation 或公司品牌技术报告标题明确匹配公司的条目。"
+            )
+        for item in fallback_papers:
+            upsert_candidate(candidates, candidate_aliases, item)
+    elif not candidates and domain_queries and enable_network_fallback:
         fallback_papers, fallback_warnings = fetch_arxiv_fallback(
             domain_queries,
             from_date=from_date,

@@ -407,7 +407,7 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
         institution_filter = str(inputs.get("institution_filter") or "company")
         topic_direction = str(inputs.get("topic_direction") or "all")
         if institution_filter == "company":
-            filter_label = "具身智能公司相关"
+            filter_label = "科技公司/研究机构产出"
         elif institution_filter == "university":
             filter_label = "高校"
         else:

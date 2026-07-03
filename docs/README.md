@@ -6,23 +6,31 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：热点论文筛选 · 最近 30 天 · 具身智能公司相关
-- 运行时间：2026-07-03 02:38:56 UTC
+- 最新运行日期：热点论文筛选 · 最近 30 天 · 具身智能公司相关 · VLA方向
+- 运行时间：2026-07-03 05:38:41 UTC
 - 运行状态：成功
-- 本次总论文数：1
-- 精读区：1
+- 本次总论文数：3
+- 精读区：3
 - 速读区：0
-- 相关公司：unitree
+- 相关公司：physical intelligence、covariant、unitree
 
 ### 今日简报（AI）
-今日聚焦1篇具身智能领域精读论文，《StairMaster》研究四足机器人如何安全穿越空心楼梯。核心结论是提出一种结合感知与敏捷控制的方法，使Unitree机器人能应对高风险阶梯。建议关注该算法在真实复杂环境中的泛化能力测试。
-- 详情：[/manual/hot-20260703-023751-embodied-ai-robot-foundation-model-ffe59919/README](/manual/hot-20260703-023751-embodied-ai-robot-foundation-model-ffe59919/README)
+今日筛选3篇具身智能VLA方向论文，精读2篇。最值得关注：分层激光编程软体致动器用于仿生机器人的自由形态变形，以及面向杂乱建筑环境的无人机安全鲁棒模仿学习导航。建议深入研究软体致动器的形态控制方法及其在复杂场景中的应用潜力。
+- 详情：[/manual/hot-20260703-053750-vla-ee855222/README](/manual/hot-20260703-053750-vla-ee855222/README)
 
 ### 精读区论文标签
-1. [StairMaster: Learning to Conquer Risky Hollow Stairs for Agile Quadrupedal Robots](/manual/hot-20260703-023751-embodied-ai-robot-foundation-model-ffe59919/w7166252839-stairmaster-learning-to-conquer-risky-hollow-stairs-for-agile-quadrupedal-robots)  
+1. [Hierarchical laser-programmed soft actuators for designing bionic robots with freeform morphing shapes](/manual/hot-20260703-053750-vla-ee855222/w7164206088-hierarchical-laser-programmed-soft-actuators-for-designing-bionic-robots-with-freeform-morphing-shapes)  
+   公司：physical intelligence
+   标签：评分：7.5/10、query:热点论文筛选、query:VLA方向、query:具身智能公司相关、公司：physical intelligence、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=1; institution_filter=company; company_relation_match=physical intelligence; relation_source=abstract; institutions=Beihang University; query=multimodal robot manipulation policy
+2. [Safe and Robust Imitation Learning for Drone Navigation in Cluttered Construction Environments](/manual/hot-20260703-053750-vla-ee855222/w7165925022-safe-and-robust-imitation-learning-for-drone-navigation-in-cluttered-construction-environments)  
+   公司：covariant
+   标签：评分：7.5/10、query:热点论文筛选、query:VLA方向、query:具身智能公司相关、公司：covariant、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=covariant; relation_source=abstract; query=robot foundation model action prediction
+3. [StairMaster: Learning to Conquer Risky Hollow Stairs for Agile Quadrupedal Robots](/manual/hot-20260703-053750-vla-ee855222/w7166252839-stairmaster-learning-to-conquer-risky-hollow-stairs-for-agile-quadrupedal-robots)  
    公司：unitree
-   标签：评分：7.5/10、query:热点论文筛选、query:具身智能、query:具身智能公司相关、公司：unitree、paper:OpenAlex
-   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=unitree; relation_source=abstract; query=humanoid robot
+   标签：评分：7.5/10、query:热点论文筛选、query:VLA方向、query:具身智能公司相关、公司：unitree、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=unitree; relation_source=abstract; query=multimodal robot manipulation policy
 
 ### 速读区论文标签
 - 本次无速读推荐。

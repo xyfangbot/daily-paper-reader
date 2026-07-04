@@ -7,7 +7,7 @@
 
 ## 每次日报
 - 最新运行日期：热点论文筛选 · 最近 30 天 · 科技公司/研究机构产出 · 综合方向
-- 运行时间：2026-07-03 20:37:00 Asia/Shanghai
+- 运行时间：2026-07-04 15:51:01 Asia/Shanghai
 - 运行状态：成功
 - 本次总论文数：4
 - 精读区：4
@@ -16,30 +16,31 @@
 
 ### 今日简报（AI）
 - 今日共生成 4 篇推荐（精读 4 篇，速读 0 篇）
-- 精读：《Qwen-RobotWorld Technical Report: Unifying Embodied World Modeling through Language-Conditioned Video Generation》（8.0/10，公司：alibaba group）, 《Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models》（8.0/10，公司：alibaba group）
+- 精读：《Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models》（8.0/10，公司：alibaba group）, 《Hybrid Consistency Policy: Decoupling Multi-Modal Diversity and Real-Time Efficiency in Robotic Manipulation》（7.5/10，公司：shanghai artificial intelligence laboratory）
 - 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
 
 ### 运行提示
+- OpenAlex 查询失败：topic / What are the classic trajectory optimization algorithms for mobile robots?: HTTPError: HTTP Error 400: Bad Request
 - 已启用 arXiv 机构/品牌兜底；公司相关模式仅接受作者 affiliation 或公司品牌技术报告标题明确匹配公司的条目。
-- 详情：[/manual/hot-20260703-203443-embodied-intelligence-embodied-ai-462ef8d8/README](/manual/hot-20260703-203443-embodied-intelligence-embodied-ai-462ef8d8/README)
+- 详情：[/manual/hot-20260704-154800-rl-robotics-world-model-vla-robotics-vtt-600a1c8a/README](/manual/hot-20260704-154800-rl-robotics-world-model-vla-robotics-vtt-600a1c8a/README)
 
 ### 精读区论文标签
-1. [Qwen-RobotWorld Technical Report: Unifying Embodied World Modeling through Language-Conditioned Video Generation](/manual/hot-20260703-203443-embodied-intelligence-embodied-ai-462ef8d8/2606.17030v3-qwen-robotworld-technical-report-unifying-embodied-world-modeling-through-language-conditioned-video-generation)  
-   公司：alibaba group
-   标签：评分：8.0/10、query:热点论文筛选、query:具身智能、query:科技公司/研究机构产出、公司：alibaba group、paper:arXiv:2606.17030v3
-   evidence：hot-paper-scout: arXiv fallback; window=30d; company_relation_match=alibaba group; relation_source=branded-title; query=(all:"Alibaba" OR all:"Alibaba Cloud" OR all:"Qwen" OR all:"BAAI" OR all:"Beijing Academy of Artificial Intelligence") AND (all:"embodied intelligence" OR all:"embodied AI" OR all:"embodied agents" OR all:"vision-language-action model" OR all:"robot foundation model" OR all:"generalist robot policy" OR all:"humanoid robot policy" OR all:"robot learning foundation model" OR all:"vision-language-action" OR all:"humanoid robot" OR all:"robot learning" OR all:"physical AI"); institution_source=arxiv-branded-title
-2. [Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models](/manual/hot-20260703-203443-embodied-intelligence-embodied-ai-462ef8d8/2606.17846v2-qwen-robotmanip-technical-report-alignment-unlocks-scale-for-robotic-manipulation-foundation-models)  
+1. [Qwen-RobotManip Technical Report: Alignment Unlocks Scale for Robotic Manipulation Foundation Models](/manual/hot-20260704-154800-rl-robotics-world-model-vla-robotics-vtt-600a1c8a/2606.17846v2-qwen-robotmanip-technical-report-alignment-unlocks-scale-for-robotic-manipulation-foundation-models)  
    公司：alibaba group
    标签：评分：8.0/10、query:热点论文筛选、query:具身智能、query:科技公司/研究机构产出、公司：alibaba group、paper:arXiv:2606.17846v2
-   evidence：hot-paper-scout: arXiv fallback; window=30d; company_relation_match=alibaba group; relation_source=branded-title; query=(all:"Alibaba" OR all:"Alibaba Cloud" OR all:"Qwen" OR all:"BAAI" OR all:"Beijing Academy of Artificial Intelligence") AND (all:"embodied intelligence" OR all:"embodied AI" OR all:"embodied agents" OR all:"vision-language-action model" OR all:"robot foundation model" OR all:"generalist robot policy" OR all:"humanoid robot policy" OR all:"robot learning foundation model" OR all:"vision-language-action" OR all:"humanoid robot" OR all:"robot learning" OR all:"physical AI"); institution_source=arxiv-branded-title
-3. [Hybrid Consistency Policy: Decoupling Multi-Modal Diversity and Real-Time Efficiency in Robotic Manipulation](/manual/hot-20260703-203443-embodied-intelligence-embodied-ai-462ef8d8/w7163911267-hybrid-consistency-policy-decoupling-multi-modal-diversity-and-real-time-efficiency-in-robotic-manipulation)  
+   evidence：hot-paper-scout: arXiv fallback; window=30d; company_relation_match=alibaba group; relation_source=branded-title; query=(all:"Alibaba" OR all:"Alibaba Cloud" OR all:"Qwen" OR all:"BAAI" OR all:"Beijing Academy of Artificial Intelligence") AND (all:"embodied intelligence" OR all:"embodied AI" OR all:"embodied agents" OR all:"vision-language-action model" OR all:"robot foundation model" OR all:"vision-language-action" OR all:"humanoid robot" OR all:"robot learning" OR all:"physical AI"); institution_source=arxiv-branded-title
+2. [Hybrid Consistency Policy: Decoupling Multi-Modal Diversity and Real-Time Efficiency in Robotic Manipulation](/manual/hot-20260704-154800-rl-robotics-world-model-vla-robotics-vtt-600a1c8a/w7163911267-hybrid-consistency-policy-decoupling-multi-modal-diversity-and-real-time-efficiency-in-robotic-manipulation)  
    公司：shanghai artificial intelligence laboratory
    标签：评分：7.5/10、query:热点论文筛选、query:机构产出、query:科技公司/研究机构产出、公司：shanghai artificial intelligence laboratory、paper:OpenAlex
    evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=shanghai artificial intelligence laboratory; relation_source=lead-affiliation; institutions=Shanghai Jiao Tong University, Shanghai Artificial Intelligence Laboratory; query=robot learning policy
-4. [Planning-aligned Token Compression for Long-Context Autonomous Driving](/manual/hot-20260703-203443-embodied-intelligence-embodied-ai-462ef8d8/w7164090126-planning-aligned-token-compression-for-long-context-autonomous-driving)  
+3. [Planning-aligned Token Compression for Long-Context Autonomous Driving](/manual/hot-20260704-154800-rl-robotics-world-model-vla-robotics-vtt-600a1c8a/w7164090126-planning-aligned-token-compression-for-long-context-autonomous-driving)  
    公司：nvidia
-   标签：评分：7.5/10、query:热点论文筛选、query:综合方向、query:科技公司/研究机构产出、公司：nvidia、paper:OpenAlex
-   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=nvidia; relation_source=lead-affiliation; institutions=Nvidia (United Kingdom), University of Hong Kong; query=generalist robot policy
+   标签：评分：7.5/10、query:热点论文筛选、query:VLA-robotics、query:科技公司/研究机构产出、公司：nvidia、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=nvidia; relation_source=lead-affiliation; institutions=Nvidia (United Kingdom), University of Hong Kong; query=robot foundation model generalist manipulation policy
+4. [Qwen-RobotWorld Technical Report: Unifying Embodied World Modeling through Language-Conditioned Video Generation](/manual/hot-20260704-154800-rl-robotics-world-model-vla-robotics-vtt-600a1c8a/w7164895536-qwen-robotworld-technical-report-unifying-embodied-world-modeling-through-language-conditioned-video-generation)  
+   公司：alibaba group
+   标签：评分：7.5/10、query:热点论文筛选、query:VLA-robotics、query:科技公司/研究机构产出、公司：alibaba group、paper:OpenAlex
+   evidence：hot-paper-scout: OpenAlex; window=30d; cited_by_count=0; institution_filter=company; company_relation_match=alibaba group; relation_source=branded-title; query=diffusion policy for robot action generation
 
 ### 速读区论文标签
 - 本次无速读推荐。

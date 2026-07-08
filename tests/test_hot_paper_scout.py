@@ -381,6 +381,43 @@ class HotPaperScoutTest(unittest.TestCase):
         self.assertTrue(any("OpenAlex 查询失败" in warning for warning in result.warnings))
         self.assertTrue(any("TimeoutError" in warning for warning in result.warnings))
 
+    def test_days_window_accepts_90_and_all(self):
+        work = make_work(
+            21,
+            title="Embodied Robot Foundation Model",
+            cited_by_count=10,
+            institution_name="Figure AI",
+            institution_type="company",
+        )
+
+        client_90 = FakeClient([work])
+        result_90 = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query="robot foundation model",
+            topic_direction="all",
+            days_window="90",
+            institution_filter="all",
+            max_results=10,
+            client=client_90,
+        )
+        self.assertRegex(result_90.from_date, r"^\d{4}-\d{2}-\d{2}$")
+        self.assertTrue(all(call[2] == result_90.from_date for call in client_90.calls if call[0] == "filtered"))
+
+        client_all = FakeClient([work])
+        result_all = hot_paper_scout.scout_hot_papers(
+            build_config(),
+            profile_tag="",
+            domain_query="robot foundation model",
+            topic_direction="all",
+            days_window="all",
+            institution_filter="all",
+            max_results=10,
+            client=client_all,
+        )
+        self.assertEqual(result_all.from_date, "")
+        self.assertTrue(all(call[2] == "" for call in client_all.calls if call[0] == "filtered"))
+
     def test_dedupe_and_cap_to_30(self):
         works = [
             make_work(1, doi="https://doi.org/10.1234/dup", cited_by_count=5),

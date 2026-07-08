@@ -44,6 +44,8 @@ DEFAULT_UI_DOMAIN_QUERY = (
     "embodied intelligence; embodied AI; embodied agents; "
     "vision-language-action model; robot foundation model"
 )
+VALID_DAYS_WINDOWS = ("7", "14", "30", "90", "all")
+DEFAULT_DAYS_WINDOW = "90"
 TOPIC_DIRECTION_LABELS = {
     "all": "综合方向",
     "vln": "VLN方向",
@@ -1029,7 +1031,7 @@ class OpenAlexClient:
         self.retries = max(int(retries or 1), 1)
 
     def list_works(self, query: str, from_date: str, institution_filter: str, per_page: int) -> list[dict[str, Any]]:
-        filters = [f"from_publication_date:{from_date}", "has_abstract:true"]
+        filters = self._base_filters(from_date)
         mode = normalize_institution_filter(institution_filter)
         if mode == "company":
             filters.append("authorships.institutions.type:company")
@@ -1038,7 +1040,7 @@ class OpenAlexClient:
         return self._request(query, filters, per_page)
 
     def list_unfiltered_works(self, query: str, from_date: str, per_page: int) -> list[dict[str, Any]]:
-        filters = [f"from_publication_date:{from_date}", "has_abstract:true"]
+        filters = self._base_filters(from_date)
         return self._request(query, filters, per_page)
 
     def search_institutions(self, query: str, per_page: int = 5) -> list[dict[str, Any]]:
@@ -1073,11 +1075,17 @@ class OpenAlexClient:
         short_ids = list(dict.fromkeys(item for item in short_ids if item))
         if not short_ids:
             return []
-        filters = [
-            f"from_publication_date:{from_date}",
-            "authorships.institutions.id:" + "|".join(short_ids[:100]),
-        ]
+        filters = self._base_filters(from_date, include_abstract=False)
+        filters.append("authorships.institutions.id:" + "|".join(short_ids[:100]))
         return self._request(query, filters, per_page)
+
+    def _base_filters(self, from_date: str, *, include_abstract: bool = True) -> list[str]:
+        filters: list[str] = []
+        if str(from_date or "").strip():
+            filters.append(f"from_publication_date:{from_date}")
+        if include_abstract:
+            filters.append("has_abstract:true")
+        return filters
 
     def _get_json(self, url: str) -> dict[str, Any]:
         last_error: Exception | None = None
@@ -1234,13 +1242,36 @@ def retry_delay_for_error(exc: Exception, attempt: int) -> float:
     return min(1.5 * attempt, 5.0)
 
 
+def normalize_days_window(value: Any) -> str:
+    text = str(value or DEFAULT_DAYS_WINDOW).strip().lower()
+    if text in {"", "none", "null"}:
+        text = DEFAULT_DAYS_WINDOW
+    if text in {"0", "*", "any", "全部", "不限", "全量"}:
+        text = "all"
+    if text not in VALID_DAYS_WINDOWS:
+        raise ValueError(f"days_window must be one of {', '.join(VALID_DAYS_WINDOWS)}")
+    return text
+
+
+def from_date_for_days_window(days_window: Any, now: datetime) -> str:
+    normalized = normalize_days_window(days_window)
+    if normalized == "all":
+        return ""
+    return (now - timedelta(days=max(int(normalized), 1))).strftime("%Y-%m-%d")
+
+
+def days_window_label(days_window: Any) -> str:
+    normalized = normalize_days_window(days_window)
+    return "all" if normalized == "all" else f"{normalized}d"
+
+
 def scout_hot_papers(
     config: dict[str, Any],
     *,
     profile_tag: str,
     domain_query: str,
     topic_direction: str,
-    days_window: int,
+    days_window: int | str,
     institution_filter: str,
     max_results: int,
     client: OpenAlexClient,
@@ -1249,12 +1280,13 @@ def scout_hot_papers(
     domain_query_groups, domain_queries, topic_directions = build_domain_query_groups(domain_query, topic_direction)
     profiles = iter_profiles(config, requested_tags) if requested_tags or not domain_queries else []
     now = run_now()
-    from_date = (now - timedelta(days=max(int(days_window or 30), 1))).strftime("%Y-%m-%d")
+    normalized_days_window = normalize_days_window(days_window)
+    from_date = from_date_for_days_window(normalized_days_window, now)
     domain_token = safe_slug("-".join(domain_queries[:2]), "domain")[:40]
     tags_token = "-".join(requested_tags or [str(p.get("tag") or "all") for p in profiles[:3]]) or domain_token or "all"
     if not requested_tags and not profiles and any(item != "all" for item in topic_directions):
         tags_token = "-".join(topic_directions)
-    token_hash = hashlib.sha1(f"{tags_token}|{domain_query}|{topic_direction}|{days_window}|{institution_filter}|{now.isoformat()}".encode("utf-8")).hexdigest()[:8]
+    token_hash = hashlib.sha1(f"{tags_token}|{domain_query}|{topic_direction}|{normalized_days_window}|{institution_filter}|{now.isoformat()}".encode("utf-8")).hexdigest()[:8]
     run_token = f"hot-{now.strftime('%Y%m%d-%H%M%S')}-{safe_slug(tags_token, 'all')[:40]}-{token_hash}"
     warnings: list[str] = []
     query_specs: list[dict[str, str]] = []
@@ -1435,13 +1467,14 @@ def paper_recommend_tags(paper: dict[str, Any], institution_filter: str) -> list
     return list(dict.fromkeys(tag for tag in tags if tag))
 
 
-def paper_recommend_evidence(paper: dict[str, Any], institution_filter: str, days_window: int) -> str:
+def paper_recommend_evidence(paper: dict[str, Any], institution_filter: str, days_window: int | str) -> str:
     matched_query = single_line(str(paper.get("matched_query") or ""))
     cited = int(paper.get("cited_by_count") or 0)
+    window_label = days_window_label(days_window)
     if paper.get("source") == "arxiv_fallback":
         company = str(paper.get("company_match") or "").strip()
         relation_source = str(paper.get("company_relation_source") or "").strip()
-        parts = [f"hot-paper-scout: arXiv fallback", f"window={days_window}d"]
+        parts = [f"hot-paper-scout: arXiv fallback", f"window={window_label}"]
         if company:
             parts.append(f"company_relation_match={company}")
         if relation_source:
@@ -1455,7 +1488,7 @@ def paper_recommend_evidence(paper: dict[str, Any], institution_filter: str, day
         relation_source = str(paper.get("company_relation_source") or "").strip()
         parts = [
             "hot-paper-scout: OpenAlex",
-            f"window={days_window}d",
+            f"window={window_label}",
             f"cited_by_count={cited}",
             f"institution_filter={normalize_institution_filter(institution_filter)}",
         ]
@@ -1475,7 +1508,7 @@ def paper_to_recommend_item(
     index: int,
     *,
     institution_filter: str,
-    days_window: int,
+    days_window: int | str,
 ) -> dict[str, Any]:
     paper_source = str(paper.get("source") or "openalex")
     source_label = "arxiv" if paper_source == "arxiv_fallback" else "openalex"
@@ -1522,7 +1555,7 @@ def paper_to_recommend_item(
 def write_recommend_file(
     result: ScoutResult,
     *,
-    days_window: int,
+    days_window: int | str,
     institution_filter: str,
     section: str = "deep",
 ) -> Path:
@@ -1542,7 +1575,7 @@ def write_recommend_file(
         "source": "hot_paper_scout",
         "run_token": result.run_token,
         "from_date": result.from_date,
-        "days_window": days_window,
+        "days_window": normalize_days_window(days_window),
         "institution_filter": normalize_institution_filter(institution_filter),
         "profiles": [p.get("tag") for p in result.profiles],
         "domain_queries": result.domain_queries,
@@ -1561,7 +1594,7 @@ def write_outputs(
     result: ScoutResult,
     *,
     docs_dir: Path,
-    days_window: int,
+    days_window: int | str,
     institution_filter: str,
 ) -> None:
     del docs_dir
@@ -1577,7 +1610,7 @@ def write_outputs(
         "generated_at": run_now().isoformat(),
         "run_token": result.run_token,
         "from_date": result.from_date,
-        "days_window": days_window,
+        "days_window": normalize_days_window(days_window),
         "institution_filter": normalize_institution_filter(institution_filter),
         "profiles": [p.get("tag") for p in result.profiles],
         "domain_queries": result.domain_queries,
@@ -1599,7 +1632,7 @@ def main() -> None:
     parser.add_argument("--profile-tag", default="", help="Comma-separated profile tags. Empty means all enabled profiles.")
     parser.add_argument("--domain-query", default=DEFAULT_DOMAIN_QUERY, help="Semicolon/comma separated domain queries.")
     parser.add_argument("--topic-direction", default="all", help="Comma-separated topic directions: all, vln, vla, world-model.")
-    parser.add_argument("--days-window", type=int, choices=(7, 14, 30), default=30)
+    parser.add_argument("--days-window", choices=VALID_DAYS_WINDOWS, default=DEFAULT_DAYS_WINDOW)
     parser.add_argument("--institution-filter", choices=("all", "company", "university"), default="company")
     parser.add_argument("--max-results", type=int, default=30)
     parser.add_argument("--config", default=os.environ.get("DPR_CONFIG_FILE") or str(ROOT_DIR / "config.yaml"))

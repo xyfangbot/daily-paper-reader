@@ -1,0 +1,406 @@
+Title: ELMP: Efficient Learning for Motion Planning via Analytical Policy Gradients
+
+URL Source: https://arxiv.org/pdf/2607.00215v1
+
+Published Time: Thu, 02 Jul 2026 00:19:27 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# ELMP: Efficient Learning for Motion Planning via Analytical Policy Gradients 
+
+Yixiao Li 1, Tifanny Portela 1, Jordis Herrmann 2,†, Ren´ e Zurbr¨ ugg 1, Marco Hutter 1
+
+Abstract — Neural Motion Planners (NMPs) enable fast reac-tive motion generation, but adapting them to new environments typically requires recollecting large expert datasets, which is computationally prohibitive. We propose ELMP, a framework for data-efficient adaptation via self-supervised fine-tuning. Rather than generating additional expert trajectories with expensive global planners, ELMP directly optimizes the policy through a differentiable kinematic layer using dense collision, target-reaching, and smoothness objectives. This replaces expert data generation with rapid problem sampling, reducing per-sample adaptation cost by roughly two orders of magnitude. To further support robust generalization across changing kine-matic chains, we introduce a mechanism to explicitly encode tool geometry via point clouds. Benchmarked against classi-cal and neural baselines, ELMP achieves an 84.8% average success rate with orders-of-magnitude lower cold-start latency than classical methods. In unseen environments, self-supervised fine-tuning improves success rate from 57.3% (zero-shot) to 89.8%, removing the data collection bottleneck. Our approach maintains millisecond-level inference latency and is validated on a physical Franka Emika Panda robot. 
+
+Index Terms — Robot Learning, Motion Planning, Collision Avoidance, Analytical Policy Gradient 
+
+I. I NTRODUCTION 
+
+Generating collision-free motion is fundamental to robotic manipulation but remains challenging in unstructured en-vironments [1]–[3]. Traditional sampling-based [4]–[8] and optimization-based [9]–[12] methods provide completeness or optimality guarantees but incur high latency from their sequential sense-plan-act pipeline, often precluding real-time replanning. Local reactive methods such as STORM [13] and Geometric Fabrics [14] achieve high-frequency control but lack long-horizon foresight, making them vulnerable to local minima in complex geometries. Neural Motion Planners (NMPs) [1]–[3] compress plan-ning into a neural network for fast inference, but standard Behavior Cloning (BC) suffers from covariate shift over long horizons, requiring prohibitive amounts of expert data. More-over, most NMPs assume fixed robot geometry, neglecting variable end-effectors or grasped objects. Although recent methods such as Neural MP [2] have begun addressing vari-able embodiments, they lack extensive evaluation of point-cloud representations, and bounding-box abstractions [15] sacrifice geometric fidelity, failing in cluttered spaces. For tool-aware manipulation (Fig. 1), explicit geometric reason-ing about the full kinematic chain is required.     
+
+> This work was primarily supported by the ETH AI Center. 1Robotic Systems Lab, ETH Z¨ urich; 2ABB. †Jordis Herrmann is currently with ANYbotics. Email:
+
+{yixili,tportela }@ethz.ch 
+
+Fig. 1: Tool-Aware Manipulator Motion Planning : AFranka Emika Panda robot executes a pick-and-place task involving a tool (wrench). Our method ELMP explicitly encodes the variable tool geometry via point clouds to enable collision avoidance for the entire kinematic chain, while leveraging Analytical Policy Gradients to fine-tune the policy for high-precision, collision-free motion. We introduce ELMP (Efficient Learning for Motion 
+
+Planning via Analytical Policy Gradients), a two-stage neural planner: BC pre-training followed by self-supervised APG fine-tuning through a differentiable kinematic layer with dense collision, target-reaching, and smoothness objectives. This enables adaptation to novel environments without addi-tional expert demonstrations. We further encode tool geom-etry as a point cloud, conditioning the policy to generate collision-free trajectories for the entire kinematic chain. While ELMP builds on established components (PointNet++ encoders, SDF-based objectives), it is the first to combine self-supervised APG fine-tuning with explicit tool-aware conditioning for arm motion planning, enabling data-efficient environment transfer. In summary, our contributions are as follows:  
+
+> •
+
+Self-supervised adaptation via APG: We introduce Analytical Policy Gradient fine-tuning to kinematic neu-ral motion planning, enabling adaptation to new en-vironments without re-collecting additional demonstra-tions from computationally expensive expert planners.  
+
+> •
+
+Tool-aware geometric conditioning: We demonstrate that explicit point-cloud conditioning of the entire kine-matic chain, including variable tools, equips the planner to safely plan through cluttered environments, signifi-cantly outperforming coarse bounding-box abstractions.  
+
+> •
+
+Comprehensive empirical validation: We evaluate on 
+
+> arXiv:2607.00215v1 [cs.RO] 30 Jun 2026
+
+held-out simulation benchmarks and on novel environ-ments outside the pre-training distribution, where self-supervised fine-tuning substantially improves success. We additionally demonstrate feasibility on a real robot. II. R ELATED WORK 
+
+Robot Motion Planning: Traditional collision-free plan-ning relies on sampling-based methods (e.g. RRT ∗ [4], AIT ∗ [8]) or optimization-based approaches (e.g. CHOMP [9], CuRobo [12]). Although these provide completeness or smoothness guarantees, they suffer from high computational variance or variable “cold-start” latencies that hinder real-time replanning [12], and solve each query from scratch without learning a reusable policy. In contrast, local reactive controllers such as STORM [13] and Geometric Fabrics [14] achieve high-frequency avoidance but lack long-horizon foresight, leaving them vulnerable to getting trapped in local minima in complex geometries. 
+
+Neural Motion Planning: Neural Motion Planners (NMPs) such as Motion Planning Networks [16], M πNets [1], and Neural MP [2] address these latency bottlenecks by mapping sensory input directly to actions. Motion Plan-ning Networks [16] pioneered learning-based planners that bridge classical and neural planning via iterative bidirec-tional planning, but do not address variable tool geome-try or self-supervised gradient-based adaptation. However, relying predominantly on Behavior Cloning (BC) makes these policies highly susceptible to covariate shift over long horizons [3]. Correcting this often requires computationally expensive oracle planners for fine-tuning. Furthermore, most existing NMPs assume fixed robot geometry, lacking explicit mechanisms like point clouds to handle variable tool shapes zero-shot. ELMP builds on the M πNets architecture but adds APG-based adaptation and tool-aware point-cloud conditioning to address both limitations. Recent methods push the frontier of generalist neural planning at the cost of massive data scale: Neural MP [2] distills 1–3M expert trajectories and employs test-time optimization (TTO) for out-of-distribution adaptation, incurring multi-second latency; Deep Reactive Policy [3] trains on ∼10M trajectories for reactive planning in partially observable scenes but does not support variable tools. ELMP targets a complementary regime—data-efficient adaptation from ∼600K trajectories via self-supervised APG, with millisecond-level feed-forward inference and explicit tool-awareness. 
+
+Differentiable Physics and Policy Optimization: Differ-entiable simulation has enabled sample-efficient policy learn-ing via analytic gradients [17]–[19]. Although analytical pol-icy gradients (APG) successfully optimize low-level dynamic controllers by backpropagating performance errors over time [20], their application to kinematic motion planning remains underexplored. ELMP bridges this gap by implementing a differentiable kinematic layer. By analytically computing Signed Distance Field (SDF) gradients, our framework fine-tunes policies directly against dense planning objectives— bypassing the need for ground-truth expert demonstrations. A related line of work learns neural SDF representations for navigation: Bukhari et al. [21] propose differentiable composite neural SDFs for dynamic indoor scenes, which is highly relevant to our differentiable collision objective. Our current implementation uses analytical primitive SDFs for efficiency and exact gradients; neural/composite SDFs represent a promising route to handle non-primitive obstacles (see Sec. V). III. M ETHOD 
+
+In this section, we present the ELMP framework. We first define the formulation of the motion planning problem. Then, we describe the neural policy architecture and detail the self-supervised Analytical Policy Gradient fine-tuning process used to adapt the policy to new environments. Finally, we introduce our differentiable scene model and procedural data generation pipeline. 
+
+A. Problem Formulation 
+
+We formulate the motion planning problem as a sequential decision-making task in state space. At each time step t, the policy observes the current joint configuration qt ∈ R7, the target pose of the end-effector Tee , and the observation of point clouds Pt ∈ RN ×4. The policy outputs an increase in the joint position ∆qt ∈ R7, resulting in the next state 
+
+qt+1 = qt + ∆ qt. The objective is to auto-regressively generate a trajectory τ = {q0, . . . , qH } ∈ RH×7 of the horizon H that reaches Tee while ensuring that the entire kinematic chain, including the attached tool, avoids collisions with the environment. 
+
+B. Policy Architecture and Pre-training 
+
+We adopt a neural policy architecture inspired by M πNets [1], designed to process input of high-dimensional point cloud alongside proprioceptive states. 
+
+Input Representation: The network input consists of visual and proprioceptive components, following an archi-tecture similar to prior neural planners [1], [2]. The visual input is a segmented point cloud Pt ∈ RN ×4 composed of three distinct sets: Probot , Pscene , and Ptarget . To explicitly encode these semantics, each point in Pt is augmented with an additional feature channel indicating its category. 
+
+Probot ∈ RNr ×4 represents the current configuration of the robot, including the geometry of the attached tool. 
+
+Pscene ∈ RNs×4 represents point clouds from the obstacles. 
+
+Ptarget ∈ RNt×4 represents the “virtual” robot end-effector and tool at the target pose Tee . In particular, Probot and 
+
+Ptarget are not derived from external perception but are directly sampled from the robot and tool’s mesh models using the current joint configuration (proprioception). This decoupled design intentionally bridges the sim-to-real gap. While Pscene is generated from simulated primitives during training, it is populated directly by an external depth camera during physical deployment. Combining these noisy external sensor data with precise, internally generated Probot creates a robust hybrid perception scheme, ensuring that the policy TCP Pose Encoder  
+
+> Configuration Encoder
+> Point cloud Encoder
+> Decoder
+> Neural Motion Policy
+> Fine-Tune
+> Problem Sample
+> Stage 1: Pre-Train Stage 2: APG Fine-Tune
+> AIT* Demonstration Data
+> Neural Motion Policy
+> Robot
+> Obstaces
+> Target
+> Supervision
+> Problem Sample
+> Rollout
+> Input
+> Scene Setup
+> Scene Setup
+> forward
+> backward
+
+Fig. 2: Method Overview: We present ELMP, a framework consisting of two main stages. Stage 1 Pre-Train: A neural motion policy encodes semantic point clouds (robot, obstacles, target), proprioceptive configurations, and TCP poses to predict joint increments, supervised by AIT* demonstration data. Stage 2 APG Fine-Tune: A self-supervised optimization loop where the pre-trained policy is unrolled over horizon H via a differentiable kinematic rollout. Gradients from a differentiable loss (comprising target, collision, and smoothness objectives) are backpropagated through time to fine-tune the policy. maintains an accurate understanding of its own kinematics and tool geometry even under severe visual occlusion. 
+
+Architecture and Encoders: As shown in Stage 1 of Fig. 2, the aggregated semantic point cloud Pt is processed by a PointNet++ [22] encoder to extract geometric features. Concurrently, proprioceptive and pose states are processed via Multi-Layer Perceptrons (MLP). These features are concatenated and passed to an MLP decoder to predict the joint increment ∆qt. This explicit decoupling of pose and geometry constitutes our primary architectural deviation from M πNets [1]. 
+
+Pre-training Loss: We initialize the policy πθ with Be-havior Cloning (BC) using a combined loss inspired by [1]: 
+
+LBC = λaction ∥∆qpred − ∆qgt ∥2
+
++ λfk 
+
+> M
+
+X
+
+> i=1
+
+∥FK i(qpred ) − FK i(qgt )∥2 . (1) Here, ∆qpred and ∆qgt denote the predicted and ground-truth joint increments, respectively, and λaction , λfk are scalar loss weights. FK i(·) represents the forward kinematics mapping from the joint configuration to the i-th center of the M
+
+robot and tool spheres. This objective jointly penalizes discrepancies in predicted joint actions and inconsistencies in the corresponding task-space geometry. 
+
+C. Analytical Policy Gradient Fine-tuning 
+
+Learning from demonstrations alone is often insufficient to ensure robust closed-loop performance, especially under distribution shift. To address covariate shift and residual collisions that remain after BC pre-training, we fine-tune the policy using Analytical Policy Gradient (APG). Specifically, we cast the kinematic motion planning process as a fully differentiable kinematic rollout (Stage 2 of Fig. 2) and calculate exact gradients with respect to policy parameters θ
+
+via Backpropagation Through Time (BPTT) [23]. By avoid-ing expensive physics simulation and operating purely in kinematics, this procedure enables fast rollouts and efficient gradient computation. 
+
+Fine-tuning Objectives: During APG fine-tuning, the policy is optimized with a composite objective defined over the generated trajectory τ = {q0, . . . , qH−1}, where wtarget ,
+
+wcol , and wsmooth are scalar weights balancing the three terms: 
+
+LAP G = wtarget Ltarget + wcol Lcol + wsmooth Lsmooth . (2) The target loss penalizes both the translational and rotational error of the end-effector pose. Here, ppred , ptarget ∈ R3 are the predicted and target end-effector positions, Rpred , Rtarget ∈
+
+SO (3) are the corresponding rotation matrices, and λrot 
+
+weights the rotational term. For the rotational term, we use the chordal distance [24], which yields a smooth and strictly convex error surface and avoids the vanishing-gradient issues commonly observed with quaternion-based losses [25]: 
+
+Ltarget = ∥ppred − ptarget ∥2 + λrot ∥Rpred − Rtarget ∥2 
+
+> F
+
+. (3) The collision loss (Lcol = Lenv + Lself ) applies dense gra-dients throughout the kinematic chain. We model robot and tool geometries via approximation spheres [12], evaluating penetrations against the environment’s differentiable Signed Distance Field (SDF), Φenv (x), where K = {1, . . . , K }
+
+indexes the collision spheres covering all robot and tool links, 
+
+xk(qt) = FK k(qt) is the world-frame center of the k-th sphere at configuration qt, and ϵmargin is a safety margin: 
+
+Lenv =
+
+> H
+
+X
+
+> t=0
+
+X
+
+> k∈K
+
+ReLU (ϵmargin − Φenv (xk(qt))) (4) Self-collisions ( Lself ) are similarly penalized using a hinge loss on the signed distances calculated from SDF Φself (x)
+
+between all non-adjacent robot links. Specifically, for each non-adjacent link pair (i, j ), we compute the pairwise sphere distances and apply the same hinge formulation as Eq. (4). Finally, the smoothness loss regularizes joint velocities and Fig. 3: Simulated Training Environments and Tools. Top: We utilize procedural generation to create diverse planning scenarios including (Left) Tabletop, (Center) Shelf/Cubby reaching, and (Right) Dresser collision-free goal-reaching. Bottom: 
+
+Examples of procedural tool geometries accelerations to ensure mechanical feasibility, where λvel and 
+
+λacc weight the velocity and acceleration penalties: 
+
+Lsmooth = 1
+
+H
+
+> H−1
+
+X
+
+> t=0
+
+ λvel || ∆qt|| 2 + λacc || ∆qt+1 − ∆qt|| 2
+
+(5) By keeping the entire rollout fully differentiable, BPTT optimization effectively ”pushes” the arm out of obstacles via the SDF gradients while ”pulling” the end-effector to the target pose. The complete self-supervised APG fine-tuning is summarized in Algorithm 1. 
+
+D. Differentiable Scene Model 
+
+The APG fine-tuning process relies on analytical gradients derived from the environment geometry. To enable this, we explicitly model all obstacles, tools, and the robot’s collision geometry using primitive shapes (boxes, spheres, cylinders) within an auto-differentiation framework. 
+
+Analytical SDF. The environment SDF is defined as 
+
+Φenv (x) = min j ϕj (x), where ϕj is the signed distance to the j-th obstacle primitive. For a box with half-extents 
+
+h ∈ R3 centered at the origin (after applying the in-verse obstacle transform), ϕbox (x) = ∥max( |x| − h, 0)∥ +min(max i(|xi| − hi), 0) . For a cylinder with radius r and half-height h, ϕcyl (x) = min  max( px21 + x22 − r, |x3| − 
+
+h), 0 + ∥max(( px21 + x22 − r, |x3| − h), 0)∥. Since all primitives are composed of smooth operations, the spatial gradient ∇xΦenv is analytically available and flows through the auto-differentiation graph. 
+
+BPTT Gradient Path. During APG fine-tuning, the policy is unrolled for H steps: qt+1 = qt + πθ (qt, Pt, Tee ). Gra-dients ∇θ LAPG are obtained via BPTT: ∂L 
+
+> ∂θ
+
+= P  
+
+> t∂L
+> ∂qt
+> ∂qt
+> ∂θ
+
+,where the collision loss contributes via ∇xΦenv composed with the forward kinematics Jacobian ∂xk 
+
+> ∂qt
+
+, enabling SDF gradients to “push” collision spheres away from obstacles. To encourage the policy to learn robust geometric fea-tures, we further employ procedural generation to randomize workspace configurations, obstacle shapes, tool geometries, and their poses during data collection. 
+
+Algorithm 1 Analytical Policy Gradient Fine-Tuning                                                                                                     
+
+> 1: Require: Pre-trained Policy πθ, Differentiable Kinematics S, Dataset
+> D
+> 2: Require: Horizon H, Learning Rate α
+> 3: Initialize optimizer with α, enable gradients for πθ
+> 4: for epoch e= 1 . . . N do
+> 5: Sample batch B={(q(i)0,T(i)
+> ee ,O(i)
+> env )}Mi=1
+> 6: Initialize trajectories T ← [q0]
+> 7: // Differentiable Rollout
+> 8: for t= 0 . . . H −1do
+> 9: obs t←(PointNet (Oenv ,qt),qt,Tee )
+> 10: ∆qt←πθ(obs t)
+> 11: qt+1 ←clamp (qt+ ∆ qt)▷Integrate 12: T.append (qt+1 )
+> 13: end for
+> 14: // Loss Computation (BPTT)
+> 15: pH,RH←FK (qH)
+> 16: Ltarget ← || pH−ptgt || 2+λrot || RH−Rtgt || 2
+> F
+> 17: // Differentiable Collision Check
+> 18: Lcol ←PHt=0
+> P
+> k∈K ReLU (ϵmargin −Φenv (xk,t ))
+> 19: Lsmooth ←Eq. (5)
+> 20: LAP G ←wtarget Ltarget +wcol Lcol +wsmooth Lsmooth
+> 21: θ←θ−α·Clip (∇θLAP G )
+> 22: end for
+
+IV. E XPERIMENTS 
+
+We evaluate our method to answer the following ques-tions: (i) To what extent does APG fine-tuning improve performance beyond a simple Behavior Cloning baseline? (ii) What is the benefit of explicitly representing tool geometry with point clouds relative to coarse bounding-box approxi-mations? (iii) How does the fine-tuned policy compare with state-of-the-art classical and neural planners in terms of success rate and inference speed? (iv) Can the method adapt to unseen environments without requiring additional expert demonstrations? 
+
+A. Experimental Setup 
+
+We evaluate our method on a test set of 1800 held-out problems across the three environments with various tools sampled from the training distribution. A trajectory is considered successful if (a) it reaches the target within a position error of 1 cm and (b) has an orientation error of less than 15 ◦ without any collision (robot or tool). TABLE I: POLICY PERFORMANCE COMPARISON : We evaluate the impact of analytical policy gradient (APG) fine-tuning against a behavior cloning (BC) baseline on our and M πNet’s policies. Performance is measured across 1800 held-out problems in three environments. Following the evaluation protocol of M πNets [1], we report the collision rate with the environment (Env.) and the robot itself (Self), the percentage of smooth trajectories (defined by a Spectral Arc Length [26] value below −1.6), along with position (Pos.) and orientation (Ori.) accuracy within specified error bounds. Furthermore, we evaluate the generated path length measured by total Cartesian end-effector translation (EE Pos.) and total configuration-space joint displacement (Joint). The results demonstrate that APG fine-tuning significantly improves precision and collision avoidance, and enables flexible trajectory shaping via targeted cost functions. ELMP-BC: behavior cloning only; ELMP-APG: BC + APG fine-tuning (our full method); ELMP-APG-Cartesian: ELMP-APG with an additional Cartesian path-length penalty. All variants share the same architecture and input representation; the tool representation is held fixed (point cloud) across all rows.                                                                        
+
+> Method Collision Rate (%) ↓
+> Smooth (%) ↑
+> Pos. Accuracy (% within) ↑Ori. Accuracy (% within) ↑Path Length ↓
+> Environment Self 1 cm 5 cm 5◦15 ◦30 ◦EE Pos. (m) Joint (rad) MπNets-BC 16.3 0.6 95.1 57.6 83.9 12.8 57.8 71.2 0.73 4.30
+> MπNets-APG 10.8 0.4 98.4 74.2 91.2 32.5 76.8 87.9 0.97 4.31
+> ELMP-BC 31.3 0.7 92.6 70.4 82.7 39.8 76.7 84.7 0.69 4.09
+> ELMP-APG-Cartesian 10.9 0.2 97.3 86.1 93.1 84.0 93.7 96.5 0.63 4.10 ELMP-APG 8.9 0.4 99.1 89.0 94.3 72.6 93.5 96.7 0.85 3.90
+
+This criterion is consistent with prior learning-based motion planning benchmarks, such as M πNets [1] and Neural MP [2], ensuring that the generated plans are sufficiently precise for post-processing or direct execution in grasping tasks. Collisions are checked at discrete waypoints after 3 × inter-polation ( ∼150 configurations per trajectory) using a mesh-based checker on the full robot and tool meshes–independent of the sphere-based SDF used during training–with a safety margin of ϵmargin = 0 .03 m. Tool collisions are included in the reported environment collision rate. 
+
+B. Implementation Details 
+
+Pretraining & Data Generation: Both our method and the M πNet baseline are pretrained via behavior cloning on a large-scale dataset of approximately 600K expert trajec-tories. These trajectories were generated using AIT* [8] to solve procedurally generated planning queries across three benchmark environments: Tabletop , Cubby , and Dresser .
+
+Architecture: A PointNet++ [22] encoder with three Set Abstraction modules produces a 1024-dimensional geometric feature. Separate MLP encoders process the 7-DoF joint configuration and the 12-dimensional target pose (position + flattened rotation matrix), each producing a 64-dim em-bedding. The concatenated 1152-dim vector is decoded by an MLP to produce the joint increment ∆qt.
+
+Network Inputs and Baselines: Point cloud observations are subsampled to fixed cardinalities: Nr = 2048 points for the robot and tool geometry, Ns = 4096 for scene obstacles, and Nt = 128 for the target pose ( N = 6272 total). We benchmark against AIT* [8] (sampling-based), CuRobo [12] (optimization-based), and M πNets [1] (neural). We focus on baselines with publicly available training pipelines; recent approaches such as Neural MP [2] and Deep Reactive Policy [3] are omitted from the direct comparison. 
+
+Training Stability and Optimization: Optimizing long-horizon trajectories via BPTT is prone to vanishing or exploding gradients [27]–[29]. To ensure stable convergence, we employ a multi-step stabilization strategy. First, BC initialization leverages the pre-trained weights to provide a stable starting point. Second, we apply gradient norm clipping (norm ≤ 1.0) to mitigate gradient explosion during long-horizon rollouts. We use Adam with an initial learning rate of 10 −4 and exponential decay, with 16-bit mixed precision on 6 ×RTX 3090 GPUs. BC pretraining runs for 500 epochs (batch size 16); APG fine-tuning runs for 50 epochs (batch size 48, DDP) with rollout horizon H = 69 .The collision margin is ϵmargin = 0 .03 m. 
+
+C. Effectiveness of APG Fine-tuning 
+
+We compare our APG fine-tuned policy against a BC-only baseline using the same dataset, without collecting new expert demonstrations (Tab. I). 
+
+Pose Accuracy & Collision Avoidance: APG fine-tuning re-duces environmental collisions by more than 3 × and sharply improves positional and orientation accuracy over the BC baseline, while ensuring nearly all trajectories are smooth. 
+
+Optimization Versatility: ELMP-APG-Cartesian, which adds an end-effector path-length penalty to LAP G , produces sig-nificantly shorter paths with a minor clearance trade-off, demonstrating that the planner can be tailored to different objectives without new demonstrations. 
+
+Architectural Gains: APG also improves the M πNets base-line, but the decoupled pose encoder of ELMP-APG signifi-cantly outperforms M πNets-APG in both positional success and orientation precision. The complementary role of tool-aware conditioning is examined in Sec. IV-E. 
+
+Data Efficiency: To quantify APG’s dependence on expert data, we ablate the pre-training budget from 10K to 600K trajectories (Fig. 4). ELMP-APG with only 10K trajectories (72.0% success, 19.4% collision) already surpasses ELMP-BC with the full 600K (57.9%, 31.9%), achieving better results with 60 × less expert data. The APG gain is largest in the low-data regime. TABLE II: COMPARISON WITH STATE -OF -THE -A RT PLANNERS : We report the success rate, average success, solution time, and cold-start (CS) time across three environments ( Tabletop , Cubby , and Dresser ) for 1800 held-out problems. Our method is compared against AIT* (sampling-based), CuRobo (optimization-based), and M πNets (neural). All methods are evaluated on the same 1800 tool-aware problems; this table compares across planners (architecture and input representation are fixed for each method). Our APG fine-tuned policy achieves competitive success rates while maintaining orders-of-magnitude faster solution and cold-start times. 
+
+Method Type Success Rate (%) ↑ Average Success (%) ↑ Sol. Time (s) ↓ CS Time (s) ↓
+
+Tabletop Cubby Dresser 
+
+AIT* [8] Sampling 85.3 64.0 80.8 76.7 21.5 21.5 CuRobo [12] Optimization 79.0 88.0 91.3 86.1 0.4 0.4 CuRobo MPC Local 35.0 8.3 5.0 16.1 3.1 11.1 e-3 MπNets [1] Neural 32.2 47.0 71.2 50.1 0.7 10.4 e-3 
+
+ELMP-APG Neural 90.3 72.7 91.5 84.8 0.5 7.8 e-3 10K 100K 300K 600K    
+
+> Expert Trajectories
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> Success Rate (%)
+> ELMP-APG
+> ELMP-BC
+> 10K 100K 300K 600K
+> Expert Trajectories
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Collision Rate (%)
+> ELMP-APG
+> ELMP-BC
+
+Fig. 4: Pre-training data-size ablation. Success rate (left) and environment collision rate (right) as a function of the number of expert trajectories used for BC pre-training. ELMP-APG demonstrates that APG fundamentally reduces the dependence on expert data scale. 
+
+D. Comparison with State-of-the-Art 
+
+We present a quantitative comparison with the baselines in Table II. For our method and the learning-based baseline (M πNets), we train a single unified policy on the combined dataset of all three environments. 
+
+Success Rates: ELMP-APG achieves an 84.8% average success rate, exceeding CuRobo in Tabletop (90.3% vs. 79.0%) and Dresser (91.5% vs. 91.3%) while remaining below it in Cubby (72.7% vs. 88.0%), and significantly surpassing AIT* (76.7%) and M πNets (50.1%). This perfor-mance improvement over the M πNets baseline highlights the direct impact of our contributions: explicit tool-aware point-cloud conditioning and self-supervised APG fine-tuning drive the massive gains in success rate. The lower baseline per-formance of M πNets in our benchmarks compared to its original publication stems from a 5.5 × reduction in training data scale ( ∼600K vs. 3.27M trajectories) combined with our much stricter evaluation criteria, where any collision involving the variable tool geometry results in a task failure. This indicates that ELMP-APG is more sample-efficient than MπNets in the tool-aware setting, achieving higher success despite being trained on the reduced dataset. 
+
+Local Reactive Baseline: CuRobo MPC, which operates as a local reactive controller, achieves only 16.1% average success. Its myopic, single-step optimization lacks the long-horizon foresight required to navigate constrained geometries such as shelves and drawers, confirming that reactive meth-ods alone are insufficient for these tasks. 
+
+Inference Speed and Cold Start Time: A critical advantage of our approach is the Cold Start Time–the latency between receiving a new query and sending the first action. Traditional global planners like AIT* and CuRobo must compute the full trajectory before execution, resulting in substantial latencies (21.5 s and 0.4 s, respectively). In contrast, our neural policy achieves a cold start time of just 7.8 ms. This sub-10 ms reactivity makes our approach well suited for tasks requiring global guidance and reactive replanning in changing scenes. 
+
+E. Effectiveness of Tool-Aware Representation 
+
+To evaluate the effectiveness of explicitly representing tool geometry with point clouds, we compare our method with the bounding-box (BBox) abstraction employed in [15]. We consider two evaluation settings. The Standard Problem is drawn from the same distribution as the data generation process and captures nominal operating conditions. The 
+
+Hard Problem consists of adversarially sampled target poses where we alter the safety margin and distance thresholds to sample the end-effector and tool poses within a −3 cm to 10 cm range from environmental obstacles. The negative bound allows minor penetration between the target and the obstacles, requiring more precise collision reasoning. The rationale for designing the Hard Problem set is to TABLE III: EFFECTIVENESS OF TOOL -A WARE REPRE -
+
+> SENTATION
+
+: We compare collision rates of our point-cloud encoding against a bounding-box baseline on standard and hard problem sets. Explicit point-cloud encoding better cap-tures fine-grained geometry and reduces collisions.         
+
+> Method Collision Rate (%) ↓
+> Standard Problems Hard Problems
+> Bounding Box Feature [15] 6.0 30.5
+> ELMP-APG 2.5 11.5
+
+Fig. 5: Novel unseen environments for transfer evaluation: 
+
+Cabinet (left) and Bin (right), with geometric structures not observed during pre-training. determine if the policy truly considers the tool geometry. Even if a policy ignores tool geometry, it can still learn the general trajectory distribution and succeed in nominal cases. However, in the Hard scenario, a policy that relies on distribution memorization rather than geometric awareness will fail to adjust for the specific tool-obstacle conflict. As shown in Table III, our point cloud embedding sig-nificantly outperforms the bounding box baseline. In the 
+
+Standard problem, the collision rate is reduced from 6.0% to 2.5%. This gap widens significantly on the Hard problem, where the BBox baseline suffers a collision rate of 30.5% compared to 11.5% for our method. This suggests that explicit point cloud encoding enables the policy to resolve fine-grained geometric conflicts that coarse bounding box abstractions fail to capture. 
+
+F. Self-Supervised Transfer to Novel Environments 
+
+We evaluate transfer to two novel environments– Cabinet 
+
+and Bin (Fig. 5)–by sampling random start-goal pairs (checked for IK feasibility) and fine-tuning with APG, without collecting new expert demonstrations. Procedural problem sampling takes only 82 ms per scenario, reducing per-sample cost by two orders of magnitude versus AIT* (21.5 s). As shown in Fig. 6, APG converges to a higher success rate than a BC baseline trained on expert trajectories for the same problems (89.8% vs. 85.0%), starting from a 57.3% zero-shot baseline. The computational advantage is stark: sampling 200K problems for APG takes 4.5 CPU-hours (under 3 minutes), while generating the same number of expert trajectories for BC demands over 1,194 CPU-hours. 
+
+G. Real-World Deployment 
+
+We validated our policy on a physical Franka Emika Panda with a fixed RealSense depth camera. The analytic SDF is used only during APG fine-tuning; at deployment, the policy consumes only a point cloud and target pose. We filter robot/tool geometry from the raw depth image using 
+
+realtime urdf filter [30], then aggregate remaining scene points with internally generated robot and tool points via proprioception, ensuring precise tool-geometry awareness despite occlusion. 010k 60k 100k 200k 
+
+> Sampled Problem Size
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> 100
+> Success Rate (%)
+> APG (89.83%)
+> BC Baseline (85.0%)
+> AIT* (92.67%)
+> cuRobo (95.67%)
+> MPC (43.33%)
+> APG
+> (ours)
+> BC
+> Baseline
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> Avg. Sampling Time (s)
+> 82 ms
+> 21.5 s
+
+Fig. 6: Fine-tuning performance in novel environments. 
+
+APG steadily increases success rates in the unseen Cabi-net and Bin environments as the number of sampled self-supervised problems increases. While APG and BC share similar learning curves, APG ultimately plateaus at a higher success rate (89.8% vs 85.0%) and requires two orders of magnitude less data generation time.       
+
+> (a) Reactive Replanning: Reactive replanning around moving obstacles (highlighted in pink).
+> (b) In-Distribution: Goal reaching with a shelf environment.
+> (c) Unseen Environment Transfer: Collision-free placement in a novel bin task.
+
+Fig. 7: Real-world deployment of the APG fine-tuned policy on a Franka Emika Panda robot. The moving obstacles are highlighted in pink (a), and the tool geometry is outlined in blue (b, c). Fig. 7 shows reactive replanning around moving obsta-cles (a), in-distribution cubby reaching (b), and transfer to a novel unseen bin (c). The policy runs in an MPC-style closed loop at 30 Hz with 10 Hz perception updates, treating each point cloud as a static snapshot. To quantify performance, we conducted 36 trials across three scenes and three tools (Table IV), with three waypoints per step linearly interpolated and sent to the Franka’s position controller. The overall 72.2% success rate with reasonable accuracy (1.94 cm, 8.91 ◦) confirms hardware transfer. The collision rate increases from 8.9% in simulation to 25.0% on the real robot. This gap is primarily attributable to depth-camera noise and self-occlusion: the single fixed camera produces incomplete point clouds when the robot arm occudes parts of the scene, and depth artifacts near object edges introduce phantom geometry. These perception errors are not modeled during APG fine-tuning, which operates on clean analytic primitives. Incorporating realistic sensor noise models dur-ing training or employing temporal point-cloud fusion and Teacher-Student distillation [31], [32] are promising direc-tions to close this gap (Sec. V). V. C ONCLUSION AND FUTURE WORK 
+
+We presented ELMP , a tool-aware neural motion planner combining APG fine-tuning with explicit point-cloud tool conditioning for fast, robust collision avoidance, with quali-tative evidence of reactive behavior in changing scenes. Self-supervised APG enables data-efficient adaptation to novel environments, reducing data generation costs by two orders of magnitude. This approach approaches the average success rate of optimization-based planners such as CuRobo, exceed-ing it in open environments while remaining below it in highly constrained settings, while maintaining millisecond-level inference latency. Several avenues remain for future work: bridging the sim-to-real perception gap via temporal point-cloud fusion or Teacher-Student distillation [31], [32]; handling non-primitive obstacles through differentiable collision penalties on raw point clouds or neural SDFs [21]; extending beyond fixed-base manipulators to contact-heavy systems, likely requiring advanced APG algorithms such as SHAC [33]; and integrating time-optimal path parameterization (e.g., TOPP-RA [34]) for hard velocity and acceleration guarantees. REFERENCES [1] A. Fishman, A. Murali, C. Eppner, B. Peele, B. Boots, and D. Fox, “Motion policy networks,” in Conference on Robot Learning . PMLR, 2023, pp. 967–977. [2] M. Dalal, J. Yang, R. Mendonca, Y. Khaky, R. Salakhutdinov, and D. Pathak, “Neural mp: A generalist neural motion planner,” arXiv preprint arXiv:2409.05864 , 2024. [3] J. Yang, J. J. Liu, Y. Li, Y. Khaky, K. Shaw, and D. Pathak, “Deep reactive policy: Learning reactive manipulator motion planning for dynamic environments,” arXiv preprint arXiv:2509.06953 , 2025. [4] S. LaValle, “Rapidly-exploring random trees: A new tool for path planning,” Research Report 9811 , 1998. [5] L. E. Kavraki, P. Svestka, J.-C. Latombe, and M. H. Overmars, “Prob-abilistic roadmaps for path planning in high-dimensional configuration spaces,” IEEE transactions on Robotics and Automation , vol. 12, no. 4, pp. 566–580, 1996. 
+
+TABLE IV: REAL -W ORLD HARDWARE EVALUATION :
+
+We evaluate ELMP-APG on 36 physical-robot trials across three deployment scenes (Shelf, Clutter, Bin) and three tool configurations. Success and collision rates are reported over all trials, while final position and orientation errors are averaged over successful executions only.                         
+
+> Scene Success (%) ↑Pos. Err. (cm) ↓Ori. Err. ( ◦)↓Collision (%) ↓
+> Shelf 58.3 2.54 14.15 33.3 Clutter 83.3 1.52 7.60 16.7 Bin 75.0 1.93 6.28 25.0
+> Overall 72.2 1.94 8.91 25.0
+
+[6] R. Bohlin and L. E. Kavraki, “Path planning using lazy prm,” in 
+
+Proceedings 2000 ICRA. Millennium conference. IEEE international conference on robotics and automation. Symposia proceedings (Cat. No. 00CH37065) , vol. 1. IEEE, 2000, pp. 521–528. [7] J. D. Gammell, T. D. Barfoot, and S. S. Srinivasa, “Batch informed trees (bit*): Informed asymptotically optimal anytime search,” The International Journal of Robotics Research , vol. 39, no. 5, pp. 543– 567, 2020. [8] M. P. Strub and J. D. Gammell, “Adaptively informed trees (ait*): Fast asymptotically optimal path planning through adaptive heuristics,” in 2020 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2020, pp. 3191–3198. [9] N. Ratliff, M. Zucker, J. A. Bagnell, and S. Srinivasa, “Chomp: Gradient optimization techniques for efficient motion planning,” in 
+
+2009 IEEE International Conference on Robotics and Automation .IEEE, 2009, pp. 489–494. [10] J. Schulman, Y. Duan, J. Ho, A. Lee, I. Awwal, H. Bradlow, J. Pan, S. Patil, K. Goldberg, and P. Abbeel, “Motion planning with sequential convex optimization and convex collision checking,” The International Journal of Robotics Research , vol. 33, no. 9, pp. 1251–1270, 2014. [11] C. Liu, C.-Y. Lin, and M. Tomizuka, “The convex feasible set algo-rithm for real time optimization in motion planning,” SIAM Journal on Control and optimization , vol. 56, no. 4, pp. 2712–2733, 2018. [12] B. Sundaralingam, S. K. S. Hari, A. Fishman, C. Garrett, K. Van Wyk, V. Blukis, A. Millane, H. Oleynikova, A. Handa, F. Ramos et al. ,“Curobo: Parallelized collision-free robot motion generation,” in 2023 IEEE International Conference on Robotics and Automation (ICRA) .IEEE, 2023, pp. 8112–8119. [13] M. Bhardwaj, B. Sundaralingam, A. Mousavian, N. D. Ratliff, D. Fox, F. Ramos, and B. Boots, “Storm: An integrated framework for fast joint-space model-predictive control for reactive manipulation,” in 
+
+Conference on Robot Learning . PMLR, 2022, pp. 750–759. [14] K. Van Wyk, M. Xie, A. Li, M. A. Rana, B. Babich, B. Peele, Q. Wan, I. Akinola, B. Sundaralingam, D. Fox et al. , “Geometric fabrics: Generalizing classical mechanics to capture the physics of behavior,” IEEE Robotics and Automation Letters , vol. 7, no. 2, pp. 3202–3209, 2022. [15] J. Lee, Y. Kim, S. Kim, Q. Nguyen, and Y. Heo, “Learning fast, tool-aware collision avoidance for collaborative robots,” IEEE Robotics and Automation Letters , 2025. [16] A. H. Qureshi, Y. Miao, A. Simeonov, and M. C. Yip, “Motion planning networks: Bridging the gap between learning-based and classical motion planners,” IEEE Transactions on Robotics , vol. 37, no. 1, pp. 48–66, 2021. [17] C. D. Freeman, E. Frey, A. Raichuk, S. Girgin, I. Mordatch, and O. Bachem, “Brax-a differentiable physics engine for large scale rigid body simulation, 2021,” URL http://github. com/google/brax , vol. 6, 2021. [18] Newton Contributors, “Newton: GPU-accelerated physics simulation for robotics, and simulation research.” Newton a Series of LF Projects, LLC, 2025. [Online]. Available: https://github.com/newton-physics/newton [19] J. Pan, J. Xing, R. Reiter, Y. Zhai, E. Aljalbout, and D. Scaramuzza, “Learning on the fly: Rapid policy adaptation via differentiable simu-lation,” arXiv preprint arXiv:2508.21065 , 2025. [20] N. Wiedemann, V. W¨ uest, A. Loquercio, M. M¨ uller, D. Floreano, and D. Scaramuzza, “Training efficient controllers via analytic policy gradient,” in 2023 IEEE International Conference on Robotics and Automation (ICRA) , 2023, pp. 1349–1356. [21] H. A. Bukhari, M.-Q. V. Tran, M. R. U. Saputra, and A. Markham, “Differentiable composite neural signed distance fields for navigation in dynamic indoor scenes,” in IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025. [22] C. R. Qi, L. Yi, H. Su, and L. J. Guibas, “Pointnet++: Deep hierarchical feature learning on point sets in a metric space,” Advances in neural information processing systems , vol. 30, 2017. [23] P. J. Werbos, “Backpropagation through time: what it does and how to do it,” Proceedings of the IEEE , vol. 78, no. 10, pp. 1550–1560, 2002. [24] V. Peretroukhin, M. Giamou, D. M. Rosen, W. N. Greene, N. Roy, and J. Kelly, “Learning with 3d rotations: A hitchhiker’s guide to so(3),” 
+
+arXiv preprint arXiv:2006.01031 , 2020. [25] A. R. Geist, J. Frey, M. Zhobro, A. Levina, and G. Martius, “Learning with 3d rotations, a hitchhiker’s guide to so (3),” arXiv preprint arXiv:2404.11735 , 2024. [26] S. Balasubramanian, A. Melendez-Calderon, A. Roby-Brami, and E. Burdet, “On the analysis of movement smoothness,” Journal of neuroengineering and rehabilitation , vol. 12, no. 1, p. 112, 2015. [27] Y. Bengio, P. Simard, and P. Frasconi, “Learning long-term dependen-cies with gradient descent is difficult,” IEEE transactions on neural networks , vol. 5, no. 2, pp. 157–166, 1994. [28] R. Pascanu, T. Mikolov, and Y. Bengio, “On the difficulty of training recurrent neural networks,” in International Conference on Machine Learning (ICML) , 2013, pp. 1310–1318. [29] L. Metz, C. D. Freeman, S. S. Schoenholz, and T. Kachman, “Gradi-ents are not all you need,” arXiv preprint arXiv:2111.05803 , 2021. [30] blodow, “realtime urdf filter,” 12 2022. [Online]. Available: https://github.com/blodow/realtime urdf filter [31] D. Chen, B. Zhou, V. Koltun, and P. Kr¨ ahenb¨ uhl, “Learning by cheating,” in Conference on Robot Learning . PMLR, 2020, pp. 66– 75. [32] J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter, “Learning quadrupedal locomotion over challenging terrain,” Science robotics , vol. 5, no. 47, p. eabc5986, 2020. [33] J. Xu, V. Makoviychuk, Y. Narang, F. Ramos, W. Matusik, A. Garg, and M. Macklin, “Accelerated policy learning with parallel differen-tiable simulation,” in International Conference on Learning Represen-tations (ICLR) , 2022. [34] H. Pham and Q.-C. Pham, “A new approach to time-optimal path parameterization based on reachability analysis,” IEEE Transactions on Robotics , vol. 34, no. 3, pp. 645–659, 2018.

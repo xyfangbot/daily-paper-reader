@@ -1,0 +1,916 @@
+Title: Optimal any-angle path planning in static and dynamic environments
+
+URL Source: https://arxiv.org/pdf/2607.00065v1
+
+Published Time: Thu, 02 Jul 2026 00:02:50 GMT
+
+Number of Pages: 33
+
+Markdown Content:
+# Optimal any-angle path planning in static and dynamic environments 
+
+Yiyuan Zou ∗, Clark Borst 
+
+> Control and Simulation, Faculty of Aerospace Engineering, Delft University of Technology, Delft, The Netherlands
+
+Abstract 
+
+Any-angle path planning extends traditional graph-based path planning by allowing movement between any pair of vertices, rather than being restricted by predefined edges. It can find straighter and shorter paths in continuous space with graphs, making it particularly suitable for navigation in open areas such as airspaces, warehouses, and oceans. Many any-angle path-planning algorithms have been proposed, but only a few can guarantee optimal solutions, espe-cially in the presence of dynamic obstacles. To address this challenge, this article focuses on optimal any-angle path planning on grids and introduces two general techniques that accelerate computation while preserving optimality in both static and dynamic environments: 1) elliptical forward expansion, which leverages ellipse-based neighborhoods to restrict the search space, and 2) field of view, which replaces traditional line-of-sight methods to speed up visibility checks. To integrate these two techniques, inverted and forward scanning are introduced. Inverted scanning estab-lishes visual connections from open nodes, whereas forward scanning initiates scans from closed nodes. Building on the proposed techniques, Zeta* and Zeta*-SIPP are developed for static and dynamic environments respectively. Zeta*, when combined with forward scanning, is similar to the state-of-the-art algorithm Anya and attains compara-ble performance. Unlike Anya, Zeta* can be readily extended to other settings, such as dynamic environments (e.g., Zeta*-SIPP). Zeta*-SIPP, with either scanning method, is more than 20 times faster than the corresponding state-of-the-art optimal planner TO-AA-SIPP. Overall, this research identifies the key requirements for achieving optimal any-angle path planning and introduces a unified approach suitable for di ff erent environments. 
+
+Keywords: Any-angle path planning, Static obstacles, Dynamic obstacles, Heuristic search, Optimality 
+
+1. Introduction 
+
+Path planning is a fundamental problem across various domains, including aerospace, transportation, robotics, and computer games. It typically involves finding an optimal path between two points in a given space, while avoid-ing collisions with static obstacles and, if present, dynamic obstacles. Over the years, numerous algorithms have been developed to address this problem under a wide range of real-world conditions. Among them, A* (Hart et al., 1968) stands out as one of the most classic and widely recognized algorithms. However, as a graph-based algorithm,       
+
+> ∗Corresponding author
+> Email addresses: y.zou@tudelft.nl (Yiyuan Zou ), c.borst@tudelft.nl (Clark Borst)
+> Preprint submitted to Elsevier
+> arXiv:2607.00065v1 [cs.RO] 30 Jun 2026 (a) A* (b) Theta* (c) Anya
+> Figure 1: Search trees (yellow lines) and explored nodes (blue grids or regions) of A*, Theta* and Anya 1. The start point is marked by the pink vehicle icon, while the target point is shown in green. The dark gray cells represent static obstacles.
+
+traditional A* is highly a ff ected by the structure of the predefined graph. On regular square grids, A* generally con-siders only the eight adjacent neighbors of the current node during the search, restricting its movement to 45-degree increments at each step, as shown in Figure 1a. To address this issue, some post-hoc smoothing techniques can be applied to straighten the final generated paths (Botea et al., 2004). However, they do not guarantee the discovery of true shortest paths and may be di ffi cult to yield eff ective results in complex environments. Any-angle path planning has thus been proposed (Nash and Koenig, 2013), which allows any-angle turns at graph vertices rather than being limited to fixed graph edges. Theta* (Daniel et al., 2010) is one of the most well-known any-angle path-planning algorithms. As shown in Figure 1b, Theta* generates a more direct and straighter search tree than A*, resulting in a shorter final path. Technically, any-angle path planning integrates path smoothing directly into the search process, whereas post-hoc smoothing is applied only to the final path after the search is complete. Due to its e ffi ciency, simplicity and generality, many variants of Theta* have been developed (Nash and Koenig, 2013), such as Incremental Phi* for unknown 2D grids (Nash et al., 2009), Theta* on non-uniform costmaps (Choi and Yu, 2011), Lazy Theta* in known 3D environments (Nash et al., 2010) and Strict Theta* that restricts planning to taut paths (Oh and Leong, 2016). A taut path is one whose turns occur only at obstacle corners, tightly wrapping around the obstacles. On a uniform costmap, only such taut paths can be true shortest paths (Mitchell et al., 1987). In addition to Theta*, there are several other any-angle path-planning algorithms, including Field D* (Ferguson and Stentz, 2007) and Block A* (Yap et al., 2011). However, all of these algorithms still cannot guarantee the discovery of true shortest paths, although they often produce shorter and more realistic paths than traditional A*. To overcome this limitation, Anya (Harabor et al., 2016) has been developed for optimal any-angle path planning. As presented in Figure 1c, the search nodes of Anya are not located at grid centers or corners, but are instead represented as triangular regions (a root point + an interval line). The search process resembles shining a flashlight from the start point, reorienting it at each obstacle corner, and continuing  
+
+> 1Screenshots from URL: http://dronectr.tudelft.nl/ , ID: pathfinder (Zou and Borst, 2025).
+
+2until the target point is reached. In this way, Anya limits its search to taut paths, making it both fast and capable of finding true shortest paths on grids. Anya has been extended from regular grids to irregular navigation meshes through a variant, Polyanya (Cui et al., 2017). However, extending Anya to 3D grids or dynamic environments remains challenging. While its unique search nodes improve performance, they also hinder its scalability (Harabor, 2019). More analysis and evaluation regarding any-angle path planning can be found in (Nash and Koenig, 2013; Uras and Koenig, 2015a). In addition to any-angle path planning on grids, there are other algorithms for the Euclidean Shortest Path Prob-lem (ESPP) that are not based on grids, such as RayScan (Hechenberger et al., 2020), R2 (Lai et al., 2024), and End Point Search (EPS) (Shen et al., 2022). These algorithms are generally faster than Theta* and Anya, and their perfor-mance is independent of grid resolution. However, similar to Anya, they are primarily tailored for solving ESPP in static environments and are not readily adaptable to more complex scenarios involving dynamic obstacles. Given the widespread use of grid representations in the real world and their inherent flexibility in path planning, this research continues to explore grid-based approaches, aiming to develop general techniques for optimal any-angle path planning in both static and dynamic environments. While many any-angle path-planning algorithms have been proposed, only a few are capable of handling dynamic obstacles, such as Any-Angle Safe Interval Path Planning (AA-SIPP) (Yakovlev and Andreychuk, 2017) and Time-Optimal AA-SIPP (TO-AA-SIPP) (Yakovlev and Andreychuk, 2021). AA-SIPP and TO-AA-SIPP can be regarded as any-angle variants of Safe Interval Path Planning (SIPP) (Phillips and Likhachev, 2011). TO-AA-SIPP has also been applied to develop the first optimal any-angle Multi-Agent Path Finding (MAPF) algorithm (Yakovlev et al., 2024). In our previous work (Zou and Borst, 2024), an initial version of Zeta*-SIPP was developed to improve the com-putational e ffi ciency of TO-AA-SIPP while preserving its optimality. The improvement achieved arises from two core techniques: elliptical forward expansion , which ensures path optimality, and field of view , which accelerates visibility checks. This article extends our previous conference paper (Zou and Borst, 2024), further illustrates these techniques, introduces additional refinements, and demonstrates their applicability in both static and dynamic environments. As a result, Zeta* and Zeta*-SIPP are developed accordingly. Zeta* is tailored specifically for static environments and, like Anya, considers only taut paths to avoid unnecessary node expansions. As a grid-based optimal any-angle path planner, the name Zeta* also pays tribute to Theta*. Overall, our goal for Zeta* is to develop a “classic” grid-based algorithm that retains point-based search nodes while achieving performance comparable to the state-of-the-art planner Anya. This design choice can make Zeta*, in contrast to Anya, more easily extensible to other settings, such as weighted terrains and dynamic environments. Building on this foundation, we then demonstrate how Zeta* can be extended to Zeta*-SIPP to address environ-ments with dynamic obstacles. Zeta*-SIPP is devised on top of the state-of-the-art optimal planner TO-AA-SIPP, and benchmarking results show that it achieves more than a twenty-fold speedup over TO-AA-SIPP on average. Collec-tively, Zeta* and Zeta*-SIPP provide a unified and scalable solution for optimal any-angle path planning on grids. The paper is structured as follows: Section 2 defines path-planning problems in both static and dynamic environ-3Center -based vertices  Corner -based vertices Figure 2: Graph vertices on grids. 
+
+ments and introduces the relevant concepts and notations. Section 3 and 4 illustrate the elliptical forward expansion and field of view respectively. Section 5 describes Zeta* for static environments, while Section 6 presents Zeta*-SIPP for dynamic environments. Section 7 discusses the similarities and di ff erences between existing approaches and the proposed algorithms. Section 8 summarizes the findings of this research and outlines several recommendations. 
+
+2. Preliminaries 
+
+Consider an agent navigating from a start point ps to a target point pt in a graph G = (V, E) where V denotes the set of vertices and E is the set of edges. On regular grids, the graph vertices can be either the centers or the corners of the grid cells, as illustrated in Figure 2. Most path-planning algorithms, such as A* and Theta*, are compatible with both configurations. However, certain algorithms, like Anya, rely heavily on taut paths and obstacle corners and are not applicable when the graph vertices are located at grid centers. In dynamic environments, SIPP typically treats a grid cell as a unit and computes the time intervals during which it is occupied by dynamic obstacles. Therefore, to enable meaningful comparisons among di ff erent algorithms, this article adopts corner-based vertices for path planning in static environments and center-based vertices for dynamic environments. On regular grids, the graph edges usually connect adjacent vertices, as shown in Figure 2. A* searches within this fixed graph structure and thus results in zig-zag path patterns. In contrast, any-angle path planning is not restricted to adjacent connections; instead, it dynamically constructs links between non-adjacent vertices during the search, allow-ing for straighter, more direct paths. In the extreme worst case, any-angle path planning produces a fully connected 
+
+grid (online), where every pair of grid cells is directly connected unless obstructed by static obstacles. Fortunately, such an extreme worst case is very rare in practice and also depends on the specific algorithm used. The agent is permitted two types of actions during navigation: move and wait . It can either wait at a certain vertex or move from one vertex to another. However, in static environments, the wait action is meaningless, as it does not help avoid collisions with static obstacles. Therefore, only the move action is considered in static scenarios. The agent moves at a constant speed, and the cost of an action (wait or move) is defined by its duration. The agent is allowed to turn or wait only at vertices, and inertial e ff ects are neglected. For simplicity, the agent’s radius is ignored; in practice, it can be accounted for by inflating the boundaries of static and dynamic obstacles accordingly. 4A path plan is an ordered sequence of position-time pairs π = {(p1, t1), (p2, t2), ..., (pn, tn)} where pi represents a position and ti denotes the waiting time at the position pi. If the wait action is forbidden or unnecessary, then ti = 0for all i = 1, 2, ..., n. The cost of a path plan is the total duration of all actions, including waiting times. The objective is to find a time-optimal plan from a start point ps to a target point pt. In static environments, the time-optimal path is equivalent to the shortest path, given the assumption of constant agent speed. In dynamic environments, it is assumed that the plans of dynamic obstacles, denoted by {π1, π 2, ..., π k}, are known in advance, and that the obstacles disappear after completing their respective plans. This assumption is reasonable for flying vehicles. For instance, drones typically need to land to reload or recharge after completing their missions. Some studies assume that dynamic obstacles remain at their target locations indefinitely (Yakovlev and Andreychuk, 2021), since ground robots cannot simply disappear and will instead become static obstacles upon reaching their destinations. The choice between having dynamic obstacles disappear or become static depends on the specific application and does not a ff ect the core algorithm procedure. To describe the algorithms proposed in this article, we adopt notation consistent with A*. In A*, a search node 
+
+n is categorized as either open or closed . A node is closed when its best parent node has been identified. Since only closed nodes can serve as parents of other nodes, a closed node also indicates that the path to it has been finalized. When the target node is closed, the final path has been successfully found. Conversely, an open node means that its parent has not yet been determined and the path to it may still be improved. Regarding cost functions, g(n) represents the real cost from the start node ns to the node n, and it is initially set to infinity ( ∞). g(n) < ∞ indicates that a feasible path to the node n has been found. g(n, n′) denotes the real cost from the node n to another node n′, and thus, g(n) = g(ns, n). The heuristic h(n) refers to the estimated cost from the node 
+
+n to the target node nt, which is usually set as the duration or length of the direct line between n and nt in any-angle path planning. h(n, n′) is the estimated cost from n to n′, and thus, h(n) = h(n, nt). In A*, the total cost of a node is 
+
+f (n) = g(n) + h(n). 
+
+3. Elliptical forward expansion 
+
+Optimal any-angle path planning on grids is a non-trivial problem, and only a few algorithms have been developed to address it, with Anya being the most notable example. However, Anya relies heavily on obstacle corners and taut paths, which limits its applicability in dynamic environments. In this section, we revisit basic grid-based path-planning procedures and introduce elliptical forward expansion as a general technique for optimal any-angle path planning. In grid-based path planning, neighborhoods play a crucial role in influencing path quality (Bailey et al., 2021). A neighborhood primarily refers to the set of nodes an algorithm considers for expansion at each search step. Figure 3 presents 2 k-neighborhoods (Rivera et al., 2020), which integrate the commonly used 4-connected and 8-connected neighbors. Here, 2 k denotes the number of allowed moves (represented by arrows in Figure 3), rather than the number of nodes. As k increases, the path quality generally improves as well (Rivera et al., 2020). As k → ∞ , all nodes on 5k = 2  k = 3  k = 4  k = 5 Figure 3: 2 k-neighborhoods on grids. 
+
+the grid are considered neighbors of the currently expanded node. A* with a 2 ∞-neighborhood is capable of finding truly optimal paths on grids (Yakovlev and Andreychuk, 2021). However, increasing k can also significantly slow down grid-based path planning, as it results in a larger branching factor for search. Although A* with a 2 ∞-neighborhood can achieve optimal any-angle path planning, it may expand many unnecessary nodes that do not contribute to finding the optimal path. For example, nodes located far from the direct line between the start and target points may be redundant to expand, especially in open areas. To prune such unnecessary nodes while preserving optimality, we introduce a novel expansion strategy to replace traditional 2 k-neighborhoods expansion: any-angle forward expansion, or called elliptical forward expansion . Ellip-tical forward expansion leverages a key geometric property of ellipses: the sum of the distances from any point on the boundary of an ellipse to its two foci is a constant; the sum of the focal distances is smaller for points inside the ellipse and larger for points outside. In path planning, the start and target points can be set as the foci of an ellipse. With its range properly defined, the ellipse can be used as an upper bound for node expansion, with nodes outside this bound (i.e., with larger costs) temporarily excluded from consideration. Since the search frontier (or range) of A* is usually defined by the minimum f -value in the open list (Russell and Norvig, 2010), the major axis length L of the ellipse can also be defined as: L ≥ min n∈open f (n). If L < min n∈open f (n), then there may exist a node outside the ellipse with an f -value lower than the current min n∈open f (n), violating the required monotonicity for optimal search (Russell and Norvig, 2010). Since min n∈open f (n) increases during the search process, the elliptical search range also expands continuously. For example, let L = min n∈open f (n), and then the expanding ellipse can be defined by 
+
+flow (n) ≤ L = min m∈open f (m) ∀ n ∈ S (1) where flow (n) = h(start , n) + h(n), the lower bound of f (n), denotes the length of the major axis, and S is the search space. If all nodes satisfying Inequality (1) are inserted into open , then 6Search Step  N        
+
+> The elliptical search range is determined
+> by the minimum f-value in the open list
+> Search Step N+1
+> Expand new open nodes according to
+> the expanded elliptical search range
+> Search Step N+1
+> Establish connections between newly
+> expanded open nodes and closed nodes Figure 4: Elliptical forward expansion. The green dot is the start point and the red dot is the target point.
+
+min m∈open f (m) < flow (n) ≤ f (n) ∀ n ∈ S out (2) where S out = S \ (open ∪ closed ) is the search space outside the current search range ( open and closed ). It indicates that the minimum f -value in open is also the minimum in the remaining search space ( S \ closed ), and thus there is no need to consider S out for optimal search. After defining the elliptical search range, the next is how to expand nodes within this expanding ellipse. Figure 4 presents an example: the light blue cells represent open nodes, the dark blue cells indicate closed nodes, and the green cell marks the current node to be inserted into closed . In this example, the elliptical boundary is defined by min n∈open f (n), which is the f -value of the current node. As the ellipse expands, new nodes are added to the open 
+
+list, marked by bold red boxes. To assign a parent to each newly added open node, visibility /transition checks are performed. In Figure 4, a red line indicates an invalid parent-child connection due to obstacles. Note that only closed nodes can serve as parents. Once all potential parents are identified, a comparison is made to select the best parent for each new open node. Unlike 2 k-neighborhoods, which represent a local, circular forward expansion from the current node, elliptical forward expansion considers the search space from a global perspective. 
+
+4. Field of view 
+
+Any-angle path planning dynamically builds links between non-adjacent vertices during the search process, en-abling the discovery of straighter and more direct paths compared to traditional graph-based algorithms. Therefore, online visibility checking is a key factor influencing the performance of any-angle path planning. In Theta*, a line-of-sight approach is used to check whether the current node’s neighbor can be reached directly from the current node’s parent. According to the triangle inequality, this direct path is guaranteed to be no longer and 7Scan starts at the first 
+
+> column (left to right)
+> Slope range narrows
+> due to blocked cells
+> Blocked cells cast
+> (invisible) shadows
+> Slope range splits
+> due to blocked cells Figure 5: Octant-based symmetric shadowcasting, adapted from Milazzo (2014).
+
+often shorter than the one passing through the current node. This approach typically involves applying a line drawing algorithm (Bresenham, 1965; Wu, 1991) to identify the grid cells traversed by the direct path and to check whether any of them are occupied by obstacles. As the line of sight cannot pass through obstacles, the algorithm terminates upon encountering the first obstructed cell. This line-of-sight approach can also be applied to A* with 2 k-neighborhoods, as for k > 3, connecting non-adjacent neighbors and the current node also requires visibility checks. However, the line-of-sight approach may become ine ffi cient when considering large neighborhoods. For instance, in A* with 2 k-neighborhoods, if the current node is regarded as a “light source”, the surrounding grid cells may be checked multiple times (see the arrows in Figure 3), leading to redundant scans and wasted resources. To address this issue, we introduce a field-of-view approach and implement symmetric shadowcasting (Bergstr¨ om, 2001; Milazzo, 2014). Although shadowcasting is a classic algorithm, it remains the state-of-the-art field-of-view method for grids smaller than 512 × 512 (Debenham and Solis-Oba, 2021). Actually, the search node of Anya can also be interpreted as a field of view, which avoids traditional line-of-sight computations and makes Anya fast, especially in open areas. There are several variants of the shadowcasting algorithm, such as octant-based and quadrant-based shadowcast-ing. Figure 5 presents an octant-based example. To construct a field of view, octant-based shadowcasting first divides the area to be scanned into eight octants. Within each octant, the slope range can be normalized to [0 , 1] (i.e., [0 ◦, 45 ◦]) using a simple linear transformation. In Figure 5, the red dot denotes the origin, and the scan proceeds column by column from left to right. The red dashed line indicates the column currently being scanned. The green cells are visible from the origin while the gray cells are not. Since nodes are placed at the centers of grid cells, a cell is marked as visible only if its center lies within the current slope range. When the scan encounters a blocked cell (black), the slope range is narrowed or split for subsequent columns. This approach ensures that each grid cell is scanned only once for a “light source”, making it more e ffi cient than traditional line-of-sight approaches. Shadowcasting is naturally compatible with 2 k-neighborhoods in A* due to the way it processes grid-based visibil-ity: radially from a center (current node) outward. However, integrating it with elliptical forward expansion requires additional e ff ort. Figure 6 shows two di ff erent methods: inverted scanning and forward scanning . Inverted scanning treats the open node as a “light source”. When a new node is added to open , shadowcasting is performed to identify nodes visible from it within the elliptical boundary. Due to grid aliasing, a bu ff er needs to be added around the ellipse 8Inverted Scanning     
+
+> Treat the open node as a “light source ”.
+> Forward Scanning
+> Treat the closed node as a “light source ”. Figure 6: Inverted and forward scanning with elliptical forward expansion. The green dot is the start point and the red dot is the target point. The gap between the yellow and red lines in the left plot represents the bu ff er required due to grid aliasing.
+
+to avoid incorrectly classifying cells near the boundary as invisible. This issue arises because the white cells not yet reached by the expanding ellipse are treated as obstacles, despite not being true obstacles. For example, in Figure 6, the bu ff er can be set to √2 grid lengths according to the triangle inequality. In forward scanning, the closed node is treated as a “light source” rather than the open node, and shadowcasting is used to identify open nodes visible from it. As open nodes are continuously added with the expansion of the elliptical search range, the field of view must also expand to include them. Therefore, an incremental version of shadowcasting is implemented to avoid repeatedly scanning nodes that are already connected. Figure 7 illustrates two variants of incremental forward scanning. In naive forward scanning, the bounding box of the elliptical search range is used to limit the scan range. As the ellipse expands, the bounding box is correspondingly pushed outward, thereby progressively increasing the scan depth. However, this approach may process many redun-dant nodes when the ellipse is rotated. To restrict the scan range strictly within the ellipse, the process can be further constrained by incorporating cost information. In cost-bounded forward scanning, since the g-value of a closed node is known, a “local” ellipse can be created by min m∈open f (m) − g(n). The scan then only needs to extend beyond this local ellipse, rather than the entire “global” ellipse. This approach resembles the search node generation process in Anya (see Figure 1). However, unlike Anya, shadowcasting does not regard the scan ranges as search nodes, making it more straightforward to understand and implement. The performance di ff erence between inverted and forward scanning mainly depends on the ratio of open to closed nodes, as this ratio directly a ff ects the number of scans performed. In the extreme worst case where all nodes in the search space are closed, forward scanning could be worse than inverted scanning. This is because incremental forward scanning for each closed node will eventually cover the entire search space, whereas inverted scanning for each node is bounded by the elliptical boundary at each step. However, since forward scanning starts from a closed node whose 9Naï ve Forward Scanning  
+
+> The scan depth is limited by the bounding box.
+> Cost -bounded Forward Scanning
+> The scan depth is limited by the minimum f-value. Figure 7: Naive and cost-bounded forward scanning. The blue box in the left plot is the bounding box of the elliptical search range. The blue and yellow triangles correspond to the scan ranges. The foci of the green ellipse in the right plot are the closed node and the target node.
+
+historical path is determined, information such as the g-value and outgoing heading can be exploited to prune the scan range if only static obstacles are present (which will be detailed in the next section). 
+
+5. Zeta* for static environments 
+
+By incorporating the elliptical forward expansion and field of view into A*, we introduce Zeta*, a novel optimal any-angle path-planning algorithm for static environments. In the general case, a straightforward implementation of these techniques applies to both center-based and corner-based vertices on grids (recall Figure 2). To further enhance performance, however, we restrict the search space of Zeta* to only obstacle corners and taut paths, similar to Anya (Harabor et al., 2016) and Strict Theta* (Oh and Leong, 2016). The main loop of Zeta* is shown in Algorithm 1. It closely resembles A*, with the only di ff erence being the forward expansion step. Depending on the scanning method used in this step, we present two variants of Zeta* in this section. Please note that the goal of this section is not to develop a new algorithm to outperform Anya, the state-of-the-art method, but rather to demonstrate how optimal any-angle path planning can be approached through the elliptical forward expansion and field of view, with comparable performance. This not only helps to deepen the understanding of optimal any-angle path planning but also provides a foundation for extending it to other more complex scenarios, such as dynamic environments (Section 6). 
+
+5.1. Zeta*-i: inverted scanning 
+
+To perform inverted scanning, we need to first determine which nodes are expanded by the elliptical search range. The simplest approach may be a brute-force method that compares each node against the minimum f -value in open 
+
+10 Algorithm 1 Zeta* Main Loop  
+
+> 1:
+
+while open , ∅ do  
+
+> 2:
+
+n ← arg min n∈open f (n) 
+
+> 3:
+
+move n from open to closed  
+
+> 4:
+
+if n = target then  
+
+> 5:
+
+return pathTo (n) 
+
+> 6:
+
+end if  
+
+> 7:
+
+forwardExpansion (n) 
+
+> 8:
+
+end while  
+
+> 9:
+
+return ∅
+
+using Inequality (1). However, this is ine ffi cient, as it requires computing flow (n) for all nodes and results in many unnecessary comparisons. Therefore, we introduce a new list, called bound , to indicate the nodes around the elliptical boundary. The computation of flow (n) and the comparison in Inequality (1) need only be performed within bound .The di ff erences among bound , open , and closed are as follows: When a node n is inserted into bound , flow (n) is computed. When the node is moved from bound to open based on Inequality (1), f (n) is computed. Finally, when it is moved from open to closed , f (n) is finalized as its true parent is determined. Similar to open , which is typically sorted by f (n), bound can also be sorted by flow (n). Since the elliptical boundary expands continuously, nodes with lower flow (n) are always inserted into open earlier. To define the bound list, we compute the axis-aligned bounding box of the expanding ellipse. Let ( xc, yc) be the center of the ellipse, a the length of the semi-major axis, b the length of the semi-minor axis, and θ the rotation angle. Then, the parametric form of the ellipse can be given by 
+
+x(t) = xc + a cos t cos θ − b sin t sin θ, y(t) = yc + a cos t sin θ + b sin t cos θ (3) where t ∈ [0 , 2π). Therefore, the half-width w and half-height h of the bounding box can be computed by 
+
+w = p(a cos θ)2 + (b sin θ)2, h = p(a sin θ)2 + (b cos θ)2 (4) This approach allows bound nodes to be easily obtained by slicing the 2D array of nodes, eliminating the need for explicit comparisons using Inequality (1). Since the ellipse expands continuously, we only need to focus on the ring between the old and new bounding boxes to identify and add new bound nodes. The forward expansion of Zeta*-i is presented in Algorithm 2. Lines 2-4 indicate that when a node is closed, it becomes a potential parent of the open nodes visible from it. The children (n) corresponds to Line 37 in the inverted scanning procedure, which will be introduced later. The updateParent function describes a standard parent update procedure with a path tautness check, as shown in Algorithm 3. Line 5 checks whether the minimum f -value exists. If not, the elliptical boundary like Figure 4 cannot be deter-mined, and the algorithm proceeds with Lines 6-13 repeatedly. The updateOpenList function moves nodes from 11 bound to open , with Line 25 derived from Inequality (1). In Lines 6-13, this function is used only to add more nodes to open from the bound list. If the bound list is empty (Line 7), the algorithm extends the old bounding box slightly (e.g., by one grid cell) and inserts the newly included nodes into the bound list. The updateOpenList (Line 6) can then be invoked again if the condition in Line 5 still holds. Lines 15-22 present the normal case of the elliptical forward expansion procedure. Note that min n∈open f (n) may decrease during the while-loop within the updateOpenList function. This can be regarded as a process of identifying the minimum expanding ellipse. This variation does not a ff ect the outcome. As long as the bounding box fully covers the (minimum) expanding ellipse, Inequality (2) is guaranteed to hold. The decrease in min n∈open f (n) can help prevent unnecessary expansion of the open list and reduce the number of visibility checks. In practice, a bu ff er can be added to the bounding box to reduce the need for repeated executions of extendBoundingBoxEllipse , as computing the bounding box also requires some time and resources. The main idea of the invertedScan function has been illustrated in Figure 6. The shadowcasting function is bounded by the expanding ellipse, determined by the current min n∈open f (n). Note that only corner nodes with a single blocked adjacent cell will be added to Nvisible during shadowcasting due to the taut-path constraint. As shown in Lines 33-39, if a visible node n′ is closed, it may be the parent of the source node n; otherwise, the visible connection is recorded in both children (n) and children (n′). These recorded connections are then used in Lines 2-4, eliminating the need to perform shadowcasting when the current node is closed at each step. The drawback of this operation, however, is that this recording can incur substantial memory overhead on large maps. 
+
+5.2. Zeta*-f: forward scanning 
+
+Inverted scanning centers on open nodes, aligning with the basic procedure of elliptical forward expansion: when a new node is added to the open list, visible connections are then established from this new open node to other nodes. However, we can also start from the perspective of closed nodes using forward scanning, ensuring that the scan ranges of all closed nodes cover the newly added open node. Algorithm 4 introduces Zeta* with forward scanning (Zeta*-f). The forwardScan function pushes the scan ranges beyond the “local” ellipse (recall Figure 7), ensuring that the node outside the scan ranges must have a higher f -value than min n∈open f (n). Instead of using a bound list, we introduce a scan list to record the scan ranges of incremental shadowcasting. A scan range is defined by an origin node, a scan depth, and a slope range (recall Figure 5). The cost of a scan range can be computed as illustrated in Figure 8. When a scan range covers a non-closed node, Algorithm 3 is executed to update its parent and /or insert it into open .Readers familiar with Anya may notice that the forwardScan function resembles Anya’s search procedure. The scan range is similar to Anya’s search node ( r, I): the origin node corresponds to the root r, and the slope range can be converted into the interval I. However, in Zeta*, we decouple visibility checking from node expansion. This allows us to retain the standard point-based search nodes, as in A* and Theta*, while employing an Anya-like scanning method to accelerate visibility checks. With shadowcasting and Zeta*, the complex notions of Anya’s flat and cone nodes, 12 Algorithm 2 Zeta* with Inverted Scanning  
+
+> 1:
+
+function forwardExpansion (n) 
+
+> 2:
+
+for each n′ ∈ children (n) \ closed do ▷ children (n) is recorded in the invertedScan function.  
+
+> 3:
+
+updateParent (n, n′) 
+
+> 4:
+
+end for  
+
+> 5:
+
+while open = ∅ do  
+
+> 6:
+
+updateOpenList (bound ) 
+
+> 7:
+
+if bound = ∅ then  
+
+> 8:
+
+if bbox = mapBounds then  
+
+> 9:
+
+break  
+
+> 10:
+
+end if  
+
+> 11:
+
+extendBoundingBox (step ) ▷ Extend one step outward since no min n∈open f (n) is available.  
+
+> 12:
+
+updateBoundList (bbox ) 
+
+> 13:
+
+end if  
+
+> 14:
+
+end while  
+
+> 15:
+
+if open , ∅ then  
+
+> 16:
+
+if min n∈open f (n) > costBound then  
+
+> 17:
+
+costBound ← min n∈open f (n) + costBu ff er ▷ A bu ff er can be added to the bounding box.  
+
+> 18:
+
+extendBoundingBoxEllipse (costBound ) 
+
+> 19:
+
+updateBoundList (bbox ) 
+
+> 20:
+
+end if  
+
+> 21:
+
+updateOpenList (bound ) 
+
+> 22:
+
+end if  
+
+> 23:
+
+end function  
+
+> 24:
+
+function updateOpenList (bound ) 
+
+> 25:
+
+while bound , ∅ and ( open = ∅ or min n∈bound flow (n) ≤ min n∈open f (n)) do  
+
+> 26:
+
+n ← arg min n∈bound flow (n) 
+
+> 27:
+
+remove n from bound ▷ This node will be added to open if there exists a closed node as its parent.  
+
+> 28:
+
+invertedScan (n) 
+
+> 29:
+
+end while  
+
+> 30:
+
+end function  
+
+> 31:
+
+function invertedScan (n) 
+
+> 32:
+
+Nvisible ← shadowcasting (n) ▷ Be cautious of grid aliasing when performing shadowcasting.  
+
+> 33:
+
+for each n′ ∈ Nvisible do  
+
+> 34:
+
+if n′ ∈ closed then  
+
+> 35:
+
+updateParent (n′, n) ▷ If node n is not in open , it will be inserted within this function.  
+
+> 36:
+
+else  
+
+> 37:
+
+insert n′ into children (n) and n into children (n′) 
+
+> 38:
+
+end if  
+
+> 39:
+
+end for  
+
+> 40:
+
+end function Algorithm 3 updateParent (n, n′) 
+
+> 1:
+
+if isTautPath (n, n′) and g(n) + h(n, n′) < g(n′) then  
+
+> 2:
+
+g(n′) ← g(n) + h(n, n′) 
+
+> 3:
+
+parent (n′) ← n 
+
+> 4:
+
+f (n′) ← g(n′) + h(n′) 
+
+> 5:
+
+insert or update n′ in open  
+
+> 6:
+
+end if 
+
+13 Algorithm 4 Zeta* with Forward Scanning  
+
+> 1:
+
+function forwardExpansion (n) 
+
+> 2:
+
+S ← initScanRange (n) ▷ Initialize the scan range for incremental shadowcasting.  
+
+> 3:
+
+scan ← scan ∪ S 
+
+> 4:
+
+forwardScan (scan ) 
+
+> 5:
+
+end function  
+
+> 6:
+
+function forwardScan (scan ) 
+
+> 7:
+
+while scan , ∅ and ( open = ∅ or min s∈scan f ′(s) ≤ min n∈open f (n)) do  
+
+> 8:
+
+s ← arg min s∈scan f ′(s) 
+
+> 9:
+
+remove s from scan  
+
+> 10:
+
+{S′, Nvisible } ← pushScanRange (s) ▷ Push the scan range further by one depth.  
+
+> 11:
+
+scan ← scan ∪ S ′ 
+
+> 12:
+
+for each n′ ∈ Nvisible do  
+
+> 13:
+
+if n′ < closed then  
+
+> 14:
+
+updateParent (origin (s), n′) ▷ The extended scan range covers new non-closed nodes.  
+
+> 15:
+
+end if  
+
+> 16:
+
+end for  
+
+> 17:
+
+end while  
+
+> 18:
+
+end function t1 t2 t3'
+
+t3
+
+t4
+
+n
+
+The cost of a scan range is computed by g( n) + 
+
+the length of the yellow line to the target point  t.          
+
+> Figure 8: The cost of a scan range f′(s) (green triangle) is computed by g(n) plus the length of the yellow line to the target point t. There are four possible relative positions of the target point with respect to the scan range, denoted t1to t4.t′
+> 3is the mirror position of t3.
+
+along with its observable and unobservable successors, can be all discarded. Furthermore, the cost functions for scan ranges and search nodes in Zeta* do not have to be the same. The cost of a scan range is generally given by the Euclidean distance (or time), whereas the cost of a search node can be modified to incorporate more factors (e.g., waiting time). This flexibility enables Zeta* to be readily extended to other settings such as dynamic environments (see Section 6). Essentially, Zeta* can be regarded as a generalized version of Anya. 
+
+5.3. Scan range pruning 
+
+If the path tautness check is ignored and the search considers not only obstacle corners but all possible vertices, Algorithms 2 and 4 can function as general grid-based path-planning algorithms such as A* and Theta*. However, to optimize performance in static environments, the search space is restricted to obstacle corners and taut paths only. In this setting, performance can be further improved by pruning the scan range in shadowcasting. In Zeta*, the scan 14 Inverted Scanning       
+
+> Since the parent of the open node is uncertain,
+> only the white regions can be filtered out.
+> Forward Scanning
+> Since the parent of the closed node is known,
+> more regions can be filtered out. Figure 9: Scan range pruning in inverted and forward scanning.
+
+range can be limited by the heading from the parent node to the node being scanned. As shown in Figure 9, inverted scanning can explore only the two quadrants along the unblocked diagonal of an obstacle corner. Since the parent of an open node is uncertain, this range cannot be further reduced. In contrast, forward scanning can greatly narrow the scan range using the heading from the parent node because the parent of a closed node has already been determined. In Zeta*-f, the cost of a scan range will never decrease as its depth increases according to the triangle inequality. For some targets such as t2 in Figure 8, the cost even remains unchanged. In this case we skip computing the cost and inserting it into the scan list, and instead push the scan range further until t2 lies outside the slopes. 
+
+5.4. Theoretical properties 
+
+In this section, we briefly prove the properties of Zeta*, which are similar to those of A*. 
+
+Lemma 1. The node extracted from the open list at each step has the minimum f-value in the search space outside the closed list. Proof. In Zeta*-i (Algorithm 2), all nodes within the bounding box that are not in open or closed are inserted into the 
+
+bound list by the updateBoundList function. Then, the updateOpenList function ensures min n∈open f (n) < min n∈bound flow (n) ≤ min n∈bound f (n) (5) The extendBoundingBoxEllipse function also ensures that every node outside the bounding box bbox has a larger 
+
+f -value than the current minimum f -value among open nodes: min n∈open f (n) < min n<bbox flow (n) ≤ min n<bbox f (n) (6) Note that min n∈open f (n) does not increase during expansion. Let S out = S \ (open ∪ closed ) where S is the search space. Also, S out = bound ∪ (S \ bbox ). Based on Inequalities (5) and (6), we have min n∈open f (n) < min n∈S out f (n). 15 This concludes the proof for Zeta*-i. In Zeta*-f (Algorithm 4), the forwardScan function ensures min n∈open f (n) < min s∈scan f ′(s) (7) Based on the triangle inequality, the cost of a scan range does not decrease as it extends. Therefore, the nodes outside the current scan ranges must have a higher f -value than min s∈scan f ′(s). Since the nodes covered by the current scan ranges have already been inserted into open or closed , the region outside the scan ranges also indicates S out where 
+
+S out = S \ (open ∪ closed ). Thus, we have min n∈open f (n) < min n∈S out f (n). This concludes the proof. 
+
+Lemma 2. When a node is about to be closed, its best parent has been found within the current closed list. Proof. When a node is about to be closed, it has the minimum f -value in the open list (current node). Since only a closed node can be the parent of other nodes, Algorithms 2 and 4 ensure that all visible connections between closed and open nodes are fully established, and Algorithm 3 ensures that the parent of an open node is the best among all closed nodes. If another non-closed node n′ were a better parent for the current node n, then g(n′) + h(n′, n) < g(n), which indicates g(n′)+h(n′, n)+h(n) < f (n). However, according to Lemma 1, we have f (n) ≤ f (n′) ≤ g(n′)+h(n′) ≤
+
+g(n′) + h(n′, n) + h(n). This contradiction shows that the parent of the current node is the best, not only among all currently closed nodes, but among all nodes in the search space. This concludes the proof. 
+
+Theorem 1. Zeta* is complete and optimal. Proof. Lemma 2 can be interpreted as a recursive formula: Since only a closed node can be the parent of other nodes, when a node is closed, the optimal path to it has been found. Therefore, Zeta* is optimal. Algorithms 2 and 4 ensure that all visible connections between nodes are established within the elliptical search range (global or local ellipse), which expands until reaching the map boundary. If the target node is reachable, it will eventually be scanned, inserted into open , and assigned a parent node. In this case, the main loop will continue until the target node is closed. If the target node is unreachable, the main loop will terminate only when the open is empty. If this condition is met after a node is moved from open to closed , then within the forwardExpansion function (e.g., Line 5 in Algorithm 2), the bounding box or scan ranges will be extended in order to add more nodes to open . As a result, the main loop terminates when no further nodes can be added. Therefore, Zeta* is complete. 
+
+5.5. Experiment results 
+
+To evaluate the performance of Zeta*-i and Zeta*-f, we compare them with other online grid-based path planners: A* with 2 k-neighborhoods ( k = 3, 4, 5), Theta* and Anya. All the algorithms are implemented in JavaScript 2 and the  
+
+> 2Our implementation is available at https://github.com/yiyuanzou/zeta-sipp .
+
+16 experiments were performed on Node.js v22.19.0 on a laptop with 2.30GHz Intel Core i7-11800H and 16 GB RAM. Node.js is a high-performance environment, enabling e ffi cient execution of JavaScript code outside the browser. In A*-8, the Octile distance is used for the heuristic; Anya applies a heuristic similar to that shown in Figure 8; for the remaining algorithms, the Euclidean distance is adopted for simplicity. In A*-16 and A*-32, a quadrant-based symmetric shadowcasting, rather than a line-of-sight approach, is implemented for node expansion. Likewise, Zeta*-i and Zeta*-f also employ the quadrant-based shadowcasting for inverted and forward scanning. This means that in the cost-bounded forward scanning of Zeta*-f, the scan depth is limited only in the left and right directions, but not in the upward or downward directions. This can help reduce the size of the scan list. The quadrant-based shadowcasting is implemented using a simple linear transformation. During the scanning, all nodes are first mapped into a normalized quadrant with the slope range [0 , ∞] and then processed column by column. Although this operation introduces some additional computation, it largely improves the readability and simplicity of the code 2. Compared with an octant-based approach, the quadrant-based shadowcasting can also reduce edge overlaps and simplify coordinate transformations between real and normalized spaces. In Zeta*-i, the costBu ff er for the bounding box is set to 10 grid lengths based on small-scale tests. The bu ff er for the inverted scanning to address grid aliasing is set to 2 √2 grid lengths, since the nodes are located at grid corners rather than at grid centers. While we refer to open , bound and scan as lists in this article, they are actually implemented as binary heaps rather than plain lists for sorting operations. To conduct the experiments, we selected 9 benchmark sets from the Moving AI Lab (Sturtevant, 2012): Baldur’s Gate II ( BGII ), Dragon Age 2 ( DA2 ), Dragon Age: Origins ( DAO ), Warcraft III ( WC3 ), StarCraft ( SC ), City maps, 
+
+Maze maps, Random maps (with 10%, 20%, 30% and 40% randomly blocked grid cells) and Room maps. All maps, except for DA2 and DAO, are of size 512 × 512. The first 5 benchmark sets correspond to game maps. In total, the dataset includes approximately 1.47 million start-target pairs. Tables 1-3 show the benchmarking results of di ff erent algorithms in terms of runtime, number of sorted elements, and number of scanned vertices. For algorithms other than Zeta*-i and Zeta*-f, the sorted elements refer to search nodes. In Zeta*-i, an additional list, denoted as bound , is introduced and requires sorting similar to the open list. In Zeta*-f, a scan list is introduced, which also needs to be sorted. Since the search nodes are located at the vertices of grid cells, we record the number of scanned vertices to reflect the visibility checking workload. For the line-of-sight operation in Theta*, this metric is approximated by counting the scanned grid cells. In these tables, vertical lines are drawn to distinguish between suboptimal and optimal any-angle planners. For A* with 2 k-neighborhoods, it can be clearly observed that the runtime increases as k increases. However, the number of sorted elements (i.e., search nodes) does not increase significantly and even decreases in some cases. The runtime slowdown with larger k values is therefore primarily caused by intensive visibility checking rather than by sorting. Theta* runs at a speed comparable to A*-16, even though it scans a substantially larger number of vertices. This is because line-of-sight checking processes each grid (or vertex) more quickly than shadowcasting. In line-of-sight checking, the line slope remains fixed, whereas in shadowcasting, the slope range has to be recalculated whenever a 17 Maps Average Algorithm Runtime (ms) 
+
+A*-8 A*-16 A*-32 Theta* Anya Zeta*-i Zeta*-f BGII 10 .52 28 .95 46 .41 34 .09 1.43 20 .01 2.31 DA2 6.66 14 .40 22 .43 11 .98 1.94 10 .67 2.01 DAO 13 .92 32 .25 51 .03 29 .46 6.17 37 .72 6.56 WC3 17 .46 44 .22 72 .28 44 .91 2.66 19 .98 3.18 SC 53 .64 150 .50 259 .43 189 .18 10 .07 180 .09 12 .77 City 22 .01 60 .13 97 .42 68 .78 3.73 55 .52 4.15 Maze 88 .05 182 .37 281 .24 157 .11 20 .81 141 .63 29 .54 Rand 29 .80 52 .50 73 .53 36 .00 37 .56 131 .84 36 .34 Room 40 .67 97 .67 166 .98 70 .86 9.72 26 .34 12 .47 
+
+> Table 1: Average runtime of di ff erent path-planning algorithms.
+
+Maps Average Sorted Elements ( ×10 3)
+
+A*-8 A*-16 A*-32 Theta* Anya Zeta*-i Zeta*-f BGII 16 .20 16 .56 16 .12 14 .54 0.37 0.67 1.64 DA2 6.98 7.35 7.40 6.92 0.34 0.75 1.21 DAO 15 .03 15 .70 15 .69 14 .92 1.45 1.73 4.22 WC3 17 .72 18 .96 18 .50 16 .80 0.31 0.64 1.71 SC 60 .05 62 .41 61 .28 58 .70 2.21 4.59 7.18 City 21 .03 22 .77 21 .58 18 .96 0.68 1.75 2.20 Maze 131 .28 132 .05 132 .07 131 .62 7.23 23 .86 26 .75 Rand 32 .00 34 .14 32 .73 31 .40 21 .12 45 .79 32 .19 Room 40 .07 43 .89 43 .09 40 .81 2.00 4.04 8.02 
+
+> Table 2: Average sorted elements: for algorithms other than Zeta*, this metric denotes the number of search nodes.
+
+Maps Average Scanned Vertices ( ×10 4)
+
+A*-8 A*-16 A*-32 Theta* Anya Zeta*-i Zeta*-f BGII 12 .11 35 .23 64 .65 373 .43 3.55 37 .96 2.63 DA2 4.99 14 .67 27 .39 78 .03 1.27 12 .99 0.95 DAO 10 .97 32 .53 61 .46 234 .31 5.84 47 .22 3.82 WC3 13 .28 40 .50 74 .71 418 .21 4.46 43 .28 3.32 SC 45 .54 137 .46 261 .23 1856 .44 17 .22 407 .23 12 .29 City 15 .76 48 .82 87 .42 678 .53 6.77 143 .64 4.50 Maze 83 .90 218 .40 383 .29 955 .37 11 .51 38 .49 10 .42 Rand 17 .12 41 .25 57 .83 46 .04 7.46 45 .35 5.29 Room 29 .00 88 .60 161 .96 394 .11 7.89 24 .57 6.29 
+
+> Table 3: Average scanned vertices: for Theta*, this metric is approximated by the number of scanned grid cells. Note that the counting method di ff ers across algorithms; therefore, this metric should be interpreted as an approximate value intended to facilitate comparison.
+
+new blocked cell is encountered. Furthermore, the shadowcasting we implement needs to perform coordinate trans-formations for each vertex due to the quadrant normalization, which introduces additional computational overhead. Anya outperforms all other algorithms in most maps (except random maps). This can be attributed to its reduced search space derived from taut paths and its field-of-view-like search nodes. Zeta*-f closely resembles Anya, espe-cially when implemented with quadrant-based shadowcasting for cost-bounded forward scanning. Zeta*-f separates 18 A*−8 A*−16 A*−32 Theta* Anya Zeta*−i Zeta*−f 0.00 0.01 0.02 0.03 0.04              
+
+> 50 100 150
+> Average runtime (ms)
+> Average ratio of path length increase
+> A*−8 A*−16 A*−32 Theta* Anya Zeta*−i Zeta*−f
+> 10 510 5.5 10 610 6.5 10 7
+> 10 3.8 10 410 4.2 10 4.4 10 4.6 10 4.8
+> Average sorted elements
+> Average scanned vertices Figure 10: Scatter plots of path length vs. runtime and scanned vertices vs. sorted elements. The path length increase is given as a ratio relative to the true shortest path. Both axes in the right plot are shown on a logarithmic scale.
+
+visibility checking from node expansion, which is beneficial for general grid-based path planning. However, this de-sign requires maintaining two sorted lists instead of one, making Zeta*-f slightly slower than Anya—but still around 10 times faster than Theta* on average across all benchmarking scenarios. Zeta*-i is much slower than Zeta*-f. This slowdown mainly results from the di ff erences in their scan range pruning (see Figure 9), which cause Zeta*-i to scan substantially more vertices than Zeta*-f. Therefore, Zeta*-i may not be well suited for any-angle path planning in static environments when considering only taut paths. Figure 10 presents the overall benchmarking results of di ff erent path-planning algorithms. In general, algorithms that require fewer scanned vertices and sorted elements tend to run faster. Compared with A*-8, A*-16 achieves a notable improvement in path quality. Theta* generates paths that are only slightly longer than the true shortest paths, while running at a speed similar to A*-16. Among the optimal planners, Anya remains the best performer, while the proposed Zeta*-f also demonstrates comparable performance. 
+
+6. Zeta*-SIPP for dynamic environments 
+
+The proposed elliptical forward expansion and field of view can also be extended to dynamic environments (Zou and Borst, 2024). SIPP is one of the most popular and e ffi cient methods for handling dynamic obstacles. Compared to Anya, Zeta* is easier to integrate with SIPP due to its point-based search nodes and decoupled visibility checking. Accordingly, Zeta*-SIPP is developed for optimal any-angle path planning in the presence of dynamic obstacles. In this setting, the search space can no longer be restricted to taut paths and obstacle corners, and the search nodes are placed at the centers of grid cells. Since the wait action is allowed, the goal of Zeta*-SIPP is not to find the shortest path, but the time-optimal conflict-free path. 19 6.1. Safe intervals 
+
+The main di ff erence between static and dynamic obstacles on grids lies in their representations. Static obstacles can be directly represented as blocked cells, while dynamic obstacles require consideration of the time dimension. A common approach to handling the time dimension is to divide it into equal-length time slots, constructing a space-time grid map (Silver, 2005). A search algorithm such as A* can then be applied to this map to find optimal conflict-free paths. However, this approach aggravates the curse of dimensionality problem, as it introduces an additional dimension to the search space. To address this issue, Safe Interval Path Planning (SIPP) (Phillips and Likhachev, 2011) has been developed, which merges consecutive obstacle-free time slots into safe intervals , creating a compact space-time map to narrow the search space. In any-angle path planning, safe-interval-based conflict detection for the direct path between two nodes is similar to line-of-sight checks with static obstacles. First, a line drawing algorithm (Bresenham, 1965; Wu, 1991) is applied to identify the grid cells traversed by the direct path and computes the time intervals during which each cell is occupied. Then, these intervals are compared against the corresponding safe intervals at each cell to determine whether a conflict exists. If a conflict is detected, it can be resolved by either waiting at the parent node for a certain duration or selecting an alternative path (a di ff erent parent node) with a lower cost. Therefore, the key to Zeta*-SIPP is to integrate Safe-Interval-based Conflict Detection and Resolution (SI-CDR) into Zeta*. 
+
+6.2. Inverted expansion 
+
+However, unlike line-of-sight checks, SI-CDR is generally more time-consuming, especially when the wait action is allowed. There is also no field-of-view approach available for dynamic obstacles. Therefore, integrating SI-CDR directly into the node expansion process of any-angle path planning may significantly slow down the algorithm. To mitigate this issue, inverted expansion was introduced in Time-Optimal Any-Angle SIPP (TO-AA-SIPP) (Yakovlev and Andreychuk, 2021), which reduces the number of SI-CDR executions by delaying them until necessary. Inverted expansion is the counterpart of forward expansion: while forward expansion identifies the potential child nodes of a closed node, inverted expansion stores the potential parent nodes of an open node. For example, in A*, when a node is moved from open to closed , its eight adjacent neighbors are expanded (i.e., forward expansion). This new closed node thus becomes a potential parent of its neighbors, and a comparison like Algorithm 3 is conducted to determine whether this potential parent is better than the current parent of each expanded neighbor. However, instead of determining the neighbor’s parent immediately, inverted expansion stores all of its potential parents and defers the comparison. This allows the real cost between a node and its potential parent to be calculated at a later stage. Let pp (n) denote the potential parent of a node n and g(pp (n), n) the real cost from pp (n) to n. Then g(pp (n)) +
+
+g(pp (n), n) is the real cost from the start node to n via pp (n). Among all potential parents of n, the one with the lowest cost from the start node to n is the best potential parent bpp (n). The real cost g(n) can thus be written as 
+
+g(n) = g(bpp (n)) + g(bpp (n), n) (8) 20 However, in inverted expansion, the real cost g(pp (n), n) is not computed immediately when n is expanded by pp (n). Instead, the heuristic h(pp (n), n), given by the Euclidean distance divided by speed, is used to estimate this cost and serves as its lower bound. Therefore, the cost function is reformulated as 
+
+f (n) = glow (n) + h(n) = g(bpp (n)) + h(bpp (n), n) + h(n) (9) where glow (n) is the lower bound of g(n) and h(n) is the estimated cost from n to the target node. The best potential parent bpp (n) is then the parent that yields the lowest glow (n) for n. Based on this new f (n), once the node with the minimum f -value is removed from open , instead of directly inserting it into closed , SI-CDR is executed to compute the real cost g(bpp (n), n) and determine whether this node can truly be closed (whether bpp (n) is the true parent of 
+
+n). If not, this node has to be re-inserted into open with a new best potential parent. In this way, SI-CDR is performed only for the most promising node (i.e., the node with the minimum f -value), thereby reducing the total number of executions and conserving computing resources. This “lazy” operation can also be applied to visibility checks with static obstacles, like Lazy Theta* (Nash et al., 2010). However, in Zeta*-SIPP, it is used only for SI-CDR with dynamic obstacles. There are two reasons: First, visibility checks can be implemented e ffi -ciently using line-of-sight or field-of-view approaches on 2D grids. Second, the “lazy” operation introduces additional sorting overhead in open , resulting in a trade-o ff between conflict detection and sorting computation. 
+
+6.3. Inverted expansion pruning 
+
+For SIPP-based planners, a node n can be represented by ( p, [t1, t2]) where p is the location of n and [ t1, t2] is the corresponding safe interval. This implies that the path from a potential parent node pp (n) to n is valid only if the agent arrives at n from pp (n) within the interval [ t1, t2]. Therefore, glow (n) can be replaced by 
+
+g′
+
+> low
+
+(n) = max {t1, glow (n)} = max {t1, g(bpp (n)) + h(bpp (n), n)} (10) in computing f (n) (Eq. 9). Moreover, if a potential parent pp (n) has g(pp (n)) + h(pp (n), n) > t2, then the agent from 
+
+pp (n) can never reach n. This connection can thus be pruned to reduce the list of potential parents for n.In the original TO-AA-SIPP, Eq. 10 is applied only during initialization. In this research, we extend its use to the entire search process. We also observe that pruning based on t2 clearly improves the algorithm performance. 
+
+6.4. Zeta*-SIPP-i and Zeta*-SIPP-f 
+
+By integrating SIPP and inverted expansion into Zeta*, we develop Zeta*-SIPP. Similar to Zeta*-i and Zeta*-f, using two di ff erent scanning methods, we derive Zeta*-SIPP-i and Zeta*-SIPP-f. The pseudocode of Zeta*-SIPP is shown in Algorithms 5-8. In the main loop, when a node n is removed from open ,it is not immediately placed into closed . Instead, the findNextClosedNode function (Algorithm 6) is implemented to determine whether n can be closed. If n needs to be re-inserted into open , this function will return null . Compared 21 with Zeta*, Zeta*-SIPP applies the nodeExpansion function to integrate both forward and inverted expansion. It is nearly identical to the forwardExpansion function in Algorithms 2 and 4, except that updateParent is replaced by addPotentialParent (Algorithm 8). To avoid redundancy, the pseudocode of nodeExpansion is omitted. Note that Zeta*-SIPP-i and Zeta*-SIPP-f di ff er only in this function; all other steps are identical. Algorithm 6 is adapted from TO-AA-SIPP (Yakovlev and Andreychuk, 2021), with the di ff erences marked in red. The potentialParents (n) refers to the list of potential parents, as defined in Algorithm 8. Line 4 indicates that the best potential parent bpp (n) should be removed from potentialParents (n) to avoid repeatedly assigning the same potential parent as bpp (n) in Algorithm 7. The validateTransition function implements SI-CDR, where the real cost gnew 
+
+is calculated as glow (n) = g(bpp (n)) + h(bpp (n), n) plus the waiting time at bpp (n) required to resolve conflicts with dynamic obstacles. Therefore, gnew ≥ glow (n). Lines 7-10 update the parent of n if bpp (n) is better. The newBestPotentialParentExists function checks whether there is a new best potential parent bpp (n) that is likely to be better for n than its current parent parent (n), as presented in Algorithm 7. In Line 11 of Algorithm 6, if a new bpp (n) exists, the current node n will be re-inserted into open with this updated bpp (n). In addition to the check on bpp (n), a new condition g(n) = ∞ is added to check whether n has a parent. g(n) = ∞ indicates gnew = ∞,meaning the waiting time is infinite and thus the conflicts cannot be resolved. Note that the order of the conditions in Line 11 cannot be changed, as the first condition updates bpp (n) for the next iteration. In Line 15 of Algorithm 6, the conditions are used to check whether the current node remains the most promising candidate to be the next closed node. For Zeta*-SIPP with inverted scanning, the minCost is 
+
+minCost = min {min n∈open f (n), min n∈bound flow (n)} (11) where flow (n) is the lower bound of f (n). For Zeta*-SIPP with forward scanning, the minCost is 
+
+minCost = min {min n∈open f (n), min s∈scan f ′(s)} (12) where f ′(s) is the cost of a scan range (recall Figure 8). If g(n) + h(n) ≤ minCost , then we have 
+
+g(n) + h(n) ≤ min m<closed f (m) ≤ min m<closed (g(m) + h(m)) (13) It ensures that no other non-closed node has a smaller value of g(n) + h(n). If the condition holds, the current node can be closed; otherwise, it has to be re-inserted into open . A violation of the condition indicates either that the algorithm needs to expand the search to include more nodes in open , or that the node currently with the minimum f -value may have a lower g(n) + h(n). Note that f (n) in Zeta*-SIPP is di ff erent from that in Zeta*, as shown in Eq. (9), and thus 
+
+g(n) + h(n) is not represented by f (n). Zeta*-SIPP is built on SIPP and thus its search nodes di ff er from those in Zeta*. For the same location or grid cell p, multiple nodes may exist with di ff erent safe intervals. This may lead to repeated visibility checks between the 22 Algorithm 5 Zeta*-SIPP Main Loop  
+
+> 1:
+
+while open , ∅ and min n∈open f (n) < ∞ do  
+
+> 2:
+
+n ← findNextClosedNode (open ) ▷ This function may return null  
+
+> 3:
+
+if n = target then  
+
+> 4:
+
+return pathTo (n) 
+
+> 5:
+
+end if  
+
+> 6:
+
+nodeExpansion (n) ▷ Integrate both forward and inverted expansion.  
+
+> 7:
+
+end while  
+
+> 8:
+
+return ∅
+
+Algorithm 6 findNextClosedNode (open ) 
+
+> 1:
+
+n ← arg min n∈open f (n) 
+
+> 2:
+
+remove n from open  
+
+> 3:
+
+if bpp (n) ∈ potentialParents (n) then  
+
+> 4:
+
+remove bpp (n) from potentialParents (n) ▷ Avoid reassigning the same potential parent as bpp (n) 
+
+> 5:
+
+end if  
+
+> 6:
+
+gnew ← validateTransition (bpp (n), n) ▷ Compute the real cost based on safe intervals.  
+
+> 7:
+
+if gnew < g(n) then  
+
+> 8:
+
+g(n) ← gnew  
+
+> 9:
+
+parent (n) ← bpp (n) 
+
+> 10:
+
+end if  
+
+> 11:
+
+if newBestPotentialParentExists (n) or g(n) = ∞ then ▷ The current parent is not the most promising.  
+
+> 12:
+
+insert n into open  
+
+> 13:
+
+return null  
+
+> 14:
+
+end if  
+
+> 15:
+
+if g(n) + h(n) ≤ minCost then ▷ minCost is obtained by Eq. 11 or 12 according to the scanning method.  
+
+> 16:
+
+insert n into closed  
+
+> 17:
+
+return n 
+
+> 18:
+
+else  
+
+> 19:
+
+insert n into open  
+
+> 20:
+
+return null  
+
+> 21:
+
+end if Algorithm 7 newBestPotentialParentExists (n) 
+
+> 1:
+
+glow (n) ← g(n), bpp (n) ← parent (n) 
+
+> 2:
+
+f (n) ← glow (n) + h(n) 
+
+> 3:
+
+isExisting ← f alse  
+
+> 4:
+
+for each n′ ∈ potentialParents (n) do  
+
+> 5:
+
+glow ← max {t1(n), g(n′) + h(n′, n)} 
+
+> 6:
+
+if glow < glow (n) then  
+
+> 7:
+
+glow (n) ← glow  
+
+> 8:
+
+bpp (n) ← n′ 
+
+> 9:
+
+f (n) ← glow (n) + h(n) 
+
+> 10:
+
+isExisting ← true  
+
+> 11:
+
+end if  
+
+> 12:
+
+end for  
+
+> 13:
+
+return isExisting 
+
+23 Algorithm 8 addPotentialParent (n, n′) 
+
+> 1:
+
+glow ← g(n) + h(n, n′) 
+
+> 2:
+
+if glow ≤ t2(n′) then  
+
+> 3:
+
+insert n into potentialParents (n′) 
+
+> 4:
+
+glow ← max {t1(n′), glow } 
+
+> 5:
+
+if glow < glow (n′) then  
+
+> 6:
+
+glow (n′) ← glow  
+
+> 7:
+
+bpp (n′) ← n 
+
+> 8:
+
+f (n′) ← glow (n′) + h(n′) 
+
+> 9:
+
+inserted or update n′ in open  
+
+> 10:
+
+end if  
+
+> 11:
+
+end if 
+
+same pair of grids but di ff erent pairs of nodes. To mitigate this issue, it is recommended to perform visibility checks and other spatial computations at the grid level rather than the node level whenever possible. 
+
+6.5. Theoretical properties 
+
+In this section, we briefly prove the properties of Zeta*-SIPP, which are similar to those of TO-AA-SIPP. 
+
+Lemma 3. When a node is about to be closed, it has the minimum g + h in the search space outside the closed list. Proof. For Zeta*, Lemma 3 is equivalent to Lemma 1, since in Zeta* the node with the minimum f -value is inserted into closed immediately after being removed from open , and f (n) = g(n) + h(n). However, for Zeta*-SIPP, f (n) = glow (n) + h(n). When a node is removed from open , SI-CDR is performed to compute the real cost g(n), which may be larger than glow (n). As presented in Inequality (13), Line 15 in Algorithm 6 ensures that g(n) + h(n) ≤ min m∈S \closed f (m) ≤ min m∈S \closed (g(m) + h(m)). This concludes the proof. 
+
+Lemma 4. When a node is about to be closed, its best parent has been found given the current closed list. Proof. Lemma 4 is identical to Lemma 2, which is the key to proving the optimality of A*-based algorithms. Algo-rithm 8 keeps the best potential parent of each open node updated and Algorithm 7 ensures that the current node’s parent remains its best potential parent after SI-CDR. Therefore, when the algorithm reaches Line 15 in Algorithm 6, the current node’s parent is guaranteed to be the best among all closed nodes. Lemma 3 then ensures that no other non-closed node can be a better parent for the current node. This concludes the proof. 
+
+Theorem 2. Zeta*-SIPP is complete and optimal. Proof. The proof is analogous to that of Zeta*, as the elliptical forward expansion and visibility checking procedures are unchanged. The optimality of Zeta*-SIPP is a direct corollary of Lemma 4. As all potential parents of a node are stored, Zeta*-SIPP will, in the worst case, examine every possibility to determine whether this node is reachable in the presence of dynamic obstacles. If a node is unreachable from all closed nodes, no feasible path exists. Otherwise, as the closed list grows, the algorithm will eventually find a feasible path. Therefore, Zeta*-SIPP is complete. 24 6.6. Experiment results 
+
+To evaluate the performance of Zeta*-SIPP-i and Zeta*-SIPP-f, we compare them with other SIPP-based plan-ners: SIPP with 2 k-neighborhoods ( k = 3, 4, 5), AA-SIPP, TO-AA-SIPP, TO-AA-FoV-SIPP. All the algorithms are implemented in JavaScript 2 and the experiments were performed on Node.js v22.19.0 on a laptop with 2.30GHz Intel Core i7-11800H and 16 GB RAM, the same as in the previous section. SIPP with 2 k-neighborhoods directly extends SIPP by integrating 2 k-neighborhoods. While no prior research has explored this variant, it provides a straightforward method to extend SIPP to any-angle path planning. For simplicity, we do not apply shadowcasting or inverted expansion to this variant. AA-SIPP can be regarded as a combination of Theta* and SIPP, which straightens paths by checking whether the current node’s neighbors can be reached from the current node’s parent with a lower cost. TO-AA-SIPP is the only optimal planner aside from the algorithms proposed in this article. It can be seen as SIPP-2 ∞ combined with inverted expansion. TO-AA-FoV-SIPP is a direct extension of TO-AA-SIPP that incorporates the Field of View (FoV) and can be readily implemented on top of it. TO-AA-FoV-SIPP has been shown to be e ffi cient as well in our previous work (Zou and Borst, 2024). Zeta*-SIPP integrates Zeta* and SIPP, as well as inverted expansion. Zeta*-SIPP-i and Zeta*-SIPP-f are two variants of Zeta*-SIPP. The agent speed is set to 0.1 grid lengths to prevent it from skipping cells. For SIPP-8, we use the Octile distance divided by the speed as the heuristic, while for the other variants, we use the Euclidean distance divided by the speed. For TO-AA-FoV-SIPP and Zeta*-SIPP, we implement a quadrant-based symmetric shadowcasting similar to Zeta*. The cost bu ff er for Zeta*-SIPP-i is the same as that of Zeta*-i (10 grid lengths), but divided by the speed, while the scan bu ff er is set to √2 grid lengths because the nodes are placed at grid centers rather than grid corners. To conduct the experiment, we selected 6 benchmark sets from the Moving AI Lab (Stern et al., 2019): 1) Empty-48-48 , a 48 × 48 map without any static obstacles; 2) Random-64-64-10 , a 64 × 64 map with 10% randomly blocked cells; 3) Room-64-64-16 , a 64 × 64 map divided into 16 rooms; 4) Maze-128-128-10 , a 128 × 128 maze map with 10-wide corridors; 5) Warehouse-10-20-10-2-2 , a 170 × 84 map from the logistics domain; 6) Berlin 1 256 , a 256 × 256 real-world city map. These maps were chosen to represent a variety of environments, use cases, and scales. For each map, 20,000 test cases were generated as follows: 1) Choose 25 benchmark scenario sets (random). 2) For each scenario set, take the last 200 scenarios as test cases and the first 32, 64, 96, or 128 scenarios as dynamic obstacles. 3) Generate the trajectories of dynamic obstacles sequentially using Zeta*-SIPP-f, which are time-optimal, conflict-free and contain any-angle moves. As mentioned in Section 2, we ignore the agent’s radius for simplicity. To compensate for this, we extend the time intervals during which dynamic obstacles occupy each grid cell by 10 units. This bu ff er corresponds to 1 /speed; since the speed is 0 .1, the result is 10. Figures 11 and 12 show the average runtime of the tested algorithms under di ff erent dynamic obstacle conditions. Unlike path planning in static environments, there is no taut-path constraint to restrict the search space. As a result, optimal planners are typically much slower than suboptimal ones. For clarity, the results are presented in two separate figures. As shown, the runtime of all algorithms increases with the number of dynamic obstacles, with SIPP-32 and 25 012
+
+SIPP−8 SIPP−16 SIPP−32 AA−SIPP 
+
+> Average runtime (ms)
+
+Empty: 48 × 48 
+
+0123
+
+SIPP−8 SIPP−16 SIPP−32 AA−SIPP 
+
+> Average runtime (ms)
+
+Random: 64 × 64 
+
+0510 15 20 
+
+SIPP−8 SIPP−16 SIPP−32 AA−SIPP 
+
+> Average runtime (ms)
+
+Room: 64 × 64 
+
+030 60 90 120 
+
+SIPP−8 SIPP−16 SIPP−32 AA−SIPP 
+
+> Average runtime (ms)
+
+Maze: 128 × 128 
+
+0510 
+
+SIPP−8 SIPP−16 SIPP−32 AA−SIPP 
+
+> Average runtime (ms)
+
+Warehouse: 170 × 84 
+
+010 20 30 40 50 
+
+SIPP−8 SIPP−16 SIPP−32 AA−SIPP 
+
+> Average runtime (ms)
+
+Berlin: 256 × 256 
+
+Dynamic obstacles 32 64 96 128 Figure 11: Average runtime of the suboptimal algorithms under di ff erent dynamic obstacle conditions. 020 40 60 80 
+
+TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f 
+
+> Average runtime (ms)
+
+Empty: 48 × 48 
+
+020 40 60 
+
+TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f 
+
+> Average runtime (ms)
+
+Random: 64 × 64 
+
+0200 400 600 
+
+TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f 
+
+> Average runtime (ms)
+
+Room: 64 × 64 
+
+05000 10000 
+
+TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f 
+
+> Average runtime (ms)
+
+Maze: 128 × 128 
+
+0200 400 600 
+
+TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f 
+
+> Average runtime (ms)
+
+Warehouse: 170 × 84 
+
+010000 20000 30000 
+
+TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f 
+
+> Average runtime (ms)
+
+Berlin: 256 × 256 
+
+Dynamic obstacles 32 64 96 128 
+
+Figure 12: Average runtime of the optimal algorithms under di ff erent dynamic obstacle conditions. 
+
+26 Maps Average Sorted Elements ( ×10 3)                                                                                                               
+
+> SIPP-8 SIPP-16 SIPP-32 AA-SIPP TO-AA-SIPP TO-AA-FoV-SIPP Zeta*-SIPP-i Zeta*-SIPP-f Empty 0.24 0.35 0.43 0.22 4.51 4.51 1.44 1.82 Rand 0.32 0.46 0.53 0.32 2.45 2.38 1.99 2.66 Room 1.43 1.59 1.68 1.45 2.65 2.63 4.54 39 .31 Maze 6.76 7.31 7.47 6.96 9.41 9.44 19 .77 302 .80 Ware 1.00 1.36 1.43 1.14 5.67 5.69 5.75 13 .68 City 4.31 4.94 4.94 4.11 21 .29 21 .40 24 .71 180 .00
+> Table 4: Average sorted elements: for algorithms other than Zeta*-SIPP, this metric denotes the number of search nodes.
+> Maps Average Scanned Grids ( ×10 4)
+> SIPP-8 SIPP-16 SIPP-32 AA-SIPP TO-AA-SIPP TO-AA-FoV-SIPP Zeta*-SIPP-i Zeta*-SIPP-f Empty 0.08 0.59 1.22 0.41 373 .54 12 .57 18 .90 3.79 Rand 0.11 0.81 1.63 0.45 390 .36 3.50 4.69 1.24 Room 0.79 5.16 12 .17 4.40 3417 .18 28 .56 26 .60 27 .63 Maze 4.09 23 .51 56 .17 35 .01 93 252 .26 340 .50 284 .34 335 .31 Ware 0.38 2.43 4.98 3.13 5657 .53 41 .26 24 .64 33 .29 City 2.56 15 .30 34 .87 42 .70 434 814 .50 1513 .26 753 .65 493 .91
+> Table 5: Average scanned grids for di ff erent path-planning algorithms.
+
+the optimal planners exhibiting the most significant growth. This is because, to avoid dynamic obstacles, SIPP-32 and the optimal planners generally need to expand more nodes to find (sub-)optimal paths. To facilitate the analysis of runtime performance, Tables 4 and 5 show the numbers of sorted elements and scanned grids. Since the search nodes of the SIPP-based planners are placed at grid centers, scanned grids are reported instead of scanned vertices. Each value in the tables represents the mean over all dynamic obstacle settings. Interestingly, the number of search nodes in TO-AA-SIPP and TO-AA-FoV-SIPP is not exactly the same, although TO-AA-FoV-SIPP only modifies the visibility checking method. This is because the time-optimal any-angle path is not unique. When waiting time is taken into account, multiple time-optimal path plans can coexist in the solution space. The visibility checking method influences the order in which nodes are examined and thus also the path-planning results. There may be a way to prune these identical paths, but this lies beyond the scope of this article. As shown in Figure 11, SIPP-16 performs considerably slower than SIPP-8. This slowdown occurs because SIPP-16 scans many more grids than SIPP-8, owing to its larger neighborhood size. In terms of overall algorithm speed, SIPP-16 performs comparably to AA-SIPP and achieves better performance on larger-scale maps. This demonstrates the potential of SIPP-16 for any-angle path planning in dynamic environments. As shown in Figure 12, TO-AA-SIPP is significantly slower than the other optimal planners. This is mainly be-cause it examines visibility connections from each closed node to all other nodes in the search space, and implements line-of-sight rather than field-of-view scanning to perform this process. TO-AA-FoV-SIPP mitigates the latter issue and greatly reduces the number of scanned grids, while Zeta*-SIPP addresses both issues by extending TO-AA-FoV-SIPP with elliptical forward expansion. 27 However, this does not imply that TO-AA-FoV-SIPP is always slower than Zeta*-SIPP. In the Room and Maze maps, TO-AA-FoV-SIPP outperforms both Zeta*-SIPP-i and Zeta*-SIPP-f. This is because these maps are composed of narrow exits and passages, where the elliptical search range of Zeta*-SIPP often expands to touch the walls. In such cases, Zeta*-SIPP generates a similar number of nodes as TO-AA-FoV-SIPP, but the additional computational overhead introduced by the elliptical forward expansion makes Zeta*-SIPP slower. Zeta*-SIPP-f is clearly faster than Zeta*-SIPP-i in the Empty, Random, and Berlin maps, but slightly slower in the others. This di ff erence is mainly caused by the number of scanned grids, as shown in Table 5. In the Maze map, Zeta*-SIPP-f sorts far more elements and scans more grids than Zeta*-SIPP-i, but their overall runtimes are similar. This is likely due to the expansion of the bounding box in Zeta*-SIPP-i, which consumes computational resources as well. Note that Zeta*-SIPP-i, like Zeta*-i (Line 37 in Algorithm 2), must record some visibility connections to avoid repeated scanning. From a memory perspective, Zeta*-SIPP-f is therefore also more e ffi cient than Zeta*-SIPP-i. Figure 13 shows the overall benchmarking results of di ff erent path-planning algorithms relative to TO-AA-SIPP. It is evident that Zeta*-SIPP-f is slightly faster than Zeta*-SIPP-i, and both outperform TO-AA-SIPP by more than an order of magnitude, with around 24-fold and 21-fold speedups, respectively. Compared with TO-AA-FoV-SIPP, Zeta*-SIPP-f reduces the number of scanned grids through elliptical forward expansion, but this comes at the cost of increasing the number of sorted elements (i.e., the scan list). AA-SIPP runs at a speed between SIPP-16 and SIPP-32, but it can find better paths than both (with only about a 0.3% increase in path time compared to the optimal any-angle paths). Interestingly, although AA-SIPP scans more grids than SIPP-16 in the Maze, Ware, and City maps (see Table 5), its overall median ratio of scanned grids relative to TO-AA-SIPP is slightly lower. This is because, in these three maps, TO-AA-SIPP scans an extremely large number of grids, resulting in a large denominator and reducing the ratio di ff erences between AA-SIPP and SIPP-16. 
+
+7. Related work 
+
+Any-angle path planning addresses path-planning problems in continuous spaces. Although a graph is also used to discretize the environment, this approach relaxes the edge constraints and relies mainly on the graph vertices, allowing the discovery of shorter paths compared to traditional graph-based methods. Theta* (Daniel et al., 2010) is a well-known any-angle path-planning algorithm that has been widely used across various domains owing to its e ffi ciency, simplicity, and generality. It leverages the triangular relationship among the current node, its parent, and its child, allowing the algorithm to bypass the current node and build a direct connection between the parent and child at each search step. Zeta* di ff ers from Theta* in two ways: Zeta* straightens the search tree globally via Field of View (FoV) rather than locally via Line of Sight (LoS), and it employs any-angle (elliptical) rather than grid-by-grid (circular) forward expansion. These distinctions guarantee the optimality of Zeta*. In this article, we propose using FoV in place of LoS to accelerate visibility checks. Similar improvements have also been investigated for Theta*. For example, Choi et al. (2010) introduced two pruning strategies to improve the 28 SIPP−8 SIPP−16 SIPP−32 AA−SIPP TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f 0.00 0.01 0.02 0.03 0.04                     
+
+> 10 010 0.5 10 110 1.5 10 210 2.5 10 3
+> Average runtime speedup
+> Average ratio of path time increase
+> SIPP−8 SIPP−16 SIPP−32 AA−SIPP TO−AA−SIPP TO−AA−FoV−SIPP Zeta*−SIPP−i Zeta*−SIPP−f
+> 10 −4 10 −3 10 −2 10 −1 10 0
+> 10 −0.8 10 −0.6 10 −0.4 10 −0.2 10 010 0.2
+> Median ratio of sorted elements
+> Median ratio of scanned grids
+
+Figure 13: Scatter plots of path time vs. runtime and scanned grids vs. sorted elements. All the metrics are normalized relative to TO-AA-SIPP. All axes, except for path time, are shown on a logarithmic scale due to the substantial di ff erences between suboptimal and optimal planners. Median values are used in the right plot to reduce the influence of outliers, as most ratio values are very small. 
+
+effi ciency of LoS. The main idea is simple: since nodes around the “light source” may be scanned multiple times by LoS, this information can be reused to prevent redundant scans. This aligns with the original intention of FoV. The search node of Anya (Harabor et al., 2016) can also be seen as FoV, which contributes to the algorithm’s e ffi ciency. In single-source any-angle path planning, wave-based algorithms like CWave (Sinyukov and Padir, 2020) and Visibility-Based Marching (VBM) (Ibrahim et al., 2024) utilize FoV to enhance performance as well, where the wave front is analogous to the scan depth in shadowcasting. To guarantee any-angle optimality, we develop elliptical forward expansion. This technique was initially inspired by Informed Rapidly-exploring Random Trees* (Informed RRT*) (Gammell et al., 2014) and Batch Informed Trees (BIT*) (Gammell et al., 2015, 2020), as stated in our previous work (Zou and Borst, 2024). Accelerated A* ( ˇ Siˇ sl´ ak et al., 2009) also employs ellipses to improve path quality. Whereas Theta* checks only the current node’s parent for a newly expanded node n′, Accelerated A* examines all closed nodes within a specified ellipse to identify the best parent for n′. The ellipse is defined with its foci at the start node ns and the node n′, with its major axis length set to g(n′). Accelerated A* also implements a dynamic adaptive expansion strategy. Instead of using a fixed number of neighbors (e.g., 2 k-neighborhoods), it expands nodes by identifying the maximum unblocked squares. With these two improvements, Accelerated A* is able to find shorter paths than Theta*. In the experiments of ˇ Siˇ sl´ ak et al. (2009), it consistently produced the true shortest paths, although its optimality is not theoretically guaranteed. Munoz and Rodriguez-Moreno (2012) developed a new heuristic to improve Theta*, which incorporates heading changes. The goal of this heuristic is to prioritize the expansion of nodes that lie close to the direct line between the start and target points. Although no explicit ellipse is used, this idea is in line with elliptical forward expansion. In uniform costmaps with static obstacles, true shortest paths must be taut (Mitchell et al., 1987). This property 29 has motivated the development of many algorithms based on obstacle corners, such as Strict Theta* (Oh and Leong, 2016), Anya (Harabor et al., 2016), Polyanya (Cui et al., 2017), RayScan (Hechenberger et al., 2020), R2 (Lai et al., 2024) and End Point Search (EPS) (Shen et al., 2022). This type of problem is commonly known as the Euclidean Shortest Path Problem (ESPP) (Shen et al., 2022). Zeta* presented in this article also incorporates this knowledge to restrict the search space and prune the scan range, significantly improving the algorithm performance. There are other techniques for any-angle path planning, such as interpolation-based path cost calculation in Field D* (Ferguson and Stentz, 2007), local distance database in Block A* (Yap et al., 2011), Subgoal Graphs (Uras and Koenig, 2015b), and 2 k-neighborhoods for general grid-based path planning (Rivera et al., 2020). Shadowcasting introduced in this article is particularly suitable for 2 k-neighborhoods, as it scans grids in a square pattern, ensuring complete coverage of the neighborhood while avoiding any unnecessary computations. Although various any-angle path-planning algorithms have been proposed, only a few are capable of generating conflict-free paths in the presence of dynamic obstacles, such as Any-Angle Safe Interval Path Planning (AA-SIPP) (Yakovlev and Andreychuk, 2017), and Time-Optimal AA-SIPP (TO-AA-SIPP) (Yakovlev and Andreychuk, 2021). The basic idea of AA-SIPP is similar to Theta*. It also seeks to straighten paths by checking whether the neighbors of the current node can be reached from the parent of the current node at a lower cost. However, this process is more complex than in Theta*, as the distance-based triangle inequality among the current node, its parent, and its neighbor (or child) is not applicable when waiting times are incorporated into the cost. Like Theta*, AA-SIPP is not guaranteed to find optimal any-angle paths. To address this issue, TO-AA-SIPP was developed by checking whether the path to an open node can be straight-ened through any other closed node, rather than only its current parent. This idea is similar to Accelerated A*, but it does not restrict the set of closed nodes considered for straightening using an ellipse. TO-AA-SIPP has to examine visibility connections between all closed nodes and this open node. Moreover, TO-AA-SIPP inserts all nodes in the search space into open during initialization, and thus it could be very slow on large maps. Despite these shortcom-ings, to the best of our knowledge, TO-AA-SIPP is the first optimal planner for any-angle path planning in dynamic environments, which represents a meaningful step forward in this field. It has also been applied to develop the first optimal any-angle Multi-Agent Path Finding (MAPF) algorithm (Yakovlev et al., 2024). Our proposed algorithm, Zeta*-SIPP, is an improved version of TO-AA-SIPP. It implements elliptical forward expansion, similar to grid-by-grid forward expansion in A*, to reduce redundant nodes in the open list, and applies a field-of-view algorithm, shadowcasting, to accelerate visibility checks between nodes. These techniques are applica-ble to general grid-based path planning as well. In static environments, Zeta* are accordingly developed. 
+
+8. Conclusion 
+
+This article introduces two general techniques for optimal any-angle path planning: elliptical forward expansion and field of view. The first utilizes the geometric properties of ellipses to guarantee path optimality in any-angle path 30 planning. The second accelerates online path smoothing by reducing redundant scanned grids. To integrate these two techniques, inverted and forward scanning are proposed. Zeta* and Zeta*-SIPP exemplify how these techniques can be applied. Zeta* is tailored for static environments. It is slightly slower than the state-of-the-art algorithm Anya, but is more easily extensible to other settings. Zeta*-SIPP demonstrates how to extend Zeta* to dynamic environments by integration with SIPP. Future studies can further explore their extensions to non-uniform costmaps and 3D scenarios. In dynamic environments, optimal planners are significantly slower than their sub-optimal counterparts, since no taut-path constraint can be applied to restrict the search space. In this case, if real-time performance is the primary requirement for any-angle path planning, AA-SIPP is a suitable choice. If optimal solutions are desired—for example, when even small improvements in path quality can yield substantial savings in energy—Zeta*-SIPP is a recommended option. Benchmarking results show that Zeta*-SIPP-f is about 24 times faster than the current state-of-the-art optimal planner TO-AA-SIPP. Since Zeta*-SIPP is designed for dynamic environments, it also has the potential to serve as a low-level planner for optimal any-angle multi-agent path planning. 
+
+Declaration of competing interest 
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+Acknowledgements 
+
+The authors would like to thank the financial support from the China Scholarship Council (CSC) No. 202106830036. 
+
+References         
+
+> Bailey, J.P., Nash, A., Tovey, C.A., Koenig, S., 2021. Path-length analysis for grid-based path planning. Artificial Intelligence 301, 103560. doi: 10.1016/j.artint.2021.103560 .Bergstr¨ om, B., 2001. FOV using recursive shadowcasting. http://www.roguebasin.com/index.php?title=FOV_using_recursive_ shadowcasting . Accessed on Aug. 2nd, 2025. Botea, A., M¨ uller, M., Schae ff er, J., 2004. Near optimal hierarchical path-finding. J. Game Dev. 1, 1–30. Bresenham, J.E., 1965. Algorithm for computer control of a digital plotter. IBM Systems Journal 4, 25–30. doi: 10.1147/sj.41.0025 .Choi, S., Lee, J.Y., Yu, W., 2010. Fast any-angle path planning on grid maps with non-collision pruning, in: 2010 IEEE International Conference on Robotics and Biomimetics, IEEE. pp. 1051–1056. doi: 10.1109/ROBIO.2010.5723473 .Choi, S., Yu, W., 2011. Any-angle path planning on non-uniform costmaps, in: 2011 IEEE International Conference on Robotics and Automation, IEEE. pp. 5615–5621. doi: 10.1109/ICRA.2011.5979769 .Cui, M.L., Harabor, D.D., Grastien, A., 2017. Compromise-free pathfinding on a navigation mesh, in: Proceedings of the 26th International Joint Conference on Artificial Intelligence, pp. 496–502. Daniel, K., Nash, A., Koenig, S., Felner, A., 2010. Theta*: Any-angle path planning on grids. Journal of Artificial Intelligence Research 39, 533–579. doi: 10.1613/jair.2994 .Debenham, E.R., Solis-Oba, R., 2021. Effi cient field of vision algorithms for large 2D grids. International Journal of Computer Science & Information Technology (IJCSIT) Vol 13.
+
+31 Ferguson, D., Stentz, A., 2007. Field D*: An interpolation-based path planner and replanner, in: Robotics Research: Results of the 12th Interna-tional Symposium ISRR, Springer. pp. 239–253. doi: 10.1007/978-3-540-48113-3_22 .Gammell, J.D., Barfoot, T.D., Srinivasa, S.S., 2020. Batch informed trees (BIT*): Informed asymptotically optimal anytime search. The Interna-tional Journal of Robotics Research 39, 543–567. doi: 10.1177/0278364919890396 .Gammell, J.D., Srinivasa, S.S., Barfoot, T.D., 2014. Informed RRT*: Optimal sampling-based path planning focused via direct sampling of an admissible ellipsoidal heuristic, in: 2014 IEEE /RSJ International Conference on Intelligent Robots and Systems, pp. 2997–3004. doi: 10.1109/ IROS.2014.6942976 .Gammell, J.D., Srinivasa, S.S., Barfoot, T.D., 2015. Batch informed trees (BIT*): Sampling-based optimal planning via the heuristically guided search of implicit random geometric graphs, in: 2015 IEEE International Conference on Robotics and Automation (ICRA), pp. 3067–3074. doi: 10.1109/ICRA.2015.7139620 .Harabor, D.D., 2019. New ideas for any-angle pathfinding. https://harabor.net/data/presentations/gdc2019.pdf . Accessed on Aug. 2nd, 2025. Harabor, D.D., Grastien, A., ¨ Oz, D., Aksakalli, V., 2016. Optimal any-angle pathfinding in practice. Journal of Artificial Intelligence Research 56, 89–118. doi: 10.1613/jair.5007 .Hart, P.E., Nilsson, N.J., Raphael, B., 1968. A formal basis for the heuristic determination of minimum cost paths. IEEE Transactions on Systems Science and Cybernetics 4, 100–107. doi: 10.1109/TSSC.1968.300136 .Hechenberger, R., Stuckey, P.J., Harabor, D., Le Bodic, P., Cheema, M.A., 2020. Online computation of euclidean shortest paths in two dimensions, in: Proceedings of the International Conference on Automated Planning and Scheduling, pp. 134–142. doi: 10.1609/icaps.v30i1.6654 .Ibrahim, I., Gillis, J., Decr´ e, W., Swevers, J., 2024. Exact wavefront propagation for globally optimal one-to-all path planning on 2d cartesian grids. IEEE Robotics and Automation Letters doi: 10.1109/LRA.2024.3460409 .Lai, Y.K., Vadakkepat, P., Xiang, C., 2024. R2: Optimal vector-based and any-angle 2D path planning with non-convex obstacles. Robotics and Autonomous Systems 172, 104606. doi: 10.1016/j.robot.2023.104606 .Milazzo, A., 2014. Roguelike vision algorithms. https://www.adammil.net/blog/v125_Roguelike_Vision_Algorithms.html . Ac-cessed on Aug. 2nd, 2025. Mitchell, J.S., Mount, D.M., Papadimitriou, C.H., 1987. The discrete geodesic problem. SIAM Journal on Computing 16, 647–668. doi: 10.1137/ 0216045 .Munoz, P., Rodriguez-Moreno, M., 2012. Improving e ffi ciency in any-angle path-planning algorithms, in: 2012 6th IEEE International Conference Intelligent Systems, IEEE. pp. 213–218. doi: 10.1109/IS.2012.6335138 .Nash, A., Koenig, S., 2013. Any-angle path planning. AI Magazine 34, 85–107. doi: 10.1609/aimag.v34i4.2512 .Nash, A., Koenig, S., Likhachev, M., 2009. Incremental Phi*: Incremental any-angle path planning on grids, in: Proceedings of the 21st Interna-tional Joint Conference on Artificial Intelligence, Morgan Kaufmann Publishers Inc., San Francisco, CA, USA. p. 1824–1830. Nash, A., Koenig, S., Tovey, C., 2010. Lazy Theta*: Any-angle path planning and path length analysis in 3D, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 147–154. doi: 10.1609/aaai.v24i1.7566 .Oh, S., Leong, H.W., 2016. Strict Theta*: Shorter motion path planning using taut paths, in: Proceedings of the International Conference on Automated Planning and Scheduling, pp. 253–257. doi: 10.1609/icaps.v26i1.13744 .Phillips, M., Likhachev, M., 2011. SIPP: Safe interval path planning for dynamic environments, in: 2011 IEEE International Conference on Robotics and Automation, pp. 5628–5635. doi: 10.1109/ICRA.2011.5980306 .Rivera, N., Hern´ andez, C., Hormaz´ abal, N., Baier, J.A., 2020. The 2 k neighborhoods for grid path planning. Journal of Artificial Intelligence Research 67, 81–113. doi: 10.1613/jair.1.11383 .Russell, S.J., Norvig, P., 2010. Artificial intelligence : A modern approach. Pearson Education, Inc. Shen, B., Cheema, M.A., Harabor, D.D., Stuckey, P.J., 2022. Fast optimal and bounded suboptimal Euclidean pathfinding. Artificial Intelligence 302, 103624. doi: 10.1016/j.artint.2021.103624 .Silver, D., 2005. Cooperative pathfinding, in: Proceedings of the AAAI Conference on Artificial Intelligence and Interactive Digital Entertainment, 
+
+32 pp. 117–122. doi: 10.1609/aiide.v1i1.18726 .Sinyukov, D.A., Padir, T., 2020. Cwave: Theory and practice of a fast single-source any-angle path planning algorithm. Robotica 38, 207–234. doi: 10.1017/S0263574719000560 .ˇSiˇ sl´ ak, D., Volf, P., Pechoucek, M., 2009. Accelerated A* trajectory planning: Grid-based path planning comparison, in: Proceedings of the 19th International Conference on Automated Planning & Scheduling (ICAPS), Citeseer. pp. 74–81. doi: 10.1609/icaps.v25i1.13724 .Stern, R., Sturtevant, N.R., Felner, A., Koenig, S., Ma, H., Walker, T.T., Li, J., Atzmon, D., Cohen, L., Kumar, T.K.S., Boyarski, E., Bartak, R., 2019. Multi-agent pathfinding: Definitions, variants, and benchmarks. Symposium on Combinatorial Search (SoCS) , 151–158doi: 10.1609/ socs.v10i1.18510 .Sturtevant, N., 2012. Benchmarks for grid-based pathfinding. Transactions on Computational Intelligence and AI in Games 4, 144 – 148. doi: 10. 1109/TCIAIG.2012.2197681 .Uras, T., Koenig, S., 2015a. An empirical comparison of any-angle path-planning algorithms, in: Proceedings of the International Symposium on Combinatorial Search, pp. 206–210. doi: 10.1609/socs.v6i1.18382 .Uras, T., Koenig, S., 2015b. Speeding-up any-angle path-planning on grids, in: Proceedings of the International Conference on Automated Planning and Scheduling, pp. 234–238. doi: 10.1609/icaps.v25i1.13724 .Wu, X., 1991. An e ffi cient antialiasing technique. Acm Siggraph Computer Graphics 25, 143–152. Yakovlev, K., Andreychuk, A., 2017. Any-angle pathfinding for multiple agents based on SIPP algorithm, in: Proceedings of the International Conference on Automated Planning and Scheduling, pp. 586–594. doi: 10.1609/icaps.v27i1.13856 .Yakovlev, K., Andreychuk, A., 2021. Towards time-optimal any-angle path planning with dynamic obstacles, in: Proceedings of the International Conference on Automated Planning and Scheduling, pp. 405–414. doi: 10.1609/icaps.v31i1.15986 .Yakovlev, K., Andreychuk, A., Stern, R., 2024. Optimal and bounded suboptimal any-angle multi-agent pathfinding, in: 2024 IEEE /RSJ Interna-tional Conference on Intelligent Robots and Systems (IROS), IEEE. pp. 7996–8001. doi: 10.1109/IROS58592.2024.10801691 .Yap, P., Burch, N., Holte, R., Schae ff er, J., 2011. Block A*: Database-driven search with applications in any-angle path-planning, in: Proceedings of the AAAI Conference on Artificial Intelligence, pp. 120–125. doi: 10.1609/aaai.v25i1.7813 .Zou, Y., Borst, C., 2024. Zeta*-SIPP: Improved time-optimal any-angle safe-interval path planning, in: Proceedings of the 33rd International Joint Conference on Artificial Intelligence, pp. 6823–6830. doi: 10.24963/ijcai.2024/754 .Zou, Y., Borst, C., 2025. Algorithmic transparency in path planning: A visual approach to enhancing human understanding. International Journal of Human-Computer Studies 203, 103573. doi: 10.1016/j.ijhcs.2025.103573 .
+
+33

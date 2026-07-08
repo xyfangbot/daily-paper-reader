@@ -1,0 +1,667 @@
+Title: FastDSAC: Enhancing Policy Plasticity via Constrained Exploration for Scalable Humanoid Locomotion
+
+URL Source: https://arxiv.org/pdf/2606.31691v1
+
+Published Time: Wed, 01 Jul 2026 01:13:22 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# FastDSAC: Enhancing Policy Plasticity via Constrained Exploration for Scalable Humanoid Locomotion 
+
+Guanchen Lu 1, Yajuan Dun 2, Yi Zhou 1, Letian Tao 3, Jingliang Duan 4, Jie Li 1,∗, and Guofa Li 1,∗
+
+## Project Page: https://luge66.github.io/fastdsac-web/ 
+
+Abstract — Scalable reinforcement learning has popularized high-throughput sampling architectures, which significantly compresses the training time for off-policy methods in robotic locomotion. However, the rapid increase of data volume and update frequency undermines the stability of value-based methods and diminishes the plasticity of policy networks. To address these challenges, this work presents FastDSAC, a fast and high-performance variant of the Distributional Actor-Critic algorithm designed for parallel sampling scenarios. Specifically, we introduce a truncated Gaussian distribution to approximate the learned policy, which effectively excludes out-of-distribution actions that strain target value estimation while keeping necessary stochasticity for exploration. The proposed action constraint functions as an implicit regularization, which counteracts the plasticity loss typically caused by aggressive gradient updates. This preservation of network adaptability enhances sample efficiency, particularly in scenarios with a high update-to-data ratio, and accelerates the early training process. In contrast to prior fast reinforcement learning approaches that rely on discrete value distributions, our method utilizes a continuous Gaussian representation equipped with adaptive variance regulation, which improves value estimation accuracy by sampling confident and informative transitions. Extensive experiments on MuJoCo Playground and HumanoidBench demonstrate that FastDSAC not only stabilizes the overall train-ing process but also achieves superior asymptotic performance and faster convergence compared to state-of-the-art baselines. 
+
+I. I NTRODUCTION 
+
+Reinforcement learning (RL) has advanced humanoid locomotion and other high-dimensional continuous-control problems [1], [2], yet learning strong policies often remains expensive and sensitive to training conditions. Large-scale parallel simulation improves wall-clock efficiency by in-creasing data throughput [3], [4]. However, with the highly parallel sampling and large-batch updates, off-policy actor-critic training can become more sensitive to the noise in TD errors for critic updates [5], [6]. This sensitivity can destabilize value learning and gradually erode learning plas-ticity [7]. Reduced plasticity has been linked to primacy bias and late-stage performance regressions [8], motivating mitigation strategies such as plasticity injection [9]. A key source of this issue is the inaccuracy of the target Q-value estimates used for critic learning. In off-policy actor-    
+
+> This work was supported by the State Key Laboratory of Intelligent Vehicle Safety Technology under Project No. IVSTSKL-202506.
+> 1Chongqing University, Chongqing 400044, China; 2Ministry of Industry and Information Technology, Beijing 100804, China; 3Tsinghua University, Beijing 100084, China; 4University of Science and Technology Beijing, Bei-jing 100083, China. ∗Corresponding author: Jie Li (email: jieli@cqu.edu.cn) and Guofa Li (email: liguofa@cqu.edu.cn).
+
+critic methods, target Q-values are estimated using target Q-networks [10], [11]. During high-throughput training, large mini-batches increase the number of target actions sampled from the target policy, making extreme and low-probability actions more likely and yielding higher-variance target Q-value estimates and TD errors. This increased variance desta-bilizes critic learning and can slow policy improvement [12]. Prior work suggests that stabilizing target Q-values by regularizing the target action can improve off-policy value learning. Techniques such as target policy smoothing [13] and action-space smoothing [14] reduce sensitivity to value-function approximation errors and can be interpreted as forms of value regularization. More broadly, constraining target actions toward the data distribution can mitigate boot-strapping error in off-policy learning [15]. In this paper, we propose FastDSAC , a lightweight recipe for stabilizing high-parallel off-policy training in entropy-regularized actor-critic methods. FastDSAC constrains the target action for target Q-value evaluation and derives the corresponding log-probability under the induced action dis-tribution to compute the entropy term. FastDSAC is evaluated on MuJoCo Playground [16] and HumanoidBench [17]. Under the same high-throughput setting, FastDSAC im-proves training stability and helps mitigate plasticity loss under high-throughput training, while maintaining compa-rable wall-clock efficiency to strong off-policy baselines. Additionally, we provide open-source code at https:// github.com/luge66/FastDSAC .The main contributions of this work are threefold: 1) To more effectively mitigate the variance of value estimation, we propose constraining the target ac-tion to a truncated Gaussian distribution during target construction. This method imposes a mean-centered constraint on the support of the induced action distri-bution, effectively filtering out rare, extreme samples that destabilize the target Q-values, while preserving mild stochasticity for effective exploration. 2) Benefiting from the constrained exploratory behavior of the policy, which acts as an implicit regulariza-tion, the plasticity loss typically associated with high update-to-data (UTD) ratios can be alleviated to some extent. This mechanism enables the strategic deploy-ment of high UTD ratios during the early training phase to accelerate policy convergence, as validated by empirical results on MuJoCo Playground. 3) Compared to FastTD3 and FastSAC, which apply dis-
+
+> arXiv:2606.31691v1 [cs.RO] 30 Jun 2026
+
+crete value distributions with fixed intervals, the pro-posed FastDSAC employs continuous Gaussian mod-eling with adaptive variance regulation to more consis-tently improve value estimation accuracy and avoid ex-ploring epistemically uncertain regions, thereby retain-ing more high-reward transitions during interaction. Experiments on standard Humanoid control bench-marks, including MuJoCo Playground and Humanoid-Bench, demonstrate that FastDSAC has improved the asymptotic performance and reduced the training time compared with other RL algorithms. II. R ELATED WORK 
+
+Massively parallel simulation. GPU-accelerated simula-tion enables massively parallel rollout on a single worksta-tion, making wall-clock efficiency and rapid iteration first-class objectives in robot reinforcement learning. As a result, both on-policy and off-policy pipelines commonly used in robotics, including PPO [18], SAC [19], and TD3 [13], are increasingly evaluated and optimized under high-throughput training regimes. Recent benchmarks and training plat-forms further strengthen this trend. MuJoCo Playground [16] streamlines MJX-based training for fast single-GPU ex-perimentation, and HumanoidBench [17] introduces diverse whole-body tasks with high-dimensional actions that expose scalability bottlenecks. Earlier work has also investigated how to scale off-policy value learning under massively par-allel simulation. Parallel Q-Learning [5] studies such scaling with a distributional critic [20], but relies on asynchronous parallelism. More recently, scalable off-policy recipes such as FastTD3 [21] and FastSAC [22] show that strong wall-clock performance can be obtained with simple design choices. Overall, massively parallel simulation encourages large-batch learning and higher update-to-data ratios, which can stress value-learning stability and erode learning plasticity. 
+
+Training Stability and Plasticity. Recent studies show that deep RL training can become less stable over time and may suffer from plasticity loss, where agents become less responsive to new data as training progresses [8], [23], [9]. One line of work improves critic stability by regularizing target value estimation, for example through target policy smoothing [13], and by using ensemble-based stabilization under high update-to-data ratios, such as REDQ [6] and DroQ [24]. Another complementary direction refines value estimation with distributional critics, ranging from categori-cal distributions [20] to Gaussian distributional critics (e.g., DSAC) [25], and truncation-based distributional variants such as TQC [26]. In addition, objective-level regularization can reduce policy and value churn, such as CHAIN [27], and alternative value-function training objectives have also been explored [28]. However, some of these methods improve stability at the cost of additional computation, larger critic ensembles, or more complex training objectives, which can increase wall-clock time and implementation overhead. III. P RELIMINARIES 
+
+A. Notation 
+
+We consider an infinite-horizon discounted Markov deci-sion process (MDP) (S, A, p, r, γ ), where S and A denote the state and action spaces, p : S × A → P (S) is the transition kernel, r : S × A → R is the reward function, and γ ∈ (0 , 1) is the discount factor. Given a state-action pair (s, a ), the next state is sampled as s′ ∼ p(· | s, a ). A stochastic policy is denoted by πϕ(a | s), and a ∼ πϕ(· | s)
+
+and a′ ∼ πϕ(· | s′) represent actions sampled at s and s′,respectively. The discounted state-action occupancy measure induced by πϕ is denoted by ρπϕ (s, a ). The action-value and state-value functions are denoted by Qπϕ (s, a ) and V πϕ (s);when clear from context, the superscript πϕ is omitted. 
+
+B. Distributional Actor-Critic 
+
+Let Zπ (s, a ) denote the state-action return random vari-able under policy π [20], [19]. Its expectation recovers the action-value function. Distributional Policy Iteration models the conditional distribution of Zπ (s, a ) and defines the distributional Bellman backup 
+
+T π 
+
+> D
+
+Z(s, a ) D
+
+= r + γ
+
+
+
+Z(s′, a ′) − α log π(a′ | s′)
+
+
+
+, (1) where D
+
+= denotes equality in distribution [20]. In practice, the value distribution is updated to match the target distribution induced by (1), commonly via divergence minimization [25]. DSAC builds on this principle with an off-policy actor-critic architecture [25]. The critic parameterizes a Gaussian value distribution 
+
+Zθ (· | s, a ) = N Qθ (s, a ), σ 2 
+
+> θ
+
+(s, a ), (2) and we use a slowly updated target network with parameters 
+
+θ′ to construct stable learning targets. 
+
+a) Policy evaluation: Given a transition (s, a, r, s ′)
+
+sampled from the replay buffer, we sample a′ ∼ πϕ(· | s′)
+
+and Z′ ∼ Zθ′ (· | s′, a ′), and form the random target return 
+
+yz = r + γ Z′ − α log πϕ(a′|s′). (3) The critic is trained by maximizing the likelihood of yz under 
+
+Zθ (· | s, a ) [25]. Under the Gaussian parameterization in (2), the loss becomes 
+
+JZ (θ) = E
+
+"   yz − Qθ (s, a )2
+
+2 σ2 
+
+> θ
+
+(s, a ) + log σθ (s, a )
+
+#
+
++ const . (4) 
+
+b) Policy improvement: The actor is learned by maxi-mizing the objective using the critic mean value [19]: 
+
+Jπ (ϕ) = E 
+
+> s∼B
+> a∼πϕ(· | s)
+
+[Qθ (s, a ) − α log πϕ(a | s)] . (5) IV. M ETHOD 
+
+Our method is designed for high-parallel off-policy train-ing. In entropy-regularized actor-critic methods, policy ex-ploration is encouraged by policy entropy and the increased diversity of experience from large-scale parallel data col-lection. However, when scaled up, the target Q-value can become more sensitive to occasional extreme target actions, which can increase the variance of the target Q-value esti-mate and destabilize critic learning. To address this, we decouple exploration from target Q-value estimation and impose regularization exclusively on the target action utilized by the target Q-network when forming the TD error. By constraining the target action during target evaluation, we mitigate the adverse impact of rare, extreme target actions on the target Q-value estimate, thereby yielding lower-variance TD errors, improving training stability, and helping mitigate plasticity loss over training. Furthermore, the entropy term is computed using the log-probability consistent with the constrained target action. 
+
+A. Gaussian Policy Parameterization 
+
+We parameterize the actor as a diagonal Gaussian policy. Concretely, given a state s, the policy network outputs the mean μϕ(s) and standard deviation σϕ(s) of the Gaus-sian distribution, i.e., the stochastic policy is defined as 
+
+πϕ(a | s) ∼ N (μϕ(s), σ 2
+
+> ϕ
+
+(s)) . In order to allow the policy gradient to propagate back through the sampling process during training, the reparameterization trick is employed: 
+
+a = μϕ(s) + σϕ(s) ⊙ ϵ, ϵ ∼ N (0 , I ), (6) and the log-probability is computed in closed-form as 
+
+log πϕ(a | s) = 
+
+> d
+
+X
+
+> i=1
+
+log N  ai | μ iϕ(s), (σ iϕ(s)) 2 , (7) where d denotes the action dimension. Compared with the commonly used tanh-squashed pa-rameterization, this design offers two advantages in prac-tical policy optimization. First, the tanh nonlinearity can cause vanishing gradients when actions approach the bounds, which slows down policy learning. Second, it avoids the log-likelihood correction induced by tanh squashing, which simplifies implementation and avoids the numerical issues associated with the change-of-variables correction. For ref-erence, a tanh-squashed policy samples a raw action u ∼
+
+πϕ(u | s) and then maps it to the bounded action via a =tanh( u). The resulting log-probability takes the form: 
+
+log πϕ(a | s) = log πϕ(u | s) −
+
+> d
+
+X
+
+> i=1
+
+log  1 − tanh 2(ui). (8) In contrast, the Gaussian policy without tanh squashing evaluates log πϕ(a | s) directly under the Gaussian distri-bution. This avoids the change-of-variables correction in common reinforcement learning implementations, simplify-ing probability evaluation and improving numerical stability. To further improve numerical stability, the policy mean 
+
+μϕ(s) is bounded within [mmin , m max ], which prevents 
+
+Algorithm 1 FastDSAC (Distributional critic omitted) Initialize critic networks Qθ1 , Q θ2 and actor network πϕ
+
+Initialize target networks θ′ 
+
+> 1
+
+← θ1, θ ′ 
+
+> 2
+
+← θ2
+
+Initialize replay buffer B
+
+for t = 1 to T do 
+
+Select action a ∼ πϕ(·| s)
+
+Get reward r and new state s′
+
+Store samples τ = ( s, a, r, s ′) in B
+
+for j = 1 to num updates do 
+
+Sample mini-batch B = {τk}|B| 
+
+> k=1
+
+from B
+
+Compute target Q-value: 
+
+a′ = μϕ(s′) + c tanh( u′ − μϕ(s′)) , u ′ ∼ πϕ(·| s′)
+
+y = r + γ Qmin  
+
+> θ′
+
+(s′, a ′) − α log πϕ(a′| s′)
+
+Update critic: 
+
+θi ← θi − ∇ θi
+
+> 1
+> |B|
+
+P   Qθi (s, a ) − y2
+
+if t mod d = 0 then 
+
+Sample ˜a ∼ πϕ(· | s) using reparameterization Update actor: 
+
+ϕ ← ϕ−∇ ϕ 1
+
+> |B|
+
+P   α log πϕ(˜ a | s)−Qmin  
+
+> θ
+
+(s, ˜a)
+
+Update entropy temperature: 
+
+α ← α − ∇ α 1
+
+> |B|
+
+P   Htarget − H (s) · α
+
+end if 
+
+Update target critic: 
+
+θ′ 
+
+> i
+
+← ρ θ ′ 
+
+> i
+
++ (1 − ρ)θi
+
+end for end for 
+
+excessively large mean actions in the early training and stabi-lizes optimization. The policy standard deviation σϕ(s) is ini-tialized to a small value and constrained within [ℓmin , ℓ max ],which keeps the policy standard deviation well controlled and improves training stability. 
+
+B. Mean-Centered Truncation for Target Actions 
+
+This subsection introduces a mean-centered truncation constraint on the target action used to compute the target Q-values and derives the log-probability under the induced action distribution. Given the next state s′, the policy network outputs μϕ(s′) and σϕ(s′), which parameterize a diagonal Gaussian. First, we sample a pre-truncation action 
+
+u′ = μϕ(s′) + σϕ(s′) ⊙ ϵ, ϵ ∼ N (0 , I ), (9) and then obtain the target action via a mean-centered trun-cation mapping 
+
+a′ = μϕ(s′) + c tanh  u′ − μϕ(s′), (10) the elementwise tanh( ·) smoothly squashes the offset u′ −
+
+μϕ(s′), so each component of a′ − μϕ(s′) is strictly bounded within [−c, c ]. Compared with hard clipping, this mean-centered truncation mapping is continuous and avoids bound-ary discontinuities, leading to smoother target evaluation. Importantly, we apply this mapping only when evaluating the target Q-value Qθ′ (s′, a ′) at the next state. Because the target Q-values are evaluated at the mean-centered truncated action a′, the entropy term is required to use the log-probability associated with the corresponding induced action distribution. With u′ ∼ πϕ(· | s′) sampled from the pre-truncation diagonal-Gaussian, the change-of-variables rule applied to the truncation mapping (10) gives 
+
+log πϕ(a′ | s′) = log πϕ(u′ | s′) − log det 
+
+ ∂a ′
+
+∂u ′
+
+
+
+, (11) where log πϕ(u′ | s′) is the diagonal-Gaussian log-probability and the second term is the log absolute Jacobian determinant of the mapping from u′ to a′. Since the mapping is applied independently to each action dimension, the Jacobian is diagonal, and the log absolute determinant is given by: 
+
+log det 
+
+ ∂a ′
+
+∂u ′
+
+
+
+=
+
+> d
+
+X
+
+> i=1
+
+log  c [1 − tanh 2(u′ 
+
+> i
+
+− μ iϕ(s′))]  ,
+
+(12) where d is the action dimension. For numerical stability in PyTorch implementations, the term 1 − tanh 2(·) may suffer from precision loss when 
+
+tanh( ·) saturates. Accordingly, the Jacobian term is rewritten in an equivalent softplus form: 
+
+log  1−tanh 2(˜ u′
+
+> i
+
+) = 2 
+
+
+
+log 2 − ˜u′ 
+
+> i
+
+−softplus( −2˜ u′
+
+> i
+
+)
+
+
+
+, (13) where ˜u′ 
+
+> i
+
+= u′ 
+
+> i
+
+− μ iϕ(s′) denotes the mean-centered offset. With this identity substituted into the log absolute determi-nant (12), a numerically stable evaluation of the induced log-probability log πϕ(a′ | s′) is obtained in PyTorch. The mean-centered truncation directly restricts the target action used to form the TD error, thereby reducing the influence of rare, extreme next actions on the target Q-values. Moreover, the induced log-probability is made consistent with the constrained action, so the entropy regularizer in the maximum-entropy objective remains properly aligned with the resulting action distribution. At the same time, the mapping preserves small local perturbations around μϕ(s′),retaining the stochasticity needed for learning. As a result, critic learning becomes less sensitive to extremes, improving training stability and helping alleviate plasticity loss. V. E XPERIMENTS 
+
+A. Experimental Setups 
+
+The proposed method is evaluated on ten locomotion tasks from two benchmark suites: MuJoCo Playground (4 tasks) and HumanoidBench (6 tasks). On MuJoCo Playground, we report learning curves as a function of both environment steps as shown in Fig. 1 and wall-clock time as shown in Fig. 2. All experiments are run on a single NVIDIA RTX 4090 GPU. Averaged results over three random seeds are reported, where solid lines and shaded regions denote the mean and standard deviation. Comparisons are made against FastSAC, FastTD3, and DSAC-T under the same evaluation protocol across both benchmark suites; PPO is additionally included as an on-policy baseline on MuJoCo Playground. 
+
+B. Main Results 
+
+1) Sample efficiency: Fig. 1 reports environment-step learning curves on four MuJoCo Playground locomotion tasks. As an on-policy baseline, PPO improves much more slowly and plateaus at markedly lower returns across all tasks, highlighting the advantage of off-policy training in this setting. Among off-policy methods, the baselines exhibit contrasting behaviors. FastSAC rises very quickly at the start of training, but its learning becomes less stable later and shows signs of reduced learning plasticity, which leads to lower final returns. FastTD3 and DSAC-T both exhibit stable learning curves, but their improvement is more grad-ual, and their final returns remain below FastDSAC under the same environment-step budget. In contrast, FastDSAC combines fast early gains with stable late-stage learning, achieving the highest final return on all four tasks. This advantage is especially evident on the more challenging G1JoystickRoughTerrain task: FastDSAC matches FastSAC in early progress, while continuing to improve without the late-stage regressions observed in FastSAC. The observed behavior supports the effectiveness of the proposed mean-centered truncation for target actions, which mitigates the influence of rare extreme next actions and yields lower-variance TD targets in more complex environments. 
+
+2) Time efficiency: As shown in Fig. 2, the learning curves are plotted against wall-clock time. PPO, as an on-policy baseline, improves substantially more slowly in wall-clock time and consistently underperforms the off-policy baselines under the same wall-clock budget. Among the off-policy baselines, FastSAC shows a higher per-step environment interaction latency, which leads to a longer total wall-clock training time. In contrast, FastTD3, DSAC-T, and FastDSAC are comparable in overall wall-clock training time. More importantly, FastDSAC attains higher returns than FastTD3 earlier in wall-clock time, indicating better time efficiency. Although FastSAC is slightly faster early on in wall-clock time on the T1Joystick tasks, it reaches an early peak and then declines. FastDSAC surpasses FastSAC shortly after this peak and converges to a higher, more stable return, offering a favorable trade-off for the modest additional wall-clock time. On the G1Joystick tasks, FastDSAC matches FastSAC in real-time learning speed while achieving higher final returns. 
+
+3) Transition rewards: Beyond the episode returns re-ported in Fig. 1, transition rewards r in collected tuples 
+
+⟨s, a, r, s ′⟩ are also analyzed on MuJoCo Playground, as shown in Fig. 3. FastDSAC achieves higher and more stable transition rewards during data collection than FastTD3, Fast-SAC, DSAC-T, and PPO across all four tasks, indicating that exploration is guided more consistently toward high-reward behaviors and is less affected by rare extremes. Two design choices contribute to this behavior. First, compared with FastTD3 and FastSAC, which use discrete value distributions with fixed intervals, FastDSAC employs a Gaussian distri-butional critic with adaptively learned variance. This im-proves value estimation accuracy and reduces overconfident updates in epistemically uncertain regions, thereby retaining 0.0 0.25 0.5 0.75 1.0 
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> Episode Return
+> 1e8
+
+(a) T1JoystickFlatTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+
+(b) T1JoystickRoughTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+
+(c) G1JoystickFlatTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+
+(d) G1JoystickRoughTerrain 
+
+Fig. 1: Episode returns versus environment steps on MuJoCo Playground. Four locomotion tasks are shown: T1JoystickFlatTerrain, T1JoystickRoughTerrain, G1JoystickFlatTerrain, and G1JoystickRoughTerrain. The x-axis denotes environment steps and the y-axis denotes episode return. Solid lines show the mean over three random seeds, and shaded regions indicate one standard deviation. 1800 3600 5400 7200 
+
+> Wall Time (seconds)
+> 0
+> 10
+> 20
+> 30
+> 40
+> Episode Return
+
+(a) T1JoystickFlatTerrain 0 1800 3600 5400 7200 9000  
+
+> Wall Time (seconds)
+> 0
+> 10
+> 20
+> 30
+> 40
+
+(b) T1JoystickRoughTerrain 0 1800 3600 5400 7200 9000  
+
+> Wall Time (seconds)
+> 0
+> 10
+> 20
+> 30
+> 40
+
+(c) G1JoystickFlatTerrain 1800 3600 5400 7200 9000 10800  
+
+> Wall Time (seconds)
+> 0
+> 10
+> 20
+> 30
+> 40
+
+(d) G1JoystickRoughTerrain 
+
+Fig. 2: Episode returns versus wall-clock training time on MuJoCo Playground. The same four tasks as in Fig. 1 are shown. The x-axis denotes wall-clock training time in seconds and the y-axis denotes episode return. Solid lines show the mean over three random seeds, and shaded regions indicate one standard deviation. 0.0 0.2 0.5 0.8 1.0 
+
+> Environment Steps
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> Env Reward
+> 1e8
+
+(a) T1JoystickFlatTerrain 0.0 0.2 0.5 0.8 1.0  
+
+> Environment Steps
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 1e8
+
+(b) T1JoystickRoughTerrain 0.0 0.2 0.5 0.8 1.0  
+
+> Environment Steps
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 1e8
+
+(c) G1JoystickFlatTerrain 0.0 0.2 0.5 0.8 1.0  
+
+> Environment Steps
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> 0.04
+> 1e8
+
+(d) G1JoystickRoughTerrain 
+
+Fig. 3: Transition rewards during data collection on MuJoCo Playground. The figure reports the per-transition reward 
+
+r from collected tuples ⟨s, a, r, s ′⟩ on the same four tasks. The x-axis denotes environment steps and the y-axis denotes transition reward. Solid lines show the mean over three random seeds, and shaded regions indicate one standard deviation. more high-reward transitions during interaction. Second, FastDSAC effectively leverages mean-centered truncation by applying it to the target action in TD error evaluation. This reduces target variance, stabilizes Q-value learning, and makes policy updates more reliable and consistent, leading to improved sampling rewards. Together, these choices stabilize learning throughout policy optimization and support more stable and higher exploration performance. 
+
+4) Cross-suite generalization on HumanoidBench: Eval-uation is further conducted on six HumanoidBench locomo-tion tasks, as summarized in Fig. 4, to examine cross-suite generalization. Under the same training protocol, FastSAC shows weaker and less consistent outcomes on Humanoid-Bench than it does on MuJoCo Playground. In contrast, FastDSAC remains competitive across the HumanoidBench tasks, exhibiting more stable learning behavior across runs and better preserving learning plasticity over training, which enables more reliable improvement under the same protocol. Across these tasks, FastDSAC is generally on par with FastTD3 or achieves better performance, while both methods 0.0 0.25 0.5 
+
+> Environment Steps
+> 0
+> 200
+> 400
+> 600
+> 800
+> Episode Return
+> 1e7
+
+(a) h1hand run 0.0 0.25 0.5  
+
+> Environment Steps
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1e7
+
+(b) h1hand walk 0.0 0.25 0.5  
+
+> Environment Steps
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1e7
+
+(c) h1hand stand 0.0 0.25 0.5 0.75 
+
+> Environment Steps
+> 0
+> 200
+> 400
+> 600
+> 800
+> Episode Return
+> 1e7
+
+(d) h1hand pole 0.0 0.25 0.5 0.75 1.0 1.25  
+
+> Environment Steps
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1e7
+
+(e) h1hand slide 0.0 0.5 1.0 1.5  
+
+> Environment Steps
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1e7
+
+(f) h1hand hurdle 
+
+Fig. 4: Episode returns on selected HumanoidBench locomotion tasks. Solid lines clearly show the empirical mean over three independent random seeds, and shaded regions consistently indicate one standard deviation. Dashed horizontal lines mark the corresponding predefined task-specific success thresholds officially used in HumanoidBench. 
+
+Fig. 5: Gait visualization under dynamics perturbations. The robot maintains a stable and coordinated walking gait under perturbed mass parameters and ground friction conditions, without obvious posture degradation. 0.0 0.25 0.5 0.75 1.0 
+
+> Environment Steps
+> 20
+> 30
+> 40
+> 1e8
+
+(a) T1JoystickFlatTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 20
+> 30
+> 40
+> 1e8
+> 1e-2
+> 1e-3
+> 1e-4
+
+(b) T1JoystickRoughTerrain 
+
+Fig. 6: Sensitivity to the truncation radius c in mean-centered target actions. Learning curves on T1JoystickFlatTerrain and T1JoystickRoughTerrain for c ∈{10 −2, 10 −3, 10 −4} in the mean-centered truncation map-ping for target actions. Solid lines show the mean over three runs, and shaded regions indicate one standard deviation. substantially outperform DSAC-T by a large margin. Overall, the improvements are not tied to a particular benchmark suite and generalize across evaluation suites. 
+
+5) Robustness to dynamics perturbations: To provide an illustrative evaluation under altered system dynamics, we modify the nominal mass parameters and the ground friction coefficient using one representative perturbation setting dur-ing forward locomotion, while keeping the remaining simula-tion and control settings unchanged. As illustrated in Fig. 5, the robot preserves a stable, natural, and well-coordinated walking gait without obvious posture degradation. This result provides preliminary qualitative evidence that the learned policy can tolerate the considered dynamics perturbation. 
+
+C. Ablation Studies 
+
+This subsection presents a series of ablation studies to more systematically evaluate the proposed mean-centered truncation and several related design choices. 
+
+Impact of the truncation radius c. This ablation exam-ines how FastDSAC depends on the truncation radius c in the mean-centered truncation mapping in Eq. (10), where c
+
+sets the scale of the mean-centered offset and thus controls the allowable deviation of the target action from the policy mean when evaluating target Q-values. As shown in Fig. 6, FastDSAC shows only moderate sensitivity within a practical range overall, and varying c ∈ 10 −2, 10 −3, 10 −4 mainly affects early learning speed while the final returns remain relatively close. This pattern aligns with the role of c in the truncation. Larger c makes the mapping less restrictive and preserves more target action variability, which can speed up early learning, whereas smaller c yields more conservative target actions and can slow early progress. Empirically, c =10 −3 works well in simpler environments by more strongly 0.0 0.25 0.5 0.75 1.0 
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+
+(a) T1JoystickFlatTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+> truncated
+> Gaussian
+> mean
+
+(b) T1JoystickRoughTerrain 
+
+Fig. 7: Target action variants in target Q-value eval-uation. Learning curves with three choices of the target action used for target Q-value evaluation: the target action a′
+
+from the mean-centered truncation ( truncated ), the raw Gaussian sample u′ without truncation ( Gaussian ), and the deterministic policy mean μϕ(s′) (mean ). Results are shown on T1JoystickFlatTerrain and T1JoystickRoughTerrain. Solid lines denote the mean over three runs and shaded regions denote one standard deviation. suppressing rare extreme target actions, whereas c = 10 −2
+
+performs better in more complex environments by retaining additional variability in the target action to accommodate more complex dynamics. Based on these observations, we use c = 10 −3 as a reasonable and robust default choice. For a new task, we recommend a small logarithmic sweep over 10 −2, 10 −3, 10 −4 and selecting c according to both learning speed and training stability. In practice, a larger value can be preferred when learning is overly conservative, while a smaller value can be used when training shows large fluctuations or frequent performance regressions. 
+
+Impact of target action choice. This ablation evaluates how choices of the target action for target Q-value evaluation influence training dynamics. Besides the target action a′ from the mean-centered truncation mapping, two alternatives are considered: using the raw Gaussian sample u′ and using the policy mean μϕ(s′) as a deterministic target action. Fig. 7 shows that forming the target action via the mean-centered truncation mapping yields the best learning behavior, with only small differences on the simpler flat terrain but more pronounced gaps on the more challenging rough terrain. Using the Gaussian sample remains competitive, but it often rises more slowly early in training on more complex terrain. This trend is consistent with the fact that, without the mean-centered truncation, the target action is drawn freely from the Gaussian distribution, which increases the variance of target actions and makes the target Q-values noisier, thereby slow-ing critic learning. Using the deterministic mean generally underperforms, as removing stochasticity limits target-action diversity and weakens exploratory coverage, which can lead to lower final returns, most clearly on more complex terrain. 
+
+Impact of parallelism and UTD ratios on policy plasticity. This ablation further evaluates how FastDSAC behaves under higher-throughput settings by scaling parallel data collection and the update-to-data (UTD) ratio. The number of parallel environments is set to 256 , 512 , and 
+
+1024 , and the update-to-data (UTD) ratio is set to 2, 4,and 8. As shown in Fig. 8(a) and Fig. 8(b), increasing the 0.0 0.25 0.5 0.75 1.0 
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+
+(a) Scale Env in FlatTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+> 1024 Envs
+> 512 Envs
+> 256 Envs
+
+(b) Scale Env in RoughTerrain 0.0 0.25 0.5 0.75 1.0 
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+
+(c) Scale UTD in FlatTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+> 2 Updates
+> 4 Updates
+> 8 Updates
+
+(d) Scale UTD in RoughTerrain 
+
+Fig. 8: High-throughput scaling with more environments and larger UTD. The top row scales the number of parallel environments (256/512/1024), and the bottom row scales the update-to-data ratio (UTD) (2/4/8). The left column reports T1JoystickFlatTerrain and the right column reports T1JoystickRoughTerrain. The solid line and shaded region denote the mean and standard deviation over three runs. number of environments consistently improves performance and does not cause late-stage regressions, indicating that higher parallelism benefits training; moreover, the mean-centered truncation mapping effectively suppresses the ad-ditional noise introduced by high-throughput rollouts. In Fig. 8(c) and Fig. 8(d), increasing UTD mainly accelerates early learning, reaching strong returns substantially faster, while converging to a similar final performance. Notably, no clear late-stage decline is observed under larger UTD, which is consistent with the truncation mapping helping preserve learning plasticity throughout training. Overall, FastDSAC performs strongly across these throughput settings. 
+
+Impact of transferring to SAC. This final ablation examines whether the mean-centered truncation mapping for target actions is specific to FastDSAC by integrating it into SAC. The mapping is used only to generate the next action for target Q-value computation in the raw Gaussian SAC variant, while all other components remain unchanged. Fig. 9 shows that the SAC variant with mean-centered truncation mapping consistently outperforms both the raw Gaussian SAC baseline without truncation and the tanh-squashed SAC baseline, thereby further suggesting that the effect is not specific to FastDSAC in practical applications. VI. C ONCLUSIONS 
+
+FastDSAC is a lightweight method for stabilizing entropy-regularized off-policy reinforcement learning under mas-sively parallel sampling and large-batch updates. It applies a mean-centered truncation transformation exclusively to the target action used in the Bellman backup and computes the entropy term using the log-probability induced by the transformed action distribution. By limiting the influence 0.0 0.25 0.5 0.75 1.0 
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+
+(a) T1JoystickFlatTerrain 0.0 0.25 0.5 0.75 1.0  
+
+> Environment Steps
+> 0
+> 10
+> 20
+> 30
+> 40
+> 1e8
+> tanh
+> truncated
+> Gaussian
+
+(b) T1JoystickRoughTerrain 
+
+Fig. 9: Transferring the mean-centered truncation map-ping to SAC. Three SAC variants: raw Gaussian policy (Gaussian ), truncated Gaussian policy ( truncated ), and tanh-squashed Gaussian policy ( tanh ). Results are shown on (a) T1JoystickFlatTerrain and (b) T1JoystickRoughTerrain. Solid lines show the mean over three runs, and shaded regions indicate one standard deviation. of rare and extreme target actions, FastDSAC improves training stability with negligible computational overhead. Experiments on MuJoCo Playground and HumanoidBench demonstrate that FastDSAC achieves faster and more reliable learning, exhibits fewer late-stage performance regressions, and remains effective at high update-to-data ratios. Ablation studies validate the importance of constraining the target action, show robustness across a practical range of truncation radii, and confirm that the same mechanism also bene-fits SAC. While these results suggest improved robustness under aggressive optimization, they provide only indirect behavioral evidence of preserved network plasticity. Future work will therefore incorporate plasticity-specific diagnos-tics, representation-level analyses, qualitative behavior eval-uation, and sim-to-real experiments to better characterize the practical benefits and underlying mechanisms of FastDSAC. REFERENCES [1] X. B. Peng, P. Abbeel, S. Levine, and M. Van de Panne, “Deepmimic: Example-guided deep reinforcement learning of physics-based char-acter skills,” ACM Transactions On Graphics (TOG) , vol. 37, no. 4, pp. 1–14, 2018. [2] J. Li, L. Tao, W. Zou, Y. Zhang, B. Shuai, J. Duan, S. E. Li, H. Sun, Y. Wang, Y. Gao et al. , “Towards robust motion control in multi-source uncertain scenarios by robust policy iteration,” Communications in Transportation Research , vol. 5, p. 100191, 2025. [3] V. Makoviychuk, L. Wawrzyniak, Y. Guo, M. Lu, K. Storey, M. Mack-lin, D. Hoeller, N. Rudin, A. Allshire, A. Handa, and G. State, “Isaac gym: High performance gpu-based physics simulation for robot learning,” in Proceedings of the Neural Information Processing Systems Track on Datasets and Benchmarks , 2021. [4] N. Rudin, D. Hoeller, P. Reist, and M. Hutter, “Learning to walk in minutes using massively parallel deep reinforcement learning,” in 
+
+Conference on robot learning . PMLR, 2022, pp. 91–100. [5] Z. Li, T. Chen, Z.-W. Hong, A. Ajay, and P. Agrawal, “Parallel q-learning: Scaling off-policy reinforcement learning under massively parallel simulation,” in International Conference on Machine Learn-ing . PMLR, 2023, pp. 19 440–19 459. [6] X. Chen, C. Wang, Z. Zhou, and K. W. Ross, “Randomized ensembled double q-learning: Learning fast without a model,” in International Conference on Learning Representations , 2021. [7] C. Lyle, M. Rowland, and W. Dabney, “Understanding and preventing capacity loss in reinforcement learning,” in International Conference on Learning Representations , 2022. [8] E. Nikishin, M. Schwarzer, P. D’Oro, P.-L. Bacon, and A. Courville, “The primacy bias in deep reinforcement learning,” in International Conference on Machine Learning . PMLR, 2022, pp. 16 828–16 847. [9] E. Nikishin, J. Oh, G. Ostrovski, C. Lyle, R. Pascanu, W. Dabney, and A. Barreto, “Deep reinforcement learning with plasticity injection,” in 
+
+Advances in Neural Information Processing Systems , 2023. [10] V. Mnih, K. Kavukcuoglu, D. Silver, A. A. Rusu, J. Veness, M. G. Bellemare, A. Graves, M. Riedmiller, A. K. Fidjeland, G. Ostrovski 
+
+et al. , “Human-level control through deep reinforcement learning,” 
+
+nature , vol. 518, no. 7540, pp. 529–533, 2015. [11] T. P. Lillicrap, J. J. Hunt, A. Pritzel, N. Heess, T. Erez, Y. Tassa, D. Sil-ver, and D. Wierstra, “Continuous control with deep reinforcement learning,” in International Conference on Learning Representations ,2016. [12] S. Fujimoto, D. Meger, and D. Precup, “Off-policy deep reinforcement learning without exploration,” in International conference on machine learning . PMLR, 2019, pp. 2052–2062. [13] S. Fujimoto, H. Hoof, and D. Meger, “Addressing function approxi-mation error in actor-critic methods,” in International conference on machine learning . PMLR, 2018, pp. 1587–1596. [14] O. Nachum, M. Norouzi, G. Tucker, and D. Schuurmans, “Smoothed action value functions for learning gaussian policies,” in Proceedings of the 35th International Conference on Machine Learning (ICML) ,2018. [15] A. Kumar, J. Fu, G. Tucker, and S. Levine, “Stabilizing off-policy q-learning via bootstrapping error reduction,” in Advances in Neural Information Processing Systems (NeurIPS) , 2019. [16] K. Zakka, B. Tabanpour, Q. Liao, M. Haiderbhai, S. Holt, J. Y. Luo, A. Allshire, E. Frey, K. Sreenath, L. A. Kahrs, C. Sferrazza, Y. Tassa, and P. Abbeel, “Demonstrating MuJoCo playground,” in Proceedings of Robotics: Science and Systems , Los Angeles, CA, USA, Jun. 2025. [17] C. Sferrazza, D.-M. Huang, X. Lin, Y. Lee, and P. Abbeel, “Humanoid-Bench: Simulated humanoid benchmark for whole-body locomotion and manipulation,” in Proceedings of Robotics: Science and Systems ,Delft, Netherlands, Jul. 2024. [18] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal policy optimization algorithms,” arXiv preprint arXiv:1707.06347 , 2017. [19] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in International conference on machine learning . PMLR, 2018, pp. 1861–1870. [20] M. G. Bellemare, W. Dabney, and R. Munos, “A distributional per-spective on reinforcement learning,” in International conference on machine learning . PMLR, 2017, pp. 449–458. [21] Y. Seo, C. Sferrazza, H. Geng, M. Nauman, Z.-H. Yin, and P. Abbeel, “Fasttd3: Simple, fast, and capable reinforcement learning for hu-manoid control,” arXiv preprint arXiv:2505.22642 , 2025. [22] Y. Seo, C. Sferrazza, J. Chen, G. Shi, R. Duan, and P. Abbeel, “Learning sim-to-real humanoid locomotion in 15 minutes,” arXiv preprint arXiv:2512.01996 , 2025. [23] C. Lyle, Z. Zheng, E. Nikishin, B. Avila Pires, R. Pascanu, and W. Dabney, “Understanding plasticity in neural networks,” in Interna-tional Conference on Machine Learning . PMLR, 2023, pp. 23 190– 23 211. [24] T. Hiraoka, T. Imagawa, T. Hashimoto, T. Onishi, and Y. Tsuruoka, “Dropout q-functions for doubly efficient reinforcement learning,” in 
+
+International Conference on Learning Representations , 2022. [25] J. Duan, W. Wang, L. Xiao, J. Gao, S. E. Li, C. Liu, Y.-Q. Zhang, B. Cheng, and K. Li, “Distributional soft actor-critic with three refinements,” IEEE Transactions on Pattern Analysis and Machine Intelligence , vol. 47, no. 5, pp. 3935–3946, 2025. [26] A. Kuznetsov, P. Shvechikov, A. Grishin, and D. Vetrov, “Controlling overestimation bias with truncated mixture of continuous distributional quantile critics,” in International conference on machine learning .PMLR, 2020, pp. 5556–5566. [27] H. Tang and G. Berseth, “Improving deep reinforcement learning by reducing the chain effect of value and policy churn,” in Advances in Neural Information Processing Systems (NeurIPS) , 2024, neurIPS 2024 Poster. [Online]. Available: https://arxiv.org/abs/2409.04792 [28] J. Farebrother, J. Orbay, Q. Vuong, A. Ali Ta¨ ıga, Y. Chebotar, T. Xiao, A. Irpan, S. Levine, P. S. Castro, A. Faust, A. Kumar, and R. Agarwal, “Stop regressing: Training value functions via classification for scalable deep rl,” in Proceedings of the 41st International Conference on Machine Learning (ICML) , ser. Proceedings of Machine Learning Research (PMLR), 2024. [Online]. Available: https://proceedings.mlr.press/v235/farebrother24a.html

@@ -1,0 +1,932 @@
+Title: Adapting Generalist Robot Policies with Semantic Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2606.31958v1
+
+Published Time: Wed, 01 Jul 2026 01:38:37 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Adapting Generalist Robot Policies with Semantic Reinforcement Learning 
+
+Jagdeep Singh Bhatia, Andrew Wagenmaker, William Chen, Sergey Levine 
+
+U.C. Berkeley 
+
+semantic-action-rl.github.io 
+
+Abstract: Generalist robot policies learn a diverse repertoire of behaviors from large-scale pretraining. In principle, this makes them excellent priors for downstream adaptation via reinforcement learning (RL). In practice, however, standard RL methods leveraging this prior optimize directly over robot actions, requiring the base policy’s action distribution to be close to that of a performant policy from the start. This assumption breaks down for complex or long-horizon tasks that fall outside the pretraining distribution. Our key insight is that, for sufficiently expressive generalist policies, language prompts are an ef-fective alternative space for learning to solve such tasks: modulating language inputs elicits skills already within the policy’s repertoire, which can be composed to solve tasks beyond its zero-shot capabilities. We propose Semantic Action Reinforcement Learning (SARL), which learns to optimize this prompt space through online interaction, treating the gen-eralist policy as a controllable skill prior. Importantly, leveraging pretrained skills rather than learning new ones from scratch yields structured, semantically meaningful exploration and highly efficient online improvement, and learning to modulate prompts through expe-rience grounds them in induced real-world behaviors for robust task-solving. Across real-world settings and simulated benchmarks, we show SARL unlocks fundamentally new capabilities—adapting VLA behavior to solve complex, long-horizon tasks—and signifi-cantly outperforms existing approaches for improving robot behavior in deployment. 
+
+Keywords: Language Steering, Real-world RL, Robot Foundation Model 
+
+1 Introduction 
+
+Vision-language-action (VLA) models can learn broad skill repertoires from pretraining [1–4], providing powerful priors over plausible robot behaviors. However, leveraging VLAs to solve new tasks remains chal-lenging. While we could directly prompt models to carry out new tasks of interest, this strategy requires models to not only have the necessary skills in their repertoire, but to also deploy them correctly. This is es-pecially a challenge for complex and long-horizon tasks — models must not only break down the semantics of such long-horizon tasks into executable, atomic behaviors, but also ground these behaviors in skills the robot can perform successfully. As such, directly prompting VLAs to carry out novel complex tasks typically fails. How can we better leverage the prior knowledge in general-purpose robot policies to learn to solve these tasks effectively? Our key insight is that learning to modulate a VLA’s prompts through reinforcement learning (RL) is an effective way to probe VLA priors to efficiently learn to solve new tasks. In particular, modulating language inputs elicits skills already within a VLA’s repertoire, yielding constrained, high-quality exploration. By grounding each prompt in the behavior it induces through real-world interaction, these skills can be composed to solve tasks beyond a VLA’s zero-shot capabilities. Unlike prior robotic RL approaches that operate at the 
+
+robot action level, we propose learning at the semantic level, enabling a more effective use of the behavioral priors encoded in VLAs. For example, to train an omelet-making robot, we can simply learn semantic                            
+
+> arXiv:2606.31958v1 [cs.RO] 30 Jun 2026 Task Goal: put the hammer on the plate and pick up the mushroom
+> Before: Naive Prompting
+> Grasp
+> the
+> hammer
+> Move the
+> hammer to
+> the plate
+> Move down
+> and grasp
+> Move the
+> hammer to
+> the plate
+> After: RL over “Semantic Actions”
+> Grasp the
+> mushroom
+> Policy
+> Grasp the hammer
+> Move left
+> Move down and grasp
+> RL Training
+> Q(s,prompt )Observation &
+> reward
+> Semantic Action
+> (Prompt)
+> VLA
+> Real-world robot adaptation in
+> < 100 episodes
+
+Figure 1: Steering VLA priors at deployment to solve complex, long-horizon tasks is challenging. To over-come this, we propose optimizing VLA language inputs via RL. The resulting semantic action space probes skills already encoded in VLAs from pretraining, yielding expressive exploration and efficient adaptation. However, not all induced behaviors make task progress: by learning to decompose complex tasks into 
+
+grounded skills, our method identifies effective task-solving prompts and enables real-robot adaptation in under 100 episodes. language commands to steer the VLA: “turn on the stove”, “open the fridge”, “grab the egg”, and so on, rather than needing to learn the precise low-level robot actions required to execute each of these skills. Reusing pre-trained skills rather than discovering new ones from scratch presents a potentially much easier learning problem, since the search space can be naturally constrained to task-appropriate behaviors using the semantics of the task, but still allows for improvement over the base policy. For VLAs with sufficiently broad language-inducible skill sets, language-based steering produces exactly the kind of exploration RL demands: highly expressive yet always grounded in reasonable actions, enabling efficient learning. Our proposed approach, Semantic Action Reinforcement Learning (SARL), instantiates this capability through an online RL loop that treats the VLA’s language instructions as an action space . SARL uses interactions with the world to learn which language prompts will actually lead the VLA to complete the task of interest. By treating the VLA’s language prompt as an “action,” we can lift the learning problem from low-level robot action space to semantic language space. By grounding prompts in real-world experience, we can efficiently refine which of them actually lead to success. Our core contribution is an RL method that learns over the language inputs into a VLA, enabling substantially more structured exploration and faster learning. Our results—both in simulation and on real-world robots— highlight that SARL unlocks fundamentally new capabilities, enabling us to efficiently learn to solve com-plex, long-horizon tasks that are infeasible for 1) existing RL approaches, 2) zero-shot VLA deployment, and 3) VLAs deployed with high-level language steering (e.g., from a VLM with in-context learning). Finally, we investigate why SARL learns effectively, and find that it is not only because SARL decomposes complex goals into achievable skills, but that SARL also learns a grounded mapping between semantic actions and the physical behaviors they induce. 
+
+2 Related Work 
+
+RL improvement of VLAs. There has been significant progress in developing general-purpose language-conditioned robot policies, such as vision-language-action models (VLAs) [2–11]. While enabling effective task-solving in settings similar to their training data, VLAs often struggle to adapt to new tasks. To address this, a variety of approaches for RL improvement of VLAs have been proposed. These include training a residual policy [12–19], steering the VLA’s denoising process (when the VLA is a flow or diffusion model) [20], augmenting the VLA with “advantage conditioning” [21], and others [22–28]. However, these works all run RL at the level of robot actions , typically fixing the VLA’s task prompt. In contrast, we run RL over 2the language prompt itself , which we show unlocks novel task-solving abilities, enabling VLAs to generalize beyond single-task proficiency to solve novel long-horizon tasks. Our work is also related to hierarchical RL and skill learning [29–40], where a high-level policy learns to direct a low-level policy to maximize reward. While conceptually similar, unlike these works we focus on the setting where the “low-level policy” is a VLA and the interface between both policies is language. 
+
+Steering robots with language. Many works consider how a language-conditioned policy’s prompt should be chosen for successful robot task-solving. Early works in this vein explore using LLMs or VLMs to gener-ate useful instructions for solving real-world tasks [41–44], or rely on pre-programmed language-conditioned action primitives or “skill” policies as the language-to-robot interface [45–49]. More recently, several works have considered combining a VLM or LLM with a VLA or other language-conditioned policy, using the for-mer to select the language prompts for the latter [50–53]. Perhaps most similar to our work is [54]—which selects a VLA’s language command with a VLM, and utilizes the in-context learning ability of the VLM to adapt and improve the prompt based on past observations—and the work of [55], which trains a prompt-action verifier using offline data, and then selects the prompt to use online from a fixed set of initial prompts based on verifier score. However, none of these works incorporate RL or other forms of online improvement, which we find to be critical to achieving robust task-solving behavior. 
+
+Language-based RL outside of robotics. While our focus is on robotics, a variety of other domains also seek to integrate RL and language. Our approach can be seen as a form of prompt optimization , commonly used to elicit desired capabilities from language models [56–58], and the most relevant of which are RL-based methods [59–68]. Outside of language models, language has also been used as a key tool in deep RL, enabling effective exploration [69–72], reward shaping [73, 74], state abstraction design [75], and more [76– 79]. Though these works seek to optimize language prompts with RL and use language as an abstraction to enable efficient learning, the specific challenges we face—in particular, the need for high sample-efficiency in real-world robotic deployments—necessitate a very different algorithmic strategy than those proposed here. 
+
+3 Preliminaries 
+
+Markov decision processes. We consider decision-making in Markov decision processes (MDPs), defined by a tuple M = ( S, A, P, P 0, γ, r ), where S is the set of states, A the set of actions, P : S × A → △ S the transition function, P0 ∈ △ S the initial state distribution, γ ∈ [0 , 1] the discount factor, and r : S → R the reward function. An episode consists of a sequence of interactions between an agent and the environment. Each episode starts at initial state s0 ∼ P0, the agent selects action a0, receives reward r(s0), and transitions to state s1 ∼ P (s0, a 0), repeating this process until a terminal state is reached. A policy π : S → △ A is a mapping from states to actions. The goal of RL is to learn a policy that maximizes the expected discounted reward, V (π) := Eπ [P 
+
+> t
+
+γtr(st)] , where the expectation is over trajectories from rolling out π in M. We define the Q-function as Qπ (s, a ) := Eπ [P 
+
+> t
+
+γtr(st) s0 = s, a 0 = a], the expected discounted reward of taking action a from state s and then following policy π.While usually taken as given, the parameterization of the action space A is often itself a key design decision in RL. In robotic control, A is most commonly the set of continuous robot actions (e.g., joint positions, motor torques, or end-effector deltas), which we generically denote as Arobot . However, as we will discuss in the following, correctly choosing A can often enable much more efficient RL. 
+
+Vision-language-action models (VLAs). Diverse large-scale robotic datasets D = {(τt, ℓ t)}t often contain human-teleoperated trajectories, τt = ( st
+
+> 0
+
+, a t
+
+> 0
+
+, s t
+
+> 1
+
+, a t
+
+> 1
+
+, . . . , ) for sth ∈ S and ath ∈ A robot , paired with corre-sponding language commands, ℓt. Behavioral cloning then trains a language-conditioned policy to produce action ath given state sth and language ℓt by “copying” the expert behaviors in the dataset D. In principle, the resulting policies, given some task of interest described by a language command ℓ, are able to produce actions ah ∼ πvla (· | sh, ℓ ) that lead the robot to complete the task. Such “generalist” policies, including “vision-language-action” models (VLAs), have shown significant promise in capturing language-controllable priors on effective robot behaviors, enabling general-purpose robotic task-solving abilities [1–4]. 34 Leveraging VLAs as Semantic Action Priors for Efficient RL 
+
+In this section, we outline our approach, SARL, which leverages VLAs as controllable action priors that can be steered to enable effective online learning of complex tasks. In particular, we assume access to a VLA πvla 
+
+and are interested in solving some task τ corresponding to a reward function r. As illustrated in Figure 1, SARL treats the language prompt of a VLA as a “semantic action”, and, through real-world interaction, learns to adaptively control this semantic action to steer the VLA to reliably complete tasks of interest. 
+
+4.1 VLAs as Semantically Controllable Action Priors Gras                          
+
+> the
+> hamm
+> Tas
+> Put the hammer on
+> the plate and pick
+> up the mushroom
+> Grasp the
+> hammer
+> SARL (Ours)
+> Move down
+> and grasp
+> Zero-shot Prompting
+> Zero-shot Prompting
+> VLM Prompting
+> Move the hammer to
+> the plate
+> SARL (Ours)
+> Task Goal: put the hammer on the plate and
+> pick up the mushroom
+
+Figure 2: Adapting VLAs to solve new tasks requires decomposing task-goals into achievable stages, and grounding each stage in behaviors that can be executed success-fully in the environment. VLAs prompted zero-shot struggle with both decomposi-tion and grounding, and prompting VLAs with VLMs achieves decomposition but not grounding. Only SARL achieves both by learning to optimize a VLA’s prompt inputs with RL. In a typical VLA deployment, the user provides a fixed language command ℓ describing the task of interest τ , and then uses a VLA to execute this command. For each observation s,the VLA generates action a ∼ πvla (· | s, ℓ ), which is executed on the robot. While effective in settings where the observation and language command are supported by the VLA’s training data D, this approach often fails to enable VLAs to solve new tasks not covered in the task repertoire spanned by D.In this work, we take an alternative view on VLA deploy-ment. While a VLA may fail to execute a complex or out-of-distribution (OOD) command zero-shot, it can often produce reliable behaviors if prompted with simple, physically grounded instructions [53]. For instance, as illustrated in Figure 2, the VLA fails to execute “put the hammer on the plate and pick up the mushroom” because the command is too complex and because the hammer (likely an OOD object) is often confused for other objects. By contrast, “move down and grasp” is simple and avoids referring to the hammer by name, successfully steering the robot. While prompting the VLA with the former instruction will fail to result in successful task completion, adaptively controlling the VLA by selecting a sequence of low-level, grounded instructions can steer the robot to solve the overall task τ . In other words, rather than viewing VLAs simply as policies to be statically prompted, we view them as semantically controllable action priors that can be dynamically guided throughout deployment to accomplish complex tasks of interest. 
+
+Semantic MDPs. This motivates a natural transformation of our original decision-making setting: rather than learning over the robot action space Arobot as is typical in RL for robotics, we can learn in a seman-tic action space—the space of language commands, which we denote as Asem —and deploy the VLA as a transformation between the two. Formally, rather than directly specifying action a ∈ A robot , we can specify a “semantic action” ℓ ∈ A sem , generate robot action avla ∼ πvla (· | s, ℓ ) with our VLA, and transition to s′ ∼ P (· | s, a vla ). We denote this induced transition function as Psem : S × A sem → △ S , and the corresponding induced “semantic MDP” as Msem := ( S, Asem , P sem , P 0, γ, r ).By considering decision-making in Msem instead of M, we shift the burden from directly specifying precise robot actions to guiding the robot with semantic language commands, leveraging the VLA’s priors to translate between semantic commands and robot actions. As described above, by correctly modulating these semantic actions, we can potentially steer the VLA to solve tasks that initially may appear outside its capabilities. Critically, learning over this semantic space enables efficient semantic exploration —instead of exploring the entirety of Arobot , we can focus our exploration only on the “semantically meaningful” behaviors encoded 4in the VLA’s priors and accessed via language prompting. As we will see, this enables highly efficient exploration and online improvement. 
+
+4.2 SARL: Learning in Semantic Action Spaces 
+
+Our proposed approach, SARL, aims to learn how to correctly select these “semantic actions” in order to steer VLAs to task success. While a VLA may act as an effective prior over robot actions, in general we do not know which language commands will effectively steer it to solve tasks of interest, and we must learn this through interaction with both the VLA and the environment. While in principle this can be achieved by applying any RL algorithm to learn in the semantic MDP Msem , we propose a particular instantiation that seeks to enable efficient real-world learning. 
+
+Semantic Action Reinforcement Learning (SARL). At a high level, SARL operates by selecting a semantic action ℓt ∈ A sem at each step t and state st, taking semantic action ℓt in Msem (or, equivalently, generating action at ∼ πvla (· | st, ℓ t) and taking action at in M), and observing reward rt and next state st+1 . In order to determine which semantic action to take at each step, SARL learns a semantic Q-function , Qsem , trained to estimate the effectiveness of semantic actions at making progress towards completing τ from each state s
+
+through temporal-difference (TD) backups [80]. When acting from state st, SARL samples a semantic action from the softmax distribution induced by their Q-values, ℓt ∼ πt
+
+> sem
+
+(· | s) for πt
+
+> sem
+
+(ℓ | s) ∝ exp( Qt
+
+> sem
+
+(st, ℓ )) .A formal description of our approach can be found in Algorithm 1. 
+
+Algorithm 1 Semantic Action Reinforcement Learning (SARL)  
+
+> 1:
+
+input : semantic environment Msem , semantic action space Asem  
+
+> 2:
+
+Initialize Q1sem randomly, replay buffer B ← ∅  
+
+> 3:
+
+for t = 1 , 2, 3, . . . do  
+
+> 4:
+
+Set πt
+
+> sem
+
+(ℓ | s) ∝ exp( Qt
+
+> sem
+
+(s, ℓ ))  
+
+> 5:
+
+Sample ℓt ∼ πt
+
+> sem
+
+(· | st)
+
+// Equivalently, execute action at ∼ πvla (· | st, ℓ t) in M 
+
+> 6:
+
+Execute semantic action ℓt in Msem , observe reward rt and next state st+1  
+
+> 7:
+
+B ← B ∪ { (st, ℓ t, r t, s t+1 )} 
+
+> 8:
+
+Set ¯V t
+
+> sem
+
+(s′) ← Eℓ′∼πt
+
+> sem (·| s′)
+
+ ¯Qt
+
+> sem
+
+(s′, ℓ ′) and 
+
+Qt+1 sem ← min Q
+
+P
+
+> (s,ℓ,r,s ′)∈B
+
+(Q(s, ℓ ) − r − ¯V t
+
+> sem
+
+(s′)) 2 
+
+> 9:
+
+end for Compressing Asem with VLMs. Na¨ ıvely learning over the space of all possible VLA prompts ( Asem ) is intractable. To mitigate this, SARL refines Asem and reduces the search space by relying on large pretrained models, which can encode powerful semantic priors. In particular, vision-language models (VLMs) have proven effective at proposing semantic commands relevant for robotic control [50, 53, 54]. Instead of search-ing over all possible prompts, SARL provides a VLM with the current image observation st and high-level task τ , and prompts it to generate a set of candidate semantic actions, At
+
+> sem
+
+. At 
+
+> sem
+
+is then used instead of 
+
+Asem in Algorithm 1, enabling SARL to consider only a small set of candidate actions at each step. Note that, while VLMs can often generate reasonable candidate VLA prompts, they fundamentally lack grounding for which commands are actually effective. A potential command might appear reasonable to a VLM, yet the VLA’s exact response to this command is highly dependent on the deployment setting, the VLA’s training data, and other factors the VLM does not have access to. In other words, VLMs alone are not effective at directly controlling VLAs (as shown in Section 5). By interleaving VLM queries with real-world interaction, SARL is able to achieve the best-of-both worlds—effectively leveraging the VLM’s semantic priors, while also enabling improvement over these priors by grounding semantic actions in physical VLA behaviors from experience. 50 30 60 90 120              
+
+> Episodes
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+> Task 1: Move the hammer to the
+> plate. Then, grasp the
+> mushroom.
+> 030 60 90
+> Episodes
+> Task 2: Move the banana to the
+> pot on the right and sushi to
+> the bowl.
+> 030 60 90
+> Episodes
+> Task 3: Move the left stuffed
+> toy to the largest bowl.
+> 030 60 90
+> Episodes
+> Task 4: Move the pot lid to
+> the towel.
+> SARL (Ours) DSRL Residual Policy Base Policy ICL VLM
+
+Figure 3: Across four complex, real-world tasks, learning over semantic actions with SARL enables the best improvement of generalist policy behavior in deployment. In particular, SARL enables new capabilities over prior steering methods such as DSRL [20] and Residual RL [13, 17, 18], as these methods are funda-mentally constrained by the base policy’s performance under the task’s original prompt. In addition, SARL outperforms an in-context learning VLM baseline (ICL VLM) [53], since VLMs struggle to ground semantic actions in physical behaviors. Each data-point represents 10 evaluations. 0                       
+
+> 25
+> 50
+> 75
+> 100
+> Success (%)  Task 0 Task 1 Task 2 Task 3 Task 4
+> 0100 200 300
+> Episodes
+> 0
+> 25
+> 50
+> 75
+> 100
+> Success (%)  Task 5
+> 0100 200 300
+> Episodes
+> Task 6
+> 0100 200 300
+> Episodes
+> Task 7
+> 0100 200 300
+> Episodes
+> Task 8
+> 0100 200 300
+> Episodes
+> Task 9
+> SARL (Ours) DSRL Residual Policy Base Policy ICL VLM
+
+Figure 4: SARL outperforms prior methods for deployment-time adaptation — DSRL [20], Residual RL [13, 17, 18], and in-context learning with VLMs [53] — on long-horizon Libero-10 tasks [81]. SARL successfully adapts a policy [82] on five tasks, and matches performance on another already close to solved. Four tasks remain unsolved by any method. Each graphed data-point represents 64 evaluations and standard error over 3 seeds. 
+
+5 Experiments 
+
+Our experiments evaluate SARL both as a sample-efficient algorithm for adapting VLA priors and as a method for steering VLAs through high-level language instructions. We aim to answer three questions. First, can SARL’s semantic exploration space efficiently adapt VLAs to solve new tasks? Second, compared to traditional action-space RL methods, does operating in a lifted, semantic prompt space allow SARL to efficiently solve complex, long-horizon tasks where these prior methods may struggle? Finally, does optimizing prompts via online RL outperform non-RL VLA prompting methods (e.g., in-context learning, ICL, with VLMs), by explicitly grounding semantic instructions in the physical behaviors they induce? We investigate these questions across a suite of challenging multi-step tasks within both the Libero simulation benchmark [81] and with a real-world WidowX robot. 
+
+5.1 Experimental Setup 
+
+We evaluate SARL on the simulated Libero-10 benchmark [81] and four challenging real-world WidowX tasks [83] shown in Figure 5. These tasks are specifically designed to be long-horizon, and involve multiple steps. In fact, the base VLA policies we use—based on π0.5 [4], and finetuned on the Libero-90 [81] and Bridge v2 datasets [83]—perform poorly on these tasks, only achieving significant performance on one task in each setting. Consequently, these tasks are a good evaluation domain for RL methods that leverage pre-trained generalist policies: while they contain many atomic behaviors that are well-represented in Libero and Bridge’s training sets, they reveal the difficulty of applying these behaviors directly to complex new tasks. 6Move the hammer to the                          
+
+> plate. Then, grasp the
+> mushroom.
+> Move the banana to the
+> pot on the right and
+> sushi to the bowl.
+> Move the left stuffed
+> toy to the largest
+> bowl.
+> Move the pot lid to the
+> towel.
+
+Figure 5: We test our approach on four complex, long-horizon tasks on the WidowX robot, illustrated above, along with ten tasks on the simulated Libero-10 benchmark [81]. In addition to the original language prompt space for the VLA, in Libero we also introduce a “reset-to-home” command that resets the robot arm to its starting state. Note that this is straightforward to implement on a real robot (e.g. we simply reset the robot’s joint positions), and the capacity to seamlessly integrate such auxiliary controllers highlights a unique strength of our approach. We compare SARL against two classes of baseline approaches. As VLA RL baselines, we consider Diffusion Steering via Reinforcement Learning (DSRL) [20], which learns to steer diffusion policies in their latent-noise space, and Residual RL [13, 17, 18], which learns a residual policy that predicts small corrective actions which are added to the base policy before execution. For both baselines we rely on standard implementations. To the best of our knowledge, all existing evaluations of DSRL and Residual RL use a fixed VLA prompt. Therefore, for these comparisons, we provide these prior methods with the task prompts indicated in Figure 5 for real-world experiments, and the standard Libero task prompts in simulation. For our second class of baselines, we explore approaches that adaptively adjust the VLA’s prompt. In particular, we consider an in-context learning-based VLM approach that processes past observations in-context and uses this information to select prompts that steer the VLA to task completion [53, 54]. For SARL, we utilize the VLM-based restriction of 
+
+Asem outlined in Section 4.2. To simplify the prompt space further, the algorithm caches and reuses the first 
+
+N ∈ { 32 , 64 , 100 } prompts proposed by the VLM. We find this to produce sufficiently expressive behaviors to enable effective learning. Finally, for real-world WidowX experiments, we collect three full demonstrations per task and seed them into SARL and Residual RL’s replay buffers prior to training. Because DSRL inherently cannot ingest such demonstrations—it learns over latent-noise space, rather than robot action space, where the demonstrations are given—it is evaluated without them. To collect these demonstrations, an operator merely provides the VLA with periodic language instructions. Note that the ease of collecting such demonstrations is a core advantage of language-based steering. Further experimental details are provided in Appendix A. 
+
+5.2 SARL Enables Efficient Adaptation of Generalist Policies 
+
+We first evaluate SARL’s ability to learn effective task-solving behaviors compared to existing methods for improving VLAs in deployment. As shown in Figures 3 and 4, SARL is able to significantly improve the performance of the base VLA across Libero-10 and the four long-horizon real-world tasks we consider—in both settings, SARL is able to improve the VLA’s initial success rate of near 0% under the task prompt up to 80% after only 60-100 online episodes. This suggests that the VLA’s prompts are an expressive and high-quality space for exploration and task-learning, and that by modulating the language prompt, we can elicit task-solving behaviors that naive prompting fails to exhibit. Notably, our approach improves over traditional action-space RL methods, such as DSRL and Residual RL, which are unable to learn at all on several tasks. SARL also significantly outperforms the ICL VLM baseline, which adaptively selects VLA prompts by in-context learning over a history of interactions. These results highlight SARL’s effectiveness as a method for adaptation on real-world robots, enabling novel task-solving abilities in VLAs. 7turn on the stove | reset to home | turn on the stove and put                                               
+
+> the moka pot on the burner
+> turn on the stove and put the moka pot on it
+> move down to grasp the hammer |move the hammer to the green
+> plate and open the gripper |move right and grasp the mushroom
+> move the hammer to the plate. then, grasp the
+> mushroom
+
+Base Policy  Semantic Action RL  
+
+> Zero-shot prompting fails on complex tasks. Composing grounded skills is successful.
+
+Figure 6: On complex, long-horizon tasks, the base policy fails when zero-shot prompted. SARL solves them through learned prompting, sequencing skills covered under the pretraining distribution. We emphasize that the tasks in our evaluation suite are unique in their complexity and horizon for deployment-time adaptation compared to prior works [17, 18, 20]. Our tasks, which by design have multiple stages and require invoking sequences of skills seen during training on Bridge v2 (real experiments) [83] and Libero (sim experiments) [81], are not able to be solved by action-space steering methods, such as DSRL and Residual RL. The unique ability of SARL to solve these tasks highlights that it unlocks a completely new capability over these prior steering methods. 
+
+5.3 SARL vs Action-Space RL: Editing Prompts Unlocks Fundamentally New Adaptation Abilities 
+
+As shown in Figures 3 and 4, SARL significantly outperforms standard RL steering methods (DSRL and Residual RL) that operate over robot actions directly. We hypothesize that this is because (1) existing steering methods are constrained to a single task prompt, and (2) the VLA’s action distribution under this task prompt does not adequately cover the diversity of actions needed to solve the task, making action-based steering ineffective. Indeed, when evaluated on our multi-step task suite and prompted zero-shot, the base policy’s action distri-bution tends to collapse into entirely incorrect modes, far from an optimal policy’s distribution. A qualitative example is shown in Figure 6, where a VLA instructed to “move the hammer to the plate. then, grasp the mushroom” (Row 1), instead moves the mushroom to the plate and grabs a spoon. This is catastrophic for methods that steer over actions directly. For instance, DSRL can filter to find good actions from the base policy’s distribution, but cannot synthesize fundamentally new ones. Similarly, residual RL is restricted to exploring a narrow funnel around the base policy’s actions. Consequently, these baselines only learn effectively when the base policy already exhibits close to successful behaviors on the underlying task (e.g., Libero Task 5 or real-world Task 4), but cannot recover from the significantly incorrect behavior modes observed when task prompts are out-of-support. In contrast, SARL is not constrained in this way. By modulating prompts, SARL explores regions of the VLA’s behavioral prior that remain entirely inaccessible to action-only steering methods. This capability is critical for solving long-horizon tasks, and SARL uniquely drives significant progress across five Libero-10 tasks, along with all tested WidowX tasks. 
+
+5.4 SARL vs VLM Prompting: Instruction Grounding is as Important as Decomposition 
+
+Our results show that SARL enables highly efficient learning of complex, long-horizon tasks even when task-prompts fall outside the base policy’s support. To disentangle whether this capability stems from more than just instruction decomposition (ie. breaking down task prompts into sequences of short-horizon commands), we consider a closer comparison of our approach against its VLM baseline [53], which selects instructions via in-context learning (ICL) over interaction history. 8In-Context Learning VLM  Semantic Action RL                                    
+
+> Actions lack grounding. Learned, grounded actions.
+> move left and
+> down to grasp the
+> hammer
+> move right and
+> grasp the hammer
+> move right move down to
+> grasp the hammer
+> Failed grasp of OOD hammer.
+> close the gripper drop the sushi in
+> the bowl
+> grasp the sushi
+> and move it to
+> the bowl
+> grab the sushi
+> and move to the
+> bowl
+> Successful correction to grasp OOD hammer.
+> Poor verb choice (‘drop’) undoes task progress. Sushi successfully delivered to bowl.
+
+Figure 7: Across tasks, an in-context learning VLM [53] selects instructions that are semantically meaningful, but lack grounding in physical behaviors, leading to task failures. By contrast, SARL’s learned semantic actions correctly navigate scenarios where choosing the right instruction is critical. Additional examples can be found in Figure 9. As shown in Figures 3 and 4, the VLM baseline outperforms the zero-shot base policy, confirming that task decomposition does improve performance. However, across the board, SARL significantly outperforms the VLM. Qualitative examples in Figure 7 illustrate why: the VLM frequently selects commands that seem semantically plausible but still cause execution failures. For instance, in Row 1, the VLM is unable to pick the hammer (likely an OOD object): referencing the “hammer” by name mistakenly causes the VLA to grasp a spoon, and only spatial commands (e.g., “move right”) successfully guide the VLA. In another instance (Row 2), the VLM selects an incorrect verb (“drop”), causing the VLA to prematurely release a piece of sushi before reaching the target. While the VLM can learn in-context, it cannot recover from such failures in a single episode. By contrast, through many episodes of experience, SARL is able to learn the grounded behavior induced by each language command, and uses this knowledge to select language commands appropriately. Our results highlight that this ability is critical for performant adaptation. 
+
+6 Discussion and Limitations 
+
+We proposed SARL, a new method for steering VLAs over their language inputs. Our results illustrate that SARL enables highly efficient learning, particularly excelling at complex, long-horizon tasks where standard steering methods are unsuccessful. We additionally disentangle that SARL’s performance comes from both semantically decomposing task goals using a VLM, while also learning to ground those behaviors in the actions they induce through experience. We find SARL to be a powerful yet efficient approach for adapting generalist robot policies online, unlocking new capabilities over prior methods. The two main limitations of SARL are speed (due to having a VLM in the loop), and the prerequisite of having VLAs that produce diverse behaviors when prompted with diverse instructions. For the former, an interesting extension of our work is studying whether VLMs are required at deployment time, or if the learned Q-function can generalize. For the latter, we believe the community will continue to develop stronger language-conditioned policies, making our work increasingly relevant. We hope that SARL will inspire the training of policies with better language following capabilities, enable the creation of even stronger adapta-tion methods by combining semantic-action space steering with complementary robot-action space steering, and eventually, in a future world with powerful and general VLAs, be a part of a standard toolkit that enables robots to autonomously adapt and solve problems in open-ended environments. 9References 
+
+[1] J. Barreiros, A. Beaulieu, A. Bhat, R. Cory, E. Cousineau, H. Dai, C.-H. Fang, K. Hashimoto, M. Z. Irshad, M. Itkina, et al. A careful examination of large behavior models for multitask dexterous manip-ulation. arXiv preprint arXiv:2507.05331 , 2025. [2] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter, et al. π0: A vision-language-action flow model for general robot control. arXiv preprint arXiv:2410.24164 , 2024. [3] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [4] Physical Intelligence, K. Black, N. Brown, J. Darpinian, K. Dhabalia, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, et al. π0.5: a vision-language-action model with open-world generalization. arXiv preprint arXiv:2504.16054 , 2025. [5] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Hausman, A. Herzog, J. Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817 , 2022. [6] J. Gu, S. Kirmani, P. Wohlhart, Y. Lu, M. G. Arenas, K. Rao, W. Yu, C. Fu, K. Gopalakrishnan, Z. Xu, et al. Rt-trajectory: Robotic task generalization via hindsight trajectory sketches. arXiv preprint arXiv:2311.01977 , 2023. [7] O. M. Team, D. Ghosh, H. Walke, K. Pertsch, K. Black, O. Mees, S. Dasari, J. Hejna, T. Kreiman, C. Xu, et al. Octo: An open-source generalist robot policy. arXiv preprint arXiv:2405.12213 , 2024. [8] J. Bjorck, F. Casta˜ neda, N. Cherniadev, X. Da, R. Ding, L. Fan, Y. Fang, D. Fox, F. Hu, S. Huang, et al. Gr00t n1: An open foundation model for generalist humanoid robots. arXiv preprint arXiv:2503.14734 ,2025. [9] G. R. Team, S. Abeyruwan, J. Ainslie, J.-B. Alayrac, M. G. Arenas, T. Armstrong, A. Balakrishna, R. Baruch, M. Bauza, M. Blokzijl, et al. Gemini robotics: Bringing ai into the physical world. arXiv preprint arXiv:2503.20020 , 2025. [10] S. Liu, L. Wu, B. Li, H. Tan, H. Chen, Z. Wang, K. Xu, H. Su, and J. Zhu. Rdt-1b: a diffusion foundation model for bimanual manipulation. In International Conference on Learning Representations , volume 2025, pages 29982–30009, 2025. [11] L. Zha, A. J. Hancock, M. Zhang, T. Yin, Y. Huang, D. Shah, A. Z. Ren, and A. Majumdar. Lap: Language-action pre-training enables zero-shot cross-embodiment transfer. arXiv preprint arXiv:2602.10556 , 2026. [12] T. Johannink, S. Bahl, A. Nair, J. Luo, A. Kumar, M. Loskyll, J. A. Ojea, E. Solowjow, and S. Levine. Residual reinforcement learning for robot control, 2018. URL https://arxiv.org/abs/1812. 03201 .[13] L. Ankile, A. Simeonov, I. Shenfeld, M. Torne, and P. Agrawal. From imitation to refinement-residual rl for precise assembly. In 2025 IEEE International Conference on Robotics and Automation (ICRA) ,pages 01–08. IEEE, 2025. [14] X. Yuan, T. Mu, S. Tao, Y. Fang, M. Zhang, and H. Su. Policy decorator: Model-agnostic online refinement for large policy model. arXiv preprint arXiv:2412.13630 , 2024. 10 [15] T. J¨ ulg, W. Burgard, and F. Walter. Refined policy distillation: From vla generalists to rl experts. arXiv preprint arXiv:2503.05833 , 2025. [16] P. Dong, Q. Li, D. Sadigh, and C. Finn. Expo: Stable reinforcement learning with expressive policies. 
+
+arXiv preprint arXiv:2507.07986 , 2025. [17] W. Xiao, H. Lin, A. Peng, H. Xue, T. He, Y. Xie, F. Hu, J. Wu, Z. Luo, L. Fan, et al. Self-improving vision-language-action models with data generation via residual rl. arXiv preprint arXiv:2511.00091 ,2025. [18] C. Xu, J. T. Springenberg, M. Equi, A. Amin, A. Esmail, S. Levine, and L. Ke. Rl token: Bootstrapping online rl with vision-language-action models. arXiv preprint arXiv:2604.23073 , 2026. [19] Z. Sun and S. Song. From prior to pro: Efficient skill mastery via distribution contractive rl finetuning. 
+
+arXiv preprint arXiv:2603.10263 , 2026. [20] A. Wagenmaker, M. Nakamoto, Y. Zhang, S. Park, W. Yagoub, A. Nagabandi, A. Gupta, and S. Levine. Steering your diffusion policy with latent space reinforcement learning. Conference on Robot Learning ,2025. [21] A. Amin, R. Aniceto, A. Balakrishna, K. Black, K. Conley, G. Connors, J. Darpinian, K. Dhabalia, J. DiCarlo, D. Driess, et al. π∗
+
+> 0.6
+
+: a vla that learns from experience. arXiv preprint arXiv:2511.14759 ,2025. [22] M. S. Mark, T. Gao, G. G. Sampaio, M. K. Srirama, A. Sharma, C. Finn, and A. Kumar. Policy agnostic rl: Offline rl and online rl fine-tuning of any class and backbone. arXiv preprint arXiv:2412.06685 ,2024. [23] M. Nakamoto, O. Mees, A. Kumar, and S. Levine. Steering your generalists: Improving robotic foun-dation models via value guidance. arXiv preprint arXiv:2410.13816 , 2024. [24] Y. Chen, S. Tian, S. Liu, Y. Zhou, H. Li, and D. Zhao. Conrft: A reinforced fine-tuning method for vla models via consistency policy. arXiv preprint arXiv:2502.05450 , 2025. [25] J. Hu, R. Hendrix, A. Farhadi, A. Kembhavi, R. Mart´ ın-Mart´ ın, P. Stone, K.-H. Zeng, and K. Ehsani. Flare: Achieving masterful and adaptive robot policies with large-scale reinforcement learning fine-tuning. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 3617–3624. IEEE, 2025. [26] Y. Guo, J. Zhang, X. Chen, X. Ji, Y.-J. Wang, Y. Hu, and J. Chen. Improving vision-language-action model with online reinforcement learning. arXiv preprint arXiv:2501.16664 , 2025. [27] G. Lu, W. Guo, C. Zhang, Y. Zhou, H. Jiang, Z. Gao, Y. Tang, and Z. Wang. Vla-rl: Towards masterful and general robotic manipulation with scalable reinforcement learning. arXiv preprint arXiv:2505.18719 , 2025. [28] J. Liu, F. Gao, B. Wei, X. Chen, Q. Liao, Y. Wu, C. Yu, and Y. Wang. What can rl bring to vla generalization? an empirical study. arXiv preprint arXiv:2505.19789 , 2025. [29] C. Daniel, G. Neumann, O. Kroemer, and J. Peters. Hierarchical relative entropy policy search. Journal of Machine Learning Research , 17(93):1–50, 2016. [30] T. D. Kulkarni, K. Narasimhan, A. Saeedi, and J. Tenenbaum. Hierarchical deep reinforcement learning: Integrating temporal abstraction and intrinsic motivation. Advances in neural information processing systems , 29, 2016. 11 [31] X. B. Peng, G. Berseth, K. Yin, and M. Van De Panne. Deeploco: Dynamic locomotion skills using hierarchical deep reinforcement learning. Acm transactions on graphics (tog) , 36(4):1–13, 2017. [32] M. Riedmiller, R. Hafner, T. Lampe, M. Neunert, J. Degrave, T. Wiele, V. Mnih, N. Heess, and J. T. Springenberg. Learning by playing solving sparse reward tasks from scratch. In International confer-ence on machine learning , pages 4344–4353. PMLR, 2018. [33] O. Nachum, S. S. Gu, H. Lee, and S. Levine. Data-efficient hierarchical reinforcement learning. Ad-vances in neural information processing systems , 31, 2018. [34] J. Gehring, G. Synnaeve, A. Krause, and N. Usunier. Hierarchical skills for efficient exploration. Ad-vances in Neural Information Processing Systems , 34:11553–11564, 2021. [35] J. Merel, L. Hasenclever, A. Galashov, A. Ahuja, V. Pham, G. Wayne, Y. W. Teh, and N. Heess. Neural probabilistic motor primitives for humanoid control. arXiv preprint arXiv:1811.11711 , 2018. [36] A. Ajay, A. Kumar, P. Agrawal, S. Levine, and O. Nachum. Opal: Offline primitive discovery for accelerating offline reinforcement learning. arXiv preprint arXiv:2010.13611 , 2020. [37] A. Singh, H. Liu, G. Zhou, A. Yu, N. Rhinehart, and S. Levine. Parrot: Data-driven behavioral priors for reinforcement learning. arXiv preprint arXiv:2011.10024 , 2020. [38] K. Pertsch, Y. Lee, and J. Lim. Accelerating reinforcement learning with learned skill priors. In Con-ference on robot learning , pages 188–204. PMLR, 2021. [39] S. Nasiriany, T. Gao, A. Mandlekar, and Y. Zhu. Learning and retrieval from prior data for skill-based imitation learning. arXiv preprint arXiv:2210.11435 , 2022. [40] M. Wilcoxson, Q. Li, K. Frans, and S. Levine. Leveraging skills from unlabeled prior data for efficient online exploration. arXiv preprint arXiv:2410.18076 , 2024. [41] W. Huang, P. Abbeel, D. Pathak, and I. Mordatch. Language models as zero-shot planners: Extracting actionable knowledge for embodied agents. In International conference on machine learning , pages 9118–9147. PMLR, 2022. [42] A. Zeng, M. Attarian, B. Ichter, K. Choromanski, A. Wong, S. Welker, F. Tombari, A. Purohit, M. Ryoo, V. Sindhwani, et al. Socratic models: Composing zero-shot multimodal reasoning with language. arXiv preprint arXiv:2204.00598 , 2022. [43] W. Huang, F. Xia, T. Xiao, H. Chan, J. Liang, P. Florence, A. Zeng, J. Tompson, I. Mordatch, Y. Cheb-otar, et al. Inner monologue: Embodied reasoning through planning with language models. arXiv preprint arXiv:2207.05608 , 2022. [44] D. Driess, F. Xia, M. S. Sajjadi, C. Lynch, A. Chowdhery, B. Ichter, A. Wahid, J. Tompson, Q. Vuong, T. Yu, et al. Palm-e: An embodied multimodal language model. arXiv preprint arXiv:2303.03378 ,2023. [45] W. Huang, C. Wang, R. Zhang, Y. Li, J. Wu, and L. Fei-Fei. Voxposer: Composable 3d value maps for robotic manipulation with language models. arXiv preprint arXiv:2307.05973 , 2023. [46] J. Liang, W. Huang, F. Xia, P. Xu, K. Hausman, B. Ichter, P. Florence, and A. Zeng. Code as policies: Language model programs for embodied control. In 2023 IEEE International conference on robotics and automation (ICRA) , pages 9493–9500. IEEE, 2023. [47] B. Li, P. Wu, P. Abbeel, and J. Malik. Interactive task planning with language models. arXiv preprint arXiv:2310.10645 , 2023. 12 [48] J. Zhang, J. Zhang, K. Pertsch, Z. Liu, X. Ren, M. Chang, S.-H. Sun, and J. J. Lim. Bootstrap your own skills: Learning to solve new tasks with large language model guidance. arXiv preprint arXiv:2310.10021 , 2023. [49] H. Ha, P. Florence, and S. Song. Scaling up and distilling down: Language-guided robot skill acquisi-tion. In Conference on Robot Learning , pages 3766–3777. PMLR, 2023. [50] M. Ahn, A. Brohan, N. Brown, Y. Chebotar, O. Cortes, B. David, C. Finn, C. Fu, K. Gopalakrishnan, K. Hausman, et al. Do as i can, not as i say: Grounding language in robotic affordances. arXiv preprint arXiv:2204.01691 , 2022. [51] L. X. Shi, Z. Hu, T. Z. Zhao, A. Sharma, K. Pertsch, J. Luo, S. Levine, and C. Finn. Yell at your robot: Improving on-the-fly from language corrections. arXiv preprint arXiv:2403.12910 , 2024. [52] L. X. Shi, B. Ichter, M. Equi, L. Ke, K. Pertsch, Q. Vuong, J. Tanner, A. Walling, H. Wang, N. Fusai, et al. Hi robot: Open-ended instruction following with hierarchical vision-language-action models. 
+
+arXiv preprint arXiv:2502.19417 , 2025. [53] W. Chen, J. S. Bhatia, C. Glossop, N. Mathihalli, R. Doshi, A. Tang, D. Driess, K. Pertsch, and S. Levine. Steerable vision-language-action policies for embodied reasoning and hierarchical control. 
+
+arXiv preprint arXiv:2602.13193 , 2026. [54] A. Shah, W. Chen, A. Godbole, F. Mora, S. A. Seshia, and S. Levine. Learning affordances at inference-time for vision-language-action models. arXiv preprint arXiv:2510.19752 , 2025. [55] J. Kwok, X. Zhang, M. Xu, Y. Liu, A. Mirhoseini, C. Finn, and M. Pavone. Scaling verification can be more effective than scaling policy learning for vision-language-action alignment. arXiv preprint arXiv:2602.12281 , 2026. [56] T. Shin, Y. Razeghi, R. L. L. Iv, E. Wallace, and S. Singh. Autoprompt: Eliciting knowledge from language models with automatically generated prompts. In Proceedings of the 2020 conference on empirical methods in natural language processing (EMNLP) , pages 4222–4235, 2020. [57] Y. Zhou, A. I. Muresanu, Z. Han, K. Paster, S. Pitis, H. Chan, and J. Ba. Large language models are human-level prompt engineers. In The eleventh international conference on learning representations ,2022. [58] R. Pryzant, D. Iter, J. Li, Y. Lee, C. Zhu, and M. Zeng. Automatic prompt optimization with “gradient descent” and beam search. In Proceedings of the 2023 conference on empirical methods in natural language processing , pages 7957–7968, 2023. [59] M. Deng, J. Wang, C.-P. Hsieh, Y. Wang, H. Guo, T. Shu, M. Song, E. Xing, and Z. Hu. Rlprompt: Optimizing discrete text prompts with reinforcement learning. In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing , pages 3369–3391, 2022. [60] T. Zhang, X. Wang, D. Zhou, D. Schuurmans, and J. E. Gonzalez. Tempera: Test-time prompting via reinforcement learning. arXiv preprint arXiv:2211.11890 , 2022. [61] H. Jung and K.-J. Kim. Discrete prompt compression with reinforcement learning. IEEE Access , 12: 72578–72587, 2024. [62] X. Wang, C. Li, Z. Wang, F. Bai, H. Luo, J. Zhang, N. Jojic, E. Xing, and Z. Hu. Promptagent: Strategic planning with language models enables expert-level prompt optimization. In International Conference on Learning Representations , volume 2024, pages 23967–24001, 2024. 13 [63] Q. Guo, R. Wang, J. Guo, B. Li, K. Song, X. Tan, G. Liu, J. Bian, and Y. Yang. Evoprompt: Connecting llms with evolutionary algorithms yields powerful prompt optimizers. arXiv e-prints , pages arXiv–2309, 2023. [64] P. Lu, L. Qiu, K.-W. Chang, Y. N. Wu, S.-C. Zhu, T. Rajpurohit, P. Clark, and A. Kalyan. Dy-namic prompt learning via policy gradient for semi-structured mathematical reasoning. arXiv preprint arXiv:2209.14610 , 2022. [65] Y. Jafari, D. Mekala, R. Yu, and T. Berg-Kirkpatrick. Morl-prompt: An empirical analysis of multi-objective reinforcement learning for discrete prompt optimization. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 9878–9889, 2024. [66] P. Batorski, A. Kosmala, and P. Swoboda. Prl: Prompts from reinforcement learning. arXiv preprint arXiv:2505.14412 , 2025. [67] W. Kong, S. Hombaiah, M. Zhang, Q. Mei, and M. Bendersky. Prewrite: Prompt rewriting with rein-forcement learning. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers) , pages 594–601, 2024. [68] M. Kwon, G. Kim, J. Kim, H. Lee, and J. Kim. Stableprompt: Automatic prompt tuning using re-inforcement learning for large language model. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pages 9868–9884, 2024. [69] S. Mirchandani, S. Karamcheti, and D. Sadigh. Ella: Exploration through learned language abstraction. 
+
+Advances in neural information processing systems , 34:29529–29540, 2021. [70] J. Mu, V. Zhong, R. Raileanu, M. Jiang, N. Goodman, T. Rockt¨ aschel, and E. Grefenstette. Improving intrinsic exploration with language abstractions. Advances in Neural Information Processing Systems ,35:33947–33960, 2022. [71] A. Tam, N. Rabinowitz, A. Lampinen, N. A. Roy, S. Chan, D. Strouse, J. Wang, A. Banino, and F. Hill. Semantic exploration from language abstractions and pretrained representations. Advances in neural information processing systems , 35:25377–25389, 2022. [72] Y. Du, O. Watkins, Z. Wang, C. Colas, T. Darrell, P. Abbeel, A. Gupta, and J. Andreas. Guiding pre-training in reinforcement learning with large language models. In International Conference on Machine Learning , pages 8657–8677. PMLR, 2023. [73] T. Carta, P.-Y. Oudeyer, O. Sigaud, and S. Lamprier. Eager: Asking and answering questions for automatic reward shaping in language-guided rl. Advances in neural information processing systems ,35:12478–12490, 2022. [74] P. Goyal, S. Niekum, and R. J. Mooney. Using natural language for reward shaping in reinforcement learning. arXiv preprint arXiv:1903.02020 , 2019. [75] A. Peng, I. Sucholutsky, B. Li, T. Sumers, T. L. Griffiths, J. Andreas, and J. Shah. Learning with language-guided state abstractions. In International Conference on Learning Representations , volume 2024, pages 38711–38744, 2024. [76] S. Branavan, D. Silver, and R. Barzilay. Learning to win by reading manuals in a monte-carlo frame-work. Journal of Artificial Intelligence Research , 43:661–704, 2012. [77] K. M. Hermann, F. Hill, S. Green, F. Wang, R. Faulkner, H. Soyer, D. Szepesvari, W. M. Czarnecki, M. Jaderberg, D. Teplyashin, et al. Grounded language learning in a simulated 3d world. arXiv preprint arXiv:1706.06551 , 2017. 14 [78] D. Misra, J. Langford, and Y. Artzi. Mapping instructions and visual observations to actions with rein-forcement learning. In Proceedings of the 2017 conference on empirical methods in natural language processing , pages 1004–1015, 2017. [79] K. Narasimhan, R. Barzilay, and T. Jaakkola. Grounding language for transfer in deep reinforcement learning. Journal of Artificial Intelligence Research , 63:849–874, 2018. [80] A. G. Barto. Reinforcement learning: An introduction. by richard’s sutton. SIAM Rev , 6(2):423, 2021. [81] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone. Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36:44776– 44791, 2023. [82] A. Jain, M. Zhang, K. Arora, W. Chen, M. Torne, M. Z. Irshad, S. Zakharov, Y. Wang, S. Levine, C. Finn, et al. Polaris: Scalable real-to-sim evaluations for generalist robot policies. arXiv preprint arXiv:2512.16881 , 2025. [83] H. R. Walke, K. Black, T. Z. Zhao, Q. Vuong, C. Zheng, P. Hansen-Estruch, A. W. He, V. Myers, M. J. Kim, M. Du, et al. Bridgedata v2: A dataset for robot learning at scale. In Conference on Robot Learning , pages 1723–1736. PMLR, 2023. [84] A. Khazatsky, K. Pertsch, S. Nair, A. Balakrishna, S. Dasari, S. Karamcheti, S. Nasiriany, M. K. Sri-rama, L. Y. Chen, K. Ellis, et al. Droid: A large-scale in-the-wild robot manipulation dataset. arXiv preprint arXiv:2403.12945 , 2024. [85] G. Team, R. Anil, S. Borgeaud, J.-B. Alayrac, J. Yu, R. Soricut, J. Schalkwyk, A. M. Dai, A. Hauth, K. Millican, et al. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. [86] T. Haarnoja, A. Zhou, K. Hartikainen, G. Tucker, S. Ha, J. Tan, V. Kumar, H. Zhu, A. Gupta, P. Abbeel, et al. Soft actor-critic algorithms and applications. arXiv preprint arXiv:1812.05905 , 2018. 15 A Experimental Details 
+
+A.1 SARL: In-practice Optimizations 
+
+We make three optimizations to Algorithm 1 presented in Section 4.2 to improve learnability and speed. First, as discussed in Section 4.2, na¨ ıvely learning over the space of all possible VLA prompts ( Asem ) is intractable. Instead, at every execution step, we use a VLM to produce a set of candidate semantic actions 
+
+At
+
+> sem
+
+, which SARL is then run over. However, since the VLM can still, in principle, generate any language prompt, this approach requires a prompt featurization scheme that can both 1) encode the semantic meaning of each prompt 2) generalize the VLA’s grounded behavior resulting from each prompt across these features. In practice, we find the latter to be especially difficult with off-the-shelf embeddings. As an alternate approach, we cache the first k prompts seen by the algorithm (either generated by the VLM, or provided by a human during demonstrations). After the cache has been filled, the VLM is queried to generate 
+
+At
+
+> sem
+
+, but may only choose commands from the size-k cache, rather than generating them open-endedly. This allows for a one-hot prompt featurization which we find enables efficient learning. |A t
+
+> sem
+
+| and k for each task can be found in Table 4 as outer policy.max candidates and outer policy.cache size ,respectively. We consider two additional optimizations: First, for each next state st+1 added to the replay buffer in Al-gorithm 1, we cache the corresponding generated At+1 sem , which avoids the need to call the VLM during Temporal-Difference (TD) backups [80]. Second, instead of generating At 
+
+> sem
+
+for each t, we use the same 
+
+At 
+
+> sem
+
+for tvlm steps before regenerating — this speeds up the time to collect each episode. A revised Algo-rithm 1 with these optimizations is provided in Algorithm 2. 
+
+A.2 MDP Definition 
+
+For steering methods that make decisions over chunks of low-level actions, it is helpful to distinguish two distinct Markov Decision Processes (MDPs): low-level MDPs and high-level MDPs. In low-level MDPs, each transition corresponds to executing a single action in the underlying environment. By contrast, high-level MDPs operate over a coarser temporal resolution, where each transition corresponds to a “chunk” of low-level actions executed entirely open-loop. When converting low-level MDPs into high-level MDPs, we define a high-level step size to be the number of low-level actions executed open-loop in each transition of the high-level MDP. The horizon of a task in a high-level MDP is therefore its horizon in the corresponding low-level MDP divided by the high-level step-size. The methods evaluated in this work operate over high-level MDPs, which improves rollout speed (especially when querying a VLM is required at each MDP step) and temporal consistency of actions. As shown in Table 1, each task’s horizon — defined in terms of low-level environment steps — remains constant across all compared methods. However, the high-level step size varies across tasks and methods. For real-world WidowX experiments, we use a high-level step size of 20 for the VLM baseline, querying the VLM every 20 environment steps for a new prompt to issue the VLA. This keeps in line with Chen et al. [53], which this baseline is based on. For our method, SARL, we query the VLM at the same rate, every 20 
+
+steps ( tvlm = 20 ), to generate candidate semantic actions At
+
+> sem
+
+. However, we use a high-level step size of 
+
+1, allowing the RL policy fine-grained control to choose which of these candidates is most relevant at each state. For a fair comparison, we also set the high-level step size of DSRL [20] and Residual RL baselines [13, 17, 18] to be 1, so that they are also able to make reactive, fine-grained adjustments based on the state. In simulation, we sweep the VLM’s high-level step size over 40 , 80 and 120 and find 40 to be best. We additionally sweep SARL’s high-level step size over 40 and 120 (keeping tvlm = 1 ) and find better mode-consistent exploration with 120 . The original DSRL implementation [20] uses π0 [2] with a high-level step size of 20 . Our work uses π0.5 [4] — for improved language-following capabilities — with a high-level step size of 10 , as this is the action horizon of π0.5. For fairness, we use the same step size for Residual RL. 16 Algorithm 2 Semantic Action Reinforcement Learning (SARL) with Optimizations 
+
+1: input : semantic environment Msem , semantic action set Asem , cache size limit k, regeneration period 
+
+tvlm , demonstrations D (optional). 
+
+2: Initialize Q1sem randomly, replay buffer B ← ∅ , prompt cache C ← ∅ . If demonstrations D are provided, update B and C accordingly. 
+
+3: function GET CANDIDATES (s, t, C, Aprev sem )
+
+4: if mod (t − 1, t vlm ) == 0 then 
+
+// Refresh candidate actions 
+
+5: if |C| < k then 
+
+// Cache not yet full: generate open-endedly and cache 
+
+6: Query VLM open-endedly for candidate prompts Anew sem given s
+
+7: C ← C ∪ A new sem 
+
+8: else 
+
+// Cache is full: restrict VLM choices to the cache 
+
+9: Query VLM to select candidate prompts Anew sem ⊆ C given s
+
+10: end if 
+
+11: return Anew sem 
+
+12: else 
+
+// Reuse previous step’s candidates 
+
+13: return Aprev sem 
+
+14: end if 
+
+15: end function 
+
+16: A1sem ← GET CANDIDATES (s1, 1, C, ∅)
+
+17: for t = 1 , 2, 3, . . . do 
+
+18: Set πt
+
+> sem
+
+(ℓ | st; At
+
+> sem
+
+) ∝ exp( Qt
+
+> sem
+
+(st, ℓ )) for ℓ ∈ A t
+
+> sem
+
+19: Sample ℓt ∼ πt
+
+> sem
+
+(· | st; At
+
+> sem
+
+)
+
+// Equivalently, execute action at ∼ πvla (· | st, ℓ t) in M
+
+20: Execute semantic action ℓt in Msem , observe reward rt and next state st+1 
+
+21: At+1 sem ← GET CANDIDATES (st+1 , t + 1 , C, At
+
+> sem
+
+)
+
+// Cache At+1 sem to eliminate VLM calls during TD backups 
+
+22: B ← B ∪ { (st, ℓ t, r t, s t+1 , At+1 sem )}
+
+23: Set ¯V t
+
+> sem
+
+(s′) ← Eℓ′∼πt
+
+> sem (·| s′;A′
+> sem )
+
+ ¯Qt
+
+> sem
+
+(s′, ℓ ′) where πt
+
+> sem
+
+(ℓ′ | s′; A′
+
+> sem
+
+) ∝ exp( Qt
+
+> sem
+
+(s′, ℓ ′)) for 
+
+ℓ′ ∈ A ′ 
+
+> sem
+
+and 
+
+Qt+1 sem ← min Q
+
+P
+
+> (s,ℓ,r,s ′,A′
+> sem )∈B
+
+(Q(s, ℓ ) − r − ¯V t
+
+> sem
+
+(s′)) 2
+
+24: end for 
+
+We find our hyperparameter selection for both DSRL and Residual RL to be competitive with the Libero [81] results from Wagenmaker et al. [20]. Further details on hyperparamters for DSRL [20], Residual RL [13, 17, 18], and SARL can be found in Tables 2, 3, and 4, respectively. 
+
+A.3 Reset-to-home 
+
+In simulation, we evaluate SARL along with baselines on the Libero-10 (Libero-long) benchmark [81]. As mentioned in Section 5.1, we use a VLA based on π0.5 [4], and finetuned on the Libero-90 and DROID datasets [81, 84]. In addition to the original language prompt space for this VLA, we also introduce a “reset-to-home” command that resets the robot arm to its starting state. We find such a command to be necessary to chain individual skills and make progress on the long-horizon tasks of the Libero-10 benchmark. Note that the “reset-to-home” functionality is straightforward to implement on both simulated and real robots, since it simply runs a PID controller to match the robot’s joint-angles or end-effector pose at its starting configuration. Note that the capacity to seamlessly integrate such auxiliary controllers through language highlights a unique 17 Table 1: MDP Definition Across Tasks and Methods. Task horizon is the total number of low-level envi-ronment steps allocated per task. The high-level step size defines the conversion between high-level steering steps to low-level environment steps. To get the horizon H of the high-level MDP for each method and task (over which learning happens), divide the task horizon by the high-level step size. 
+
+Task Horizon High-Level Step Size 
+
+Task SARL DSRL Residual VLM SARL DSRL Residual VLM 
+
+Real Task 1: Move the ham-mer to the plate. Then, grasp the mushroom. 120 120 120 120 1 1 1 20 
+
+Real Task 2: Move the banana to the pot on the right and sushi to the bowl. 160 160 160 160 1 1 1 20 
+
+Real Task 3: Move the left stuffed toy to the largest bowl. 100 100 100 100 1 1 1 20 
+
+Real Task 4: Move the pot lid to the towel. 60 60 60 60 1 1 1 20 
+
+Libero-10 600 600 600 600 120 10 10 40 0 5000 10000 15000              
+
+> Environment Steps
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+> Task 1: Move the hammer to the
+> plate. Then, grasp the
+> mushroom.
+> 05000 10000 15000
+> Environment Steps
+> Task 2: Move the banana to the
+> pot on the right and sushi to
+> the bowl.
+> 02000 4000 6000 8000
+> Environment Steps
+> Task 3: Move the left stuffed
+> toy to the largest bowl.
+> 02000 4000
+> Environment Steps
+> Task 4: Move the pot lid to
+> the towel.
+> SARL (Ours) DSRL Residual Policy Base Policy ICL VLM
+
+Figure 8: Across four complex, real-world tasks, learning over semantic actions with SARL enables the best improvement of generalist policy behavior in deployment. SARL enables new capabilities over prior steering methods such as DSRL [20] and Residual RL [13, 17, 18], as these methods are fundamentally constrained by the base policy’s performance under the task’s original prompt. In particular, both DSRL and Residual RL perform best on Task 4, which has the least complex task goal. Finally, our method outperforms an in-context learning VLM baseline (ICL VLM) [53], since VLMs struggle to ground semantic actions in physical behaviors. Each data-point represents 10 evaluations. This plot mirrors Figure 3, but the x-axis is changed to measure environment steps instead of episodes. strength of our approach. Both SARL and the VLM baseline may leverage the “reset-to-home” command, and it is up to the individual approach how many steps to run this instruction for. 
+
+A.4 Environment Step Plots 
+
+In the main paper, we provide plots which measure performance against the number of episodes spent train-ing. In Figure 8, we provide the same plot with the x-axis swapped to show the number of environment steps spent training, as this is a standard choice in many prior works. 
+
+A.5 VLM Prompts 
+
+We use the Gemini model family [9, 85] for all VLM calls in SARL and the VLM baseline. All VLM calls use the gemini-3-flash-preview model and are allocated 1024 thinking tokens. Our methods use six total prompts (across real and sim experiments, two prompts generate candidate semantic actions At 
+
+> sem
+
+open-18 endedly and from a cache, and another is used for the in-context learning VLM baseline). All prompts make minimal modifications to Chen et al. [53]. Prompts for real are provided in Figures 10, 11, and 12 and those for sim are provided in Figures 13, 14, and 15. 
+
+A.6 Additional Qualitative Examples 
+
+Additional qualitative examples of catastrophic failures due to the in-context learning VLM baseline’s lack of grounding are shown in Figure 9 (extending Figure 7). 19 Table 2: DSRL Hyperparameters. Implementations make minimal modifications to Wagenmaker et al. [20]. Real indicates experiments run on the WidowX while Sim indicates experiments run on Libero-10 [81]. 
+
+Hyperparameter Value Description 
+
+outer policy.action dim 32 Action space dimension, which is the same as the latent-noise dim for π series policies [4]. This low-dim action is repeated across the predicted action horizon as done in [20] 
+
+outer policy.state dim 8 Policy has access to a proprioceptive obser-vation 
+
+outer policy.policy chunk size Real: 1 Sim: 10 Number of actions used from each evalua-tion of π series policies [4] which generate chunks of actions 
+
+outer policy.image resolution [64, 64] Image resolution 
+
+outer policy.camera names [“global”] We only use scene cameras for all experi-ments 
+
+env.image resolution [256, 256] Image resolution of the base environment’s camera 
+
+sac.batch size 256 Optimization batch size for the replay buffer 
+
+sac.actor lr 0.0001 Learning rate for the SAC [86] actor net-work 
+
+sac.critic lr 0.0003 Learning rate for the SAC critic network 
+
+sac.temp lr 0.0003 Learning rate for the SAC entropy coeffi-cient ( α)
+
+sac.hidden dims [128, 128, 128] Hidden dimensions for SAC MLP layers 
+
+sac.cnn features [32, 32, 32, 32] Feature maps per layer for the CNN encoder 
+
+sac.cnn strides [2, 2, 2, 2] Strides per layer for the CNN encoder 
+
+sac.cnn padding VALID Padding type for the CNN encoder layers 
+
+sac.cnn latent dim 50 CNN output feature dim 
+
+sac.tau 0.005 Target network soft-update rate 
+
+sac.critic reduction min Ensemble reduction strategy for target Q-values 
+
+sac.num qs 10 Number of Q-networks in the critic ensem-ble 
+
+sac.dropout rate 0.0 Dropout rate applied inside SAC networks 
+
+sac.init temperature 1.0 Initial value for the SAC entropy coefficient 
+
+sac.target entropy -16.0 Target entropy 
+
+sac.action range [-1.0, 1.0] Defines the allowed min/max action. Note: SAC always sees actions in [-1.0, 1.0], but actions are scaled to be within 
+
+sac.action range before executing in the environment. 
+
+sac.discount 1 − 1 
+
+> H
+
+Discount is defined based on the task hori-zon H — see Table 1. 
+
+train.learning starts Real: 10 Sim: 25 Episodes collected via uniformly sampling 
+
+sac. action range to seed the replay buffer pre-learning 
+
+train.multi grad step Real: 10 Sim: 20 Gradient steps per transition added to the buffer 
+
+train.offline multi grad step Real: 0 Sim: 5 Gradient steps per transition added to the buffer for episodes collected before train. learning starts eval.eval every Real: 30 Sim: 50 Number of training episodes between eval-uations 
+
+eval.num evaluations Real: 10 Sim: 64 Number of evaluation episodes 
+
+20 Table 3: Residual RL Hyperparameters. Implementations make minimal modifications to Wagenmaker et al. [20] and following standard Residual RL implementations [13, 17, 18]. Real indicates experiments run on the WidowX while Sim indicates experiments run on Libero-10 [81]. 
+
+Hyperparameter Value Description 
+
+outer policy.action dim Real: 7 Sim: 70 Action space dimension, which is 
+
+7 · outer policy.policy chunk size ,since Residual RL predicts a correction for each action to be executed 
+
+outer policy.state dim Real: 15 Sim: 78 Policy has access to an 8-dim propriocep-tive observation along with knowledge of the base policy’s action 
+
+outer policy.policy chunk size Real: 1 Sim: 10 Number of actions used from each evalua-tion of π series policies [4] which generate chunks of actions 
+
+outer policy.image resolution [64, 64] Image resolution 
+
+outer policy.camera names [“global”] We only use scene cameras for all experi-ments 
+
+env.image resolution [256, 256] Image resolution of the base environment’s camera 
+
+sac.batch size 256 Optimization batch size for the replay buffer 
+
+sac.actor lr 0.0001 Learning rate for the SAC [86] actor net-work 
+
+sac.critic lr 0.0003 Learning rate for the SAC critic network 
+
+sac.temp lr 0.0003 Learning rate for the SAC entropy coeffi-cient ( α)
+
+sac.hidden dims [128, 128, 128] Hidden dimensions for SAC MLP layers 
+
+sac.cnn features [32, 32, 32, 32] Feature maps per layer for the CNN encoder 
+
+sac.cnn strides [2, 2, 2, 2] Strides per layer for the CNN encoder 
+
+sac.cnn padding VALID Padding type for the CNN encoder layers 
+
+sac.cnn latent dim 50 CNN output feature dim 
+
+sac.tau 0.005 Target network soft-update rate 
+
+sac.critic reduction min Ensemble reduction strategy for target Q-values 
+
+sac.num qs 10 Number of Q-networks in the critic ensem-ble 
+
+sac.dropout rate 0.0 Dropout rate applied inside SAC networks 
+
+sac.init temperature 1.0 Initial value for the SAC entropy coefficient 
+
+sac.target entropy −action dim /2 Target entropy 
+
+sac.action range Real: [-0.003, 0.003] 
+
+Sim: [-0.1, 0.1] Defines the allowed min/max action. Note: SAC always sees actions in [-1.0, 1.0], but actions are scaled to be within 
+
+sac.action range before executing in the environment. 
+
+sac.discount 1 − 1 
+
+> H
+
+Discount is defined based on the task hori-zon H — see Table 1. 
+
+train.human demos Real: 3 Sim: 0 Human demos collected to seed replay buffer pre-learning 
+
+train.learning starts Real: 5 Sim: 25 Episodes collected via uniformly sampling 
+
+sac. action range to seed the replay buffer pre-learning (this number does not include any human demos) 
+
+train.multi grad step Real: 10 Sim: 20 Gradient steps per transition added to the buffer 
+
+train.offline multi grad step Real: 0 Sim: 5 Gradient steps per transition added to the buffer for episodes collected before train. learning starts eval.eval every Real: 30 Sim: 50 Number of training episodes between eval-uations 
+
+eval.num evaluations Real: 10 Sim: 64 Number of evaluation episodes 
+
+21 Table 4: SARL Hyperparameters. Real indicates experiments run on the WidowX while Sim indicates experiments run on Libero-10 [81]. 
+
+Hyperparameter Value Description 
+
+outer policy.max candidates Real: 9 Sim: 4 Max size of At 
+
+> sem
+
+from Section 4.2 and Algorithm 1. Max number of language prompts the algorithm may choose from at each step 
+
+outer policy.cache size Real: See Table 5 
+
+Sim: 32 Max size of Asem from Section 4.2 and Al-gorithm 1. Total number of unique lan-guage prompts the algorithm may learn over 
+
+outer policy.action dim Real: See Table 5 
+
+Sim: 32 One-hot encoding over cached language commands 
+
+outer policy.state dim 8 Policy has access to a proprioceptive obser-vation 
+
+outer policy.policy chunk size Real: 1 Sim: 10 Number of actions used from each evalua-tion of π series policies [4] which generate chunks of actions 
+
+outer policy.image resolution [64, 64] Image resolution 
+
+outer policy.camera names [“global”] We only use scene cameras for all experi-ments 
+
+env.image resolution [256, 256] Image resolution of the base environment’s camera 
+
+sac.batch size 256 Optimization batch size for the replay buffer 
+
+sac.critic lr 0.0003 Learning rate for the SAC critic network 
+
+sac.hidden dims [128, 128, 128] Hidden dimensions for SAC MLP layers 
+
+sac.cnn features [32, 32, 32, 32] Feature maps per layer for the CNN encoder 
+
+sac.cnn strides [2, 2, 2, 2] Strides per layer for the CNN encoder 
+
+sac.cnn padding VALID Padding type for the CNN encoder layers 
+
+sac.cnn latent dim 50 CNN output feature dim 
+
+sac.tau 0.005 Target network soft-update rate 
+
+sac.critic reduction min Ensemble reduction strategy for target Q-values 
+
+sac.num qs 10 Number of Q-networks in the critic ensem-ble 
+
+sac.dropout rate 0.0 Dropout rate applied inside SAC networks 
+
+sac.softmax temp See Table 5 Softmax temp, T , πt
+
+> sem
+
+(ℓ | s) ∝
+
+exp( Qt
+
+> sem
+
+(s, ℓ )/T ) from Algorithm 1. 
+
+sac.discount 1 − 1 
+
+> H
+
+Discount is defined based on the task hori-zon H — see Table 1. 
+
+train.human demos Real: 3 Sim: 0 Human demos collected to seed replay buffer pre-learning 
+
+train.learning starts Real: 5 Sim: 25 Episodes collected via uniformly sampling 
+
+sac. action range to seed the replay buffer pre-learning (this number does not include any human demos) 
+
+train.multi grad step Real: 10 Sim: 20 Gradient steps per transition added to the buffer 
+
+train.offline multi grad step Real: 0 Sim: 5 Gradient steps per transition added to the buffer for episodes collected before train. learning starts eval.eval every Real: 30 Sim: 50 Number of training episodes between eval-uations 
+
+eval.num evaluations Real: 10 Sim: 64 Number of evaluation episodes 
+
+22 grasp the pot lid  grasp the pot lid           
+
+> and move it to
+> [x, y]
+> grasp the pot lid move down and
+> close
+
+Failed regrasp of pot lid.  Successful regrasp of pot lid.  
+
+> [x, y]
+
+## In-Context Learning VLM  Semantic Action RL 
+
+Actions lack grounding.  Learned, grounded actions.                
+
+> move left and
+> down to grasp the
+> hammer
+> move right and
+> grasp the hammer
+> move right move down to
+> grasp the hammer
+
+Failed grasp of OOD hammer.                   
+
+> close the gripper drop the sushi in
+> the bowl
+> grasp the sushi
+> and move it to
+> the bowl
+> grab the sushi
+> and move to the
+> bowl
+
+Successful correction to grasp OOD hammer. 
+
+Poor verb choice (‘drop’) undoes task progress.  Sushi successfully delivered to bowl.                     
+
+> grasp the toy at
+> [x, y]
+> drop the stuffed
+> toy in the large
+> white bowl
+> move down and
+> left
+> grasp the blue
+> toy and place it
+> in the large bowl
+
+Bad instruction leads to grabbing the wrong toy.  Correct toy successfully delivered to bowl.                
+
+> [x, y]
+> reset to home push the drawer
+> handle backward
+> reset to home push the drawer
+> handle forward to
+> close it
+
+Insuf fi cient repositioning to close drawer.  Drawer successfully closed. Figure 9: Across tasks, an in-context learning VLM [53] takes semantic actions that are semantically mean-ingful, but lack grounding in physical behaviors, leading to task failures. By contrast, SARL’s learned se-mantic actions correctly navigate scenarios where choosing the right instruction is critical. 23 Table 5: SARL Task-Specific Hyperparameters 
+
+Task outer policy.cache size 
+
+(also outer policy.action dim )
+
+outer policy.softmax temp 
+
+Real Task 1: Move the hammer to the plate. Then, grasp the mushroom. 64 0.2 
+
+Real Task 2: Move the banana to the pot on the right and sushi to the bowl. 100 0.5 
+
+Real Task 3: Move the left stuffed toy to the largest bowl. 32 0.1 
+
+Real Task 4: Move the pot lid to the towel. 32 0.2 
+
+Libero-10 32 0.03 
+
+24 You are guiding a robot to complete the task ’[self.task instruction]’ in its environment by generating candidate subtask instructions for the robot to follow given an image of the robot’s current observation. There are several kinds of instructions the robot understands, each at a different level of abstraction, detailed below. It is not known apriori which level of abstraction will induce the desired behavior in the robot’s low-level language conditioned policy, so your job is to generate candidates that will be processed by a downstream algorithm. Below are examples of the kinds of instructions you can generate for the robot. Some examples of High-level instructions are: - ’grasp the mushroom in the pot’ - ’wipe the cloth across the table’ - ’move the lid above the pot’ - ’lift the carrot up’ # Lifting is generallly good post-grasping - ’move towards the stuffed toy’ - ’move the eggplant to the bowl’ The robot is generally reliable at following high-level commands, especially when interacting with non-novel objects. They can also be used to better understand the scene and robot state, such as by saying ’lift the object’ to ascertain if the robot has actually firmly grasped it. However, these commands may fail when interacting with novel objects, as the robot may not recognize them by name. The robot also may also confuse similar objects with each other (e.g., it may mix up a bowl and pot, or multiple instances of the same kind of object). Some examples of Atomic Motion instructions are: - ’move left’ - ’move above the bowl’ - ’move down and close’ - ’open the gripper’ - ’move the cloth left’ - ’pull the drawer handle backward’ Motion commands are good for general positioning, such as moving to a pre-grasp pose above the object the robot must interact with. They can also be used for positional corrections, e.g., ’move up and right above the bowl’ if the gripper is too low. These commands are also appropriate when the task involves spatial reasoning (e.g., tasks that reference left or right). However, these commands are often underspecified, so the robot may reach for the wrong object if simply told ’move to the right and grasp.’ Note that to go to the back of the table, tell the robot to go ’forwards’ (it is forwards from the robot’s perspective). Finally, some examples of Combination instructions are: - ’move down to the mushroom and grasp it’ - ’grab the mushroom and move it to the plate on the left’ - ’open the gripper and move right’ Combination commands are useful for supplementing the weaknesses of other command types, such as saying ’move right to grasp the carrot’ rather than just ’move right and grasp’ (if there are multiple objects to the right of the robot) or ’grasp the carrot on the right’ (if there are multiple carrots in the scene). However, being too specific may result in out-of-distribution commands, which the robot policy fails to follow. Additionally, less specific commands can be useful for positioning the robot in a location where it’s more likely to succeed. You MUST follow these steps when generating your response: - Step 1: Briefly (1-2 sentences) describe the scene in the current observation, such as enumerating which objects are present and the robot grippers current state. If the robot’s gripper is close to an object, think carefully about whether the object has already been grasped, lifted or neither. Think about whether the gripper is currently open or closed. - Step 2: Briefly (1-2 sentences) enumerate the robot’s full sequence of objectives required to complete the task. - Step 3: Briefly (1 sentences) turn the robot’s immediate next objective into a subtask statement. A relatively longer-horizon subtask statement is preferred in this step. Eg. "pick up the egg and move it to the bowl" rather than "grasp the egg" or "move down" or "close the gripper". The subtask objective should make sense to execute immediately given the current state. - Step 4: Briefly (1-2 sentences) think about 1) the overall direction the robot should move in (left, right, back of table ["forwards"], toward the camera ["backwards"], up, down) and 2) obvious verbs that could be used to instruct the robot (use verbs likely present in robot datasets, without being too extravagant and be sure to PRIORITIZE verbs found in the original task description), whether the robot should open/close the gripper. - Step 5: (1-2 sentences) think about how to avoid these common failure modes: confusing objects with the same name, interacting with the object directly in front of the robot rather than the intended object, and executing parts of the command out of order (eg. dropping object prematurely when the command involves both "moving" and "releasing"). - Step 6: Output the FINAL MASTER LIST of commands for the robot to choose between. The master list should follow this guidance: - Output commands most likley to help the robot succeed, while still being diverse. - Output exactly eight commands. Always output EXACTLY TWO SIMPLE atomic motion commands ouptut more combination commands than any other abstraction type. - Commands should be diverse in horizon: shorter horizon (eg. "move above the egg") and longer-horizon behaviors ("move the egg to the pot"), but should not exceed the length of the next subtask. - Use an indicator (left, right, blue) to distinguish objects of the same name ONLY if the robot is near the wrong copy of that object. DO NOT use the indicator if the robot is currently interacting with the correct copy. - All commands will be executed immediately, so do not output forward-looking commands that do not make sense to run at the robot’s current state (eg. "open the gripper" does not make sense if the robot is not yet at the correct position to release the object. However, "move the egg to the plate" does make sense if consistent with the task). The master list should be numbered. DO NOT organize the master list by objective, simply list all the commands together in one numbered list. After the master list, DO NOT OUTPUT ANY OTHER TEXT. Current Obervation: [current observation] 
+
+Figure 10: Prompt for open-ended real-world semantic action candidate generation 
+
+25 You are guiding a robot to complete the task ’[self.task instruction]’ in its environment by chosing a list of candidate task instructions for the robot to follow given an image of the robot’s current observation. There are several kinds of instructions the robot understands, each at a different level of abstraction, detailed below. It is not known apriori which level of abstraction will induce the desired behavior in the robot’s low-level language conditioned policy, so your job is to generate candidates that will be processed by a downstream algorithm. Below are examples of the kinds of instructions you can generate for the robot. Some examples of High-level instructions are: - ’grasp the mushroom in the pot’ - ’wipe the cloth across the table’ - ’move the lid above the pot’ - ’lift the carrot up’ # Lifting is generallly good post-grasping - ’move towards the stuffed toy’ - ’move the eggplant to the bowl’ The robot is generally reliable at following high-level commands, especially when interacting with non-novel objects. They can also be used to better understand the scene and robot state, such as by saying ’lift the object’ to ascertain if the robot has actually firmly grasped it. However, these commands may fail when interacting with novel objects, as the robot may not recognize them by name. The robot also may also confuse similar objects with each other (e.g., it may mix up a bowl and pot, or multiple instances of the same kind of object). Some examples of Atomic Motion instructions are: - ’move left’ - ’move above the bowl’ - ’move down and close’ - ’open the gripper’ - ’move the cloth left’ - ’pull the drawer handle backward’ Motion commands are good for general positioning, such as moving to a pre-grasp pose above the object the robot must interact with. They can also be used for positional corrections, e.g., ’move up and right above the bowl’ if the gripper is too low. These commands are also appropriate when the task involves spatial reasoning (e.g., tasks that reference left or right). However, these commands are often underspecified, so the robot may reach for the wrong object if simply told ’move to the right and grasp.’ Note that to go to the back of the table, tell the robot to go ’forwards’ (it is forwards from the robot’s perspective). Finally, some examples of Combination instructions are: - ’move down to the mushroom and grasp it’ - ’grab the mushroom and move it to the plate on the left’ - ’open the gripper and move right’ Combination commands are useful for supplementing the weaknesses of other command types, such as saying ’move right to grasp the carrot’ rather than just ’move right and grasp’ (if there are multiple objects to the right of the robot) or ’grasp the carrot on the right’ (if there are multiple carrots in the scene). However, being too specific may result in out-of-distribution commands, which the robot policy fails to follow. Additionally, less specific commands can be useful for positioning the robot in a location where it’s more likely to succeed. You MUST follow these steps when generating your response: - Step 1: Briefly (1-2 sentences) describe the scene in the current observation, such as enumerating which objects are present and the robot grippers current state. If the robot’s gripper is close to an object, think carefully about whether the object has already been grasped, lifted or neither. Think about whether the gripper is currently open or closed. - Step 2: Briefly (1-2 sentences) enumerate the robot’s full sequence of objectives required to complete the task. IMPORTANT: ONCE A SUBGOAL HAS BEEN COMPLETED, DO NOT KEEP INTERACTING WITH THE OBJECT FOR THAT SUBGOAL. THE DEFINITION OF TASK SUCCESS IS QUITE LOOSE (eg. if the goal is to put an eggplant on the towel, ANY part of the eggplant being on the towel will be considered a success. DO NOT keep interacting with the eggplant). - Step 3: Briefly (1 sentences) turn the robot’s immediate next objective into a subtask statement. A relatively longer-horizon subtask statement is preferred in this step. Eg. "pick up the egg and move it to the bowl" rather than "grasp the egg" or "move down" or "close the gripper". The subtask objective should make sense to execute immediately given the current state. - Step 4: Briefly (1-2 sentences) think about 1) the overall direction the robot should move in (left, right, back of table ["forwards"], toward the camera ["backwards"], up, down) and 2) obvious verbs that could be used to instruct the robot (use verbs likely present in robot datasets, without being too extravagant and be sure to PRIORITIZE verbs found in the original task description), whether the robot should open/close the gripper. - Step 5: (1-2 sentences) think about how to avoid these common failure modes: confusing objects with the same name, interacting with the object directly in front of the robot rather than the intended object, and executing parts of the command out of order (eg. dropping object prematurely when the command involves both "moving" and "releasing"). - Step 6: Output the FINAL MASTER LIST of commands for the robot to choose between. The master list should follow this guidance: - Output exactly eight commands. Commands MUST BE EXACTLY THE SAME AS THOSE ON THE LIST PROVIDED BELOW. DO NOT OUTPUT ANY OTHER COMMANDS. The list may not be perfect, choose the best fit. - Output commands most likley to help the robot succeed, while still being diverse. - Always output EXACTLY TWO SIMPLE atomic motion commands ouptut more combination commands than any other abstraction type. YOU MUST ALWAYS INCLUDE EITHER "move right" or "move left" in the list. - Commands should be diverse in horizon: shorter horizon (eg. "move above the egg") and longer-horizon behaviors ("move the egg to the pot"), but should not exceed the length of the next subtask. - Use an indicator (left, right, blue) to distinguish objects of the same name ONLY if the robot is near the wrong copy of that object. DO NOT use the indicator if the robot is currently interacting with the correct copy. The master list should be numbered (1. 2. 3. ...) but use only the text of the command exactly as presented. DO NOT organize the master list by objective, simply list all the commands together in one numbered list. After the master list, DO NOT OUTPUT ANY OTHER TEXT. Current Observation: [current observation] You must choose commands EXACTLY from this list: [cached commands str] 
+
+Figure 11: Prompt for real-world semantic action candidate generation from cache 
+
+26 You are guiding a robot to complete a task by generating a subtask instruction for the robot to follow given an image of the robot’s current observation, and a history of observations and past commands. The robot is trying to accomplish the overall task: ’[self.task description]’. You should keep the rest of the environment unchanged. Note that all objects required for the task are present (no need to search for objects). There are several kinds of instructions the robot understands, each at a different level of abstraction, detailed below. Sometimes, a high-level instruction is sufficient for the robot to make progress towards solving the task, but other times, a more specific command is required. Below are examples of the kinds of instructions you can generate for the robot. Some examples of High-level instructions are: - ’grasp the mushroom in the pot’ - ’wipe the cloth across the table’ - ’move the lid above the pot’ - ’lift the carrot up’ - ’move towards the stuffed toy’ - ’drop the eggplant in the bowl’ The robot is generally reliable at following high-level commands, especially when interacting with non-novel objects. They can also be used to better understand the scene and robot state, such as by saying ’lift the object’ to ascertain if the robot has actually firmly grasped it. However, these commands may fail when interacting with novel objects, as the robot may not recognize them by name. The robot also may also confuse similar objects with each other (e.g., it may mix up a bowl and pot, or multiple instances of the same kind of object). Some examples of Atomic Motion instructions are: - ’move left’ - ’move right and down’ - ’move down and close’ - ’open the gripper’ - ’move the cloth left’ - ’pull the drawer handle backward’ Motion commands are good for general positioning, such as moving to a pre-grasp pose above the object the robot must interact with. They can also be used for more minor corrections, e.g., ’move up and right above the bowl’ if the gripper is too low. These commands are also appropriate when the task involves spatial reasoning (e.g., tasks that reference left or right) or moving in unconventional ways (e.g., lifting the arm to grasp something on a high shelf). However, these commands are often underspecified, so the robot may reach for the wrong object if simply told ’move to the right and grasp.’ Some examples of Position-based instructions are: - ’pick up the object at <mushroom>’ - ’go to <pot>’ - ’grasp at <blue cube>’ - ’move above <plate>’ - ’open gripper at <bowl>’ - ’move towards <towel>’ Note, you simply need to specify the object name within angle brackets, e.g., <mushroom>, and a object detector system will fill in the pixel coordinates for you. If there are multiple instances of the object, provide a unique, specific identifier within the brackets to indicate which instance you are referring to, e.g., <mushroom on the left>. Position-based commands are especially helpful for specifying novel objects that the robot fails to recognize by name. They can also be used to clearly specify locations, such as where to place or move objects. However, these commands can be unreliable, as the robot may get confused (e.g., reaching for the wrong object in scenes with clutter or with multiple instances of the same object). The object detector may also fail, especially when objects are occluded. Next, some examples of Combination instructions are: - ’move down to the object at <mushroom> and grasp it’ - ’grab the mushroom at <mushroom on the left> and move it to <plate>’ - ’move the stuffed toy toward the box at <box>’ Combination commands are useful for supplementing the weaknesses of other command types, such as saying ’move right to grasp the object at <object description>’ rather than just ’move right and grasp’ (if there are multiple objects to the right of the robot). However, being too specific may result in out-of-distribution commands, which the robot policy fails to follow. Additionally, less specific commands can be useful for positioning the robot in a location where it’s more likely to succeed. You MUST follow these steps when generating your response: - Step 1: Briefly (1-2 sentences) describe the scene in the current observation, and any important differences from past observations (eg. objects moved, picked up, dropped etc). - Step 2: Briefly (1 sentence) describe what must happen next to make progress towards the overall task. - Step 3: Briefly reason (2-3 sentences) about which level of abstraction is most appropriate given the current observation and task progress. - Step 4: Determine the final steerable command (last line) for the robot to execute. Only the LAST line of your output will be interpreted as the subtask command. In the LAST line, answer ONLY with the subtask instruction that the robot should execute, and NOTHING ELSE. Note: The robot will ask you for a new instruction after executing for a few steps. If you’ve issued the same type of command more than once without progress, you MUST issue a command at a different level of abstraction. If you previously provided a command with positions <> (without progress), you MAY NOT use positions in the next command. For example: - If you previously tried to pick up the mushroom by specifying the mushroom’s position, but the robot did not reach the mushroom, next time you can explicitly tell the robot to move in a certain direction (eg. move to the right and down). - If the robot reached for the wrong object when you told it to pick up the mushroom at <mushroom on the left>. This time, you should give a command at a different level of abstraction: move left to the mushroom and grasp it. Here are the past observations and commands: [history] Current Obervation: [current observation] Based on this observation, generate the next command. Remember the instructions: describe the scene, determine what must happen next, determine the best level of abstraction, output the final command. Again, the LAST line of your output will be interpreted as the final steerable, subtask command. In the LAST line, answer ONLY with the subtask instruction that the robot should execute, and NOTHING ELSE. 
+
+Figure 12: Prompt for real-world in-context learning VLM baseline 
+
+27 You are guiding a robot to complete the task ’[self.task instruction]’ in its environment by generating candidate subtask instructions for the robot to follow given an image of the robot’s current observation. There are several kinds of instructions the robot understands, each at a different level of abstraction, detailed below. It is not known apriori which level of abstraction will induce the desired behavior in the robot’s low-level language conditioned policy, so your job is to generate candidates that will be processed by a downstream algorithm. Below are examples of the kinds of instructions you can generate for the robot. Some examples of High-level instructions are: - ’grasp the mushroom in the pot’ - ’wipe the cloth across the table’ - ’move the lid above the pot’ - ’lift the carrot up’ # Lifting is generallly good post-grasping - ’move towards the stuffed toy’ - ’move the eggplant to the bowl’ The robot is generally reliable at following high-level commands, especially when interacting with non-novel objects. They can also be used to better understand the scene and robot state, such as by saying ’lift the object’ to ascertain if the robot has actually firmly grasped it. However, these commands may fail when interacting with novel objects, as the robot may not recognize them by name. The robot also may also confuse similar objects with each other (e.g., it may mix up a bowl and pot, or multiple instances of the same kind of object). Some examples of Atomic Motion instructions are: - ’move left’ - ’move above the bowl’ - ’move down and close’ - ’open the gripper’ - ’move the cloth left’ - ’pull the drawer handle backward’ Motion commands are good for general positioning, such as moving to a pre-grasp pose above the object the robot must interact with. They can also be used for positional corrections, e.g., ’move up and right above the bowl’ if the gripper is too low. These commands are also appropriate when the task involves spatial reasoning (e.g., tasks that reference left or right). However, these commands are often underspecified, so the robot may reach for the wrong object if simply told ’move to the right and grasp.’ Note that to go to the back of the table, tell the robot to go ’forwards’ (it is forwards from the robot’s perspective). Next, some examples of Combination instructions are: - ’move down to the mushroom and grasp it’ - ’grab the mushroom and move it to the plate on the left’ - ’open the gripper and move right’ Combination commands are useful for supplementing the weaknesses of other command types, such as saying ’move right to grasp the carrot’ rather than just ’move right and grasp’ (if there are multiple objects to the right of the robot) or ’grasp the carrot on the right’ (if there are multiple carrots in the scene). However, being too specific may result in out-of-distribution commands, which the robot policy fails to follow. Additionally, less specific commands can be useful for positioning the robot in a location where it’s more likely to succeed. Finally, there is the ’reset to home’ command, which can be issued when the robot is stuck. It is useful for repositioning the robot to a known state. You MUST follow these steps when generating your response: - Step 1: Briefly (1-2 sentences) describe the scene in the current observation, such as enumerating which objects are present and the robot grippers current state. If the robot’s gripper is close to an object, think carefully about whether the object has already been grasped, lifted or neither. Think about whether the gripper is currently open or closed. - Step 2: Briefly (1-2 sentences) enumerate the robot’s full sequence of objectives required to complete the task. - Step 3: Briefly (1 sentences) turn the robot’s immediate next objective into a subtask statement. A relatively longer-horizon subtask statement is preferred in this step. Eg. "pick up the egg and move it to the bowl" rather than "grasp the egg" or "move down" or "close the gripper". The subtask objective should make sense to execute immediately given the current state. - Step 4: Briefly (1-2 sentences) think about 1) the overall direction the robot should move in (left, right, forwards, backwards, up, down) and 2) obvious verbs that could be used to instruct the robot (use verbs likely present in robot datasets, without being too extravagant and be sure to PRIORITIZE verbs found in the original task description). - Step 5: (1-2 sentences) think about how to avoid these common failure modes: confusing objects with the same name, interacting with the object directly in front of the robot rather than the intended object, and executing parts of the command out of order (eg. dropping object prematurely when the command involves both "moving" and "releasing"). - Step 6: Output the FINAL MASTER LIST of commands for the robot to choose between. The master list should follow this guidance: - Output commands most likley to help the robot succeed, while still being diverse. - Output exactly four commands. Always output a single atomic motion commands ouptut more subtask commands than any other abstraction type. - Commands should be diverse in horizon: shorter horizon (eg. "move above the egg") and longer-horizon behaviors ("move the egg to the pot"), but should not exceed the length of the next subtask. - Use an indicator (left, right, blue) to distinguish objects of the same name ONLY if the robot is near the wrong copy of that object. DO NOT use the indicator if the robot is currently interacting with the correct copy. - All commands will be executed immediately, so do not output forward-looking commands that do not make sense to run at the robot’s current state (eg. "open the gripper" does not make sense if the robot is not yet at the correct position to release the object. However, "move the egg to the plate" does make sense if consistent with the task). The master list should be numbered. DO NOT organize the master list by objective, simply list all the commands together in one numbered list. After the master list, DO NOT OUTPUT ANY OTHER TEXT. Current Obervation: [current observation] 
+
+Figure 13: Prompt for open-ended sim semantic action candidate generation 
+
+28 You are guiding a robot to complete the task ’[self.task instruction]’ in its environment by chosing a list of candidate task instructions for the robot to follow given an image of the robot’s current observation. There are several kinds of instructions the robot understands, each at a different level of abstraction, detailed below. It is not known apriori which level of abstraction will induce the desired behavior in the robot’s low-level language conditioned policy, so your job is to generate candidates that will be processed by a downstream algorithm. Below are examples of the kinds of instructions you can generate for the robot. Some examples of High-level instructions are: - ’grasp the mushroom in the pot’ - ’wipe the cloth across the table’ - ’move the lid above the pot’ - ’lift the carrot up’ # Lifting is generally good post-grasping - ’move towards the stuffed toy’ - ’move the eggplant to the bowl’ The robot is generally reliable at following high-level commands, especially when interacting with non-novel objects. They can also be used to better understand the scene and robot state, such as by saying ’lift the object’ to ascertain if the robot has actually firmly grasped it. However, these commands may fail when interacting with novel objects, as the robot may not recognize them by name. The robot also may also confuse similar objects with each other (e.g., it may mix up a bowl and pot, or multiple instances of the same kind of object). Some examples of Atomic Motion instructions are: - ’move left’ - ’move above the bowl’ - ’move down and close’ - ’open the gripper’ - ’move the cloth left’ - ’pull the drawer handle backward’ Motion commands are good for general positioning, such as moving to a pre-grasp pose above the object the robot must interact with. They can also be used for positional corrections, e.g., ’move up and right above the bowl’ if the gripper is too low. These commands are also appropriate when the task involves spatial reasoning (e.g., tasks that reference left or right). However, these commands are often underspecified, so the robot may reach for the wrong object if simply told ’move to the right and grasp.’ Note that to go to the back of the table, tell the robot to go ’forwards’ (it is forwards from the robot’s perspective). Next, some examples of Combination instructions are: - ’move down to the mushroom and grasp it’ - ’grab the mushroom and move it to the plate on the left’ - ’open the gripper and move right’ Combination commands are useful for supplementing the weaknesses of other command types, such as saying ’move right to grasp the carrot’ rather than just ’move right and grasp’ (if there are multiple objects to the right of the robot) or ’grasp the carrot on the right’ (if there are multiple carrots in the scene). However, being too specific may result in out-of-distribution commands, which the robot policy fails to follow. Additionally, less specific commands can be useful for positioning the robot in a location where it’s more likely to succeed. Finally, there is the ’reset to home’ command, which can be issued when the robot is stuck. It is useful for repositioning the robot to a known state. You MUST follow these steps when generating your response: - Step 1: Briefly (1-2 sentences) describe the scene in the current observation, such as enumerating which objects are present and the robot grippers current state. If the robot’s gripper is close to an object, think carefully about whether the object has already been grasped, lifted or neither. Think about whether the gripper is currently open or closed. - Step 2: Briefly (1-2 sentences) enumerate the robot’s full sequence of objectives required to complete the task. - Step 3: Briefly (1 sentences) turn the robot’s immediate next objective into a subtask statement. A relatively longer-horizon subtask statement is preferred in this step. Eg. "pick up the egg and move it to the bowl" rather than "grasp the egg" or "move down" or "close the gripper". The subtask objective should make sense to execute immediately given the current state. - Step 4: Briefly (1-2 sentences) think about 1) the overall direction the robot should move in (left, right, forwards, backwards, up, down) and 2) obvious verbs that could be used to instruct the robot (use verbs likely present in robot datasets, without being too extravagant and be sure to PRIORITIZE verbs found in the original task description). - Step 5: (1-2 sentences) think about how to avoid these common failure modes: confusing objects with the same name, interacting with the object directly in front of the robot rather than the intended object, and executing parts of the command out of order (eg. dropping object prematurely when the command involves both "moving" and "releasing"). - Step 6: Output the FINAL MASTER LIST of commands for the robot to choose between. The master list should follow this guidance: - Output exactly four commands. Commands MUST BE EXACTLY THE SAME AS THOSE ON THE LIST PROVIDED BELOW. DO NOT OUTPUT ANY OTHER COMMANDS. The list may not be perfect, choose the best fit. - Output commands most likley to help the robot succeed, while still being diverse. - Always output a single atomic motion commands ouptut more subtask commands than any other abstraction type. - Commands should be diverse in horizon: shorter horizon (eg. "move above the egg") and longer-horizon behaviors ("move the egg to the pot"), but should not exceed the length of the next subtask. - Use an indicator (left, right, blue) to distinguish objects of the same name ONLY if the robot is near the wrong copy of that object. DO NOT use the indicator if the robot is currently interacting with the correct copy. - All commands will be executed IMMEDIATELY (THIS IS VERY IMPORTANT), so do not output forward-looking commands that do not make sense to run at the robot’s current state (eg. "open the gripper" does not make sense if the robot is not yet at the correct position to release the object. However, "move the egg to the plate" does make sense if consistent with the task). The master list should be numbered. DO NOT organize the master list by objective, simply list all the commands together in one numbered list. After the master list, DO NOT OUTPUT ANY OTHER TEXT. Current Obervation: [current observation] You must choose commands EXACTLY from this list: [cached commands str] 
+
+Figure 14: Prompt for sim semantic action candidate generation from cache 
+
+29 You are guiding a robot to complete a task by generating a subtask instruction for the robot to follow given an image of the robot’s current observation, and a history of observations and past commands. The robot is trying to accomplish the overall task: ’[self.task description]’. You should keep the rest of the environment unchanged. Note that all objects required for the task are present (no need to search for objects). There are several kinds of instructions the robot understands, each at a different level of abstraction, detailed below. Sometimes, a high-level instruction is sufficient for the robot to make progress towards solving the task, but other times, a more specific command is required. Below are examples of the kinds of instructions you can generate for the robot. Some examples of High-level instructions are: - ’grasp the mushroom in the pot’ - ’wipe the cloth across the table’ - ’move the lid above the pot’ - ’lift the carrot up’ # IMPORTANT: Lifting is generallly good post-grasping - ’move towards the stuffed toy’ - ’drop the eggplant in the bowl’ The robot is generally reliable at following high-level commands, especially when interacting with non-novel objects. They can also be used to better understand the scene and robot state, such as by saying ’lift the object’ to ascertain if the robot has actually firmly grasped it. However, these commands may fail when interacting with novel objects, as the robot may not recognize them by name. The robot also may also confuse similar objects with each other (e.g., it may mix up a bowl and pot, or multiple instances of the same kind of object). Some examples of Atomic Motion instructions are: - ’move left’ - ’move right and down’ - ’move down and close’ - ’open the gripper’ - ’move the cloth left’ - ’pull the drawer handle backward’ Motion commands are good for general positioning, such as moving to a pre-grasp pose above the object the robot must interact with. They can also be used for more minor corrections, e.g., ’move up and right above the bowl’ if the gripper is too low. These commands are also appropriate when the task involves spatial reasoning (e.g., tasks that reference left or right) or moving in unconventional ways (e.g., lifting the arm to grasp something on a high shelf). However, these commands are often underspecified, so the robot may reach for the wrong object if simply told ’move to the right and grasp.’ Next, some examples of Combination instructions are: - ’move down to the object and grasp it’ - ’grab the mushroom and move it to the plate’ - ’move the stuffed toy toward the box and drop it in’ Combination commands are useful for supplementing the weaknesses of other command types, such as saying ’move right to grasp the object’ rather than just ’grasp the object’ (if there are multiple objects near the robot). However, being too specific may result in out-of-distribution commands, which the robot policy fails to follow. Additionally, less specific commands can be useful for positioning the robot in a location where it’s more likely to succeed. Finally, there is the ’reset to home’ command, which can be issued when the robot is stuck. It is useful for repositioning the robot to a known state. Sometimes, this command needs to be issues multiple times in a row to get the robot unstuck. You MUST follow these steps when generating your response: - Step 1: Briefly (1-2 sentences) describe the scene in the current observation, and any important differences from past observations (eg. objects moved, picked up, dropped etc). - Step 2: Briefly (1 sentence) describe what must happen next to make progress towards the overall task. - Step 3: Briefly reason (2-3 sentences) about which level of abstraction is most appropriate given the current observation and task progress. - Step 4: Determine the final steerable command (last line) for the robot to execute. Only the LAST line of your output will be interpreted as the subtask command. In the LAST line, answer ONLY with the subtask instruction that the robot should execute, and NOTHING ELSE. Note: The robot will ask you for a new instruction after executing for a few steps. If you’ve issued the same type of command more than once without progress, you MUST issue a command at a different level of abstraction. For example: - If you previously tried to pick up the mushroom by specifying the mushroom by name, but the robot did not reach the mushroom, next time, for example, you can explicitly tell the robot to move in a certain direction (eg. move to the right and down). Here are the past observations and commands: [history] Current Obervation: [current observation] Based on this observation, generate the next command. Remember the instructions: describe the scene, determine what must happen next, determine the best level of abstraction, output the final command. Again, the LAST line of your output will be interpreted as the final steerable, subtask command. In the LAST line, answer ONLY with the subtask instruction that the robot should execute, and NOTHING ELSE. 
+
+Figure 15: Prompt for sim in-context learning VLM baseline 
+
+30

@@ -47,11 +47,11 @@ window.DPRWorkflowRunner = (function () {
       key: 'hot-paper-scout',
       id: 'hot-paper-scout.yml',
       name: '热点论文筛选',
-      desc: '按领域和选中词条从 OpenAlex 筛选最近 7/14/30 天高热论文。',
+      desc: '按具身大脑/基座模型方向从 OpenAlex 和 arXiv 筛选公司论文，支持最近窗口或不限时间。',
       dispatchInputs: {
-        domain_query: 'embodied intelligence; embodied AI; embodied agents; vision-language-action model; robot foundation model; generalist robot policy; humanoid robot policy; robot learning foundation model',
+        domain_query: 'embodied intelligence; embodied AI; embodied agents; embodied foundation model; robot foundation model; vision-language-action model; world action model; robot manipulation foundation model',
         topic_direction: 'all',
-        days_window: '30',
+        days_window: '90',
         institution_filter: 'company',
         max_results: '30',
       },
@@ -2011,8 +2011,8 @@ window.DPRWorkflowRunner = (function () {
     const profileTag = String(opts.profile_tag || opts.profileTag || '').trim();
     const domainQuery = String(opts.domain_query || opts.domainQuery || '').trim();
     const topicDirection = String(opts.topic_direction || opts.topicDirection || 'all').trim() || 'all';
-    const daysText = String(opts.days_window || opts.daysWindow || '30').trim();
-    const daysWindow = ['7', '14', '30'].includes(daysText) ? daysText : '30';
+    const daysText = String(opts.days_window || opts.daysWindow || '90').trim().toLowerCase();
+    const daysWindow = ['7', '14', '30', '90', 'all'].includes(daysText) ? daysText : '90';
     const institutionRaw = String(opts.institution_filter || opts.institutionFilter || 'company').trim().toLowerCase();
     const institutionFilter = ['all', 'company', 'university'].includes(institutionRaw)
       ? institutionRaw

@@ -642,6 +642,7 @@ window.SubscriptionsManager = (function () {
   const formatHotPaperScoutDirections = (directions) => {
     const labels = {
       all: '综合方向',
+      'brain-model': '基座模型方向',
       vln: 'VLN方向',
       vla: 'VLA方向',
       'world-model': '世界模型方向',
@@ -923,7 +924,7 @@ window.SubscriptionsManager = (function () {
       return false;
     }
     const rawDays = normalizeText(hotPaperScoutDaysEl && hotPaperScoutDaysEl.value);
-    const daysWindow = ['7', '14', '30'].includes(rawDays) ? rawDays : '30';
+    const daysWindow = ['7', '14', '30', '90', 'all'].includes(rawDays) ? rawDays : '90';
     const rawInstitution = normalizeText(hotPaperScoutInstitutionEl && hotPaperScoutInstitutionEl.value).toLowerCase();
     const institutionFilter = ['all', 'company', 'university'].includes(rawInstitution)
       ? rawInstitution
@@ -947,7 +948,8 @@ window.SubscriptionsManager = (function () {
     }[institutionFilter] || '全部机构';
     const directionText = formatHotPaperScoutDirections(topicDirections);
     const targetText = domainQuery || (hasSpecificDirection ? directionText : `${tags.length} 个词条`);
-    setHotPaperScoutMessage(`已发起「${targetText}」最近 ${daysWindow} 天热点论文筛选（${label} · ${directionText}）。`, '#080');
+    const timeText = daysWindow === 'all' ? '不限时间' : `最近 ${daysWindow} 天`;
+    setHotPaperScoutMessage(`已发起「${targetText}」${timeText}热点论文筛选（${label} · ${directionText} · 最多 30 篇）。`, '#080');
     showWorkflowSuccessEffects();
     return true;
   };
@@ -1343,16 +1345,17 @@ window.SubscriptionsManager = (function () {
                       id="arxiv-admin-hot-domain"
                       class="dpr-manual-upload-input"
                       type="text"
-                      value="embodied intelligence; embodied AI; embodied agents; vision-language-action model; robot foundation model"
+                      value="embodied intelligence; embodied AI; embodied agents; embodied foundation model; robot foundation model; vision-language-action model; world action model"
                       aria-label="热点论文领域关键词"
                     >
                   </label>
                   <label class="dpr-hot-scout-field">
                     <span>时间范围</span>
                     <select id="arxiv-admin-hot-days" class="dpr-manual-upload-input" aria-label="热点论文时间范围">
-                      <option value="30" selected>30 天</option>
                       <option value="14">14 天</option>
-                      <option value="7">7 天</option>
+                      <option value="30">30 天</option>
+                      <option value="90" selected>90 天</option>
+                      <option value="all">不限时间</option>
                     </select>
                   </label>
                   <label class="dpr-hot-scout-field">
@@ -1369,6 +1372,10 @@ window.SubscriptionsManager = (function () {
                       <label class="dpr-hot-direction-option">
                         <input type="checkbox" name="dpr-hot-direction" value="all" checked>
                         <span>综合</span>
+                      </label>
+                      <label class="dpr-hot-direction-option">
+                        <input type="checkbox" name="dpr-hot-direction" value="brain-model">
+                        <span>基座模型</span>
                       </label>
                       <label class="dpr-hot-direction-option">
                         <input type="checkbox" name="dpr-hot-direction" value="vln">

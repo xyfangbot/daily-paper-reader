@@ -120,7 +120,7 @@ class ConferenceWorkflowAndUiTest(unittest.TestCase):
         self.assertIn("domain_query", inputs)
         self.assertIn("topic_direction", inputs)
         self.assertEqual((inputs.get("topic_direction") or {}).get("default"), "all")
-        self.assertEqual((inputs.get("days_window") or {}).get("default"), "30")
+        self.assertEqual((inputs.get("days_window") or {}).get("default"), "90")
         self.assertEqual((inputs.get("institution_filter") or {}).get("default"), "company")
         self.assertEqual((inputs.get("max_results") or {}).get("default"), "30")
         self.assertIn("embodied intelligence", (inputs.get("domain_query") or {}).get("default", ""))

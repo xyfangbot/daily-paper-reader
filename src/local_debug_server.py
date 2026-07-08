@@ -403,7 +403,9 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
         return ["bash", "-lc", script]
 
     if workflow_file == "hot-paper-scout.yml" or workflow_key == "hot-paper-scout":
-        days_window = str(inputs.get("days_window") or "30")
+        days_window = str(inputs.get("days_window") or "90")
+        if days_window not in {"7", "14", "30", "90", "all"}:
+            days_window = "90"
         institution_filter = str(inputs.get("institution_filter") or "company")
         topic_direction = str(inputs.get("topic_direction") or "all")
         if institution_filter == "company":
@@ -429,6 +431,11 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
             "--max-results",
             str(inputs.get("max_results") or "30"),
         ]
+        time_label = (
+            f"不限时间 · 最多 {max_results} 篇"
+            if days_window == "all"
+            else f"最近 {days_window} 天 · 最多 {max_results} 篇"
+        )
         script = "\n".join([
             "set -euo pipefail",
             "LOG_FILE=$(mktemp)",
@@ -442,7 +449,7 @@ def build_command(workflow_key: str, workflow_file: str, inputs: dict[str, str])
                 "--date \"$HOT_RUN_TOKEN\" "
                 "--mode standard "
                 "--docs-dir docs "
-                f"--sidebar-date-label {shlex.quote(f'热点论文筛选 · 最近 {days_window} 天 · {filter_label} · {direction_label}')} "
+                f"--sidebar-date-label {shlex.quote(f'热点论文筛选 · {time_label} · {filter_label} · {direction_label}')} "
                 "--force-glance "
                 "--docs-concurrency 3"
             ),

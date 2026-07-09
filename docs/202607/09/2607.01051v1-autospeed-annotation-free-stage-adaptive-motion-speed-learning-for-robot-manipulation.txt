@@ -1,0 +1,727 @@
+Title: AutoSpeed: Annotation-Free Stage-Adaptive Motion Speed Learning for Robot Manipulation
+
+URL Source: https://arxiv.org/pdf/2607.01051v1
+
+Published Time: Thu, 02 Jul 2026 01:13:01 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# AutoSpeed: Annotation-Free Stage-Adaptive Motion Speed Learning for Robot Manipulation 
+
+Qingda Hu 1,* Ziheng Qiu 1,* Jieru Zhao 2 Zhongxue Gan 1 Wenchao Ding 1,3 
+
+> 1
+
+Fudan University 2Shanghai Jiao Tong University 3Corresponding Author *Equal Contribution 
+
+Date: July 2, 2026 Correspondence: tinda24@163.com, zhqiu25@m.fudan.edu.cn Project Page: https://zihengqiu.github.io/AutoSpeed Code: https://github.com/tinda24/autospeed 
+
+Figure 1. Stage-aware motion speed adaptation. Motion speeds in expert demonstrations are often suboptimal. AutoSpeed aims to train policies to predict future trajectories with stage-aware motion speed without requiring speed or stage annotations. 
+
+# Abstract 
+
+Different stages of manipulation tasks exhibit varying levels of difficulty, suggesting stage-dependent motion speeds and temporal prediction horizons. However, existing IL-based visuomotor policies typically imitate the execution speed of expert demonstrations and operate with a fixed temporal prediction horizon, limiting flexibility and overall task throughput. In this paper, we introduce AutoSpeed , a model-agnostic learning framework that enables existing visuomotor policies to predict trajectories with stage-adaptive motion speeds, without requiring speed or stage annotations. We treat future trajectories at different speeds as candidate optimization targets, evaluate each candidate using a composite cost that trades off prediction error against prediction horizon, and optimize the policy toward the minimum-cost candidate. With a fixed-length action sequence, speed modulation adjusts the effective temporal prediction horizon: simple stages are executed faster with a longer prediction horizon, whereas complex stages are executed more slowly with a shorter prediction horizon. Specifically, we implement speed modulation in the frequency domain via the discrete cosine transform (DCT), which enables smooth, non-integer speed scaling and thus preserves motion continuity. Extensive evaluations show that AutoSpeed substantially reduces task execution time while also improving success rates . Under the AutoSpeed framework, the inferred motion speeds exhibit a strong correspondence with task stages. 1
+
+> arXiv:2607.01051v1 [cs.RO] 1 Jul 2026
+
+# 1 Introduction 
+
+Imitation learning (IL) is widely adopted for visuomotor policy learning. In recent years, it has catalyzed a diverse range of visuomotor policies [ 40 , 8, 12 , 20 ] for robotic manipulation, including prominent Vision-Language-Action (VLA) models [ 33 , 3 , 23 , 39 ]. Existing IL-based policies typically mimic the motion speed exhibited in expert demonstrations. [ 6] Regardless of the stage of the task, the policy predicts actions over a fixed future horizon, i.e., it uses fixed-length action chunking [ 40 , 8]. However, the motion speeds in expert demonstrations are often suboptimal, thereby limiting the efficiency and performance of the learned policy. In practical deployment scenarios, task completion efficiency is often critical, especially in industrial settings. Different stages of manipulation tasks exhibit varying levels of difficulty [ 32 , 7], suggesting that 
+
+both the motion speed and the temporal prediction horizon should be stage-dependent .Empirically, we find a consistent positive relationship between motion speed and effective prediction horizon, aligning with prior findings in human motor and cognitive control [ 27 , 9]. As shown in Fig. 1, in easy stages, such as free-space reaching or coarse repositioning, long-horizon action chunks can be predicted reliably from the current observation [ 24 , 35 ], allowing faster execution. In contrast, fine-grained stages such as insertion or sustained interaction demand higher precision and tighter perception–action coupling, and are therefore better served by shorter effective prediction horizons and slower execution. This is consistent with findings in human motor and cognitive control: when task demands are low, humans can act faster with relatively little monitoring, whereas precision-critical behaviors require closer feedback monitoring and often slower movements to preserve accuracy [14, 2, 28]. Building on these motivations, we introduce AutoSpeed , a model-agnostic learning framework that enables existing visuomotor policies to predict trajectories at stage-adaptive motion speeds. In this work, we hypothesize and validate that the stage-dependent speed ratio can be implicitly inferred during end-to-end policy training . This obviates the need to train an additional proxy policy [ 11 ] or to rely on VLM-based or manual annotations [ 17 , 18 , 10 ]. Moreover, AutoSpeed jointly optimizes the quality of implicit speed ratio inference and trajectory prediction in an end-to-end training pipeline. Concretely, as shown in Fig. 1, given a set of speed ratios (e.g., sampled from 0.8 to 2.2 in increments of 0.2), we obtain action chunks at different speeds by applying discrete cosine transform (DCT)[ 16 ] to the original trajectories in the frequency domain (section 2.3). This technique enables non-integer speed modulation while preserving more high-frequency action details for fine-grained manipulation[ 41 ]. We use fixed-length action chunks to keep the model’s output dimensionality consistent; acceleration compresses trajectories in time and increases the effective horizon, while deceleration expands them and reduces it. We then treat future trajectories at different speeds as a set of candidate supervision targets. Each candidate is evaluated with a composite cost that trades off prediction error against prediction horizon, and we optimize the policy toward the minimum-cost candidate (section 2.2). A lightweight Ratio Head is trained jointly to predict the speed ratio from latent observation features. Additionally, similar to the temporal ensemble [ 40 ], we introduce a nonlinear temporal ensemble (section 2.4.2) that outputs actions by combining the speed prediction of the ratio 
+
+> 2
+
+head with multiple overlapping fragment predictions, allowing for smooth deployment at inference time. Through extensive experiments across diverse simulation benchmarks and real-world tasks, we show that visuomotor policies trained with AutoSpeed consistently reduce task execution time while improving success rates. AutoSpeed supports both single-task and multi-task learning and works across policy classes, spanning non-generative (e.g., MLP-based) and generative (e.g., diffusion- and flow-based) action prediction models. We further demonstrate additional capabilities of AutoSpeed, including controllable motion style and improved policy performance on datasets with substantial demonstration-speed variability. We summarize the contributions of this paper as follows: 1. We introduce AutoSpeed, which to our knowledge is the first annotation-free, stage-aware framework to implicitly infer motion speed ratios within end-to-end policy learning. 2. With DCT-based frequency-domain scaling, AutoSpeed enables non-integer acceleration and deceleration while preserving high-frequency action details. 3. Policies trained with AutoSpeed substantially shorten task completion time while improving success rates. Moreover, the inferred speed ratios are closely aligned with task stages. 
+
+# 2 Method 
+
+## 2.1 Problem Setup 
+
+Imitation learning for robotic manipulation aims to train a policy by minimizing the prediction error of demonstrated trajectories conditioned on observations. An expert dataset is given as D = {( 𝑙 (𝑖 ) , 𝜏 (𝑖 ) )} 𝑁 𝑖 =1, where each trajectory 𝜏 is denoted by 𝜏 = {( 𝑜 𝑡 , 𝑎 𝑡 , 𝑠 𝑡 )} 𝑇 𝑡 =1 and the task instruction 𝑙 specifies the task. At each time step 𝑡 , 𝑜 𝑡 denotes the image observation, 𝑎 𝑡 
+
+denotes the motion control signal, and 𝑠 𝑡 denotes the robot state. We denote the chunk size by 𝐻 , and the observation horizon by 𝐾 . For brevity, we omit conditioning inputs other than 
+
+o𝑡 −𝐾 +1: 𝑡 . A standard visuomotor policy 𝜋 𝜃 predicts a length-𝐻 action chunk conditioned on the recent observation context: 
+
+𝜋 𝜃 (a𝑡 :𝑡 +𝐻 −1 | o𝑡 −𝐾 +1: 𝑡 ) . (1) To enable stage-adaptive motion speed learning, the key challenge is to identify which stages in demonstration trajectories can be safely accelerated. We define the motion speed ratio as 𝑟 𝑡 
+
+at time step 𝑡 . Larger 𝑟 𝑡 corresponds to easier stages, allowing faster execution and a longer temporal prediction horizon; smaller 𝑟 𝑡 corresponds to precision-critical stages, demanding slower execution, a shorter horizon and higher-frequency feedback. In our framework we use a fixed number of chunks to keep the model’s output tensor shape consistent. Therefore, the temporal prediction horizon ℎ𝑡 is positively correlated with the motion speed ratio 𝑟 𝑡 . then: 
+
+h𝑡 = 𝐻 · 𝑟 𝑡 (2) 
+
+> 3
+
+Figure 2. Overview of AutoSpeed. Training with AutoSpeed is formulated as a cost-aware 
+
+multi-target selective optimization problem, where trajectories at different motion speeds form a set of candidate supervision targets. AutoSpeed performs mode selection by minimizing a composite cost 
+
+𝐽 that trades off prediction error against prediction horizon, and optimizes the policy toward the target with minimum cost. 
+
+Accordingly, a visuomotor policy trained with AutoSpeed is formulated as: 
+
+𝜋 𝜃 
+
+ a′𝑡 :𝑡 +ℎ𝑡 −1, | o𝑡 −𝐾 +1: 𝑡 
+
+ . (3) where a′𝑡 :𝑡 +ℎ𝑡 −1 has a motion speed 𝑟 𝑡 matched to the current task stage. The transformation from a𝑡 :𝑡 +𝐻 −1 to a′𝑡 :𝑡 +ℎ𝑡 −1 is described in Sec. 2.3. Besides, Sec. 2.2 details the AutoSpeed optimization procedure. Sec. 2.4 presents training recipes for generative policy classes and introduces a compatible inference-time strategy that aggregates overlapping predictions to improve smoothness. In the following sections, we denote an action chunk by 𝐴 .
+
+## 2.2 Multi-Target Selective Optimization 
+
+Recent studies have analyzed and empirically validated quantifiable stage signatures in robotic manipulation: fine-grained behaviors are often reflected in the high-frequency components of action trajectories[ 41 ], while the policy’s predicted action entropy can serve as a proxy for identifying difficult, failure-prone stages[ 30 , 11 , 13 ]. We hypothesize that the stage-dependent signal 𝑟 𝑡 can be implicitly inferred during end-to-end training, and in this work we validate that it is feasible and model-agnostic. We formulate training as cost-aware multi-target optimization. 
+
+2.2.1 Optimization Target Set 
+
+At each time step 𝑡 , we construct a set of candidate future trajectories at different speeds 
+
+{𝑟 (𝑚 ) 
+
+> 𝑡
+
+}𝑀 𝑚 =1 , denoted by {𝐴 (𝑚 ) 
+
+> 𝑡
+
+}𝑀 𝑚 =1. AutoSpeed supports a user-defined discrete set of motion-speed ratios (e.g., sampled from 0.8 to 2.2 in increments of 0.2), and 𝑀 denotes the number of speed candidates. Compared to manually downsampling demonstrations at only integer-rate factors[ 17 , 11 ], this design provides greater flexibility and enables smoother speed transitions. 
+
+42.2.2 Cost-based Selective Optimization 
+
+As shown in Fig. 2, the multi-target setting yields a set of losses, each corresponding to an optimization direction. We evaluate these candidates using a composite cost 𝐽 that trades off prediction error against temporal prediction horizon: 
+
+𝐽 
+
+
+
+𝐴 (𝑚 )
+
+> 𝑡
+
+
+
+= E(𝑚 )
+
+> 𝑡
+
+𝑤 + log 
+
+
+
+ℎ(𝑚 )
+
+> 𝑡
+
+ , (4) 
+
+E(𝑚 ) 
+
+> 𝑡
+
+denotes the model’s mean-squared prediction error (MSE) for candidate 𝑚 at time 𝑡 . For non-generative models, E(𝑚 ) 
+
+> 𝑡
+
+reduces to the MSE between the predicted action chunk and 
+
+𝐴 (𝑚 ) 
+
+> 𝑡
+
+. For generative models, E(𝑚 ) 
+
+> 𝑡
+
+can be instantiated as an MSE either on the denoising target (i.e., the injected noise) or directly on the ground-truth actions[ 21 ], with the former being more commonly used[ 8 , 23 , 38 ]. The denominator serves as an adaptive normalization term. Candidates with shorter prediction horizons receive a larger penalty, encouraging the model to favor well-predicted futures while selecting faster speeds whenever possible. Intuitively, in easier stages, future actions remain predictable over longer horizons, permitting higher speed ratios; in precision-critical stages, long-horizon prediction becomes less predictable, yielding lower speed ratios. Additionally, 𝑤 is a constant term that can be tuned to control motion style. A smaller 𝑤 biases the policy toward a more aggressive motion style. We examine the sensitivity of the results to this setting in Sec. 3.6.2. We then select the minimum-cost candidate: 
+
+𝑚 ★ = arg min  
+
+> 𝑚 ∈{ 1,...,𝑀 }
+
+𝐽 
+
+
+
+A(𝑚 ) 
+
+(5) AutoSpeed trains the policy by minimizing the loss on the selected target, 
+
+min  
+
+> 𝜃
+
+E𝜏 ∼D 
+
+"∑︁ 
+
+> 𝑡
+
+L𝜃 
+
+
+
+o𝑡 −𝐾 +1: 𝑡 , A(𝑚 ★) #
+
+. (6) 
+
+2.2.3 Criterion for different models. 
+
+AutoSpeed is model-agnostic. For policies with non-generative action heads, the model output is the action prediction; therefore, we set E(𝑚 ) 
+
+> 𝑡
+
+to the mean-squared error (MSE) of the predicted actions. For diffusion-based action heads, the action chunk 𝐴 (𝑚 ) 
+
+> 𝑡
+
+serves as the generation target and is progressively corrupted by Gaussian noise 𝝐 ∼ N ( 0, I) during training to obtain a noised sample x(𝑚 ) 
+
+> 𝜅
+
+at diffusion step 𝜅 ; the denoiser 𝜖 𝜃 (·) , conditioned on the observation context 
+
+o𝑡 −𝐾 +1: 𝑡 , learns to predict the injected noise. Therefore, we set E(𝑚 ) 
+
+> 𝑡
+
+to the mean-squared error (MSE) of the predicted noise: 
+
+E(𝑚 ) 
+
+> 𝑡
+
+= E𝝐 ∼N ( 0,I), 𝜅 
+
+
+
+𝝐 − 𝜖 𝜃 
+
+
+
+o𝑡 −𝐾 +1: 𝑡 , x(𝑚 ) 
+
+> 𝜅
+
+, 𝜅 
+
+ 22
+
+
+
+, (7) 
+
+5Figure 3. (a) and (b) contrast generative-model training with and without AutoSpeed. With AutoSpeed (b), each sample is guided toward the target that attains the lowest cost. 
+
+For flow-matching-based action heads, the model learns a conditional velocity field 𝑣 𝜃 (·) 
+
+that transports a noise sample 𝝐 to the target action chunk 𝐴 (𝑚 ) 
+
+> 𝑡
+
+along an interpolation 
+
+x(𝑚 ) 
+
+> 𝜏
+
+= (1 − 𝜏 )𝝐 + 𝜏 𝐴 (𝑚 ) 
+
+> 𝑡
+
+, where 𝜏 ∈ [ 0, 1] is the interpolation time. Accordingly, we set 
+
+E(𝑚 ) 
+
+> 𝑡
+
+= E𝜏 ∼U ( 0,1), 𝝐 ∼N ( 0,I)
+
+
+
+𝑣 𝜃 
+
+
+
+o𝑡 −𝐾 +1: 𝑡 , x(𝑚 ) 
+
+> 𝜏
+
+, 𝜏 
+
+
+
+−
+
+
+
+𝐴 (𝑚 ) 
+
+> 𝑡
+
+− 𝝐 
+
+ 22
+
+
+
+. (8) As shown in Fig. 3, AutoSpeed extends the general mechanism to generative action heads by constructing multiple speed-modulated generation targets for each training sample. At each denoising or flow-matching prediction step, the model is no longer constrained to match a single fixed target; instead, it performs Multi-Target Selective Optimization by selecting the candidate with the minimum cost. 
+
+2.2.4 Ratio Head. 
+
+We introduce a lightweight Ratio Head trained to predict the speed ratio 𝑟 𝑡 from latent observation features. It provides stage-adaptive motion speeds in the third stage of generative-model training 2.4.1, and its predictions are used by the Nonlinear Temporal Aggregation (NTA) module 2.4.2 during inference. 
+
+## 2.3 Motion Speed Transform 
+
+We apply the discrete cosine transform (DCT) [ 16 ] to map time-domain action signals into the frequency domain, perform temporal scaling there to realize stretching/compression along the time axis, and then transform the actions back to the time domain. In details, we first compute DCT-II coefficients of the original action chunk 𝐴 ∈ R𝐻 0×𝐷 along the temporal axis, where 𝐻 0 denotes the maximum number of action samples required: 
+
+C = DCT ( 𝐴 ) ∈ R𝐻 0×𝐷 (9) We then retime by evaluating the inverse-DCT basis at the speed ratio 𝑟 and reconstruct the retimed chunk via a basis–coefficient product: 
+
+˜𝐴 = B(𝑟 )C, B(𝑟 )𝑖,𝑘 =√︄ 2
+
+𝐻 0
+
+𝛼 𝑘 cos 
+
+ 𝜋𝑘 (𝑡 𝑖 + 0.5)
+
+𝐻 0
+
+
+
+, (10) 
+
+6Figure 4. Illustration of conventional temporal aggregation and our Nonlinear Temporal Aggregation (NTA). (a) When action chunks are defined on a uniform temporal grid, predictions from different history steps are naturally aligned, and the actions at the same current step can be directly aggregated. (b) AutoSpeed enables adaptive motion speed learning, so corresponding actions are no longer aligned. NTA selects the actions associated with the same episode progress from different chunks for aggregation. 
+
+where 𝑡 𝑖 = 𝑖 · 𝑟 for 𝑖 = 0, . . . , 𝐻 − 1, 𝑘 = 0, . . . , 𝐻 0 − 1, 𝛼 0 = 1/√2, and 𝛼 𝑘 = 1 for 𝑘 ≥ 1.During training, the candidates {𝐴 (𝑚 ) }𝑀 𝑚 =1 are generated by applying the operator with the speed ratio set {𝑟 (𝑚 ) }𝑀 𝑚 =1.This enables both acceleration and deceleration with non-integer scaling factors, while the frequency-domain processing effectively preserves high-frequency details that are crucial for fine-grained manipulation[41]. 
+
+## 2.4 Other Techniques 
+
+2.4.1 Training Recipe for Generative Models 
+
+In practice, we find across multiple training and testing runs that even when using Multi-Target Selective Optimization throughout the entire process, the model can still learn favorable speed profiles and achieve strong performance. To further improve training stability for generative models and reduce the additional computa-tional cost, we propose a three-stage training strategy :Inspired by [ 5], which shows that diffusion models tend to preferentially learn smooth, low-complexity, and generalizable structure in the early stages of training, we optimize the model in the early training stage by minimizing the average loss over all candidates. The second stage corresponds to the multi-objective optimization process (Sec. 2.2). In the third stage, the Ratio Head is frozen, and the model is optimized directly using the motion speed predicted by the Ratio Head, allowing the remaining steps in the generation process to rapidly converge to the selected mode. This provides a training optimization direction for scaling to larger datasets. 
+
+> 7
+
+2.4.2 Nonlinear Temporal Aggregation 
+
+Conventional temporal aggregation assumes uniform time intervals consecutive actions across all chunks, rendering it incompatible with the variable-speed predictions generated by AutoSpeed. To address this limitation, we introduce Nonlinear Temporal Aggregation (NTA), a novel mechanism that enables the ensembling of overlapping prediction across action chunks operating at different temporal scales. NTA computes a weighted average of actions from multiple chunks within a predefined time window. Specifically, at a given control step 𝑠 (denoted temporally as 𝑡 = 0), all predicted actions from previously generated chunks that fall within the time window [− 𝑖, +𝑖 ]
+
+are collected. Then, we compute a weighted average of the candidate actions using an exponential-decay weighting scheme and slight temporal misalignment is also corrected via the same frequency-domain transformation. We provide the details of NTA in the appendix. 
+
+# 3 Evaluation 
+
+Our evaluations aim to investigate and answer the following questions: 1. Can AutoSpeed effectively reduce the time required to complete tasks while maintaining task success rates? 2. Can the inferred speed ratios produced by AutoSpeed effectively indicate different task stages? 3. Is AutoSpeed effective in both single-task and multi-task learning settings, and does it work for both non-generative and generative models? 
+
+## 3.1 Experimental Setup 
+
+We evaluate AutoSpeed across a range of standard manipulation benchmarks and real-world tasks. 
+
+3.1.1 Simulation Tasks: 
+
+We experiment with two bimanual tasks from the ALOHA benchmark [ 40 ], 10 tasks from the LIBERO-10 suite [ 22 ], 50 tasks from the Meta-World benchmark [ 37 ], shown in Fig. 5. In ALOHA simulation, we evaluate the Transfer Cube and Insertion tasks, utilizing 50 expert demonstrations per task. For both the LIBERO-10 suite and the Meta-World benchmark, the policies are trained using 50 expert demonstrations per task under a multi-task learning paradigm. 
+
+3.1.2 Real-world Tasks: 
+
+We conduct real robot experiments on an Agilex Piper bimanual robot platform in a tabletop manipulation environment. The policies are trained on RGB images and robot proprioceptive state. The images are captured via two wrist cameras mounted on the top of the grippers and one fixed camera installed on top of the table. The action space comprises the joint states and the gripper state. Using a teleoperation system, we collect a dataset for four distinct tabletop   
+
+> 8Figure 5. Simulation Tasks. We select a total of 62 tasks from ALOHA Sim[ 40 ], MetaWorld[ 37 ], and LIBERO-Long[22], and use 50 demonstration trajectories for each task.
+
+tasks, with each task comprising approximately 50 expert demonstrations. Notably, the expert action trajectories are temporally oversampled by a factor of 2, enabling fine-grained actions when deploying deceleration. 
+
+3.1.3 Models 
+
+We compare policies optimized with our AutoSpeed framework against their vanilla counterparts trained with original objectives. 
+
+ACT : Action Chunking Transformer(ACT) [ 40 ] is a visuomotor policy composed of a transformer encoder and decoder. We use it as a representative non-generative baseline model. 
+
+BAKU : BAKU[ 12 ] is a transformer-based architecture designed for multi-task learning. This architecture is highly representative: most existing visuomotor policies, including VLA models, are largely built upon an Observation Encoder–Backbone–Action Head design. It employs a transformer encoder to fuse information from different modalities and trains a decoupled action head to generate action chunks. This modular design enables the action head to be readily substituted with several generative variants. We use these from-scratch models to isolate the contribution of AutoSpeed and show that its effectiveness does not depend on capabilities inherited from large-scale pretraining. AutoSpeed can also be applied to training or fine-tuning larger-scale models. Moreover, after applying AutoSpeed once to a training dataset, the inferred stage-aware motion speed annotations can be stored and reused, thereby avoiding repeated Multi-Target Selective Optimization in future training or fine-tuning pipelines. 
+
+3.1.4 Metrics 
+
+In addition to the standard metric of task success rate, we report the average episode length of successful rollouts to assess overall execution efficiency. For the Aloha benchmark, we  
+
+> 9Figure 6. The speed ratio curves of two real-world tasks correspond to the task stages. Under the AutoSpeed framework, the inferred speed ratios closely align with task stages.
+
+perform 50 evaluation rollouts per task. For both the LIBERO-10 suite and the Meta-World benchmark, we adopt a consistent evaluation protocol, executing 10 trials per task and reporting the aggregated success rates and execution length. For the real-world evaluation, we report the task success rate and average completion time (in seconds) across 20 trials per task, with a weighted success rate computed over individual subtask stages. 
+
+## 3.2 Main Results on Single-Task Learning Simulation 
+
+Table 1 summarizes the quantitative results evaluated on the ALOHA benchmark. Compared to the vanilla ACT baseline, the policy trained with AutoSpeed (denoted as 
+
+AutoSpeed ) achieves a substantial reduction in task execution time without compromising overall performance. Specifically, on the Transfer Cube task, AutoSpeed reduces the average episode length from 272 to 160 steps, yielding a maximum speedup of 1.7x. While this accelerated execution slightly lowers the success rate (from 72% to 64%) under standard control due to the heightened sensitivity of high-speed interactions, coupling AutoSpeed with a high-gain controller effectively mitigates this issue. This combination not only preserves the execution efficiency but also surpasses the original baseline with a 6% improvement. Furthermore, on the contact-rich Insertion task, AutoSpeed simultaneously improves the success rate (from 22% to 24%) and reduces execution length (from 353 to 296 steps with high-gain), demonstrating its robust execution efficiency in single-task learning scenarios. 
+
+## 3.3 Main Results on Multi-Task Learning Simulation 
+
+The quantitative results on the LIBERO-10 and Meta-World benchmark are presented in Table 2. AutoSpeed consistently outperforms the strongest baselines across both multi-task benchmarks. On Meta-World, AutoSpeed yields substantial improvements in success rates regardless of    
+
+> 10 Table 1. Quantitative results across multiple tasks on the ALOHA benchmark. †denotes evaluated with a high-gain controller.
+
+Method Transfer Cube Insertion SR (↑) Len (↓) SR (↑) Len (↓)ACT 72% 272 22% 353 ACT( AutoSpeed ) 64% 160 24% 300 ACT( AutoSpeed †) 78% 165 24% 296                             
+
+> Table 2. Quantitative results on multi-task learning benchmarks. Success rate (SR, ↑) and episode length (Len, ↓).
+> Method LIBERO-10 Meta-World SR (↑)Len (↓)SR (↑)Len (↓)BAKU-DiT 50% 261 43% 87 BAKU-Flow 47% 287 57% 82 BAKU-DiT ( AutoSpeed )49% 259 62% 70
+> BAKU-Flow ( AutoSpeed )52% 171 65% 71
+
+the underlying action head: BAKU-DiT exhibits a 19.0% increases, while BAKU-Flow improves by 7.8% to achieve the highest overall success rate (65%). Crucially, these gains are accompanied by marked reductions in average episode lengths. On the LIBERO-10 suite, AutoSpeed-trained policy compresses the execution time with a maximum acceleration of approximately 40% to its vanilla counterpart. Compared to baselines that naively execute actions at a fixed, dataset-dictated speed, AutoSpeed’s stage-adaptive optimization empowers policies to complete tasks substantially faster, while simultaneously improving success rates by dynamically adjusting to the complexity of the current task phase. Crucially, our experiments demonstrate that reducing task execution time and improving success rates are not mutually exclusive. By predicting trajectories at stage-adaptive motion speeds, AutoSpeed leverages long-horizon action chunks for faster execution during easy stages, where future actions can be predicted reliably. Conversely, during fine-grained stages that demand tighter perception-action coupling, the framework naturally adopts slower execution and shorter effective horizons to preserve control accuracy. Because this stage-aware modulation is implicitly inferred during end-to-end training via our composite cost, AutoSpeed generalizes effectively across multi-task scenarios, delivering superior execution efficiency while preserving task success compared to baselines. 
+
+## 3.4 Main Results on Real-World Tasks 
+
+As shown in Table 3, AutoSpeed consistently outperforms the baselines across all evaluated real-world tasks with various length and difficulty levels. Most notably, when integrated with our proposed Nonlinear Temporal Aggregation (NTA), the AutoSpeed-trained policy significantly reduces execution time, delivering an average speedup of approximately 1.78 ×
+
+across the diverse task suite.                                      
+
+> 11 Table 3. Real-world evaluation. Success rate (SR, ↑) and execution time in seconds (Time, ↓).
+> Method Transfer the Banana Place the Toy SR (↑)Time (↓)SR (↑)Time (↓)BAKU-Flow+TA 77% 20.80s 33% 18.13s BAKU-Flow ( AutoSpeed )+NTA 83% 11.24s 43% 10.13s Method Stacking Two Cubes Store Block in Drawer SR (↑)Time (↓)SR (↑)Time (↓)BAKU-Flow+TA 60% 50.11s 77% 38.67s BAKU-Flow ( AutoSpeed )+NTA 63% 28.52s 80% 23.01s
+
+Crucially, this substantial acceleration does not compromise manipulation precision but yields consistent absolute improvements in task success rates. As illustrated in Fig. 6, in the highly challenging Place the Toy task, AutoSpeed increases the success rate by a notable 10%. These physical deployments further validate AutoSpeed’s capacity to autonomously extract stage-dependent motion speed patterns from unannotated demonstrations. By leveraging the proposed multi-target optimization, the policy translates these learned patterns into superior task efficiency and robust real-world performance. As shown in Table 4, since action oversampling is practically feasible (easy to reach over 100 Hz), it serves as an optional way to improve fine-grained action fidelity under AutoSpeed, enabled by DCT-based retiming.               
+
+> Table 4. Real-world results with non-oversampled data.
+> Real-world 4 Tasks 1×Sampling 2×Sampling Baseline Avg. Time (s) (↓)19.41 18.23 31.93
+> Avg. SR (%) (↑)65.50 67.25 61.75
+
+## 3.5 Training Overhead 
+
+For non-generative models, applying AutoSpeed introduces no additional model computation overhead. For generative models, AutoSpeed incurs a small additional computational cost because the model’s action head needs to denoise each noise-perturbed trajectory candidate. However, this overhead is limited for two reasons. We report the wall-clock training times across benchmarks in Table 5. First, the parameters of the action head typically constitute only a small fraction of the overall model[ 3, 12 , 39 ]. Second, the denoising of different trajectory candidates can be performed in parallel[ 19 , 29 ], which prevents the training process from being significantly slowed down. All policy training and evaluation procedures are conducted on the NVIDIA A100 GPU. The approximate wall-clock training times for our experiments are presented in Table 5. 
+
+> 12
+
+Table 5. Approximate wall-clock training times (in hours) across benchmarks. AutoSpeed incurs only a marginal temporal overhead compared to the vanilla baselines. 
+
+Method ALOHA LIBERO-10 Meta-World Real-World Transfer Insertion Flow DiT Flow DiT Flow 
+
+Vanilla 7.6 7.6 6.2 6.5 8.0 7.2 10.1 AutoSpeed 7.9 7.8 7.8 7.7 8.2 8.0 12.4 0 50 100 150 200 250 300 350     
+
+> Time Steps
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> 4.0
+> Predicted speed
+> Predicted speed
+> [1, 2]
+> [1, 4]
+> [2, 4]
+> Baseline [1, 2] [1, 4] [2, 4]
+> Speed range
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)  64%
+> 76%
+> 70% 70%
+> Success rate and episode length
+> 150
+> 200
+> 250
+> 300
+> 350
+> Episode length
+> 304
+> 210
+> 185
+> 145
+
+Figure 7. Ablation on Speed Range Bounds. Left: Predicted motion speed trajectories over time steps for AutoSpeed variants on the ALOHA Transfer Cube task. Despite different predefined bounds, all variants exhibit a consistent phase-aware pattern, autonomously decelerating during complex interaction stages. Right: Comparison of task success rates (bars, left axis) and average episode lengths (line, right axis) with all variants outperforming the vanilla baseline. 
+
+## 3.6 Ablation Studies 
+
+3.6.1 Speed Range 
+
+We evaluate how different predefined speed ranges impact the model’s ability to learn phase-dependent motion patterns and its overall task performance. Specifically, we train the ACT policy equipped with AutoSpeed on the ALOHA Transfer Cube task under three distinct speed range settings: AutoSpeed [1x, 2x], AutoSpeed [1x, 4x], and AutoSpeed [2x, 4x]. All other hyperparameters remain identical for a fair comparison, and a vanilla ACT model is evaluated as the baseline. Note that while this ablation uses a reduced image resolution compared to the main experiments, the same resolution and all other hyperparameters are kept identical across all variants to ensure a fair comparison. As illustrated in Fig. 7(left), despite the varying upper and lower bounds, the learned speed trajectories across all three variants exhibit a remarkably consistent phase-aware pattern. The policies autonomously decelerate (forming a valley in the speed curve) during complex, interaction-critical task phases, and accelerate during simpler, unconstrained stages. Furthermore, Fig. 7(right) demonstrates that all three AutoSpeed variants consistently outper-form the vanilla baseline in both success rate and execution efficiency. Notably, the results reveal a clear tradeoff dictated by the speed bounds: the more conservative [1x, 2x] setting achieves the highest success rate (76% vs. the baseline’s 64%), while the aggressive [2x, 4x] setting maximally minimizes the episode length (dropping from 304 to 145 steps) while still 
+
+13 0 50 100 150 200 250 300 350      
+
+> Time Steps
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> 1.8
+> 2.0
+> Predicted speed
+> Predicted speed
+> 0.3
+> 0.7
+> 1.3
+> 1.7
+> 0.3 0.7 1.3 1.7
+> Loss weight w
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate (%)
+> 74%
+> 79% 80%
+> 73%
+> Success rate and episode length
+> 150
+> 200
+> 250
+> 300
+> 350
+> Episode length
+> 179 173
+> 224
+> 242
+
+Figure 8. Ablation on the length penalty coefficient 𝑤 . Left: Predicted motion speed trajectories over time steps for AutoSpeed variants on the ALOHA Transfer Cube task. Right: Comparison of task success rates and average episode lengths. 
+
+maintaining a highly competitive success rate of 70%. 
+
+3.6.2 Sensitivity to 𝑤 
+
+The speed range and 𝑤 are both practical design choices for specific task requirements. Different length penalty coefficients inherently shift the model’s preference for speed selection. As the penalty decreases, the relative cost of predicting shorter action chunk increases. Consequently, the model is penalized more heavily for selecting slower speeds and tends to predict action chunk with longer horizons. Fig. 8 shows as policy trained with a smaller length penalty favors generating action chunk with higher speed. Overall, different choices share the phase-aware pattern: the policy accelerates in predictable stages and decelerates in critical interaction stages. 
+
+# 4 Conclusion 
+
+AutoSpeed is a simple yet effective training paradigm for learning stage-adaptive motion speed and temporal prediction horizon directly from standard expert demonstrations. Rather than relying on external annotations or post-hoc trajectory retiming, AutoSpeed uncovers an endogenous signal 𝑟 𝑡 during end-to-end policy learning by selecting, among re-timed candidate futures, the target that best balances prediction error and temporal prediction horizon. This unifies speed control and temporal reasoning under a single objective and is compatible with both non-generative and generative visuomotor policies. Across a broad suite of simulation and real-world manipulation tasks, AutoSpeed improves efficiency while maintaining success rates. We hope AutoSpeed offers a practical and broadly applicable route toward faster, safer, and more reliable visuomotor policy deployment. 
+
+14 References 
+
+[1] Nadun Ranawaka Arachchige, Zhenyang Chen, Wonsuhk Jung, Woo Chul Shin, Rohan Bansal, Pierre Barroso, Yu Hang He, Yingyang Celine Lin, Benjamin Joffe, Shreyas Kousik, et al. Sail: Faster-than-demonstration execution of imitation learning policies. arXiv preprint arXiv:2506.11948 , 2025. [2] David Badre. Cognitive control. Annual Review of Psychology , 76(1):167–195, 2025. [3] Kevin Black, Noah Brown, Danny Driess, Adnan Esmail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy Groom, Karol Hausman, Brian Ichter, et al. 𝜋 0: A vision-language-action flow model for general robot control. corr, abs/2410.24164, 2024. doi: 10.48550. arXiv preprint ARXIV.2410.24164 , 2024. [4] Kevin Black, Manuel Y Galliker, and Sergey Levine. Real-time execution of action chunking flow policies. arXiv preprint arXiv:2506.07339 , 2025. [5] Tony Bonnaire, Raphaël Urfin, Giulio Biroli, and Marc Mézard. Why diffusion models don’t mem-orize: The role of implicit dynamical regularization in training. arXiv preprint arXiv:2505.17638 ,2025. [6] Daniel S Brown, Wonjoon Goo, and Scott Niekum. Better-than-demonstrator imitation learning via automatically-ranked demonstrations. In Conference on robot learning , pages 330–359. PMLR, 2020. [7] Qianzhong Chen, Justin Yu, Mac Schwager, Pieter Abbeel, Yide Shentu, and Philipp Wu. Sarm: Stage-aware reward modeling for long horizon robot manipulation. arXiv preprint arXiv:2509.25358 , 2025. [8] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. Diffusion policy: Visuomotor policy learning via action diffusion. The International Journal of Robotics Research , 44(10-11):1684–1704, 2025. [9] Digby Elliott, Werner F Helsen, and Romeo Chua. A century later: Woodworth’s (1899) two-component model of goal-directed aiming. Psychological bulletin , 127(3):342, 2001. [10] Yiguo Fan, Shuanghao Bai, Xinyang Tong, Pengxiang Ding, Yuyang Zhu, Hongchao Lu, Fengqi Dai, Wei Zhao, Yang Liu, Siteng Huang, et al. Long-vla: Unleashing long-horizon capability of vision language action model for robot manipulation. In Conference on Robot Learning , pages 2018–2037. PMLR, 2025. [11] Lingxiao Guo, Zhengrong Xue, Zijing Xu, and Huazhe Xu. Demospeedup: Accelerating visuo-motor policies via entropy-guided demonstration acceleration. arXiv preprint arXiv:2506.05064 ,2025. [12] Siddhant Haldar, Zhuoran Peng, and Lerrel Pinto. Baku: An efficient transformer for multi-task policy learning. Advances in Neural Information Processing Systems , 37:141208–141239, 2024. [13] Joey Hejna, Suvir Mirchandani, Ashwin Balakrishna, Annie Xie, Ayzaan Wahid, Jonathan Tompson, Pannag Sanketi, Dhruv Shah, Coline Devin, and Dorsa Sadigh. Robot data curation with mutual information estimators. arXiv preprint arXiv:2502.08623 , 2025. [14] Herbert Heuer and Peter Wühr. The impact of speed-accuracy instructions on spatial congruency effects. Journal of Cognition , 6(1):49, 2023. [15] Dong Jing, Gang Wang, Jiaqi Liu, Weiliang Tang, Zelong Sun, Yunchao Yao, Zhenyu Wei, Yunhui Liu, Zhiwu Lu, and Mingyu Ding. Mixture of horizons in action chunking. arXiv preprint 
+
+15 arXiv:2511.19433 , 2025. [16] Syed Ali Khayam. The discrete cosine transform (dct): theory and application. Michigan State University , 114(1):31, 2003. [17] Byungju Kim, Jinu Pahk, Chungwoo Lee, Jaejoon Kim, Jangha Lee, Theo Taeyeong Kim, Kyuhwan Shim, Jun Ki Lee, and Byoung-Tak Zhang. Espada: Execution speedup via semantics aware demonstration data downsampling for imitation learning. arXiv preprint arXiv:2512.07371 , 2025. [18] Zihan Lan, Weixin Mao, Haosheng Li, Le Wang, Tiancai Wang, Haoqiang Fan, and Osamu Yoshie. Bfa: Best-feature-aware fusion for multi-view fine-grained manipulation. IEEE Robotics and Automation Letters , 2025. [19] Ke Li and Jitendra Malik. Implicit maximum likelihood estimation. arXiv preprint arXiv:1809.09087 , 2018. [20] Shuang Li, Yihuai Gao, Dorsa Sadigh, and Shuran Song. Unified video action model. arXiv preprint arXiv:2503.00200 , 2025. [21] Tianhong Li and Kaiming He. Back to basics: Let denoising generative models denoise. arXiv preprint arXiv:2511.13720 , 2025. [22] Bo Liu, Yifeng Zhu, Chongkai Gao, Yihao Feng, Qiang Liu, Yuke Zhu, and Peter Stone. Libero: Benchmarking knowledge transfer for lifelong robot learning. Advances in Neural Information Processing Systems , 36:44776–44791, 2023. [23] Songming Liu, Lingxuan Wu, Bangguo Li, Hengkai Tan, Huayu Chen, Zhengyi Wang, Ke Xu, Hang Su, and Jun Zhu. Rdt-1b: a diffusion foundation model for bimanual manipulation. arXiv preprint arXiv:2410.07864 , 2024. [24] Yuejiang Liu, Jubayer Ibn Hamid, Annie Xie, Yoonho Lee, Maximilian Du, and Chelsea Finn. Bidirectional decoding: Improving action chunking via guided test-time sampling. arXiv preprint arXiv:2408.17355 , 2024. [25] Nozomu Masuya, Sho Sakaino, and Toshiaki Tsuji. Variable-frequency imitation learning for variable-speed motion. In 2025 IEEE International Conference on Mechatronics (ICM) , pages 1–6. IEEE, 2025. [26] Taewook Nam and Sung Ju Hwang. Speedaug: Policy acceleration via tempo-enriched policy and rl fine-tuning. arXiv preprint arXiv:2512.00062 , 2025. [27] Luka Peternel, Olivier Sigaud, and Jan Babič. Unifying speed-accuracy trade-off and cost-benefit trade-off in human reaching movements. Frontiers in human neuroscience , 11:615, 2017. [28] Emeline Pierrieau, Claire Dussard, Axel Plantey-Veux, Cloé Guerrini, Brian Lau, Léa Pillette, Nathalie George, and Camille Jeunet-Kelway. Changes in cortical beta power predict motor control flexibility, not vigor. Communications Biology , 8(1):1041, 2025. [29] Han Qi, Haocheng Yin, Aris Zhu, Yilun Du, and Heng Yang. Strengthening generative robot policies through predictive world modeling. arXiv preprint arXiv:2502.00622 , 2025. [30] Ralf Römer, Adrian Kobras, Luca Worbis, and Angela P Schoellig. Failure prediction at runtime for generative robot policies. arXiv preprint arXiv:2510.09459 , 2025. [31] Junhyuk So, Chiwoong Lee, Shinyoung Lee, Jungseul Ok, and Eunhyeok Park. Improving genera-tive behavior cloning via self-guidance and adaptive chunking. arXiv preprint arXiv:2510.12392 ,2025. 16 [32] Markku Suomalainen, Yiannis Karayiannidis, and Ville Kyrki. A survey of robot manipulation in contact. Robotics and Autonomous Systems , 156:104224, 2022. [33] Octo Model Team, Dibya Ghosh, Homer Walke, Karl Pertsch, Kevin Black, Oier Mees, Sudeep Dasari, Joey Hejna, Tobias Kreiman, Charles Xu, et al. Octo: An open-source generalist robot policy. arXiv preprint arXiv:2405.12213 , 2024. [34] Haoxuan Wang, Gengyu Zhang, Yan Yan, Ramana Rao Kompella, and Gaowen Liu. Vla knows its limits. arXiv preprint arXiv:2602.21445 , 2026. [35] Yueyang Weng, Xiaopeng Zhang, Yongjin Mu, Yingcong Zhu, Yanjie Li, and Qi Liu. Temporal action selection for action chunking. arXiv preprint arXiv:2511.04421 , 2025. [36] Jun Xie, Zhicheng Wang, Jianwei Tan, Huanxu Lin, and Xiaoguang Ma. Subconscious robotic imitation learning. arXiv preprint arXiv:2412.20368 , 2024. [37] Tianhe Yu, Deirdre Quillen, Zhanpeng He, Ryan Julian, Karol Hausman, Chelsea Finn, and Sergey Levine. Meta-world: A benchmark and evaluation for multi-task and meta reinforcement learning. In Conference on robot learning , pages 1094–1100. PMLR, 2020. [38] Qinglun Zhang, Zhen Liu, Haoqiang Fan, Guanghui Liu, Bing Zeng, and Shuaicheng Liu. Flowpolicy: Enabling fast and robust 3d flow-based policy via consistency flow matching for robot manipulation. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 14754–14762, 2025. [39] Wenyao Zhang, Hongsi Liu, Zekun Qi, Yunnan Wang, Xinqiang Yu, Jiazhao Zhang, Runpei Dong, Jiawei He, Fan Lu, He Wang, et al. Dreamvla: a vision-language-action model dreamed with comprehensive world knowledge. arXiv preprint arXiv:2507.04447 , 2025. [40] Tony Z Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manipulation with low-cost hardware. arXiv preprint arXiv:2304.13705 , 2023. [41] Yiming Zhong, Yumeng Liu, Chuyang Xiao, Zemin Yang, Youzhuo Wang, Yufei Zhu, Ye Shi, Yujing Sun, Xinge Zhu, and Yuexin Ma. Freqpolicy: Frequency autoregressive visuomotor policy with continuous tokens. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. 17 We provide further details on the following aspects: 
+
+• The AutoSpeed Training Procedure.(Sec. A) 
+
+• Related Works.(Sec. B) 
+
+• The Experimental Hyperparameter Settings and Training Details.(Sec. C) 
+
+• Implementation Details of Nonlinear Temporal Aggregation.(Sec. D) 
+
+• Main Failure Modes for Adaptive-Speed Manipulation.(Sec. E) 
+
+• Connection and Comparison with Action Entropy.(Sec. F) 
+
+• More AutoSpeed-Identified Speed Ratio Curves.(Sec. G) 
+
+# A The AutoSpeed Training Procedure 
+
+We present the AutoSpeed training procedure to clarify how training differs across model classes and to illustrate the selective optimization process. 
+
+Algorithm 1: AutoSpeed Training (Non-Gen & Gen) 
+
+Require: Training steps 𝐾 ; dataset D; ratio set {𝑟 (𝑚 ) }𝑀 𝑚 =1; DCT-based scaling operator T ; cost function 𝐽 (𝑚 ) = E (𝑚 ) /( 𝑤 + log (ℎ(𝑚 ) 
+
+> 𝑡
+
+)) ; policy backbone F ; action head G; ratio head 
+
+R. 
+
+> 1
+
+foreach training step 𝑡 ∈ [ 1, 𝐾 ] do  
+
+> 2
+
+Sample a data batch {O , A} from D 
+
+> 3
+
+for 𝑚 ← 1 to 𝑀 do  
+
+> 4
+
+𝐴 (𝑚 ) 
+
+> 𝑡
+
+← T (A , 𝑟 (𝑚 ) ) // Generate trajectory candidates  
+
+> 5
+
+𝑧 ← F (O) // Encode observations and instructions  
+
+> 6
+
+if non-generative policy then  
+
+> 7
+
+ˆ𝐴 ← G( 𝑧 ) // Non-generative action prediction  
+
+> 8
+
+for 𝑚 ← 1 to 𝑀 do  
+
+> 9
+
+Compute E (𝑚 ) and 𝐽 (𝑚 ) 
+
+> 10
+
+else 
+
+// Generative action prediction  
+
+> 11
+
+Sample diffusion / flow-matching step 𝑠 and noise 𝜖  
+
+> 12
+
+for 𝑚 ← 1 to 𝑀 do  
+
+> 13
+
+Sample noised actions x(𝑚 ) 
+
+> 𝑠
+
+from 𝐴 (𝑚 ) 
+
+> 𝑡
+
+, 𝜖 , and 𝑠  
+
+> 14
+
+ˆ𝜖 ← G( x(𝑚 ) 
+
+> 𝑠
+
+, 𝑠, 𝑧 ) 
+
+> 15
+
+Compute E (𝑚 ) and 𝐽 (𝑚 ) 
+
+> 16
+
+𝑚 ★ ← arg min 𝑚 𝐽 (𝑚 ) 
+
+> 17
+
+Update F , G using the selected objective indexed by 𝑚 ★ // Optimize  
+
+> 18
+
+Update R toward 𝑟 (𝑚 ★ ) 
+
+> 19
+
+return (F , G, R) 
+
+18 B Related Work 
+
+## B.1 Motion Speed Modulation in Robot Manipulation 
+
+We categorize the literature on motion speed modulation in robot manipulation by when the motion speed ratio is inferred: (1) pre-training inference, where it is inferred before training and used to annotate the dataset; (2) test-time inference, where it is inferred during model deployment; and (3) training-time emergence from unlabeled data, where it is implicitly inferred during end-to-end training. The following methods fall into the first category: DemoSpeedUp [ 11 ] derives safe-to-accelerate regions by estimating action entropy with a proxy policy, and retrains a faster policy on the annotated dataset. Similarly, ESPADA [ 17 ] uses VLM/LLM-based stage annotations to identify the safe-to-accelerate regions. Moreover, SpeedAug [ 26 ] constructs tempo-augmented trajectories to learn a tempo-enriched imitation prior, then applies RL-based fine-tuning to push toward faster policies. And the following methods fall into the second category: SAIL [ 1 ]integrates complexity-aware speed modulation with high-gain tracking and scheduling to safely increase execution speed, while SRIL [ 36 ] reduces computing latency by learning when to skip inference. VFIL [ 25 ] treats speed as an explicit command and conditions the policy on sampling frequency, enabling variable-speed execution by changing the control frequency at deployment without retraining. However, the third paradigm remains underexplored despite its practical importance. Annotation-based approaches face two key limitations. First, introducing external tools or training additional models to produce annotations is costly and often requires task-specific heuristics or rules. Second, annotation quality and cross-trajectory consistency directly affect the final policy performance, yet these annotations are not optimized end-to-end with the policy. Moreover, prior work largely focuses on when to accelerate; in AutoSpeed, we unify acceleration and deceleration within a single speed-modulation perspective. 
+
+## B.2 Flexible Reconfiguration of Action Chunking 
+
+Action chunking, which models the joint distribution of future actions conditioned on past states, is a standard practice in robotic manipulation [ 40 , 8 ]. While action chunking strengthens temporal consistency and mitigates error accumulation, long chunks reduce access to the most recent observations during execution and thus limit reactivity [ 24 ]. A growing body of work shows that the prediction horizon in action chunking can substantially impact policy performance, suggesting the existence of an optimal horizon [ 34 , 24 , 4]. Embodied manipulation is inherently stage-structured: predictability and feedback requirements vary substantially across stages, so a single global optimal horizon is at best an average-case compromise. A more appropriate view is local optimality, where the effective horizon should be adapted to the current context during policy prediction or execution. From the training-time perspective, MoH [ 15 ] formulates action chunking as a mixture over multiple horizons, processes them in parallel with a shared action transformer, and fuses the outputs via a gating module. From the inference-time perspective, AutoHorizon [ 34 ]adjusts the execution horizon online based on the model’s attention weights. GBC [ 31 ]
+
+> 19
+
+improves diffusion-based behavior cloning via self-guidance adaptive chunking mechanism that selectively refreshes action chunks when higher reactivity is needed. The shared motivation between motion speed modulation and action chunking reconfiguration is to move beyond a single globally tuned trade-off toward stage-aware, locally optimal adaptation across task stages. Dynamic adjustment of the prediction horizon covered by action chunks is also one of our motivations, and we find it is strongly positively correlated with motion-speed modulation across task stages. Accordingly, we keep the output chunk size fixed to preserve architectural compatibility, and use motion-speed modulation to induce a coupled change in the effective inference horizon, enabling stage-adaptive temporal reasoning without altering the model output dimensionality. 
+
+# C Experiment Details and Hyperparameters 
+
+This section provides comprehensive details regarding the experimental setup and hyperparam-eters utilized across both simulation and real-world evaluations. The complete list of training hyperparameters is summarized in Table C.1. To ensure a strict and fair comparison, the hyperparameter configuration within each specific setting is kept entirely identical between the AutoSpeed-augmented policies and their respective vanilla baselines. 
+
+Table C.1. Training hyperparameters across different benchmarks. Here the batch size represents the effective global batch size. 
+
+ALOHA LIBERO-10 Meta-World Real-World Transfer Insertion Flow DiT Flow DiT Flow 
+
+Chunk Size 32 32 32 32 16 16 32 Total Steps 80K 80K 300K 300K 400K 400K 120K Batch Size 16 16 128 64 128 128 64 LR 1 × 10 −4 1 × 10 −4 1.4 × 10 −4 1.4 × 10 −4 1 × 10 −4 1 × 10 −4 1 × 10 −4
+
+The hyperparameters specific to the AutoSpeed framework are detailed in Table C.2. The 
+
+speed range defines the boundaries within which the policy can optimize the motion speed, while the speed step determines the discrete granularity of the candidate speeds. The speed sets used in these tasks are specified empirically. In AutoSpeed, these settings are treated as user-defined hyperparameters that can be adjusted as needed, allowing the model to exhibit different behaviors and performance characteristics. As shown in the distillation experiments in the main paper, AutoSpeed demonstrates stable performance across different hyperparameter settings. 
+
+# D Implementation details of Nonlinear Temporal Aggrega-tion. 
+
+Temporal aggregation (also called temporal ensembling ) is an inference-time mechanism originally introduced alongside action chunking [ 40 ] to make closed-loop execution smoother 
+
+20 Table C.2. AutoSpeed-specific hyperparameters. The penalty corresponds to the denominator weight in our composite optimization cost.                               
+
+> ALOHA LIBERO-10 Meta-World Real-World Transfer Insertion Flow DiT Flow DiT Flow
+> Speed Range [1.0, 2.0] [0.8, 1.5] [1.0, 2.0] [1.0, 2.0] [1.0, 2.0] [1.0, 2.0] [0.8, 2.2] Speed Step 0.1 0.1 0.2 0.2 0.2 0.2 0.2 Penalty 1.3 1.2 1.3 1.3 1.3 1.3 2.0
+
+and more reactive without changing the policy architecture. For the current timestep 𝑡 ,multiple past queries provide multiple predictions of the same action 𝑎 𝑡 ; the executor then computes a weighted average over these candidates using an exponential decay scheme (e.g., 𝑤 𝑖 = exp (− 𝑚𝑖 )), where 𝑚 controls how quickly new predictions override older ones. AutoSpeed extends this idea to the speed-adaptive setting. Because AutoSpeed retimes each predicted chunk with a stage-aware speed ratio 𝑟 𝑡 , overlapping chunks are no longer aligned on a uniform time grid, making conventional temporal aggregation (which assumes equal step intervals) incompatible. We therefore propose Nonlinear Temporal Aggregation (NTA) , which aggregates overlapping predictions produced by a model trained with AutoSpeed. In our setting, task progress is no longer assumed to advance linearly. We use the task progress in the expert trajectory as the reference, denoted by the episode step 𝑡 . At the next step, the task will advance by 𝑟 𝑡 rather than 1. To aggregate overlapping predictions, for each previous chunk predicted at inference step 𝑞 that still covers the next episode step 𝑡 + 𝑟 𝑡 under its effective episode horizon ℎ𝑞 , we take into consider the actions within the relative time window [− 𝑖, 𝑖 ].We then assign each candidate action 𝑎 𝑞 an exponential-decay weight according to its recency, including the first action from the current predicted action chunk: 
+
+𝑤 𝑞 = exp  −𝑚 (𝑠 − 𝑞 )
+
+where 𝑠 is the current inference step and 𝑚 controls how fast recent predictions override older ones. We then normalize these weights to obtain the weighting coefficient 
+
+˜𝑤 𝑞 = 𝑤 𝑞 
+
+Í𝑖 𝑤 𝑖 
+
+.For each candidate action 𝑎 𝑞 , we denote by 𝛿𝑡 𝑎 its deviation in task progress from the current step. We then apply a frequency-domain transformation to the original action chunk from which 𝑎 𝑞 is drawn, yielding an aligned action 𝑎 ′ 
+
+> 𝑞
+
+that compensates for this temporal offset. Let Q𝑡 denote the set of all candidate actions. The final action is computed by weighted averaging: 
+
+𝑎 𝑡 =∑︁ 
+
+> 𝑞 ∈Q 𝑡
+
+˜𝑤 𝑞 𝑎 ′
+
+> 𝑞
+
+,
+
+> 21
+
+# E Main Failure Modes for Adaptive-Speed Manipulation. 
+
+(1) Delayed controller response. 
+
+Under accelerated execution, rapidly changing actions may exceed the tracking capability of the low-level controller. As supported by Table 1 in the main paper, accelerated execution benefits from a higher-gain controller. 
+
+(2) Distortion under sub-1× deceleration. 
+
+When executing below 1× speed, frequency-domain retiming may introduce distortion. One optional solution is action oversampling as shown in table 4. 
+
+(3) Coupled pick-up–lifting transition. 
+
+The policy may occasionally start lifting before the grasp is fully stabilized. This is often recoverable by re-grasping, but leaves room for improvement. 
+
+(4) Over-aggressive 𝑤 or speed bounds. 
+
+We will explore adaptive 𝑤 and refined retiming in our future work. 
+
+# F Connection and comparison with action entropy 
+
+Beyond qualitative observations, we further analyze the consistency between the predicted speed ratios and action entropy from DemoSpeedUp (Ref. [11] in the main paper), which reflects divergence across multiple sampled action predictions. As shown in figure F.1, their extrema are stage-aligned: lower predicted speeds correspond to higher action-entropy stages. Unlike action entropy, which relies on grouped predictions from a proxy policy and struggles to distinguish uncertainty from multi-modality, AutoSpeed more accurately identifies safely acceleratable stages, such as robot start-up and return-to-home fast motions. 0 50 100 150 200 250 300 350 400   
+
+> t
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> normalized value
+> Predicted Speed vs. Action Entropy action entropy predicted speed
+
+Figure F.1. Predicted Speed and Action Entropy curves. 
+
+# G More AutoSpeed-Identified Speed Ratio Curves 
+
+22 Figure G.2. Stage-Adaptive Speed Ratio Curves. Predicted motion speeds over time steps for representative tasks from the ALOHA, LIBERO, and Meta-World benchmarks. Across all scenarios, AutoSpeed consistently learns to accelerate during coarse, simple movements and autonomously decelerates during interaction-critical task stages such as grasping and alignment, forming distinct valleys in the curves. 
+
+## G.1 Qualitative Analysis in Simulation Tasks 
+
+In this section, we present a qualitative analysis of the motion speed trajectories predicted by the AutoSpeed framework across diverse simulation environments. As illustrated in Figure G.2, the inferred speed ratios exhibit a strong, interpretable correspondence with the underlying task phases without any explicit annotations. In the Transfer Cube task from the ALOHA benchmark [ 40 ], the robot must perform a bimanual object handover, transferring a cube from the right gripper to the left. The predicted speed curve accurately captures the two most interaction-critical phases. The policy first decelerates significantly to approach and grasp the cube with the right arm. Following a brief period of high-speed transit, the speed drops to its minimum during the complex object handover, where precise coordination is required as the left arm approaches and grasps the cube, and the right arm releases. Other phases are executed efficiently at higher speeds. The long-horizon task from LIBERO-10 [ 22 ] ( Turn on the Stove and Put the Moka Pot on It )involves three sequential interaction stages. The speed curve accurately reflects this multi-stage 
+
+> 23
+
+complexity by exhibiting three corresponding deceleration valleys. Specifically, AutoSpeed actively drops the execution speed when the gripper makes contact with the stove knob, when it carefully grasps the handle of the moka pot, and when it precisely aligns the pot onto the stove burner. The coarse reaching motions bridging these interaction phases are executed efficiently at peak speeds. The Meta-World [ 37 ] task demands the policy to Pick up a Nut and Place It onto A Peg . Firstly the arm approaches the nut quickly, slows down to grasp, and accelerates moderately during transport. Notably, during the most challenging stage where the arm should hover and align the nut with the peg, the policy executes at its minimum speed to improve spatial precision. Finally, once the nut is successfully placed, the arm swiftly retracts. 
+
+## G.2 More Curves 
+
+This is an interesting dynamic manipulation task named Mole Game , where an xArm 7 must press a randomly lit button within 2 s. This task provides an intuitive demonstration of AutoSpeed’s characteristics. We visualize the learned ratio curve after training in Fig. G.3. In safe motion phases, the policy increases the motion speed, while in critical interaction phases, such as button pressing, it slows down to ensure precise execution.

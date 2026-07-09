@@ -1,0 +1,643 @@
+Title: Continuous-Time Gaussian Belief Trees for Motion Planning
+
+URL Source: https://arxiv.org/pdf/2607.02884v1
+
+Published Time: Tue, 07 Jul 2026 00:22:17 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Continuous-Time Gaussian Belief Trees for Motion Planning 
+
+Rayan Mazouz 1⋆, Qi Heng Ho 2⋆, Zachary N. Sunberg 1, Morteza Lahijanian 1
+
+Abstract — We address sampling-based motion planning for continuous-time stochastic systems under process and mea-surement uncertainty, with probabilistic guarantees on safety and performance. The robot dynamics are modeled as acontinuous-time linear stochastic differential equation, while sensor measurements arrive at discrete time instants. We derive an offline hybrid belief propagation model in which the belief evolves according to continuous-time ODEs between measurements and undergoes discrete Kalman filter update jumps at measurement times. To ensure safety, we introduce a belief-barrier-function-based safety checker for segment-level probabilistic verification. This enables the planner to certify safety over entire continuous trajectory segments and detect inter-sample chance-constraint violations that are missed by conventional node-based checks. Together, these components provide a principled framework for sampling-based belief planning that accounts for both continuous-time uncertainty propagation and continuous-time safety requirements. We in-tegrate the method with RRT and SST planners and evaluate it across multiple benchmark environments. The results show that the proposed method achieves high success rates and robust enforcement of chance constraints, including in narrow-passage scenarios where discrete-time counterparts fail due to missed inter-sample unsafe behavior. 
+
+I. I NTRODUCTION 
+
+Sampling-based algorithms have recently emerged as powerful planning tools that can efficiently search large-dimensional spaces, thereby rapidly finding solutions to com-plex problems [1]–[3]. They have enabled applications rang-ing from self-driving cars and surgical robots to autonomous UAVs. While most existing planners assume access to perfect state information, real robotic systems must contend with uncertainty in both motion (e.g., from modeling errors) and sensing (e.g., from noisy measurements). This challenge is particularly pronounced when observation uncertainty makes it difficult to ensure safety while maintaining efficiency. In practice, robotic systems evolve in continuous time, yet sensors only provide discrete measurements, creating a mismatch between real-world dynamics and the simplified models often used in planning. Recent work [4] addresses this issue by formulating planning directly in the belief space, incorporating uncertainty into the decision-making process. However, this framework is rooted in a discrete-time setting, which forfeits guarantees when applied to the inherently continuous-time domain of real systems. In this work, we close this gap by extending sampling-based belief-space planning to continuous-time .               
+
+> 1Authors are with the Department of Aerospace Engineering Sciences at the University of Colorado Boulder, CO, USA
+
+{firstname.lastname }@colorado.edu  
+
+> 2Author is with the Department of Aerospace and Ocean Engineering at Virginia Tech, Blacksburg, VA, USA
+
+{qihengho }@vt.edu    
+
+> ⋆Equal contributions. Belief Space Obstacle
+> Predicted Belief
+> btBelief Update
+> b+t+ 1b-t+ 1
+
+Fig. 1: A pitfall in discrete-time, belief-space planning is to evaluate safety only at discrete time, when the measurements are received (i.e., at bt and b+
+
+> t+1
+
+). This is insufficient because the state (and its belief) naturally grows in continuous-time between discrete-time belief updates due to process and measurement uncertainty, potentially intersecting with obstacles. 
+
+Consider a drone navigating through an urban environment with narrow alleys and obstacles. The drone’s motion evolves continuously in time, while its onboard sensors (e.g., cam-eras, LIDAR, or GPS) provide measurements only at discrete intervals. If planning is performed solely in the discrete-time domain, safety is evaluated only at the discrete belief states bt
+
+and bt+1 . As illustrated in Fig. 1, this is problematic since the intermediate predicted belief may intersect with obstacles, causing the true state distribution to overlap with obstacles even when the discrete-time checkpoints appear safe. Decision-making under uncertainty can be described using the framework of a Partially Observable Markov Decision Process (POMDP) [5]. This is, in general, an intractable problem [6]. For continuous-time systems, the belief dy-namics evolve according to stochastic differential equations driven by process and observation noise, making exact so-lutions even more challenging. Approximation methods for continuous state, control, and observation spaces have been proposed [7], [8], but they do not scale well when the control space is large and they often lack practical guarantees for finite computation time. In recent years, sampling-based algorithms have been extended to account for motion uncertainty with probabilistic guarantees [9]–[13]. Chance-constrained tree-based planners have been shown to be effective due to their flexibility [9]– [11]. More recently, several works have extended these frameworks to explicitly address systems with measurement uncertainty [4], [14]–[16]. However, they are restricted to discrete-time dynamics and measurements. Simply reducing the discretization step significantly increases planning time, while measurement sampling rates are limited by hardware. A principled method of safety analysis for dynamical sys-
+
+> arXiv:2607.02884v1 [cs.RO] 3 Jul 2026
+
+tems is barrier functions . For verification, barrier certificates establish probabilistic safety guarantees in systems subject to process noise [17]–[20]. For control, control barrier ap-proaches ensure safe operation under stochastic disturbances [21]–[23] and explicitly account for measurement uncertainty [24]. In motion planning, barriers facilitate constraint satis-faction in sampling-based algorithms [25]. However, existing works typically address process noise, measurement noise, or deterministic constraints in isolation. To date, no approach integrates barrier functions with sampling-based continuous-time, belief-space planning. Extending belief space planning in such settings to con-tinuous time raises two main challenges. First, the belief dynamics are hybrid: covariance grows continuously between sensor updates and drops at each measurement via a Kalman Filter correction. Propagating this before measurements are available requires closed-form ODEs for both the estimation error covariance and the covariance of the estimate. Second, safety must hold for all t in a continuous interval, not just at discrete nodes, so the collision checker must certify an entire trajectory segment. We address both challenges by extending the GBT frame-work [4]. First, we derive a hybrid belief propagation model in which the belief evolves according to continuous-time ODEs between measurement epochs and undergoes discrete Kalman filter updates at measurement times. Second, we adapt belief barrier functions [21] as a continuous-time collision checker for belief-space planning. Rather than ver-ifying safety only at discrete planning nodes, the proposed checker reasons over entire continuous-time trajectory seg-ments, thereby reducing missed inter-sample violations while remaining compatible with sampling-based search. Finally, we incorporate probabilistic control constraints into the same framework. Since the closed-loop control input depends on the uncertain state estimate, the control itself is stochastic and must also satisfy chance constraints, a formulation absent in prior GBT methods. Specifically, we contribute a continuous-time GBT plan-ning framework with:  
+
+> •
+
+a hybrid belief propagation model consisting of continuous-time ODEs for the estimation and estimate covariances, coupled with discrete Kalman filter updates at measurement epochs;  
+
+> •
+
+a continuous-time probabilistic collision checker based on belief barrier functions, implemented through dense segment-level verification;  
+
+> •
+
+the incorporation of probabilistic control constraints within the belief-space planning framework; and  
+
+> •
+
+extensive benchmarking against discrete-time GBT variants, demonstrating the necessity and benefits of continuous-time belief propagation and segment-level safety checking. II. P ROBLEM FORMULATION 
+
+We consider a motion planning problem for a robotic sys-tem subject to uncertainty in both motion and measurements, while requiring formal safety guarantees. 
+
+A. Uncertain Dynamics and Measurements 
+
+The noisy motion of the robot is described by (continuous-time) linear Stochastic Differential Equation (SDE) 
+
+dx(t) =  Ax(t) + Bu (t)dt + G d w(t), (1) where t ∈ R≥0 denotes continuous time, x(t) ∈ X ⊂ Rn
+
+the state, u(t) ∈ U ⊂ Rm the control input, where U
+
+is a compact convex polytope, and w(·) an r-dimensional Wiener process with intensity matrix Q ∈ Rr×r. Further, 
+
+A ∈ Rn×n, B ∈ Rn×m, and G ∈ Rn×r are matrices with appropriate dimensions. We assume the initial state x(0) of the robot is uncertain and given as a Gaussian distribution with mean ¯x(0) ∈ X and covariance Σ(0) ∈ Rn×n, i.e., 
+
+x(0) ∼ N (¯ x(0) , Σ(0)) .In real-world settings, while the motion of the robot is continuous in time, its sensors provide noisy measurements only at discrete intervals with sampling frequency 1∆t , where 
+
+∆t ∈ R>0 is referred to as the discretization time. Hence, the measurement model we consider is 
+
+zk = Cxk + vk, (2) where zk ∈ Rp denotes the measurement at discrete time step k ∈ N, corresponding to continuous time t = k∆t,
+
+C ∈ Rp×n is the measurement matrix, and vk is a zero-mean Gaussian (measurement) noise with covariance R ∈ Rp×p,i.e., vk ∼ N  0, R . For clarity, we use tk = k∆t to denote the continuous time at time step k. Also, we use variables with subscript k to denote their dependence on discrete time steps and parentheses t to denote continuous time, i.e., xk =
+
+x(tk). Finally, we assume that matrices A, B, and C are such that the system is controllable and observable .
+
+B. State Evolution 
+
+At execution time, the robot uses a Kalman Filter (KF) to obtain its state estimate ˆxk and evolves under a stabilizing feedback controller 
+
+u(t) = ˇ uk − K ˆxk(t) − ˇxk(t), k =
+
+j t
+
+∆t
+
+k
+
+, (3) where ˇuk ∈ U is the piecewise-constant nominal feedforward control input, K ∈ Rm×n is the feedback gain, and ˇxk(t)
+
+is the nominal state from the motion plan. The feedforward term ˇuk is held constant between measurement epochs (it can only be updated when a new measurement zk arrives at tk), while the feedback term K(ˆ xk(t) − ˇxk(t)) operates continuously on the current estimate ˆxk(t).For motion planning purposes, we use the SDE dynamics in (1) to obtain a nominal trajectory and then reason about the deviations from it under the controller in (3) using the uncertainty in both SDE and measurement models in (2). The solution of the SDE in (1) can be characterized as a continuous-time Gaussian process [26] with mean ¯x(t),governed by 
+
+˙¯x(t) = A¯x(t) + B ¯u(t), (4) where ¯u(t) = ˇ uk for k =
+
+j t
+
+> ∆t
+
+k
+
+.To define a motion plan, let ˇU = ˇ u0 . . . ˇuK− 1 for some 
+
+K ∈ N≥1, where ˇuk ∈ U , be a control sequence (trajectory). By applying ˇU to (4) from initial state ¯x(0) , we obtain a nominal trajectory ˇX = ˇ x0 . . . ˇxK such that ˇx0 = ¯ x(0) and 
+
+ˇxk+1 = ˇ xk + R tk+1  
+
+> tk
+
+(A¯x(t) + B ˇuk)dt . Then, we define a 
+
+motion plan to be the pair ( ˇU , ˇX).Given a motion plan ( ˇU , ˇX), the evolution of x(t) under the controller in (3) is uncertain due to both motion and measurement uncertainty. Thus, x(t) is more appropriately represented by its belief (i.e., probability density function) 
+
+b(t), i.e., x(t) ∼ b(t). This belief b(t) evolves as a piecewise-continuous process: ∀t ∈ tk, t k+1 
+
+, it follows the SDE in (1), while at t = tk+1 , upon receiving a new measurement, it incurs a discrete update determined by the KF. Let Xobs = {X oi , . . . , X oN }, where X oi ⊂ X , denotes the set of unsafe (obstacle) regions, including workspace obstacles and out-of-bound velocities. Each obstacle region is assumed to be a convex polytope, defined by the intersection of finitely many half-spaces, i.e., 
+
+X oi =
+
+> ni
+
+\
+
+> q=1
+
+x ∈ Rn | α⊤ 
+
+> i,q
+
+x ≥ γi,q , (5) for ni ≥ n + 1 collection of vectors αi,q ∈ Rn and scalars 
+
+γi,q ∈ R. Similarly, let Xgoal ⊆ X be the goal region that the robot must reach, which is also a convex polytope. Similarly, the compact set U can be represented as the intersection of finitely many half-spaces 
+
+U =
+
+> nu
+
+\
+
+> r=1
+
+u ∈ Rm | β⊤ 
+
+> r
+
+u ≥ ηr , (6) where nu ≥ m + 1 , with βr ∈ Rm and ηr ∈ R defining the linear control constraints. We are interested in finding a motion plan that avoids Xobs 
+
+and reaches Xgoal . However, since the robot state is uncer-tain, these requirements must be specified probabilistically. Particularly, we aim to bound the probability of the robot lying in a set Xj with j ∈ { obs , goal } at time t ∈ [0 , t K),which is given by 
+
+p x(t) ∈ X j
+
+ =
+
+Z
+
+> Xj
+
+b(t)( y) dy. (7) Moreover, the closed-loop control input u(t) in (3) is stochastic, since it depends on the uncertain state estimate 
+
+ˆxk(t). Hence, we also need to bound the probability that u
+
+is not admissible during execution, i.e., p(u(t) /∈ U ).The problem we consider in this work is as follows. 
+
+Problem 1. Given a robot with noisy dynamics as SDE in (1) and measurement model in (2) with initial state 
+
+x(0) ∼ N (¯ x(0) , Σ(0)) , a convex polytopic control set U, a set of convex, polytopic unsafe regions Xobs ⊂ X , a convex polytopic goal region Xgoal ⊆ X , a risk probability threshold 
+
+Psafe ∈ (0 , 1) , find a motion plan ( ˇU = ˇ u0 . . . ˇuK− 1, ˇX =ˇx0 . . . ˇxK) such that 
+
+p x(t) ∈ X obs 
+
+ + p u(t) /∈ U  < P safe , ∀t ∈ [0 , t K], (8a) 
+
+p x(t) ∈ X goal 
+
+ ≥ 1 − Psafe ∃t ∈ [0 , t K]. (8b) Note that this problem is challenging for two main reasons: (i) motion planning must be performed without realized mea-surements at planning time, and more importantly, (ii) the chance constraints in (8) are specified over continuous time, whereas measurements and control inputs are in discrete time. Typical belief space motion planning methods are not able to natively address these challenges, as they typically perform validity-checking only at discrete nodes and lack mechanisms to ensure continuous-time chance constraints are satisfied. Our approach overcomes challenge (i) by prop-agating an expected belief in place of unavailable future measurements, and addresses challenge (ii) by employing 
+
+barrier-based reasoning to certify safety along continuous trajectory segments. III. P RELIMINARIES 
+
+In this section, we briefly review the discrete-time offline Kalman filter formulation used in belief-space planning and Gaussian Belief Trees (GBT), a class of sampling-based planners for motion planning under uncertainty [4]. 
+
+A. Discrete-time Offline Kalman Filter 
+
+The Kalman Filter (KF) provides an optimal recursive state estimator under linear, Gaussian assumptions during online execution. During planning, however, measurements are not available a priori. Instead, we need to account for uncertainty in all the possible state estimates that could be realized during execution, which we call the offline KF [27]. Work [27] demonstrates that for a discrete-time linear system: 
+
+xk+1 = F x k + Hu k + wk, (9) paired with a linear measurement model in (2), we can pre-dict the evolution of the system state’s mean and covariance (the belief state) before any actual measurements are taken. Here, at time step k, xk is the state, uk is the control input, and F and H are the state transition and control matrices, respectively. The process noise wk is assumed to be i.i.d. white Gaussian noise such that wk ∼ N (0 , Q k).When a stabilizing feedback controller in (3) is applied and the current state estimate ˆxk is available, the closed-loop system evolves according to 
+
+xk+1 = F x k + H ˇuk − K(ˆ xk − ˇxk) + wk. (10) Since the dynamics and measurements models are linear and the initial state is Gaussian, the belief is also Gaussian. Let b(xk | x0, z0: k) denote the belief over the state at time tk, conditioned on the specific measurement history encountered during a single execution. Because future mea-surements are unknown during planning, we work with the 
+
+expected belief , defined by marginalizing over all possible measurements [28]: 
+
+b(xk) = E[ b(xk | x0, z0: k) ] = 
+
+Z
+
+b(xk | x0, z0: k) p(z0: k) dz,
+
+(11) This representation leads to two distributions that char-acterize the uncertainty. First, the online posterior p(xk |ˆxk) = N (ˆ xk, Σk) represents the robot’s internal belief dur-ing execution, where Σk is the estimation error covariance. Second, the distribution of state estimate p(ˆ xk) = N (ˇ xk, Λk)
+
+characterizes the estimate itself as a random variable; from a planning perspective, the estimate ˆxk fluctuates around the nominal path ˇxk with covariance Λk due to sensor noise and tracking errors. This gives us the total expected belief 
+
+b(xk) = N (ˇ xk, Γk) which captures the total uncertainty of the true state from the planning perspective. The total covariance is defined as the sum of the estimation and estimate covariances, Γk = Σ k +Λ k. These terms are updated recursively at discrete time steps [27]: 
+
+Σ− 
+
+> k
+
+= F Σ+
+
+> k−1
+
+F ⊤ + Qd, (12a) 
+
+Lk = Σ − 
+
+> k
+
+C⊤ CΣ− 
+
+> k
+
+C⊤ + R−1, (12b) 
+
+Σ+ 
+
+> k
+
+= Σ − 
+
+> k
+
+− LkCΣ− 
+
+> k
+
+, (12c) 
+
+Λ+ 
+
+> k
+
+= ( F − HK )Λ +
+
+> k−1
+
+(F − HK )⊤ + LkCΣ− 
+
+> k
+
+. (12d) 
+
+B. Gaussian Belief Trees 
+
+Gaussian Belief Trees (GBT) extend sampling-based mo-tion planning methods such as Rapidly-exploring Random Trees (RRT) and Stable Sparse-RRT (SST) to partially ob-servable systems by planning directly in the Gaussian belief space. GBT incrementally constructs a tree in the belief space by alternating between belief sampling, nearest-neighbor selection, belief propagation, and collision checking. At each iteration, a random Gaussian belief sample is generated and the nearest node in the tree is selected according to a belief-space distance metric such as the Wasserstein distance metric. A nominal control input is then applied for a finite duration, and the resulting belief is propagated using the system dynamics and uncertainty model. If the propagated belief satisfies the discrete-time chance constraints, the new node and trajectory segment are added to the tree. An RRT instantiation of GBT is presented in Alg. 1. IV. C ONTINUOUS -T IME GAUSSIAN BELIEF TREES 
+
+Existing GBT planners are formulated for strictly discrete-time belief dynamics and perform safety verification only at discrete propagation nodes. In this section, we present our approach to Problem 1 by extending GBT to continuous-time systems. We present continuous-time belief propagation and continuous-time collision checking, enabling detection of inter-sample safety violations that are missed by discrete-time methods. Finally, we prove the correctness of our approach and the algorithm is probabilistically complete. 
+
+A. Algorithm 
+
+Alg. 1 presents our GBT-RRT planner for continuous-time belief space dynamics. Alg. 1 has the same sampling-based tree-search structure as discrete-time GBT-RRT. There are two main distinctions from its discrete-time counterpart, highlighted as follows.  
+
+> •
+
+Line 7: bnew ← PropagateBelief () , which prop-agates beliefs according to continuous-time dynamics under feedback control.  
+
+> •
+
+Line 8: isCollisionFreeBelief () , which vali-dates safety along the entire continuous trajectory seg-ment between measurement time steps. 
+
+B. Belief Propagation 
+
+Let the expected belief be as defined in (11). During offline motion planning, we use this expected belief for the evaluation of the chance constraints in (8a) and (8b). Given an initial belief b(x0), a nominal trajectory ˇX, and a nominal control sequence ˇU paired with the feedback controller u(t) in (3), the expected belief is represented by b(x(t)) = N (¯ x(t), Γ( t)) .The total covariance Γ( t) = Σ( t) + Λ( t) comprises the internal estimation uncertainty Σ( t), and the covariance of the state estimate Λ( t). The evolution of the mean and covariance components is characterized as follows. 
+
+Theorem 1. The evolution of the expected belief b(x(t)) = 
+
+N (¯ x(t), Γ( t)) for a system with continuous-time dynamics as in (1) is governed by the following system of ODEs: 
+
+˙¯x(t) = A¯x(t) + B ¯u(t), (13a) 
+
+˙Σ( t) = AΣ( t) + Σ( t)A⊤ + GQG ⊤, (13b) 
+
+˙Λ( t) = ( A − BK )Λ( t) + Λ( t)( A − BK )⊤. (13c) 
+
+Proof. The mean (13a) and estimation covariance dynam-ics (13b) follow from standard moment equations for linear SDEs. Between measurement updates, the estimator evolves in prediction mode and no measurement correction is applied. It remains to characterize the covariance of the estimate. Let δ(t) := ˆx(t) − ¯x(t). Using the prediction dynamics of the estimator and the feedback law 
+
+u(t) = ¯ u(t) − K(ˆ x(t) − ¯x(t)) ,
+
+we obtain 
+
+˙δ(t) = ( A − BK )δ(t).
+
+Since Λ( t) = E[δ(t)δ(t)⊤], differentiating gives 
+
+˙Λ( t) = ( A − BK )Λ( t) + Λ( t)( A − BK )⊤.
+
+Algorithm 1: GBT-RRT( binit , Xgoal , k, ∆t, U)
+
+Output: Belief tree T rooted at binit  
+
+> 1
+
+T ← (V ← { binit }, E ← ∅ ) 
+
+> 2
+
+for i ← 1 to k do  
+
+> 3
+
+brand ← SampleBelief ()  
+
+> 4
+
+bnear ← NearestNeighbor (brand , T ) 
+
+> 5
+
+τ ← SampleDuration (0 , ∆t) 
+
+> 6
+
+u ← SampleControlInput (U) 
+
+> 7
+
+bnew ← PropagateBelief (bnear , u, τ ) 
+
+> 8
+
+if isCollisionFreeBelief (bnear , b new )
+
+then  
+
+> 9
+
+V ← V ∪ { bnew } 
+
+> 10
+
+E ← E ∪ { edge (bnear , b new )} 
+
+> 11
+
+return T = ( V, E)Together with the standard mean and covariance equations for the linear SDE, this yields the stated continuous-time belief dynamics. Theorem 1 and Equations (12b)–(12d) together define the hybrid belief dynamics for b, where t− 
+
+> k
+
+and t+ 
+
+> k
+
+denotes the belief state immediately after/before a measurement at tk:
+
+˙¯x(t) = A¯x(t) + Bu (t), t ∈ (tk, t k+1 ),
+
+˙Σ( t) = AΣ( t) + Σ( t)A⊤ + GQG ⊤, t ∈ (tk, t k+1 ),
+
+˙Λ( t) = ( A−BK )Λ( t) + Λ( t)( A−BK )⊤, t ∈ (tk, t k+1 ),
+
+¯x(t+ 
+
+> k
+
+) = ¯ x(t− 
+
+> k
+
+), t = tk,
+
+Σ( t+ 
+
+> k
+
+) = Σ( t− 
+
+> k
+
+) − LkC Σ( t− 
+
+> k
+
+), t = tk,
+
+Λ( t+ 
+
+> k
+
+) = Λ( t− 
+
+> k
+
+) + LkC Σ( t− 
+
+> k
+
+), t = tk,
+
+where Kalman gain Lk = Σ( t− 
+
+> k
+
+)C⊤ CΣ( t− 
+
+> k
+
+)C⊤ + R−1.
+
+C. Validity Checking: Probabilistic Safety Certificates 
+
+To formally guarantee safety of the motion planner, we utilize belief space barrier functions as the validity checker of Alg. 1. We first discuss state constraints, followed by control constraints, and finally risk allocation. 
+
+1) State constraints: For each obstacle X oi and candidate nominal state ˇx(t) /∈ X oi , we construct a separating half-space Si(t) = {x ∈ Rn | αi(t)⊤x ≥ γi(t)} such that ˇx(t) ∈Si(t) and Si(t) ∩ X oi = ∅, reducing probabilistic collision avoidance to a single linear chance constraint. Let the state-space safety specification be in the form of half-spaces α⊤x(t) ≥ γ. Then, at a given time t, the probability of satisfying this half-space constraint is [29] 
+
+Pr[ α⊤x(t) ≥ γ] = 12 1 + erf α⊤ ˇx(t) − γ
+
+p2α⊤(Σ( t) + Λ( t)) α
+
+!! 
+
+,
+
+(14) where ˇx(t) is the mean of the expected belief (the planned nominal state), Σ( t) and Λ( t) are the estimation and estimate covariances and erf( ·) denotes the error function. Given an obstacle defined by a half-space constraint with a risk budget δj , we define a belief barrier function [10], [21] as follows. 
+
+Proposition 1. Let the expected belief b(t) be described by mean ˇx(t), estimation covariance Σ( t), and estimate covariance Λ( t). Then, given a risk budget δj , a chance constraint in the belief space is defined by 
+
+hjx(b(t)) = α⊤ ˇx(t) − γ
+
+− erf −1(1 − 2δj )
+
+q
+
+2 α⊤(Σ( t) + Λ( t)) α, (15) 
+
+where Σ( t) + Λ( t) represents the total system uncertainty. For probabilistic safety, it must hold that hjx(b(t)) ≥ 0.
+
+We refer to (15) as a belief barrier function. In the planner, this function is used as a probabilistic collision checker by evaluating whether hjx(b(t)) ≥ 0 along candidate trajectory segments. 
+
+2) Control Constraints: Since the control input (3) is an affine function of the Gaussian estimate deviation ˆxk(t) −
+
+ˇxk(t), each scalar control bound is a linear constraint on a Gaussian random variable. Since ˆxk(t) − ˇxk(t) has co-variance Λ( t), the control input u(t) is Gaussian with mean 
+
+ˇuk and covariance KΛ( t)K⊤. The probability of satisfying any such bound is therefore given by a similar closed-form expression as (14), with α and γ replaced by the corresponding control constraint parameters β and η, and the covariance replaced by KΛ( t)K⊤.
+
+Proposition 2. Let the expected belief b(t) be described by mean ˇx(t), estimation covariance Σ( t), and estimate covariance Λ( t), and let the control input be given by (3) .Then, given a risk budget δj , a control chance constraint in the belief space is defined by 
+
+hju(b(t)) = β⊤ ˇuk − η − erf −1(1 − 2δj )
+
+q
+
+2 β⊤KΛ( t)K⊤β. 
+
+(16) 
+
+For probabilistic safety, it must hold that hju(b(t)) ≥ 0.3) Risk Allocation: Let Mx and Mu denote the number of scalar state and control chance constraints, respectively, with M = Mx + Mu. Using Boole’s inequality [10], we allocate individual risk budgets δj satisfying PMj=1 δj ≤
+
+Psafe . In our implementation, we use the uniform allocation 
+
+δj = Psafe /M . The following theorem gives a sufficient continuous-time condition under which the chance constraint remains satisfied over an entire segment. 
+
+Theorem 2 (Sufficient condition for continuous-time proba-bilistic safety) . Let H = {hjx}Mx 
+
+> j=1
+
+∪ { hju}Mu 
+
+> j=1
+
+denote the set of state and control belief barrier functions for System (1) .Suppose a control input u(t) with locally Lipschitz sample paths is applied. Then, if for all h ∈ H and ∀t ∈ tk, t k+1 
+
+,the following holds 
+
+∂h ∂b ˙b(t) ≥ − h(b(t)) , (17) 
+
+where ˙b(t) is described by (13a) , (13b) and (13c) , then the closed-loop system is probabilistically safe over continuous-time interval [tk, t k+1 ).Proof. Assume that h(b(tk)) ≥ 0. From (17), we have 
+
+˙h(b(t)) + h(b(t)) ≥ 0 ∀t ∈ [tk, t k+1 ).
+
+By the comparison lemma, this implies 
+
+h(b(t)) ≥ h(b(tk)) e−(t−tk ) ≥ 0, ∀t ∈ [tk, t k+1 ).
+
+Therefore, each individual chance constraint holds for all 
+
+t ∈ [tk, t k+1 ). Applying this argument to all M barrier functions in H and using Boole’s inequality yields the joint probabilistic safety condition. Theorem 2 establishes a sufficient condition for proba-bilistic safety over the continuous-time interval [tk, t k+1 ].In practice, we verify (17) for each barrier function on a uniform grid with resolution δt ≪ ∆t, evaluating the condition at each intermediate point. This yields an exact certificate at the grid points and an approximate certificate between them, with worst-case inter-point error O(Lkj δt ),where Lkj is the Lipschitz constant of h(b(·)) on [tk, t k+1 ].This constant is finite, since ˇx(t), Σ( t), and Λ( t) satisfy linear ODEs with bounded right-hand sides on a compact interval. The resolution δt can therefore be chosen to drive this error below any desired tolerance. The evaluation of (15) and (16) at each grid point is computationally efficient, as both the belief dynamics (Theorem 1) and the gradient of h are available in closed form. Additionally, an exact continuous-time certificate can be recovered if the Lipschitz constants Lkj are known; we leave this extension to future work. 
+
+D. Analysis 
+
+Here, we discuss the soundness and probabilistic com-pleteness of our algorithm for continuous-time belief space planning. First, we equip the space of Gaussian beliefs with a suitable metric, such as the 2-Wasserstein distance. We assume that there exists a valid sequence of trajectories such that (i) the collision checker in IV-C certifies the sequence as probabilistically safe, (ii) the sequence has non-zero clearance in the belief space and (iii) each trajectory segment is piecewise constant over durations supported by the duration sampler. 
+
+Definition 1 (Collision Checker Clearance) . Let a valid trajectory b(t) be the output of a continuous map π :[0 , t π ] → B, such that π(0) = b0 and p(π(tπ ) ∈ X goal ) ≥
+
+1 − Psaf e . The clearance of π is the maximal δclear such that, for all belief points in a ball of radius δclear centered on π(t), p x(t) ∈ X obs 
+
++p u(t) /∈ U  < P safe , ∀t ∈ [0 , t π ].
+
+Lemma 1 (Correctness) . Given System (1) , if Algorithm 1 terminates with a motion plan, the motion plan satisfies constraints (8a) and (8b) .Proof. This follows directly from Theorem 2 and the fact that Algorithm 1 only adds nodes that are probabilistically safe throughout the continuous time trajectory. 
+
+Theorem 3 (Probabilistic Completeness w.r.t. Conservatism) .
+
+Assume there exists a valid belief trajectory such that the collision checker in IV-C certifies it as probabilistically safe. As the number of iterations k approaches ∞, the probability of Algorithm 1 finding a solution approaches 1.Proof. The result follows from the probabilistic complete-ness of kinodynamic RRT with forward propagation and random control inputs [4], [30]. Our setting differs in two ways: (i) the state space is a Gaussian space with a distance metric, making it a Riemannian manifold, and (ii) controls are sampled over discrete intervals of length ∆t. Both mod-ifications preserve the required conditions for probabilistic completeness: the Riemannian metric satisfies the properties of a metric space, and discretizing control intervals only restricts the space of allowed controls. Assuming that there exists a valid trajectory with the same restriction, Alg. 1 eventually selects the sequence of controls that generates the        
+
+> (a) Environment 1 (b) Environment 2
+> (c) Environment 3 (d) Environment 4
+> (e) Environment 5 (f) Environment 6
+> Fig. 2: Continuous-time Gaussian belief space planner trajectories across six environments, where X∈[0 ,50] 2.
+
+valid trajectory. Therefore, Algorithm 1 retains probabilistic completeness: if a valid trajectory exists, the probability of finding it approaches 1 as k approaches ∞.V. E VALUATION 
+
+To evaluate our approach, we study the performance on several benchmark cases. We specifically consider two continuous-time stochastic systems:  
+
+> •
+
+Single integrator (2D): The state x(t) ∈ R2 evolves according to the SDE 
+
+dx(t) = u(t) dt + G d w(t), (18) i.e., A = 0 , B = I2 in (1), with u(t) ∈ R2 the velocity control input.  
+
+> •
+
+Double integrator (4D): The state x(t) =[x1(t)⊤, x2(t)⊤]⊤ ∈ R4, where x1 ∈ R2 is position and x2 ∈ R2 is velocity, evolves according to 
+
+d
+
+x1
+
+x2
+
+
+
+=
+
+0 I2
+
+0 0
+
+  x1
+
+x2
+
+
+
+dt +
+
+ 0
+
+I2
+
+
+
+u(t) dt + G d w(t),
+
+(19) where u(t) ∈ R2 is the acceleration input. For both systems, the measurement model follows (2) with C = I (full-state observation), measurement noise covariance R = 0 .1I, and sampling interval ∆t. All the computations for the benchmarks were performed on a com-puter with 3.9 GHz 8-Core CPU and 128 GB of memory. We use a violation threshold of Psafe = 0 .1 for the experiments. A. Continuous-Time Belief Trajectories 
+
+Fig. 2 illustrates representative plans generated by the continuous-time RRT-based GBT across six benchmark en-vironments. Here, the dynamics are governed by (18), and various obstacle locations are selected to highlight the plan-ner’s ability to generate collision-free trajectories under un-certainty. Specifically, the results highlight the ability of the CT formulation to maintain safety in belief propagation while successfully navigating increasingly complex environments. For the cases in Figs. 2a and 2b, the planner produces short, direct paths to the goal, while in more constrained scenarios (Figs. 2c–2f) it adapts by generating feasible but longer paths that respect the constraints and safety specifications. 
+
+B. Benchmarks 
+
+Next, the benchmarks for systems (18) and (19) are pre-sented (Table I), with inputs constrained to U ∈ [−10 , 10] 2.We evaluate discrete-time (DT) and continuous-time (CT) 
+
+GBT variants of the planners, comparing both planning time 
+
+and solution cost . Two algorithmic families are considered: 
+
+RRT and SST . The results highlight the trade-offs between DT and CT formulations across multiple environments. Across both systems, a consistent trade-off emerges be-tween the CT and DT planners. The latter variants typically exhibit lower planning times, reflecting the reduced computa-tional burden introduced by time discretization, whereas the CT more frequently achieve lower trajectory costs, which can be attributed, in part, to a more accurate representation of the underlying dynamics. This behavior is consistent across both RRT and SST planners and is observed in all environments. The plots in Fig. 3 further highlight a clear trade-off between the planners. For this benchmark, control is re-stricted to U = [−1, 1] 2, which induces effects similar to those observed when decreasing the DT time-step. This setting forces longer horizons to reach the goal. As a result, differences in planning time between variants become less pronounced, with instances in which the CT planner is both faster and produces lower-cost trajectories. This indicates that reducing the DT time-step alone is insufficient to recover the same behavior observed in the CT planner. 
+
+C. Monte-Carlo Simulations 
+
+Next, to further emphasize the differences, we evaluate the planners under a Monte Carlo (MC) framework. In this setting, we generate 100 motion plans per environment and propagate the dynamics. For each roll-out, collision checking is performed along the resulting trajectory. We repeat this process for 5000 MC runs to obtain statistically significant estimates of performance. The resulting empirical probability of successfully avoiding obstacles and reaching the goal is computed accordingly. Table II summarizes the results for both RRT- and SST-based implementations of CT-GBT and DT-GBT across four benchmark environments (Env. 3–6). The continuous-time variants achieve nearly perfect reliability, with success probabilities above 0.94 in all environments, including the most challenging narrow passage case. By contrast, the DT variants exhibit a sharp degradation in performance as the environment complexity increases: RRT drops from 0.65 in the empty case to only 0.06 in the most constrained environment, while SST shows a similar decline from 0.63 to 0.05. These results indicate that the CT formulation preserves feasibility under uncertainty and maintains robustness to noise, whereas the DT planner is prone to failure due to its optimistic treatment of dynamics and reduced accuracy in collision checking. Notably, the trends hold consistently across both RRT and SST planners, reinforcing the strength of the CT framework. 
+
+D. Chance Constraint Evaluation 
+
+Finally, to assess how well the planners respect probabilis-tic safety margins, we evaluate chance constraint violations under a similar MC framework. We propagate trajectories, sample at intermediate time instants between the discrete time steps and check whether the chance constraints are violated. Table III reports the results across four benchmark environments (Env. 3–6). The CT formulations again demon-strate strong reliability, maintaining satisfaction probabilities in all cases. By contrast, the DT variants fail to enforce constraints as environment complexity increases, with satis-faction dropping to zero in the most constrained environment. These results highlight that CT-GBT not only preserves feasi-bility under uncertainty but also provides robust enforcement of chance constraints, while DT-GBT’s reduced accuracy leads to systematic violations. VI. C ONCLUSION 
+
+This paper proposes a continuous-time Gaussian belief-space planning framework for sampling-based motion plan-ning under process and measurement uncertainty. By model-ing belief dynamics in continuous time and enforcing safety through belief barrier functions, the method reduces collision 2D System - Time (s)    
+
+> Env1 Env2 Env3 Env4 Env5 Env6 0246810 12
+> Time (s)
+> 2D System - Cost
+> Env1 Env2 Env3 Env4 Env5 Env6 020 40 60 80 100 120
+> Cost
+> Double Integrator - Time (s)
+> Env1 Env2 Env3 Env4 Env5 Env6 0246810 12
+> Time (s)
+> Double Integrator - Cost
+> Env1 Env2 Env3 Env4 Env5 Env6 050 100 150
+> Cost
+> CT-RRT DT-RRT CT-SST DT-SST
+
+Fig. 3: Comparing planning time and cost for CT vs. DT planners, with U = [ −1, 1] 2. The top and bottom plots depict results of the 
+
+RRT - and SST planner, respectively. TABLE I: Benchmark planner performance results for the CT and DT planners; using RRT and SST . Each entry is the mean of 100 simulations. The best (lowest) time and cost between CT and DT variants are bolded. 
+
+Env. 1 Env. 2 Env. 3 Env. 4 Env. 5 Env. 6 
+
+Alg. Time (s) Cost Time (s) Cost Time (s) Cost Time (s) Cost Time (s) Cost Time (s) Cost 
+
+2D System 
+
+CT-RRT 3.481 89.011 2.172 88.203 2.643 84.421 4.129 90.388 7.021 99.433 8.274 101.601 
+
+DT-RRT 2.589 89.731 3.533 96.712 2.864 86.918 3.754 91.422 6.671 101.781 9.012 103.941 CT-SST 8.042 80.311 6.341 83.901 7.612 81.102 8.401 79.522 9.488 85.442 10.941 88.287 
+
+DT-SST 6.701 81.598 7.154 85.377 6.621 82.412 7.384 80.944 9.247 86.052 10.083 89.812 
+
+Double Integrator 
+
+CT-RRT 4.221 122.184 3.821 118.392 4.731 120.821 5.109 125.402 6.664 129.778 7.774 135.801 
+
+DT-RRT 3.471 124.512 4.378 121.704 3.984 123.311 4.621 127.244 6.089 133.917 7.281 137.641 CT-SST 8.619 110.012 7.732 113.447 8.231 111.633 9.084 109.401 10.117 115.912 11.652 118.511 
+
+DT-SST 7.492 112.331 8.224 115.589 7.781 113.482 8.592 111.203 9.433 117.112 11.083 120.921 
+
+TABLE II: Empirical results for the probability of successfully avoiding obstacles and reaching the goal. 
+
+Algorithm Ps Env. 3 Ps Env. 4 Ps Env. 5 Ps Env. 6 CT-GBT-RRT 1.00 1.00 1.00 0.95 
+
+DT-GBT-RRT 0.65 0.31 0.15 0.06 CT-GBT-SST 1.00 1.00 1.00 0.94 
+
+DT-GBT-SST 0.63 0.22 0.12 0.05 
+
+TABLE III: Empirical results for probability of chance-constraint satisfaction. 
+
+Algorithm Ps Env. 3 Ps Env. 4 Ps Env. 5 Ps Env. 6 CT-GBT-RRT 1.00 0.98 0.97 0.91 
+
+DT-GBT-RRT 0.61 0.14 0.04 0.00 CT-GBT-SST 1.00 0.98 0.96 0.92 
+
+DT-GBT-SST 0.59 0.11 0.03 0.00 
+
+checking to efficient function evaluations while preserving algorithmic properties of the underlying planner. Results demonstrate that the continuous-time formulation achieves improved success rates and robust satisfaction of chance constraints across diverse benchmark environments com-pared to the discrete-time formulation, while being efficient. Overall, our methodology provides a principled foundation for safe and efficient continuous-time motion planning under uncertainty. Future work will extend this framework to richer task specifications such as signal temporal logic. REFERENCES [1] L. Kavraki, P. Svestka, J.-C. Latombe, and M. Overmars, “Probabilistic roadmaps for path planning in high-dimensional configuration spaces,” 
+
+IEEE Transactions on Robotics and Automation , vol. 12, no. 4, pp. 566–580, 1996. [2] S. LaValle, “Rapidly-exploring random trees : a new tool for path planning,” The annual research report , 1998. [3] D. Hsu, J.-C. Latombe, and R. Motwani, “Path planning in expansive configuration spaces,” in Proceedings of International Conference on Robotics and Automation , vol. 3, 1997, pp. 2719–2726 vol.3. [4] Q. H. Ho, Z. N. Sunberg, and M. Lahijanian, “Gaussian belief trees for chance constrained asymptotically optimal motion planning,” in 
+
+2022 International Conference on Robotics and Automation (ICRA) .IEEE, 2022, pp. 11 029–11 035. [5] L. P. Kaelbling, M. L. Littman, and A. R. Cassandra, “Planning and acting in partially observable stochastic domains,” Artificial intelli-gence , vol. 101, no. 1-2, pp. 99–134, 1998. [6] C. H. Papadimitriou and J. N. Tsitsiklis, “The complexity of Markov decision processes,” Mathematics of Operations Research , vol. 12, no. 3, pp. 441–450, 1987. [7] Z. Sunberg and M. J. Kochenderfer, “Online algorithms for POMDPs with continuous state, action, and observation spaces,” in International Conference on Automated Planning and Scheduling , 2018. [8] N. P. Garg, D. Hsu, and W. S. Lee, “DESPOT-α: Online POMDP planning with large state and observation spaces,” in Robotics: Science and Systems , 2019. [9] B. Luders, M. Kothari, and J. How, “Chance constrained RRT for probabilistic robustness to environmental uncertainty,” AIAA guidance, navigation, and control conference , 2010. [10] L. Blackmore, M. Ono, and B. Williams, “Chance-constrained optimal path planning with obstacles,” in IEEE Trans. on Robotics , vol. 27, no. 6. IEEE, 2011, pp. 1080–1094. [11] `E. Pairet, J. D. Hern´ andez, M. Carreras, Y. Petillot, and M. Lahi-janian, “Online mapping and motion planning under uncertainty for probabilistically safe autonomous navigation,” IEEE Transactions on Automation Science and Engineering , 2021. [12] W. Burgard, O. Brock, and C. Stachniss, Robotics: Science and systems III . The MIT Press, 2008. [13] R. Luna, M. Lahijanian, M. Moll, and L. E. Kavraki, “Optimal and efficient stochastic motion planning in partially-known environments,” in The Twenty-Eighth AAAI Conference on Artificial Intelligence ,2014, pp. 2549–2555. [14] A.-A. Agha-Mohammadi, S. Chakravorty, and N. M. Amato, “FIRM: Sampling-based feedback motion-planning under motion uncertainty and imperfect measurements,” International Journal of Robotics Re-search , vol. 33, no. 2, pp. 268–304, 2014. [15] T. Shan and B. Englot, “Belief roadmap search: Advances in optimal and efficient planning under uncertainty,” in 2017 IEEE/RSJ Interna-tional Conference on Intelligent Robots and Systems (IROS) , 2017, pp. 5318–5325. [16] S. Prentice and N. Roy, “The belief roadmap: Efficient planning in belief space by factoring the covariance,” The International Journal of Robotics Research , vol. 28, no. 11-12, pp. 1448–1465, 2009. [17] C. Santoyo, M. Dutreix, and S. Coogan, “A Barrier Function Approach to Finite-time Stochastic System Verification and Control,” Automat-ica , vol. 125, p. 109439, 2021. [18] R. Mazouz, K. Muvvala, A. Ratheesh, L. Laurenti, and M. Lahijanian, “Safety Guarantees for Neural Network Dynamic Systems via Stochas-tic Barrier Functions,” Advances in Neural Information Processing Systems , 2022. [19] R. Mazouz, J. Skovbekk, F. B. Mathiesen, E. Frew, L. Laurenti, and M. Lahijanian, “Data-driven permissible safe control with barrier certificates,” in 2024 IEEE 63rd Conference on Decision and Control (CDC) . IEEE, 2024, pp. 6844–6849. [20] R. Mazouz, F. B. Mathiesen, L. Laurenti, and M. Lahijanian, “Piece-wise stochastic barrier functions,” Automatica , vol. 189, p. 113020, 2026. [21] M. Vahs, C. Pek, and J. Tumova, “Belief control barrier functions for risk-aware control,” IEEE Robotics and Automation Letters , vol. 8, no. 12, pp. 8565–8572, 2023. [22] P. Jagtap, S. Soudjani, and M. Zamani, “Formal synthesis of stochastic systems via control barrier certificates,” IEEE Transactions on Auto-matic Control , vol. 66, no. 7, pp. 3097–3110, 2020. [23] R. Mazouz, L. Laurenti, and M. Lahijanian, “Piecewise control barrier functions for stochastic systems,” in 2025 IEEE 64th Conference on Decision and Control (CDC) . IEEE, 2025, pp. 3571–3576. [24] Z. Laouar, Q. H. Ho, R. Mazouz, T. Becker, and Z. N. Sunberg, “Feasibility-guided safety-aware model predictive control for jump markov linear systems,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , 2024, pp. 12 718–12 725. [25] G. Yang, B. Vang, Z. Serlin, C. Belta, and R. Tron, “Sampling-based motion planning via control barrier functions,” in Proceedings of the 2019 3rd International Conference on Automation, Control and Robots , 2019, pp. 22–29. [26] S. S¨ arkk¨ a and A. Solin, Applied stochastic differential equations .Cambridge University Press, 2019, vol. 10. [27] A. Bry and N. Roy, “Rapidly-exploring random belief trees for motion planning under uncertainty,” in IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2011, pp. 723–730. [28] A. Theurkauf, J. Kottinger, N. Ahmed, and M. Lahijanian, “Chance-constrained multi-robot motion planning under gaussian uncertainties,” 
+
+IEEE Robotics and Automation Letters , vol. 9, no. 1, pp. 835–842, 2023. [29] H. Zhu and J. Alonso-Mora, “Chance-constrained collision avoidance for mavs in dynamic environments,” IEEE Robotics and Automation Letters , vol. 4, no. 2, pp. 776–783, 2019. [30] M. Kleinbort, K. Solovey, Z. Littlefield, K. E. Bekris, and D. Halperin, “Probabilistic completeness of rrt for geometric and kinodynamic planning with forward propagation,” IEEE Robotics and Automation Letters , vol. 4, no. 2, pp. i–vii, 2018.

@@ -1,0 +1,1479 @@
+Title: Context-Triggered Robust MPC for Temporal Logic Specifications
+
+URL Source: https://arxiv.org/pdf/2607.01515v1
+
+Published Time: Fri, 03 Jul 2026 00:17:23 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Context-Triggered Robust MPC for Temporal Logic Specifications 
+
+## Arash Bahari Kordabad a,∗, Satya Prakash Nayak b, Sadegh Soudjani a,c and Anne-Kathrin Schmuck a
+
+> a
+
+Max Planck Institute for Software Systems (MPI-SWS), Kaiserslautern, 67663, Germany 
+
+> b
+
+Institute of Science and Technology Austria (ISTA), Klosterneuburg, 3400, Austria 
+
+> c
+
+University of Birmingham, Birmingham, B15 2TT, United Kingdom 
+
+A R T I C L E I N F O 
+
+Keywords :robust control linear temporal logic context-triggered control reach-avoid-stay specifications robust model predictive control convex duality 
+
+A B S T R A C T 
+
+We consider the problem of synthesizing robust feedback controllers for discrete-time linear systems that ensure the satisfaction of context-dependent linear temporal logic specifications in the presence of additive bounded disturbances. Building on existing results that reduce context-triggered temporal logic synthesis to the realization of context-dependent reach-avoid-stay (cRAS) objectives, we focus on the corresponding low-level control synthesis problem. We first employ certificate-based conditions for the almost-sure satisfaction of RAS specifications. Based on these conditions, we propose a switching control architecture that combines robust model predictive control (MPC) with a local invariant controller, and show that the resulting MPC value function serves as a reachability certificate while avoidance is enforced through robust constraints and the stay is enforced via the local controller. To obtain computationally tractable formulations for the resulting robust optimizations, we employ convex duality to reformulate the robust constraints into equivalent deterministic optimization problems, yielding convex quadratic and second-order cone programs for relevant geometric settings. The proposed framework is demonstrated on a robot navigation problem with context-triggered logical switches in both static and moving environments. The results show significantly larger feasible sets than Lyapunov-based approaches, while naturally accommodating dynamic environments and online task reconfiguration. 
+
+## 1. Introduction 
+
+Robust controller synthesis for uncertain systems with continuous state and control spaces under temporal logic specifications is a challenging problem at the intersection of control theory and formal methods [1, 2]. The difficulty stems from the need to simultaneously handle continuous dynamics, state and input constraints, uncertainty, and high-level logical requirements that describe complex tasks be-yond classical objectives such as stabilization, tracking, or regulation [3, 4]. The problem becomes even more challeng-ing when the specification depends on the context , and the context itself may change over time due to external events or because of the evolution of the controlled system [5, 6]. In such settings, the controller must not only satisfy a temporal logic objective, but also react online to context-triggered changes in the active task. To illustrate this setting, we consider a robot navigating in two rooms connected by a sliding door, illustrated in Figure 1. The robot is required to move among target regions according to a mode requested by the environment. At the same time, it must avoid walls and, depending on the current configuration, also avoid the door region when the door is closed. The logical context changes over time and affects the active objective of the robot. Moreover, the state of the door, namely whether it is open or closed, changes when the robot enters a particular region. Hence, the motion of the robot and 
+
+> ∗
+
+Corresponding author  
+
+> arashbk@mpi-sws.org
+
+(A.B. Kordabad); satya.nayak@ist.ac.at 
+
+(S.P. Nayak); sadegh@mpi-sws.org (S. Soudjani); akschmuck@mpi-sws.org (A. Schmuck) 
+
+> ORCID
+
+(s): 0000-0001-8931-5372 (A.B. Kordabad);  
+
+> 0000-0002-4407-8681
+
+(S.P. Nayak); 0000-0003-1922-6678 (S. Soudjani);  
+
+> 0000-0003-2801-639X
+
+(A. Schmuck)  
+
+> 
+> 
+> 1
+> 2
+> 3
+> robot
+> Room 1 Room 2
+
+Figure 1: Schematic of the running example: a robot navigates between two rooms connected by a sliding door  in the wall 
+
+. The environment requests a mode 𝑖 , upon which the robot must reach the corresponding target 𝑖 , 𝑖 ∈ {1 , 2, 3} ,while avoiding the wall (and the door region when the door is closed). The door opens when the robot enters 1 or 3 and closes when it enters 2.
+
+the logical evolution of the task are tightly interconnected. When stochastic disturbances are present in the dynamics, the controller must react to such logical switches while maintaining safe motion and ensuring progress toward the requested target. A convenient way to address this interaction between logic and dynamics is to separate the synthesis problem into a high-level and a low-level layer. Recent work in [5] has shown that context-triggered temporal logic synthesis can be reduced to strategic reasoning over a game graph, where the high-level controller reacts to context switches using strategy templates [7, 8]. The strategic choices of the logical controller are then translated into context-triggered reach-avoid-stay (cRAS) objectives for the continuous system: rather than following a fixed plan, the active objective is 
+
+Bahari Kordabad et al.: Preprint submitted to Elsevier Page 1 of 14 
+
+> arXiv:2607.01515v1 [eess.SY] 1 Jul 2026 Context-Triggered Robust MPC for Temporal Logic Specifications
+
+updated reactively whenever the logical context changes. In the present work, we adopt this viewpoint and focus on the low-level synthesis problem for stochastic systems. The low-level objectives considered in this paper take the form of RAS tasks: the state should avoid a forbidden set at all times, eventually reach a target set, and remain there thereafter. For stochastic systems with bounded distur-bances, such objectives can be characterized through suit-able real-valued functions on the state space, which we refer to as certificates . More precisely, one may seek an avoid-ance certificate that separates the unsafe region [9] from the state space, a reachability certificate that guarantees the state progress toward the target [10, 11], and an invariance certificate that ensures robust stay inside the target set. If these certificates satisfy suitable conditions, then the RAS objective is satisfied with probability one [10, 12]. This observation provides the formal foundation on which our control synthesis method is built. To synthesize such certificates constructively, we em-ploy robust Model Predictive Control (MPC) alongside a local invariant controller. MPC is an optimization-based control methodology that is particularly well suited to sys-tems with continuous state and input spaces and explicit constraints [13]. In the robust setting, it can account for bounded uncertainty by propagating reachable tubes over the prediction horizon and enforcing constraints for all distur-bance realizations within those tubes [14]. This makes it a natural candidate for satisfying the avoid and reach parts of an RAS specification. In addition, because the optimization is solved online in a receding-horizon manner, the controller can naturally adapt to changes in the active context and thus react to changes in the environment or in the task specification [15]. 
+
+Related Work. Many existing approaches to temporal-logic-based control synthesis for continuous and hybrid systems either (I) rely heavily on state-space discretization, or (II) neglect context-triggered logical switching. Within (I), abstraction-based methods [16] construct finite-state models of the continuous dynamics and then solve the resulting discrete synthesis problem using tools from formal methods (e.g. [17, 18, 19, 20, 21, 22]). While being able to handle arbitrary reactive (i.e., context-triggered) logical specifications, such approaches typically suffer from con-servatism and scalability limitations induced by discretiza-tion. Within (II), optimal control methods are combined with temporal logic constraints [23, 24, 25, 26], including robust tube-based formulations for constrained dynamical systems and high-level motion planning tasks. Yet, due to the pre-computation of constraints from logical specifications, context-triggered switching is typically not supported. Context-triggered abstraction-based control [5] bridges (I) and (II) by providing a novel abstraction technique that enables strategic reactivity without state-space discretiza-tion. This framework has so far been applied to determin-istic [5] and stochastic dynamical systems [6, 27], via pre-computed barrier certificates. This paper extends these ap-proaches to robust online optimization, in particular MPC. This enables us to fully exploit the benefits of handling ro-bust uncertainty and complex context-triggered constraints without discretization of the spaces. 
+
+Contributions. The present paper extends these existing approaches by developing a robust online optimization-based control framework compatible with context-triggered specifications. Our approach does not rely on state-space discretizations, explicitly accounts for bounded disturbances over stochastic linear systems, and provides certificate-based guarantees. Our main contributions are as follows: 
+
+⊳ We provide certificate-based sufficient conditions for the satisfaction of cRAS objectives under stochastic distur-bances. 
+
+⊳ We propose a robust MPC construction for the reach and avoid parts of the specification, and show that the corre-sponding value function serves as a reachability certificate. 
+
+⊳ We design a switching strategy with a local controller that guarantees the stay part of the specification through robust forward invariance of the target set. 
+
+⊳ We derive tractable deterministic reformulations of the robust optimization problems using convex duality. 
+
+⊳ We demonstrate the proposed approach on a robot nav-igation problem with context-triggered switching in both static and moving environments, and show that it enlarges the feasible domain compared with the Lyapunov-based approach in [5]. The main practical advantage of the resulting framework compared to [5, 6, 27] is its receding-horizon structure, which makes the controller naturally responsive not only to context switches but also to changes in the environment, as illustrated in the moving-target scenario considered in this paper. In addition, the tractable robust optimization formulation directly incorporates disturbance effects into the synthesis problem, yielding a less conservative low-level controller. This improvement is reflected in the numerical results, where the proposed method produces a substantially larger feasible domain than the Lyapunov-based approach in [5], while remaining compatible with the same high-level context-triggered logical framework. 
+
+Outline. The paper is organized as follows. Section 2 pro-vides preliminaries on the considered system and logical specification and delivers the problem definition. Section 3 explains how temporal logic specifications with context switches are reduced to cRAS objectives, following the approach of [5]. The certificate-based characterization of these objectives and the robust model predictive control construction are developed in Section 4. In Section 5, a tractable reformulation of the resulting robust optimization problems is presented via convex duality. Section 6 pro-vides numerical simulations on static and moving scenarios. Finally, the paper concludes with a summary of the main results in Section 7. 
+
+## 2. Preliminaries 
+
+We denote the set of non-negative integers by ℕ and the set of real numbers by ℝ. We consider a discrete-time   
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 2 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications
+
+stochastic linear system with bounded state space 𝑋 ⊂
+
+ℝ𝑛 𝑥 , input space 𝑈 ⊆ ℝ𝑛 𝑢 , and bounded disturbance set 
+
+𝑊 ⊂ ℝ𝑛 𝑤 equipped with the Borel 𝜎 -algebra (𝑊 ). Let 
+
+(Ω , ℱ , ℙΩ) be a probability space, where Ω is the sample space, ℱ is a 𝜎 -algebra on Ω, and ℙΩ ∶ ℱ → [0 , 1] is a probability measure. The disturbance process is modeled as an i.i.d. sequence {𝑤 𝑘 }𝑘 ∈ℕ of random vectors 𝑤 𝑘 ∶(Ω , ℱ ) → (𝑊 , (𝑊 )) . We denote by ℙ𝑤 the common law of 𝑤 𝑘 on (𝑊 , (𝑊 )) , namely ℙ𝑤 (𝐸 ) ∶= ℙΩ(𝑤 −1  
+
+> 𝑘
+
+(𝐸 )) for all 𝐸 ∈ (𝑊 ). Thus, each 𝑤 𝑘 takes values in 𝑊 and is sampled according to ℙ𝑤 . For each 𝜔 ∈ Ω , the sequence 
+
+{𝑤 𝑘 (𝜔 )} 𝑘 ∈ℕ represents a realization of the disturbance pro-cess. The stochastic dynamics are given by 
+
+𝑥 𝑘 +1 = 𝐴𝑥 𝑘 + 𝐵𝑢 𝑘 + 𝐶𝑤 𝑘 , (1) where 𝑥 𝑘 ∈ 𝑋 is the state, 𝑢 𝑘 ∈ 𝑈 is the control input, and 𝑤 𝑘 ∈ 𝑊 is the disturbance at time step 𝑘 . The matrices 
+
+𝐴 ∈ ℝ𝑛 𝑥 ×𝑛 𝑥 , 𝐵 ∈ ℝ𝑛 𝑥 ×𝑛 𝑢 and 𝐶 ∈ ℝ𝑛 𝑥 ×𝑛 𝑤 are assumed to be given. The corresponding nominal (disturbance-free) dynamics are 
+
+𝑧 𝑘 +1 = 𝐴𝑧 𝑘 + 𝐵𝑢 𝑘 , 𝑧 0 = 𝑥 0. (2) A control policy for the stochastic system (1) is a mea-surable map 𝜋 ∶ 𝑋 → 𝑈 that assigns an input to each state. Given a policy 𝜋 and an initial condition 𝑥 0 ∈ 𝑋 , a 
+
+trajectory of (1) under 𝜋 is a sequence 𝜉 𝜋 (𝜔 ) = { 𝑥 0, 𝑥 1, …} 
+
+satisfying 𝑥 𝑘 +1 = 𝐴𝑥 𝑘 + 𝐵𝜋 (𝑥 𝑘 ) + 𝐶𝑤 𝑘 for all 𝑘 ∈ ℕ.
+
+2.1. Temporal Logic Specifications 
+
+We now introduce the logical framework used to specify the desired system behavior. In particular, we employ linear temporal logic (LTL), which we introduce briefly through the running example of Figure 1; we refer to [28, Chapter 5] for the detailed syntax and semantics. 
+
+Atomic propositions. The relevant Boolean properties of the system and its environment are captured by atomic propositions , grouped into three finite sets. State proposi-tions 𝙰𝙿 𝑆 describe which region of the state space the robot occupies; in the example, the targets 1, 2, 3 and the walls 
+
+. We identify each state proposition  ∈ 𝙰𝙿 𝑆 with the corresponding region  ⊆ 𝑋 , so that  holds at a state 𝑥 if and only if 𝑥 ∈  . Observation propositions 𝙰𝙿 𝑂 describe information provided by the uncontrolled environment; here, the requested mode 1, 2, 3 and the door status 
+
+(open or closed). Control propositions 𝙰𝙿 𝐶 name the finite set of low-level feedback policies that the high-level con-troller can activate, and are introduced in Section 3. We write 
+
+𝙰𝙿 ∶= 𝙰𝙿 𝑆 ∪ 𝙰𝙿 𝑂 ∪ 𝙰𝙿 𝐶 .
+
+Labels, disturbances, and traces. The state propositions induce a labelling 𝐿 ∶ 𝑋 → 2𝙰𝙿 𝑆 with  ∈ 𝐿 (𝑥 ) ⇔ 𝑥 ∈  ,which extends to a trajectory 𝜉 = { 𝑥 0, 𝑥 1, …} by 𝐿 (𝜉 ) = {𝐿 (𝑥 0), 𝐿 (𝑥 1), …} . The environment is modelled by a logi-cal disturbance function Υ ∶ ℕ → 2𝙰𝙿 𝑂 that prescribes how the requested mode and door status evolve over time, and we collect all such functions in 𝔇 . A trajectory 𝜉 together with a disturbance Υ then produces a trace 𝚝 𝐿, Υ(𝜉 ) = 𝑙 0𝑙 1 …
+
+with 𝑙 𝑘 = 𝐿 (𝑥 𝑘 ) ∪ Υ( 𝑘 ) ∈ 2 𝙰𝙿 𝑆 ∪𝙰𝙿 𝑂 , i.e., the sequence of propositions that hold along the run. 
+
+Specifications. An LTL specification 𝜙 constrains such traces using the Boolean connectives ¬, ∧, ⇒ and the tem-poral operators ○ (“next”), ◊ (“eventually”), □ (“always”), and 𝚄 (“until”). We write 𝚝 ⊨ 𝜙 when a trace 𝚝 satisfies 
+
+𝜙 . For instance, the requirement that the robot always avoids the walls and, whenever a mode 𝑖 is requested persistently, eventually reaches the corresponding target 𝑖 , is written as 
+
+𝜙 = □¬ ∧ ⋀
+
+> 𝑖 ∈{1 ,2,3}
+
+(◊□ 𝑖 ⇒ ◊□ 𝑖 
+
+) . (3) 
+
+2.2. Problem Formulation 
+
+Since the controller must react online to the logical context provided by the environment, we consider a hybrid state-feedback policy , i.e., a function 𝜋 h ∶ ℕ×𝑋 ×2 𝙰𝙿 𝑂 → 𝑈 
+
+that selects a control input from the current time step 𝑘 ,the current state 𝑥 𝑘 , and the currently active observation propositions Υ( 𝑘 ) ∈ 2 𝙰𝙿 𝑂 .Under such a hybrid policy 𝜋 h and a logical distur-bance function Υ ∈ 𝔇 , a trajectory of (1) from 𝑥 0 ∈
+
+𝑋 is a sequence 𝜉 𝜋 h (𝜔 ) = {𝑥 0, 𝑥 1, …} with 𝑥 𝑘 +1 =
+
+𝐴𝑥 𝑘 + 𝐵𝜋 h(𝑘, 𝑥 𝑘 , Υ( 𝑘 )) + 𝐶𝑤 𝑘 , which generates the trace 
+
+𝚝 𝐿, Υ(𝜉 𝜋 h (𝜔 )) over 𝙰𝙿 𝑆 ∪ 𝙰𝙿 𝑂 .
+
+Problem 1. Given the stochastic system (1) with an initial state 𝑥 0 ∈ 𝑋 , a labelling function 𝐿 , and an LTL specifica-tion 𝜙 over 𝙰𝙿 𝑆 ∪ 𝙰𝙿 𝑂 , synthesize a hybrid state-feedback policy 𝜋 h such that, for all logical disturbance functions 
+
+Υ ∈ 𝔇 ,
+
+ℙΩ
+
+({𝜔 ∈ Ω ∣ 𝚝 𝐿, Υ(𝜉 𝜋 h (𝜔 )) ⊨ 𝜙 }) = 1 .
+
+That is, Problem 1 asks for a hybrid policy that drives the stochastic system (1) to almost surely satisfy the specifi-cation 𝜙 .
+
+## 3. LTL Specifications to RAS Specifications 
+
+In this section, we summarize how Problem 1 can be reduced to synthesizing controllers for a set of context-triggered reach-avoid-stay (cRAS) tasks . We follow the context-triggered hybrid control framework of [5] and re-call only the parts needed for the remainder of the paper, referring the reader to [5] for the formal construction and its correctness proofs. The single object that the low-level synthesis in the subsequent sections operates on is the RAS objective formalized in this section. 
+
+3.1. High-level Logical Synthesis 
+
+The reduction rests on the classical correspondence be-tween temporal logic and two-player games (see, e.g., [29]): every LTL formula 𝜙 over 𝙰𝙿 𝑆 ∪ 𝙰𝙿 𝑂 can be translated into an equivalent two-player game between the controller and the environment played on a finite graph. Each vertex carries a label, namely a set of propositions describing the current 
+
+logical context (e.g., the requested mode and the door status),      
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 3 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications
+> 𝑏
+> {2}
+> 𝑐 {1}
+> 𝑑
+> {1,}
+> 𝑒
+> {1}
+> 𝑎 {}
+> Figure 2: A part of the game for the robot navigation example. The controller chooses at circled vertices and the environment chooses at squared vertices; each vertex label gives the logical context active at that vertex. The strategy template prohibits the red dotted edges and eventually prohibits the blue dashed edges, while the controller may freely use the remaining edges.
+
+and the two players move along the edges of the graph, with the controller resolving the state propositions 𝙰𝙿 𝑆 and the environment resolving the observation propositions 𝙰𝙿 𝑂 .Solving this game with classical methods from reactive syn-thesis [30] results in a (winning) controller strategy which ensures that 𝜙 is satisfied no matter how the environment chooses its moves, i.e., changes the context. However, rather than committing to such a single win-ning strategy, the framework of [5] computes a strategy template [7, 31] instead: a compact collection of local edge constraints that characterizes a whole family of winning strategies. Intuitively, at each vertex, such a template marks some outgoing edges as eventually required and others as 
+
+prohibited , while leaving the controller free to choose among the remaining ones. This freedom is precisely what allows the high-level logical decisions to be elegantly delegated to the continuous control layer, as described next. 
+
+3.2. Reach-Avoid-Stay Specifications 
+
+Strategy templates optimistically assume that state propo-sitions in 𝙰𝙿 𝑆 can be toggled instantaneously. In reality, however, a state proposition becomes true only once the continuous system (1) actually drives its state into the corresponding region while the active context persists. Consequently, the edge constraints that a strategy template imposes at a given vertex translate, per context, into a RAS task for the continuous system: the vertex label fixes the 
+
+context , the regions associated with the required successors form the set to be reached , and the regions associated with the prohibited successors form the set to be avoided .This translation is illustrated in the following example and formalized afterwards. 
+
+Example 2. Consider the robot navigating two rooms con-nected by a sliding door from [5], which is the running example of this paper (as explained in Section 1). The robot must reach the target 𝑖 of the mode 𝑖 currently requested by the environment while avoiding the walls . A part of the corresponding game is shown in Figure 2. At the con-troller vertex 𝑑 , whose label {1, } encodes the context “mode 1 requested and door closed”, the strategy template prohibits the edge to 𝑎 (where the wall  would be hit) and eventually prohibits the edge to 𝑏 (which would let the robot cycle without ever reaching the requested target), so that the controller eventually commits to the edge to 𝑒 (labeled {1}). This induces the context-dependent RAS task: whenever the context {1, } persists, reach the target 1 while avoiding the wall  and the target 2. Such a task is formalized next. 
+
+Definition 3. A context-dependent reach-avoid-stay objec-tive (cRAS) is defined as a triple Θ ∶= ( 𝐾, , ) where 
+
+𝐾 ⊆ 𝙰𝙿 𝑂 is the context ,  ∈ 2 𝙰𝙿 𝑆 is the target set and 
+
+ ∈ 2 𝙰𝙿 𝑆 is the avoid set. A control proposition  ∈ 𝙰𝙿 𝐶 is said to implement the cRAS Θ if the following specification given by 𝜙  holds with probability one under the closed-loop system induced by :
+
+𝜙  ∶= □
+
+(
+
+□( ∧ 𝐾 ) ⇒ ◊□  ∧ □¬
+
+)
+
+. (4) Intuitively, the cRAS objective Θ requires that, whenever the context 𝐾 is active persistently, the system eventually reaches the target set  and stays there while avoiding the obstacle set  at all times. Here, the control proposition 
+
+ ∈ 𝙰𝙿 𝐶 identifies one feedback policy that the high-level controller may trigger to actuate the stochastic system (1). 
+
+3.3. Reduction to Context-Triggered RASs 
+
+Since the environment may change the observation propositions at any time, and since a context also changes once the reach-part of the active cRAS has been fulfilled, the active cRAS is switched online, and the overall controller is inherently hybrid . This renders the reduction sound: realizing each generated cRAS is sufficient to solve the original synthesis problem, as summarized next. 
+
+Lemma 4 ([5]) . For Problem 1, the framework of [5] produces a finite set of context-dependent RAS objectives 
+
+{Θ 1, … , Θ𝑚 }, each triggered by its context. If each Θ𝑗 is implemented by some control proposition 𝑗 ∈ 𝙰𝙿 𝐶 in the sense of Definition 3, then the resulting hybrid state-feedback policy 𝜋 h solves Problem 1. 
+
+In view of Lemma 4, the high-level synthesis returns a fi-nite set of context-dependent RAS objectives, and it remains to realize each of them on the stochastic system (1). The rest of the paper therefore focuses on the central problem of synthesizing, for a single context-dependent RAS objective 
+
+Θ = ( 𝐾, , ), a feedback policy that implements it almost surely. 
+
+## 4. Realizing RASs via Certificates 
+
+As stated in Section 3, the overall synthesis problem in Problem 1 can be reduced to synthesizing control policies for a finite set of cRAS specifications. Hence, we focus on the problem of realizing a single RAS specification of the form 
+
+◊□  ∧ □¬ (as in (4)) for a stochastic linear system. 
+
+4.1. Certificate-Based Characterization of RASs 
+
+To characterize when the RAS specification holds, we adopt certificate-based conditions from the literature [10, 9].   
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 4 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications
+
+These conditions provide sufficient guarantees for almost-sure satisfaction of (4). Before stating the theorem, we provide the following assumption that characterizes robust forward invariance of the target set and is therefore essential for the stay part of the specification. 
+
+Assumption 5 (Robustly Invariant Target Sets) . The target set  is robustly forward invariant, i.e., there exists a feed-back controller 𝜅  ∶ 𝑋 → 𝑈 such that for all 𝑥 ∈  and all 𝑤 ∈ 𝑊 ,
+
+𝐴𝑥 + 𝐵𝜅 (𝑥 ) + 𝐶𝑤 ∈ .
+
+Indeed, if no feedback controller can keep the state inside the target set  under all admissible disturbances, then the stay requirement cannot be guaranteed after the target has been reached. In the proposed framework, the corresponding invariant controller is constructed through the local optimization problem introduced later in the paper, together with its tractable reformulation. Therefore, this assumption should be viewed as a fundamental requirement for satisfying the specification rather than as an additional restriction of the proposed approach. 
+
+Theorem 6 (RAS Certificates) . For the stochastic sys-tem (1) , suppose there exist functions ℎ, 𝑔 ∶ ℝ𝑛 𝑥 → ℝ,
+
+a locally bounded function 𝑟 ∶ ℝ𝑛 𝑥 → ℝ, and constants 
+
+𝜀 > 0 and 𝛿 > 0, such that for every 𝑥 ∈ ℝ𝑛 𝑥 there exists a control feedback law 𝑢 = 𝜅 (𝑥 ) ∈ 𝑈 satisfying the following conditions: 
+
+(Avoidance) 
+
+𝑔 (𝑥 ) < 0, ∀𝑥 ∈ , (5a) 
+
+𝑔 (𝑥 ) ≥ 0, ∀𝑥 ∈ ℝ𝑛 𝑥 ⧵ , (5b) 
+
+𝑔 (𝐴𝑥 + 𝐵𝑢 + 𝐶𝑤 ) ≥ 0, ∀𝑥 ∈ ℝ𝑛 𝑥 ⧵ , ∀𝑤 ∈ 𝑊 , 
+
+(5c) 
+
+(Reach) 
+
+ℙ𝑤 (𝑟 (𝐴𝑥 + 𝐵𝑢 + 𝐶𝑤 ) − 𝑟 (𝑥 ) ≤ −𝛿 ) ≥ 𝜀, 
+
+∀𝑥 ∈ ℝ𝑛 𝑥 ⧵(∪), (6a) 
+
+𝑟 (𝑥 ) ≤ 0 ⇒ 𝑥 ∈ , (6b) 
+
+(Stay) 
+
+ℎ(𝑥 ) ≤ 0, ∀𝑥 ∈ , (7a) 
+
+ℎ(𝑥 ) > 0, ∀𝑥 ∈ ℝ𝑛 𝑥 ⧵ , (7b) 
+
+ℎ(𝐴𝑥 + 𝐵𝑢 + 𝐶𝑤 ) ≤ 0, ∀𝑥 ∈ , ∀𝑤 ∈ 𝑊 . (7c) 
+
+Then, for every initial state 𝑥 0 ∈ ℝ𝑛 𝑥 ⧵  and with the state-feedback policy 𝜅 (𝑥 ), the RAS specification (4) holds almost surely. Proof. Conditions (5a)–(5c) ensure avoidance of the set .In particular, (5a)–(5b) characterize the sign of the avoid-ance function 𝑔 , while (5c) guarantees non-negativity of 𝑔 
+
+is preserved along trajectories for all disturbances. Hence, starting from any state 𝑥 ∈ ℝ𝑛 𝑥 ⧵ , the system never enters the avoid set .For states outside  ∪ , the reach conditions (6a)– (6b) ensure a uniform positive probability of a decrease in the function 𝑟 . Specifically, (6a) enforces a uniform positive probability of decrease in the reach function 𝑟 outside ∪,while (6b) associates the nonpositive level set of 𝑟 with the target set. Since 𝑟 is locally bounded and the disturbance sequence is i.i.d., the probabilistic decrease condition (6a) implies that the event of never reaching the set  has probability zero in the limit. A detailed proof of this claim is provided in [10]. Hence, the system reaches  almost surely. Finally, once the system enters , the stay condi-tions (7a)–(7c) imply that ℎ(𝑥 ) ≤ 0 is preserved under all disturbances. Therefore, the system remains in  for all future times with probability one. Note that (6a) is a probabilistic Lyapunov-type decrease condition. Furthermore, (6b) implies that the target set 
+
+ contains the non-positive sublevel set of 𝑟 . The argu-ment in [10] proceeds by observing that, since 𝑟 is locally bounded, every bounded sublevel set can be partitioned into finitely many layers according to the value of 𝑟 . Condi-tion (6a) guarantees that, whenever the state is outside ∪,there is a uniform positive probability 𝜀 of decreasing the certificate by at least 𝛿 . As a consequence, the probability of remaining forever in any non-terminal layer is zero. Since only finitely many layers exist within a bounded sublevel set, the trajectory almost surely exits each layer and eventually reaches the non-positive sublevel set of 𝑟 . By (6b), this implies eventual entry into the target set  with probability one. 
+
+Assumption 7. We assume that the avoid and the target sets admit convex representations. Specifically, we consider 
+
+ = { 𝑥 ∈ ℝ𝑛 𝑥 ∶ 𝑔 (𝑥 ) < 0} ,  = { 𝑥 ∈ ℝ𝑛 𝑥 ∶ ℎ(𝑥 ) ≤ 0} ,
+
+where 𝑔 and ℎ are proper, closed, convex functions. Further-more, the disturbance set 𝑊 is compact and convex, and satisfies ℙ𝑤 (‖𝑤 ‖ ≤ 𝜂 ) > 0 for all sufficiently small 𝜂 > 0.
+
+Under this construction, conditions (5a), (5b), (7a), and (7b) are satisfied by definition, while the remaining conditions will be enforced through the control synthesis developed in the next section. 
+
+4.2. Enforcing RASs via Robust MPC 
+
+In this section, we design a control strategy that enforces the RAS specification using a combination of robust model predictive control (MPC) and a local switching law. Robust MPC is used to explicitly enforce the avoidance constraints while driving the system toward the target set, and we complement it with a local controller that ensures robust forward invariance of the target set. The resulting switching strategy satisfies the Reach, Avoid, and Stay conditions of Theorem 6. We fix a cRAS objective Θ = ( 𝐾, , ), where 𝐾 ⊆ 
+
+𝙰𝙿 𝑂 denotes the logical context under which the objective   
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 5 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications
+
+is active,  is the target set and  is the avoid set. For readability, we keep the dependence on Θ explicit in the notation below. We consider the following robust MPC problem: 
+
+𝑉 Θ(𝑥 ) = min  
+
+> 𝑧,𝑢
+
+𝑇 Θ(𝑧 𝑁 ) + 
+
+> 𝑁 −1
+
+∑
+
+> 𝑖 =0
+
+𝓁 Θ(𝑧 𝑖 , 𝑢 𝑖 ) (8a) s.t. ∀𝑖 ∈ {0 , … , 𝑁 − 1} ∶ 
+
+𝑧 𝑖 +1 = 𝐴𝑧 𝑖 + 𝐵𝑢 𝑖 , (8b) 
+
+𝑢 𝑖 ∈ 𝑈 , 𝑧 𝑖 ∈ Θ 
+
+> 𝑖
+
+, (8c) 
+
+𝑧 𝑁 ∈ Θf , 𝑧 0 = 𝑥. (8d) Here, 𝑇 Θ is the terminal cost, 𝓁 Θ is the stage cost, 𝑁 is the prediction horizon, 𝑉 Θ is the MPC value function and Θf
+
+is the terminal set associated with the fixed RAS objective 
+
+Θ. The constraints in (8b)–(8d) enforce the nominal system dynamics over the prediction horizon, the admissible input constraint, robust avoidance, and the terminal condition, respectively. The sets Θ 
+
+> 𝑖
+
+in constraint (8c) encode robust avoidance by requiring that the avoidance function 𝑔 remains nonneg-ative for all disturbance realizations over the horizon. They are defined as 
+
+Θ 
+
+> 𝑖
+
+∶= 
+
+{
+
+𝑥 ∈ 𝑋 ||| min ̄𝑤 ∈̄ 𝑊 
+
+𝑔 (𝑥 + 𝐶 𝑖 −1 ̄ 𝑤 ) ≥ 0
+
+}
+
+,
+
+for all 𝑖 ∈ {0 , 1, … , 𝑁 }, where ̄ 𝑊 ∶= 𝑊 × ⋯ × 𝑊 (𝑁 
+
+times) and 
+
+𝐶 𝑖 ∶= [𝐴 𝑖 𝐶 𝐴 𝑖 −1 𝐶 ⋯ 𝐶 0 ⋯ 0] ∈ ℝ𝑛 𝑥 ×( 𝑁𝑛 𝑤 ),
+
+for all 𝑖 ∈ {0 , 1, … , 𝑁 − 1} and 𝐶 −1 ∶= 0 . The optimiza-tion (8) is solved in a receding-horizon manner by applying the first optimal input. The corresponding MPC feedback law is 
+
+𝜅 ΘMPC (𝑥 ) = 𝑢 ⋆ 
+
+> 0
+
+,
+
+where 𝑢 ⋆ 
+
+> 0
+
+is the first optimal input of (8). To promote reachability of the target set , we select quadratic stage and terminal costs centered at a reference point 𝑥 ref ∈  as an interior point of  (for instance, the center of the target set). More specifically, we define 
+
+𝓁 Θ(𝑥, 𝑢 ) = ‖𝑥 −𝑥 ref ‖2 
+
+> 𝑄 𝓁
+
++‖𝑢 −𝑢 ref ‖2 
+
+> 𝑅 𝓁
+
+, 𝑇 Θ(𝑥 ) = ‖𝑥 −𝑥 ref ‖2 
+
+> 𝑄 𝑇
+
+,
+
+(9) where 𝑢 ref = 𝜅 (𝑥 ref ), 𝑄 𝓁 ⪰ 0 , and 𝑄 𝑇 , 𝑅 𝓁 ≻ 0.We next establish that the robust MPC problem (8) is recursively feasible under nominal closed-loop evolution, that is, when the state evolves according to 𝑥 𝑘 +1 = 𝐴𝑥 𝑘 +
+
+𝐵𝜅 ΘMPC (𝑥 𝑘 ) under the fixed objective Θ. This property, re-ferred to as nominal recursive feasibility, ensures that feasi-bility at the current time step implies feasibility at all subse-quent time steps under the nominal dynamics and provides the reachability certificate introduced in Theorem 6. To guarantee this property, we impose the following standard terminal condition. 
+
+Assumption 8. The terminal set Θf is nonempty, it satisfies 
+
+Θf ⊆ Θ 
+
+> 𝑁
+
+, and there exists a terminal feedback control 
+
+𝜅 Θ 
+
+> 𝑓
+
+∶ 𝑋 → 𝑈 such that, for all 𝑥 ∈ Θf ,
+
+𝑇 Θ(𝐴𝑥 + 𝐵𝜅 Θ 
+
+> 𝑓
+
+(𝑥 )) − 𝑇 Θ(𝑥 ) ≤ −𝓁 Θ(𝑥, 𝜅 Θ 
+
+> 𝑓
+
+(𝑥 )) , (10a) 
+
+𝐴𝑥 + 𝐵𝜅 Θ 
+
+> 𝑓
+
+(𝑥 ) ∈ Θf . (10b) Assumption 8 is standard in the MPC literature (see, e.g., [13]). Inequality (10a) imposes a terminal decrease con-dition and plays the role of a Lyapunov-type inequality. In the quadratic setting considered in this paper, it typically reduces to a Riccati-type condition. The invariance condition (10b) requires the terminal set to be forward invariant and is the key ingredient ensuring nominal recursive feasibility of the MPC problem. In practice, the terminal set Θf is typically selected as a sufficiently small neighborhood of the target set  (or of the reference point 𝑥 ref ∈ ). The existence of a terminal feedback controller satisfying (10a)–(10b) depends on the control authority available to the system. In particular, for fully actuated systems, such terminal controllers can often be constructed for comparatively large terminal sets. More generally, Assumption 8 can be viewed as requiring the terminal region to admit a locally stabilizing and invariant control law. Note that we only require nominal recursive feasibility of the MPC problem here. Indeed, the avoidance condition is enforced robustly through the sets Θ 
+
+> 𝑖
+
+, while the stay condition is handled separately through the local invariant controller. Hence, recursive feasibility is used to construct a shifted feasible solution and establish a decrease property of the MPC value function along the nominal closed-loop dynamics. This decrease property is the key ingredient in constructing the reachability certificate required by Theo-rem 6. The probabilistic decrease condition of the actual stochastic system is then obtained by combining the nominal decrease with the disturbance assumption in 7. 
+
+Theorem 9. Under Assumptions 7 and 8, the following hold for the MPC (8) :1. for every initial condition 𝑥 0 ∈ Θf , the MPC prob-lem (8) is feasible at time 0;2. the MPC problem (8) is nominal recursively feasible; 3. the avoidance function 𝑔 satisfies the Avoid conditions of Theorem 6; 4. the value function 𝑉 Θ admits a decrease property out-side  that allows the construction of a reachability certificate 𝑟 satisfying conditions (6a) –(6b) .Proof. We first prove that 
+
+Θ 
+
+> 𝑖 +1
+
+⊆ Θ 
+
+> 𝑖
+
+, 𝑖 ∈ {0 , 1, … , 𝑁 − 1} .
+
+Let 𝑥 ∈ Θ 
+
+> 𝑖 +1
+
+be fixed, and suppose that an optimal solution of 
+
+min ̄𝑤 ∈̄𝑊 
+
+𝑔 (𝑥 + 𝐶 𝑖 −1 ̄ 𝑤 )  
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 6 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications
+
+is given by ̃ 𝑤 = ( ̃𝑤 0, … ,̃ 𝑤 𝑁 −1 ). Define ̂ 𝑤 = (0 , … ,̃ 𝑤 𝑁 −1 ).Then 
+
+min ̄𝑤 ∈̄𝑊 
+
+𝑔 (𝑥 + 𝐶 𝑖 −1 ̄ 𝑤 ) = 𝑔 (𝑥 + 𝐶 𝑖 −1 ̃ 𝑤 )= 𝑔 (𝑥 + 𝐶 𝑖 ̂ 𝑤 )
+
+≥ min ̄𝑤 ∈̄𝑊 
+
+𝑔 (𝑥 + 𝐶 𝑖 ̄ 𝑤 ).
+
+Since 𝑥 ∈ Θ
+
+> 𝑖 +1
+
+, the right-hand side is nonnegative, implying 
+
+𝑥 ∈ Θ 
+
+> 𝑖
+
+.1) For the initial feasibility for every 𝑥 0 ∈ Θf , fix any 
+
+𝑥 0 ∈ Θf . By Assumption 8, for each 𝑥 ∈ Θf there exists a control input 𝜅 Θ 
+
+> 𝑓
+
+(𝑥 ) ∈ 𝑈 such that 𝐴𝑥 + 𝐵𝜅 Θ 
+
+> 𝑓
+
+(𝑥 ) ∈ Θf .Hence, defining 
+
+𝑧 0 = 𝑥 0, 𝑧 𝑖 +1 = 𝐴𝑧 𝑖 +𝐵𝜅 Θ 
+
+> 𝑓
+
+(𝑧 𝑖 ), 𝑖 = 0 , … , 𝑁 −1 ,
+
+yields a nominal state sequence satisfying 𝑧 𝑖 ∈ Θf for all 
+
+𝑖 ∈ 0 , … , 𝑁 . Since Θf ⊆ Θ 
+
+> 𝑖
+
+for all 𝑖 ∈ 0 , … , 𝑁 − 1 , this sequence satisfies the state constraints of the MPC problem, and the associated inputs 𝜅 Θ 
+
+> 𝑓
+
+(𝑧 𝑖 ) ∈ 𝑈 satisfy the input constraints. Therefore, the MPC problem is feasible at time 
+
+0 for every 𝑥 0 ∈ Θf .2) To show recursive feasibility, assume that {𝑥 =
+
+𝑧 ⋆ 
+
+> 0
+
+, 𝑧 ⋆ 
+
+> 1
+
+, … , 𝑧 ⋆𝑁 } and {𝑢 ⋆ 
+
+> 0
+
+, 𝑢 ⋆ 
+
+> 1
+
+, … , 𝑢 ⋆𝑁 −1 } is an optimal solu-tion with 𝑧 ⋆ 
+
+> 0
+
+= 𝑥 . The successor nominal state is then 𝑧 ⋆ 
+
+> 1
+
+=
+
+𝐴𝑥 + 𝐵𝜅 ΘMPC (𝑥 ). Consider the shifted sequence ̃𝑧 𝑖 = 𝑧 ⋆𝑖 +1 
+
+for 𝑖 ∈ 0, … , 𝑁 − 1 ,̃ 𝑢 𝑖 = 𝑢 ⋆𝑖 +1 for 𝑖 = 0, … , 𝑁 − 2 ,̃𝑢 𝑁 −1 = 𝜅 Θ 
+
+> 𝑓
+
+(𝑧 ⋆𝑁 ), and ̃𝑧 𝑁 = 𝐴𝑧 ⋆𝑁 + 𝐵𝜅 Θ 
+
+> 𝑓
+
+(𝑧 ⋆𝑁 ). By feasibility of the original solution and Θ 
+
+> 𝑖 +1
+
+⊆ Θ 
+
+> 𝑖
+
+, we have ̃𝑧 𝑖 ∈ Θ
+
+> 𝑖
+
+for 𝑖 = 0 , … , 𝑁 − 1 , and from Assumption 8, ̃𝑧 𝑁 ∈ Θ 
+
+> 𝑁
+
+.Hence, the shifted sequence is feasible at 𝑧 ⋆ 
+
+> 1
+
+.3) We next show that the avoidance function 𝑔 sat-isfies the Avoid conditions (5a)–(5c) of Theorem 6. By Assumption 7, (5a) holds by construction, and (5b) follows immediately since 𝑥 ∉  implies 𝑔 (𝑥 ) ≥ 0. To show (5c), let 𝑥 ∉  be such that the MPC problem (8) is feasible, and let {𝑧 ⋆ 
+
+> 0
+
+= 𝑥, 𝑧 ⋆ 
+
+> 1
+
+, … , 𝑧 ⋆𝑁 } and {𝑢 ⋆ 
+
+> 0
+
+, … , 𝑢 ⋆𝑁 −1 } be a feasible solution. By the constraint 𝑧 ⋆ 
+
+> 1
+
+∈ Θ1 and the definition of 
+
+Θ1 , we have 
+
+min ̄𝑤 ∈̄𝑊 
+
+𝑔 (𝑧 ⋆ 
+
+> 1
+
++ 𝐶 0̄ 𝑤 ) ≥ 0.
+
+Since 𝐶 0̄ 𝑤 = 𝐶𝑤 0 and 𝑤 0 ranges over 𝑊 , this gives 
+
+min  
+
+> 𝑤 ∈𝑊
+
+𝑔 (𝑧 ⋆ 
+
+> 1
+
++ 𝐶𝑤 ) ≥ 0.
+
+Using 𝑧 ⋆ 
+
+> 1
+
+= 𝐴𝑥 + 𝐵𝑢 ⋆ 
+
+> 0
+
+= 𝐴𝑥 + 𝐵𝜅 ΘMPC (𝑥 ), it follows that 
+
+𝑔 (𝐴𝑥 + 𝐵𝜅 ΘMPC (𝑥 ) + 𝐶𝑤 ) ≥ 0, ∀𝑤 ∈ 𝑊 . 
+
+Thus, condition (5c) holds with the feedback law 𝑢 =
+
+𝜅 ΘMPC (𝑥 ) whenever the MPC controller is applied. Therefore, 
+
+𝑔 satisfies the Avoid conditions of Theorem 6. 4) Evaluating the cost of the shifted feasible sequence and using optimality yields 
+
+𝑉 Θ(𝑧 ⋆ 
+
+> 1
+
+) ≤ 𝑇 Θ(̃𝑧 𝑁 ) + 
+
+> 𝑁 −1
+
+∑
+
+> 𝑖 =1
+
+𝓁 Θ(𝑧 ⋆𝑖 , 𝑢 ⋆𝑖 ) + 𝓁 Θ(𝑧 ⋆𝑁 , 𝜅 Θ 
+
+> 𝑓
+
+(𝑧 ⋆𝑁 )) 
+
+≤ 𝑉 Θ(𝑥 ) − 𝓁 Θ(𝑥, 𝑢 ⋆ 
+
+> 0
+
+).
+
+The second inequality follows from Assumption 8, since 
+
+𝑇 Θ(̃𝑧 𝑁 ) − 𝑇 Θ(𝑧 ⋆𝑁 ) ≤ −𝓁 Θ(𝑧 ⋆𝑁 , 𝜅 Θ 
+
+> 𝑓
+
+(𝑧 ⋆𝑁 )) .
+
+Consequently, the MPC value function decreases along the nominal closed-loop evolution outside the target set .Since 𝑥 ref is chosen in the interior of , there exists 
+
+𝜓 > 0 such that 𝐵 𝜓 (𝑥 ref ) ⊆ , where 𝐵 𝜓 (𝑥 ref ) is the closed Euclidean ball centered at 𝑥 ref with radius 𝜓 . Therefore, for every 𝑥 ∉  we have ‖𝑥 − 𝑥 ref ‖2 ≥ 𝜓 , and hence the quadratic stage cost satisfies 𝓁 Θ(𝑥, 𝑢 ) ≥ 𝜆 min (𝑄 𝓁 )𝜓 2 =∶ 
+
+𝑐 Θ > 0 for all admissible inputs 𝑢 outside the target set .Therefore, 
+
+𝑉 Θ
+
+(𝐴𝑥 + 𝐵𝜅 ΘMPC (𝑥 )) − 𝑉 Θ(𝑥 ) ≤ −𝑐 Θ, (11) for all 𝑥 ∉ . For any fixed 𝑥 ∈ 𝑋 , define 
+
+𝜙 Θ(𝑤 ) ∶= 𝑉 Θ
+
+(𝐴𝑥 + 𝐵𝜅 ΘMPC (𝑥 ) + 𝐶𝑤 ) − 𝑉 Θ(𝑥 ).
+
+By (11), we have 𝜙 Θ(0) ≤ −𝑐 Θ. Since 𝑉 Θ is continuous and 𝑊 is compact, the function 𝜙 Θ is continuous in 𝑤 .Therefore, there exists 𝜂 Θ > 0 such that 
+
+𝜙 Θ(𝑤 ) ≤ − 𝑐 Θ
+
+2 , ∀ 𝑤 ∈ 𝑊 with ‖𝑤 ‖ ≤ 𝜂 Θ.
+
+Define 
+
+𝛿 Θ ∶= 𝑐 Θ
+
+2 , 𝜀 Θ ∶= ℙ𝑤 (‖𝑤 ‖ ≤ 𝜂 Θ) > 0.
+
+Then condition (6a) follows immediately by the disturbance assumption in Assumption 7. Therefore, 𝑉 Θ can be used as the basis of a reachability certificate. More precisely, define 
+
+𝑟 (𝑥 ) ∶= 
+
+{
+
+𝑉 Θ(𝑥 ), 𝑥 ∉ ,
+
+−𝜌 (𝑥 ), 𝑥 ∈ ,
+
+where 𝜌 (𝑥 ) ≥ 0 is any continuous function satisfying 𝜌 (𝑥 ) = 0 on 𝜕  and 𝜌 (𝑥 ) > 0 in the interior of . Since the stage and terminal costs are quadratic and the prediction horizon is finite, the value function 𝑉 Θ is continuous on its feasible set. Furthermore, because the state space 𝑋 is bounded, 𝑉 Θ
+
+is locally bounded. By construction, 𝑟 is therefore locally bounded and consequently, 𝑟 satisfies the reach conditions of Theorem 6. To guarantee the Stay condition after reaching , we adopt a switching strategy. While 𝑥 𝑘 ∉ , the robust MPC (8) is applied. Once the state enters , we switch to a local controller designed to robustly enforce forward invariance of .  
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 7 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications
+
+For the Stay part, a local control is obtained by enforcing the robust invariance condition as 
+
+min  
+
+> 𝑢 ∈𝑈
+
+‖𝐴𝑥 + 𝐵𝑢 − 𝑥 ref ‖2 
+
+> 𝑄 𝑠
+
+(12a) s.t. sup 
+
+> 𝑤 ∈𝑊
+
+ℎ(𝐴𝑥 + 𝐵𝑢 + 𝐶𝑤 ) ≤ 0, (12b) for some 𝑄 𝑠 ≻ 0, with optimal solution denoted by 𝜅 Θ 
+
+> 𝑠
+
+(𝑥 ).Note that under Assumption 5, optimization (12) is feasible for all 𝑥 ∈ .
+
+Corollary 10. Under Assumption 8, the feedback law 
+
+𝜅 Θ(𝑥 ) = 
+
+{
+
+𝜅 ΘMPC (𝑥 ), 𝑥 ∉ ,𝜅 Θ 
+
+> 𝑠
+
+(𝑥 ), 𝑥 ∈  , (13) 
+
+satisfies the Avoid, Reach, and Stay conditions of Theorem 6. Consequently, the cRAS objective Θ is implemented almost surely. By Lemma 4, if every generated cRAS objective is implemented by a controller of the form (13) , then the resulting hybrid state-feedback policy 𝜋 h solves Problem 1. Proof. For 𝑥 ∉ , the controller coincides with 𝜅 ΘMPC . By Theorem 9, this controller enforces the Avoid conditions of Theorem 6. Moreover, the MPC value function 𝑉 Θ provides the Reach certificate, so the Reach conditions of Theorem 6 are satisfied as well. For 𝑥 ∈ , the controller switches to 𝜅 Θ 
+
+> 𝑠
+
+. By the construction of the local stay controller and Assumption 5, the target set  is robustly forward invariant, so the Stay conditions of Theorem 6 hold. Therefore, all conditions of Theorem 6 are satisfied, and the cRAS objective Θ is implemented almost surely. By Lemma 4, if every generated cRAS objective is im-plemented by a controller of the form (13), then the resulting hybrid state-feedback policy 𝜋 h solves Problem 1. The certificate framework provided in Theorem 6 plays a central role in the proposed architecture. The high-level syn-thesis procedure described in Section 3 produces a collection of context-triggered cRAS objectives, whereas the low-level controller operates directly on the continuous-state dynam-ics (1). The certificates introduced in Theorem 6 provide the interface between these two layers: they translate the logical requirements of a cRAS objective into verifiable properties of the continuous closed-loop system, namely avoidance, reachability, and invariance. Theorem 9 shows that the pro-posed robust MPC formulation naturally generates the Avoid and Reach certificates, while the local invariant controller enforces the Stay condition. Consequently, Corollary 10 es-tablishes that the resulting switching controller implements the cRAS objective. Combined with Lemma 4, this implies correctness of the overall hybrid controller. While the robust MPC formulation (8) explicitly en-forces avoidance for all disturbance realizations, it involves a minimization over disturbance sequences inside the con-straints, which may be computationally expensive in its current form. To obtain computationally tractable synthesis procedures, the next section employs convex duality to refor-mulate the robust constraints into equivalent deterministic optimization problems. 
+
+## 5. Tractable Reformulation via Convex Duality 
+
+While the certificate-based MPC construction developed in Section 4 provides a correct realization of the cRAS ob-jectives, the resulting optimization problems are not directly tractable. In particular, the robust avoidance and invariance constraints involve nested optimization problems over dis-turbance realizations. Moreover, these disturbance optimiza-tions are coupled across the prediction horizon through the lifted disturbance matrices 𝐶 𝑖 , causing the dimension of the inner optimization to grow with the horizon length 𝑁 . As a result, directly enforcing the robust constraints can become computationally expensive even for moderate horizons. To obtain computationally tractable synthesis proce-dures, we exploit convex duality to eliminate the inner distur-bance optimization problems and replace them with equiva-lent deterministic constraints. This yields finite-dimensional optimization problems whose structure depends on the ge-ometry of the avoidance and disturbance sets. 
+
+5.1. Robust MPC Reformulation 
+
+Under Assumption 7, we show that the inner minimiza-tion in (8) admits an exact dual representation. This allows us to eliminate the disturbance variables entirely and replace the robust constraints by deterministic constraints involving dual variables. 
+
+Lemma 11. Let 𝑔 ∶ ℝ𝑛 𝑥 → ℝ ∪ {+∞} be proper, convex, and closed, and let 𝕎 ⊂ ℝ𝑞 be convex and compact. Then for any 𝑧 and matrix 𝑀 ∈ ℝ𝑛 𝑥 ×𝑞 , the identity 
+
+min  
+
+> 𝑤 ∈𝕎
+
+𝑔 (𝑧 +𝑀𝑤 ) = sup 
+
+> 𝑦 ∈ℝ𝑛 𝑥
+
+(𝑦 ⊤𝑧 − 𝑔 ∗(𝑦 ) − 𝜎 𝕎 (− 𝑀 ⊤𝑦 )) (14) 
+
+holds, where 𝑔 ∗(𝑦 ) is the convex conjugate of 𝑔 defined as 
+
+𝑔 ∗(𝑦 ) ∶= sup 
+
+> 𝑡 ∈ℝ𝑛 𝑥
+
+(𝑦 ⊤𝑡 − 𝑔 (𝑡 )) ,
+
+and 𝜎 𝕎 (𝑣 ) ∶= max 𝑤 ∈𝕎 𝑣 ⊤𝑤 is the support function of 𝕎 .Proof. By the Fenchel–Moreau theorem, 𝑔 = 𝑔 ∗∗ for a proper, convex, and closed function 𝑔 (see, e.g., Theo-rem 4.2.1 in [32]), i.e., 
+
+𝑔 (𝑧 +𝑀𝑤 ) = sup 
+
+> 𝑦 ∈ℝ𝑛𝑥
+
+{𝑓 𝑧 (𝑤, 𝑦 ) ∶= 𝑦 ⊤(𝑧 + 𝑀𝑤 ) − 𝑔 ∗(𝑦 )} .
+
+Substituting this into the left-hand side of (14) yields 
+
+min  
+
+> 𝑤 ∈𝕎
+
+𝑔 (𝑧 + 𝑀𝑤 ) = min  
+
+> 𝑤 ∈𝕎
+
+sup 
+
+> 𝑦 ∈ℝ𝑛𝑥
+
+𝑓 𝑧 (𝑤, 𝑦 ).
+
+Note that 𝑓 𝑧 (𝑤, 𝑦 ) is convex (affine) in 𝑤 . Moreover, it is concave in 𝑦 , because it is the sum of the concave function 
+
+−𝑔 ∗ and a linear term in 𝑦 .  
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 8 of 14
+
+Context-Triggered Robust MPC for Temporal Logic Specifications 
+
+Sion’s minimax theorem [33] states that for a func-tion 𝑓 (𝑤, 𝑦 ) that is convex–concave, min 𝑤 sup 𝑦 𝑓 𝑧 (𝑤, 𝑦 ) = sup 𝑦 min 𝑤 𝑓 𝑧 (𝑤, 𝑦 ) if one of the sets (in this case 𝕎 ) is com-pact. Since 𝕎 is compact and 𝑔 ∗ is convex, the conditions hold and swapping the infimum and supremum gives 
+
+sup 
+
+> 𝑦 ∈ℝ𝑛𝑥
+
+{
+
+𝑦 ⊤𝑧 − 𝑔 ∗(𝑦 ) + min 
+
+> 𝑤 ∈𝕎
+
+(𝑦 ⊤𝑀𝑤 )
+
+}
+
+.
+
+Finally, the last term can be written as 
+
+min 
+
+> 𝑤 ∈𝕎
+
+(𝑀 ⊤𝑦 )⊤𝑤 = − max 
+
+> 𝑤 ∈𝕎
+
+(− 𝑀 ⊤𝑦 )⊤𝑤 = − 𝜎 𝕎 (− 𝑀 ⊤𝑦 ),
+
+which proves (14). Geometrically, the dual variable 𝑦 can be viewed as a certificate direction. For a given 𝑦 , the quantity 𝑦 ⊤𝑧 −
+
+𝑔 ∗(𝑦 ) measures how far the predicted state is from violating the avoidance constraint, while 𝜎 𝑊 (− 𝑀 ⊤𝑦 ) captures the worst-case effect of disturbances in that direction. The dual problem therefore searches for a direction 𝑦 proving that the avoidance constraint remains satisfied despite all admissible disturbances. This replaces the explicit optimization over disturbances by an equivalent certificate-based condition. Applying Lemma 11 with 𝑧 = 𝑧 𝑖 +1 , 𝑀 = 𝐶 𝑖 , 𝕎 =̄ 𝑊 ,and 𝑞 = 𝑁𝑛 𝑤 , gives 
+
+min ̄𝑤 ∈̄𝑊 
+
+𝑔 (𝑧 𝑖 +1 +𝐶 𝑖 ̄ 𝑤 ) = sup 
+
+> 𝑦 𝑖
+
+(𝑦 ⊤𝑖 𝑧 𝑖 +1 − 𝑔 ∗(𝑦 𝑖 ) − 𝜎 ̄ 𝑊 (− 𝐶 ⊤𝑖 𝑦 𝑖 )) .
+
+Therefore, the robust constraint in (8) is equivalent to 
+
+∃𝑦 𝑖 ∈ ℝ𝑛 𝑥 ∶ 𝑦 ⊤𝑖 𝑧 𝑖 +1 − 𝑔 ∗(𝑦 𝑖 ) − 𝜎 ̄ 𝑊 (− 𝐶 ⊤𝑖 𝑦 𝑖 ) ≥ 0.
+
+From the definition of ̄ 𝑊 , its support function decomposes additively: 
+
+𝜎 ̄ 𝑊 (𝑣 ) = 
+
+> 𝑁 −1
+
+∑
+
+> 𝑗 =0
+
+𝜎 𝑊 (𝑣 𝑗 ),
+
+where 𝑣 𝑗 are the 𝑛 𝑤 -dimensional blocks of 𝑣 . Moreover, because 𝐶 𝑖 has only the first 𝑖 + 1 nonzero blocks, 
+
+𝜎 ̄ 𝑊 (− 𝐶 ⊤𝑖 𝑦 𝑖 ) = 
+
+> 𝑖
+
+∑
+
+> 𝑗 =0
+
+𝜎 𝑊 
+
+((− 𝐶 ⊤𝑖 𝑦 𝑖 )𝑗 
+
+) .
+
+Hence, the robust MPC in (8) is equivalent to the determin-istic problem 
+
+min  
+
+> 𝑧,𝑢,𝑦
+
+𝑇 Θ(𝑧 𝑁 ) + 
+
+> 𝑁 −1
+
+∑
+
+> 𝑖 =0
+
+𝓁 Θ(𝑧 𝑖 , 𝑢 𝑖 ) (15a) s.t. 𝑧 𝑖 +1 = 𝐴𝑧 𝑖 + 𝐵𝑢 𝑖 , 𝑖 = 0 , … , 𝑁 − 1 ,𝑢 𝑖 ∈ 𝑈 , 𝑖 = 0 , … , 𝑁 − 1 ,𝑧 0 = 𝑥, 𝑧 𝑁 ∈ Θf ,𝑦 ⊤𝑖 𝑧 𝑖 +1 −𝑔 ∗(𝑦 𝑖 )− 
+
+> 𝑖
+
+∑
+
+> 𝑗 =0
+
+𝜎 𝑊 
+
+((− 𝐶 ⊤𝑖 𝑦 𝑖 )𝑗 
+
+) ≥ 0, (15b) 
+
+𝑖 = 0 , … , 𝑁 − 1 .
+
+Consequently, the robust MPC formulation (8) is equivalent to the deterministic optimization problem (15), in which the disturbance minimization is replaced by dual variables 
+
+𝑦 𝑖 . The term 𝑔 ∗ encodes the avoidance geometry, while the support functions encode the disturbance-set geometry. While the dual reformulation derived above is exact under the convexity assumptions, its computational structure depends on the specific geometry of the avoidance function 𝑔 
+
+and the disturbance set 𝑊 . Different choices lead to different classes of convex programs. We therefore consider two prac-tically relevant cases in detail: (i) ellipsoidal avoidance sets with polyhedral disturbances, and (ii) polyhedral avoidance sets with ellipsoidal disturbances. 
+
+Case 1: Ellipsoidal Avoid Set and Polyhedral Disturbance 
+
+We first consider the case where the avoidance set is ellipsoidal and the disturbance set is polyhedral. Consider the avoidance set  with function 
+
+𝑔 (𝑥 ) = ( 𝑥 − 𝑥 𝑎 )⊤𝑄 (𝑥 − 𝑥 𝑎 ) − 1 , 𝑄 ≻ 0,
+
+for some 𝑥 𝑎 ∈ . The convex conjugate of 𝑔 is given by (see e.g., [34]) 
+
+𝑔 ∗(𝑦 ) = 𝑥 ⊤𝑎 𝑦 + 14 𝑦 ⊤𝑄 −1 𝑦 + 1 .
+
+Moreover, consider the disturbance set is polyhedral, given by: 
+
+𝑊 = { 𝑤 ∈ ℝ𝑛 𝑤 ∶ 𝐻 𝑊 𝑤 ≤ ℎ𝑊 }, (16) for some 𝐻 𝑊 ∈ ℝ𝑛 𝑝 ×𝑛 𝑤 and ℎ𝑊 ∈ ℝ𝑛 𝑝 . Its support function is the linear program 
+
+𝜎 𝑊 (𝑣 ) = max  
+
+> 𝑤 ∈𝑊
+
+𝑣 ⊤𝑤, 
+
+and by linear programming duality its dual problem is 
+
+𝜎 𝑊 (𝑣 ) = inf 
+
+> 𝜇 ≥0
+
+{ℎ⊤𝑊 𝜇 ||| 𝐻 ⊤𝑊 𝜇 = 𝑣 } . (17) Substituting 𝑔 ∗ into (15b), we have 
+
+𝑦 ⊤𝑖 (𝑧 𝑖 +1 − 𝑥 𝑎 ) − 14 𝑦 ⊤𝑖 𝑄 −1 𝑦 𝑖 −
+
+> 𝑖
+
+∑
+
+> 𝑗 =0
+
+𝜎 𝑊 
+
+((− 𝐶 ⊤𝑖 𝑦 𝑖 )𝑗 
+
+) ≥ 1.
+
+Using (17), this is equivalent to the existence of multipliers 
+
+𝜇 𝑖𝑗 ≥ 0 such that 
+
+𝐻 ⊤𝑊 𝜇 𝑖𝑗 = −( 𝐶 ⊤𝑖 𝑦 𝑖 )𝑗 , (18a) 
+
+𝑦 ⊤𝑖 (𝑧 𝑖 +1 − 𝑥 𝑎 ) − 14 𝑦 ⊤𝑖 𝑄 −1 𝑦 𝑖 −
+
+> 𝑖
+
+∑
+
+> 𝑗 =0
+
+ℎ⊤𝑊 𝜇 𝑖𝑗 ≥ 1. (18b) Hence, replacing the robust constraint (15b) by (18) with the additional decision variables 𝜇 𝑖𝑗 ≥ 0 in (15), the robust constraint is equivalently expressed through quadratic and linear inequalities. 
+
+Bahari Kordabad et al.: Preprint submitted to Elsevier Page 9 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications 
+
+Case 2: Polyhedral Avoid Set and Ellipsoidal Disturbance 
+
+We now consider the complementary case in which the avoidance set is polyhedral and the disturbance set is ellipsoidal. Consider a polyhedral avoidance set with 
+
+𝑔 (𝑥 ) = max 
+
+> 𝑘 =1 ,…,𝑝
+
+(𝑓 ⊤𝑘 𝑥 − 𝑏 𝑘 ).
+
+Its convex conjugate is given by (see e.g., [34]) 
+
+𝑔 ∗(𝑦 ) = 
+
+{
+
+𝜆 ⊤𝑏, 𝑦 = 𝐹 ⊤𝜆, 𝜆 ≥ 0, 𝟏 ⊤𝜆 = 1 ,
+
++∞ , otherwise ,
+
+where 𝐹 ∶= [ 𝑓 ⊤ 
+
+> 1
+
+, … , 𝑓 ⊤𝑝 ]⊤ ∈ ℝ𝑝 ×𝑛 𝑥 and 𝑏 ∶= ( 𝑏 1, … , 𝑏 𝑝 )⊤.Assume now that the disturbance set is ellipsoidal: 
+
+𝑊 = { 𝑤 ∈ ℝ𝑛 𝑤 ∶ 𝑤 ⊤𝑃 −1 𝑤 ≤ 1} , 𝑃 ≻ 0. (19) Then the support function of 𝑊 is obtained as 
+
+𝜎 𝑊 (𝑣 ) = max  
+
+> 𝑤
+
+𝑣 ⊤𝑤 s.t. 𝑤 ⊤𝑃 −1 𝑤 ≤ 1.
+
+This is a convex quadratic program. Using the Cauchy– Schwarz inequality, 
+
+𝑣 ⊤𝑤 = ( 𝑃 1∕2 𝑣 )⊤(𝑃 −1∕2 𝑤 ) ≤ ‖𝑃 1∕2 𝑣 ‖2‖𝑃 −1∕2 𝑤 ‖2.
+
+Since 𝑤 ⊤𝑃 −1 𝑤 ≤ 1 implies ‖𝑃 −1∕2 𝑤 ‖2 ≤ 1, the maximum is attained when 𝑤 is aligned with 𝑃 𝑣 . Therefore, 
+
+𝜎 𝑊 (𝑣 ) = ‖𝑃 1∕2 𝑣 ‖2 =
+
+√
+
+𝑣 ⊤𝑃 𝑣. 
+
+Substituting into (15b), the robust constraint becomes 
+
+𝑦 ⊤𝑖 𝑧 𝑖 +1 − 𝑔 ∗(𝑦 𝑖 ) − 
+
+> 𝑖
+
+∑
+
+> 𝑗 =0
+
+√
+
+(𝐶 ⊤𝑖 𝑦 𝑖 )⊤𝑗 𝑃 (𝐶 ⊤𝑖 𝑦 𝑖 )𝑗 ≥ 0.
+
+Since 𝑔 ∗(𝑦 𝑖 ) is finite only when 
+
+𝑦 𝑖 = 𝐹 ⊤𝜆 𝑖 , 𝜆 𝑖 ≥ 0, 𝟏 ⊤𝜆 𝑖 = 1 ,
+
+the constraint becomes 
+
+𝜆 ⊤𝑖 (𝐹 𝑧 𝑖 +1 − 𝑏 ) − 
+
+> 𝑖
+
+∑
+
+> 𝑗 =0
+
+√
+
+(𝐶 ⊤𝑖 𝐹 ⊤𝜆 𝑖 )⊤𝑗 𝑃 (𝐶 ⊤𝑖 𝐹 ⊤𝜆 𝑖 )𝑗 ≥ 0.
+
+Introducing auxiliary variables 𝑡 𝑖𝑗 satisfying 
+
+‖𝑃 1∕2 (𝐶 ⊤𝑖 𝐹 ⊤𝜆 𝑖 )𝑗 ‖2 ≤ 𝑡 𝑖𝑗 , (20) the constraint can be written as 
+
+𝜆 ⊤𝑖 (𝐹 𝑧 𝑖 +1 −𝑏 )− 
+
+> 𝑖
+
+∑
+
+> 𝑗 =0
+
+𝑡 𝑖𝑗 ≥ 0, 𝜆 𝑖 ≥ 0, 𝟏 ⊤𝜆 𝑖 = 1 , (21) which is second-order cone representable. The size of the resulting optimziation grows polyno-mially with the prediction horizon. In particular, for each stage 𝑖 , one introduces a dual variable 𝜆 𝑖 and 𝑖 + 1 auxiliary variables 𝑡 𝑖𝑗 , together with the corresponding second-order cone constraints (20). Consequently, the total number of auxiliary variables and conic constraints scales as (𝑁 2)
+
+with the horizon length 𝑁 .Note that additional geometric configurations can be handled analogously through the same duality framework. For brevity, we restrict our attention to the two representative cases above, which already capture the most common safety and disturbance models encountered in practice. 
+
+5.2. Switching Strategy Reformulation 
+
+We now derive a tractable dual characterization of the Stay condition in (12) under a quadratic target function and a polyhedral disturbance set. Suppose the target function is quadratic and defined as 
+
+ℎ(𝑥 ) ∶= ‖𝑥 − 𝑥 ref ‖2 
+
+> 𝑄 ℎ
+
+− 𝜌 2
+
+> ℎ
+
+,
+
+for some 𝑄 ℎ ≻ 0 and 𝜌 ℎ > 0. Assume the disturbance set is polyhedral as in (16). Using convex duality for the maximization over disturbances, the robust constraint in (12) can be equivalently expressed through the existence of dual variables 𝜇 ≥ 0 such that 
+
+ℎ⊤𝑊 𝜇 − 14 𝜇 ⊤𝐻 𝑊 𝐻 ⊤𝑊 𝜇 + 𝜉 ⊤𝐻 ⊤𝑊 𝜇 ≤ 𝜌 2
+
+> ℎ
+
+, (22) where 𝜉 ∶= 𝐴𝑥 + 𝐵𝑢 − 𝑥 ref . Similar to the MPC ro-bust constraints, the inner maximization over disturbances in (12) can therefore be reformulated using convex duality, yielding a tractable deterministic condition. The derivation follows the same convex-duality arguments used in Sec-tion 5.1 and is therefore omitted for brevity. In particular, applying Lemma 11 to the quadratic stay certificate ℎ and the disturbance set 𝑊 yields an equivalent deterministic reformulation of the robust invariance constraint. Therefore, both the robust MPC problem (8) and the local invariance problem (12) admit equivalent deterministic reformulations obtained through convex duality. 
+
+## 6. Numerical Simulations 
+
+In this section, we demonstrate the proposed framework on a robot navigation problem subject to temporal logic constraints. We consider both static and dynamic environ-ments and compare the resulting feasibility regions with the Lyapunov-based framework of [5]. We consider the discrete-time stochastic linear system in (1) with 𝐴 = 𝐼 2, 𝐵 = 𝐼 2 and 
+
+𝐶 = 𝐼 2, and let the disturbance set be the bounded box 
+
+𝑊 = { 𝑤 ∈ ℝ2 ∣ ‖𝑤 ‖∞ ≤ 0.03} ,
+
+and the admissible control inputs satisfy 
+
+𝑈 = { 𝑢 ∈ ℝ2 ∣ ‖𝑢 ‖∞ ≤ 0.15} .
+
+The workspace is a rectangular domain [0 , 3] × [0 , 3] parti-tioned into two rooms connected by a doorway. The MPC prediction horizon is 𝑁 = 6 and its stage and terminal costs follow (9) with 𝑄 𝓁 = 𝐼 2, 𝑅 𝓁 = 0 .1𝐼 2, and 𝑄 𝑇 = 10 𝐼 2. The   
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 10 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications
+
+local controller follows (12) with 𝑄 𝑠 = 𝐼 2. All simulations were implemented in MATLAB using CasADi and solved online with IPOPT [35]. The environment contains three circular target regions 1, 2, and 3, each of radius 𝑟 = 0 .3,defined as 
+
+𝑖 = { 𝑥 ∈ ℝ2 ∣ ‖𝑥 − 𝑡 𝑖 ‖2 ≤ 𝑟 }, 𝑖 ∈ {1 , 2, 3} .
+
+The target centers are: 
+
+𝑡 1 =
+
+[0.51
+
+]
+
+, 𝑡 2 =
+
+[ 11.75 
+
+]
+
+, 𝑡 3 =
+
+[2.25 1.5
+
+]
+
+.
+
+A wall with a width of 0.3 separates the two rooms, with a door in the middle of width 1 that can either be open or closed. Starting in 1, the robot must repeatedly navigate between the target regions while reacting to logical context switches and changes in the door status. In particular, reaching 2 closes the door, while reaching 1 or 3 reopens it. The high-level temporal specification triggers context-dependent RAS tasks that, in this scenario, unfold as a switching sequence of 8 phases: 1. Starting at 1 with the door open, reach 3 while avoiding 2.2. After reaching 3 and dwelling for 3 time steps, reach 
+
+2 while avoiding 1.3. Upon reaching 2, the door closes, and the task is to remain in 2.4. After 3 time steps, reach 1 while avoiding 3 and the door (which is closed). 5. Before reaching 1, a preemptive switch occurs: reach 
+
+2 while avoiding 1, 3, and the door. 6. After reaching 2 and dwelling for 3 time steps, reach 
+
+1 while avoiding 3.7. Upon reaching 1, the door opens, and the task is to reach 3 while avoiding 2.8. After reaching 3 and dwelling for 3 time steps, reach 
+
+1 while avoiding 2, and terminate upon reaching 1.We first consider the case where all targets remain fixed over time. Figure 3 illustrates the robot trajectory under the proposed controller together with the environment geome-try, where the purple regions depict robust reachable tubes generated by the MPC predictions, ensuring safety under all disturbance realizations. The corresponding control inputs are shown in Figure 4, remaining within the prescribed bounds. We next consider a more challenging scenario in which the targets 2 and 3 move over time, resulting in a dynamic environment. Figure 5 shows the resulting trajectories. De-spite the moving targets and stochastic disturbances, the robot continuously adapts its motion and satisfies all RAS specifications. The corresponding control inputs are shown in Figure 6, showing that both inputs respect the control constraints. Figure 7 compares the feasibility region of the proposed method with the Lyapunov-based approach in [5], which relies on control Lyapunov functions. To quantify the per-formance of the proposed approach, we compare the size of the feasible set of both approaches. This figure shows that the proposed robust MPC approach substantially enlarges the feasible set. In particular, in the closed-door scenario, the feasible region increases by a factor of 4.38 (area ra-tio), while in the open-door scenario, the improvement is by a factor of 3.57 . Since the system considered in [5] is deterministic and fully actuated, the feasible set of the MPC formulation essentially coincides with the entire state space, excluding only the obstacle sets. In contrast, the approach of [5] relies on Lyapunov-function sublevel sets to characterize the region of attraction. Such sublevel sets, particularly when based on quadratic Lyapunov functions, are ellipsoidal and therefore provide only an inner approximation of the admis-sible state space, which can be significantly conservative. As a result, the MPC framework is able to exploit a substantially larger portion of the admissible state space, leading to the larger feasible sets shown in Figure 7. Furthermore, while Lyapunov-based approaches are typ-ically designed for static environments, the proposed frame-work naturally extends to time-varying settings, as demon-strated by the moving target scenario. This highlights not only the ability of the method to handle richer classes of specifications, but also its flexibility in adapting to dynami-cally changing environments. The simulations also illustrate several important proper-ties of the proposed approach. In particular, the controller maintains safety under all admissible disturbance realiza-tions and achieves almost-sure reachability of the target sets. The switching behavior correctly reflects the logical phase transitions induced by the high-level specification, and the controller adapts seamlessly between static and dynamic scenarios. Together, these observations demonstrate that the proposed combination of certificate-based reasoning and robust MPC provides an effective and flexible framework for enforcing temporal logic specifications under uncertainty. 
+
+## 7. Conclusions 
+
+In this paper, we addressed the problem of synthesiz-ing feedback controllers for discrete-time stochastic lin-ear systems to ensure the robust satisfaction of context-triggered linear temporal logic specifications under additive disturbances. Focusing on context-dependent reach-avoid-stay (cRAS) objectives arising in context-triggered hybrid control frameworks, we introduced certificate-based suffi-cient conditions for robust safety, probabilistic reachability, and robust invariance. Based on these conditions, we pro-posed a control architecture combining robust finite-horizon optimal control with a local switching strategy, and showed that the resulting value function provides a reachability cer-tificate. We further employed convex duality to reformulate   
+
+> Bahari Kordabad et al.: Preprint submitted to Elsevier Page 11 of 14
+
+Context-Triggered Robust MPC for Temporal Logic Specifications x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 4
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 10
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 16
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 24
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 27
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 37
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 52
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 57
+
+Figure 3: Closed-loop trajectory and robust tubes in the static environment. The robot successfully satisfies all RAS tasks under bounded disturbances. t
+
+0 10 20 30 40 50
+
+> u
+
+-0.2
+
+-0.1
+
+0
+
+0.1
+
+0.2
+
+u1
+
+u2
+
+Figure 4: Control inputs for the static scenario. The inputs respect the constraints. 
+
+the robust constraints into equivalent deterministic optimiza-tion problems, leading to tractable formulations for relevant geometric settings. The proposed method was demonstrated on a robot navigation example with logical context switches in both static and moving environments, where it achieved the desired RAS behavior under uncertainty, enlarged the feasible set compared with Lyapunov-based methods, and naturally extended to dynamic scenarios. These results pro-vide a step toward integrating high-level temporal logic syn-thesis with low-level robust control for stochastic systems. 
+
+## References 
+
+[1] C. Belta, B. Yordanov, E. A. Gol, Formal methods for discrete-time dynamical systems, volume 89, Springer, 2017. [2] L. Lindemann, D. V. Dimarogonas, Formal Methods for Multi-Agent Feedback Control Systems, MIT Press, 2025. [3] A. B. Kordabad, E. E. Vlahakis, L. Lindemann, S. Gros, D. V. Dimarogonas, S. Soudjani, Data-driven distributionally robust con-trol for interacting agents under logical constraints, arXiv preprint arXiv:2503.09816 (2025). [4] A. B. Kordabad, M. Charitidou, D. V. Dimarogonas, S. Soudjani, Control barrier functions for stochastic systems under signal temporal logic tasks, in: 2024 European Control Conference (ECC), IEEE, pp. 3213–3219. [5] S. P. Nayak, L. N. Egidio, M. Della Rossa, A.-K. Schmuck, R. M. Jungers, Context-triggered abstraction-based control design, IEEE Open Journal of Control Systems 2 (2023) 277–296. [6] A. Nejati, S. Prakash Nayak, A.-K. Schmuck, Context-triggered games for reactive synthesis over stochastic systems via control barrier certificates, in: Proceedings of the 27th ACM International Conference on Hybrid Systems: Computation and Control, pp. 1–12. [7] A. Anand, S. P. Nayak, A. Schmuck, Synthesizing permissive winning strategy templates for parity games, in: C. Enea, A. Lal (Eds.), Computer Aided Verification - 35th International Conference, CAV 2023, Paris, France, July 17-22, 2023, Proceedings, Part I, Lecture Notes in Computer Science, Springer, 2023, pp. 436–458. [8] A. Anand, K. Mallik, S. P. Nayak, A.-K. Schmuck, Computing adequately permissive assumptions for synthesis, in: International Conference on Tools and Algorithms for the Construction and Anal-ysis of Systems, Springer, pp. 211–228. [9] A. D. Ames, S. Coogan, M. Egerstedt, G. Notomista, K. Sreenath, P. Tabuada, Control barrier functions: Theory and applications, in: 2019 18th European control conference (ECC), Ieee, pp. 3420–3431. [10] R. Majumdar, V. Sathiyanarayana, S. Soudjani, Necessary and suffi-cient certificates for almost sure reachability, IEEE Control Systems Letters (2024). 
+
+Bahari Kordabad et al.: Preprint submitted to Elsevier Page 12 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 4
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 10
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 16
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 24
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 27
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 37
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 52
+
+x
+
+0 1 2 3
+
+> y
+
+0
+
+1
+
+2
+
+3
+
+t = 59
+
+Figure 5: Closed-loop trajectory in the moving target scenario. The controller successfully tracks moving targets while maintaining safety and respecting the logical constraints. t
+
+0 10 20 30 40 50
+
+> u
+
+-0.2
+
+-0.1
+
+0
+
+0.1
+
+0.2
+
+u1
+
+u2
+
+Figure 6: Control inputs in the moving target scenario. The MPC adapts to time-varying targets without violating constraints. 
+
+[11] A. B. Kordabad, R. Majumdar, H. J. Motwani, S. Soudjani, On certificates for almost sure reachability in stochastic systems, arXiv preprint arXiv:2507.20194 (2025). [12] A. B. Kordabad, R. Majumdar, S. Soudjani, Almost sure reach-ability in continuous-time stochastic systems, arXiv preprint arXiv:2605.03595 (2026). [13] J. B. Rawlings, D. Q. Mayne, M. Diehl, Model predictive control: theory, computation, and design, volume 2, Nob Hill Publishing Madison, WI, 2017. [14] W. Langson, I. Chryssochoos, S. Raković, D. Q. Mayne, Robust model predictive control using tubes, Automatica 40 (2004) 125–133. [15] I. Batkovic, U. Rosolia, M. Zanon, P. Falcone, A robust scenario MPC approach for uncertain multi-modal obstacles, IEEE Control Systems Letters 5 (2020) 947–952. x
+
+0 5 10
+
+> y
+
+0
+
+5
+
+10
+
+x
+
+0 5 10
+
+> y
+
+0
+
+5
+
+10
+
+Figure 7: Comparison of the feasible sets obtained with the proposed robust MPC approach (green region) and the control Lyapunov function-based approach of [5] (blue hatched region) for the mobile robot navigation setting considered in [5]. Left: open-door scenario. Right: closed-door scenario. 
+
+[16] P. Tabuada, Verification and control of hybrid systems: a symbolic approach, Springer Science &amp; Business Media, 2009. [17] M. Rungger, M. Zamani, SCOTS: A tool for the synthesis of symbolic controllers, in: Proceedings of the 19th International Conference on Hybrid Systems: Computation and Control, HSCC ’16, ACM, New York, NY, USA, 2016, pp. 99–104. [18] O. L. Bulancea, P. Nilsson, N. Ozay, Nonuniform abstractions, re-finement and controller synthesis with novel BDD encodings, IFAC-PapersOnLine 51 (2018) 19–24. [19] K. Hsu, R. Majumdar, K. Mallik, A.-K. Schmuck, Multi-layered abstraction-based controller synthesis for continuous-time systems, in: HSCC’18, ACM, pp. 120–129. [20] M. Khaled, M. Zamani, pFaces: an acceleration ecosystem for symbolic control, in: HSCC’19, ACM, pp. 252–257. [21] Y. Li, J. Liu, ROCS: A robustly complete control synthesis tool for nonlinear dynamical systems, in: HSCC’18, ACM, pp. 130–135. 
+
+Bahari Kordabad et al.: Preprint submitted to Elsevier Page 13 of 14 Context-Triggered Robust MPC for Temporal Logic Specifications 
+
+[22] R. Majumdar, K. Mallik, M. Rychlicki, A.-K. Schmuck, S. Soudjani, A flexible toolchain for symbolic rabin games under fair and stochastic uncertainties, in: C. Enea, A. Lal (Eds.), Computer Aided Verifica-tion, Springer Nature Switzerland, Cham, 2023, pp. 3–15. [23] C. Belta, S. Sadraddini, Formal methods for control synthesis: An optimization perspective, Annual Review of Control, Robotics, and Autonomous Systems 2 (2019) 115–140. [24] E. Firouzmand, H. A. Talebi, F. Abdollahi, Robust MPC-based abstraction for motion planning of a mobile robot, in: 2021 9th RSI International Conference on Robotics and Mechatronics (ICRoM), IEEE, pp. 485–490. [25] A. Nikou, C. K. Verginis, S. Heshmati-alamdari, D. V. Dimarogonas, A robust non-linear MPC framework for control of underwater vehicle manipulator systems under high-level tasks, IET Control Theory & Applications 15 (2021) 323–337. [26] S. Sadraddini, C. Belta, Robust temporal logic model predictive con-trol, in: 2015 53rd Annual Allerton Conference on Communication, Control, and Computing (Allerton), IEEE, pp. 772–779. [27] A. Nejati, A.-K. Schmuck, Reactive synthesis of stochastic control systems: A mode-triggered safety barrier approach, in: 2024 IEEE 63rd Conference on Decision and Control (CDC), pp. 5225–5230. [28] C. Baier, J.-P.Katoen, Principles of Model Checking, MIT Press, 2008. [29] S. Demri, V. Goranko, M. Lange, Temporal Logics in Computer Science: Finite-State Systems, Cambridge University Press, USA, 1st edition, 2016. [30] B. Finkbeiner, Synthesis of reactive systems., Dependable Software Systems Engineering 45 (2016) 72–98. [31] A. Anand, S. P. Nayak, A. Schmuck, Strategy templates - robust certified interfaces for interacting systems, in: S. Akshay, A. Niemetz, S. Sankaranarayanan (Eds.), Automated Technology for Verification and Analysis - 22nd International Symposium, ATVA 2024, Kyoto, Japan, October 21-25, 2024, Proceedings, Part I, Lecture Notes in Computer Science, Springer, 2024, pp. 22–41. [32] J. Borwein, A. Lewis, Convex Analysis and Nonlinear Optimization: Theoryand Examples, Springer, 2006. [33] M. Sion, On general minimax theorems, Pacific Journal of Mathe-matics 8 (1958) 171–176. [34] S. Boyd, L. Vandenberghe, Convex optimization, Cambridge univer-sity press, 2004. [35] J. Andersson, J. Gillis, G. Horn, J. Rawlings, M. Diehl, CasADi—a software framework for nonlinear optimization and optimal control, Mathematical Programming Computation 11 (2018) 1–36. 
+
+Bahari Kordabad et al.: Preprint submitted to Elsevier Page 14 of 14

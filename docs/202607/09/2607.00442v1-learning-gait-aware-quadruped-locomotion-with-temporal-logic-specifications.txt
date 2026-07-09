@@ -1,0 +1,477 @@
+Title: Learning Gait-Aware Quadruped Locomotion with Temporal Logic Specifications
+
+URL Source: https://arxiv.org/pdf/2607.00442v1
+
+Published Time: Thu, 02 Jul 2026 00:45:15 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Learning Gait-Aware Quadruped Locomotion with Temporal Logic Specifications 
+
+Merve Atasever Cagan Bakirci Alfredo Reina Corona Keyan Azbijari Jyotirmoy V. Deshmukh 
+
+University of Southern California, Los Angeles, California, USA 
+
+{atasever,cbakirci,reinacor,azbijari,jdeshmuk }@usc.edu 
+
+Abstract: 
+
+Reinforcement learning (RL) for quadruped locomotion commonly depends on fixed, hand-crafted, and Markovian reward functions that limit both interpretabil-ity of learned policies and lack explicit control over gait behaviors. We intro-duce a framework where distinct gaits are specified using parameterized con-straints expressed in Signal Temporal Logic (STL). These include safety bounds, gait synchronization constraints, command tracking, and actuation bounds. From these specifications, we develop a reward shaping mechanism that provides learn-ing agents a dense, continuous reward landscape that encodes desired behav-ior. We define parametric STL templates for three speed regimes (walking-trot, trot, bound), calibrate their parameters from reference rollouts, and com-pute rewards from using smooth approximations of STL robustness over the rollouts. The generated rewards can be used to provide shaped gradients com-patible with Proximal Policy Optimization (PPO). We instantiate the approach on Google’s Barkour quadruped robot in MuJoCo XLA (MJX). We use paral-lelization within the simulator to improve training speeds and use domain ran-domization to robustify learned policies. We show that compared to a baseline of hand-crafted rewards, the STL-shaped rewards yield tighter velocity track-ing and more stable training. Videos can be found on our project website: 
+
+https://stl-locomotion.github.io/ .
+
+Keywords: Quadrupedal Locomotion, Reinforcement Learning, STL 
+
+# 1 Introduction 
+
+Legged robots, including both bipeds and quadrupeds, have made remarkable progress in recent years, with modern platforms exhibiting agile walking, crawling, running, and more in increasingly challenging settings [1, 2, 3, 4, 5, 6]. Despite this progress, achieving animal-level robustness across diverse speed regimes and gait patterns remains an open challenge. Classical model-based control approaches, such as differential dynamic programming (DDP) and model predictive control (MPC), have enabled impressive quadrupedal behaviors by explicitly optimizing trajectories under dynam-ics and contact constraints. However, their performance often depends on accurate system mod-els and carefully designed cost functions, all of which can be difficult to obtain on real hardware. [7, 8, 9]. Reinforcement learning (RL) offers a complementary path by directly optimizing closed-loop policies in simulation, and recent advances in high-fidelity physics engines and standardized legged-locomotion platforms, such as MuJoCo, Isaac Gym, Google Barkour, Unitree A1/Go1, and ANYmal, have further accelerated progress in this direction.[10, 11, 12, 13]. A key requirement for quadrupedal locomotion is the ability to operate across multiple speed regimes by switching between distinct gait patterns. For example, walking, trotting, and bounding differ not only in velocity but also in their contact timing, duty factors, and employed support structures. Lo-comotion controllers must therefore satisfy several objectives simultaneously: accurate command tracking over a wide range of speeds, safety and stability under disturbances, and structured gait be-
+
+> arXiv:2607.00442v1 [cs.RO] 1 Jul 2026
+
+Figure 1: Overall Pipeline. havior whose contact patterns remain appropriate for the commanded regime. State-of-the-art deep RL pipelines address the first objective, and partially the second through carefully engineered reward terms, curriculum learning, and domain randomization [14, 11, 13]. However, these reward func-tions are often difficult to interpret, and they provide only indirect control over contact-sequence structure and speed-dependent gait transitions. This limitation becomes especially important in multi-gait locomotion. Heuristic rewards based on forward velocity, energy consumption, and pos-ture regularization, can be sufficient for learning a single dominant gait such as trotting; yet, the same static rewards may fail to induce distinct gait regimes or smooth transitions. Existing approaches of-ten address this issue through imitation learning or reference-based objectives, using motion-capture data, or hand-designed gait schedules to impose desired locomotion patterns. 
+
+Figure 2: Barkour vb robot in MJX. Formal specifications provide an alternative perspective: rather than expressing locomotion objectives through loosely coupled rewards, desired behaviors can be en-coded as logical specifications. Signal Temporal Logic (STL) is a framework that has been used in robotics to ex-press bounded-time constraints over real-valued signals. It admits quantitative or robustness semantics, i.e. signed margins indicating how well a trajectory satisfies a speci-fication [15]. Prior work has demonstrated that robustness can be used as a reward to accelerate RL and improve in-terpretability [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27]. We build on this using STL robustness to encode multi-gait coordination and safety requirements. We target a key engineering challenge in quadrupedal locomotion: learning a single policy that adapts its gait structure across speed regimes (walking-trot → trot → bound). We specifically use mode-conditioned STL templates (where tem-plate parameters are mind from expert trajectories), and the shaped reward chooses the appropriate template based on the commanded speed regime. This design is motivated by: (1) many locomotion requirements, including footfall pattern and stability, are inherently temporal: they describe behav-ior over short trajectory segments rather than single states, and (2) switching between gait-specific objectives near speed thresholds can introduce reward discontinuities and destabilize learning unless the mode logic is designed carefully (e.g., hysteresis around regime boundaries). Our framework combines interpretable specification-based design with the scalability of deep RL. Each reward component corresponds to a human-readable requirement, active gait template changes 2with the commanded speed regime, and the robustness values provide diagnostic signals after train-ing. Thus, beyond improving policy learning, the same STL structure enables failure attribution: poor rollouts can be analyzed in terms of violated predicates, such as insufficient support, actuator-limit violations, or poor orientation. This specification-level feedback is difficult to obtain from monolithic rewards and provides a practical tool for debugging multi-gait locomotion policies. 
+
+Main Contributions. (1) Mode-aware logic-based rewards for quadruped locomotion, where differ-ent speeds activate different rewards/specifications. (2) Data-driven parameter learning pipeline that fits a set of parametric gait templates from expert trajectories, producing interpretable specs aligned with gait statistics. (3) A unified single policy enabling different gait patterns according to desired motion objectives that achieves lower errors in command-following relative to heuristic baselines. (4) Interpretable diagnostics for failure analysis through STL robustness signals by attributing policy errors to specific violated specifications. 
+
+Related Work. Reward Shaping: As RL becomes standard in locomotion, reward design remains a key bottleneck [28, 29, 27]. Most work relies on hand-crafted weighted rewards with empirically tuned coefficients, justified through ablations rather than first principles [30, 29, 31]. Alternatives such as inverse RL and preference-based RL infer rewards from demonstrations or human feed-back, but require expert trajectories or annotations and introduce additional optimization overhead [32, 33, 34, 35, 36, 37]. Prior work has explored logic-guided RL by converting logic objectives into quantitative rewards (e.g., LTL/STL reward shaping) and learning temporal logic specifications from demonstrations, often in navigation/manipulation settings [25, 17, 38, 39, 40, 41]. Formal specifica-tions have also guided planning and control for legged robots, including locomotion over cluttered terrain and STL-informed MPC for bipedal push recovery [42, 43, 44, 45, 46]. However, comparable formulations for quadrupeds remain limited. Existing logic-driven gait learning for quadrupeds typi-cally uses discrete logic rules or reward machines over foot-contact propositions, enabling structured gait sequencing but operating mainly on contact-level logic and step-wise signals [47, 48]. 
+
+Quadruped Locomotion: Work in biology inspired locomotion focuses on gait expression and tran-sitions emerging from structured interlimb coordination and speed-dependent dynamics rather than control outcomes [49, 50]. This has shaped research using central pattern generator (CPG) mod-els and sensory-feedback frameworks used to encode rhythmic structure and transition behavior [51, 52, 53, 54, 55, 56, 57]. While effective, this work typically depends on accurate dynamic mod-els, incurs computational cost, and needs carefully engineered optimization pipelines. More recent work focuses on hierarchical RL, phase-guided control, and unified multi-gait representations to achieve multi-gait locomotion and gait transitions [58, 59, 60, 61, 62, 63]. One hierarchical frame-work uses a high-level gait policy to specify footfall patterns with low-level MPC-based motion tracking, yielding energy-efficient gait transitions as speed increases [64]. Related work argues that single end-to-end locomotion policies often collapse to one dominant gait and instead proposes hi-erarchical controllers capable of generating pace, trot, and bound while tracking velocity commands [65]. Other approaches seek unified latent representations rather than explicit switching or hand-designed phase templates. These learn compact embeddings that capture shared structure across gait families and interpolate between them [66, 67]. These methods reduce the need for manually enumerated gait templates, but their learned representations can be less interpretable than structured controllers with explicit gait objectives. Overall, the literature reveals a trade-off: optimization-based, and contact-conditioned methods provide strong structure at the increased computation cost, while latent and morphology-general methods are flexible but less interpretable. Our work is complementary in this design space as it provides a structured, analyzable, mode-aware, specification-driven alternative to both black-box latent-representation methods and purely heuristic reward shaping. 
+
+# 2 Technical Background and Preliminaries 
+
+Problem Setting. We consider a quadruped robot, specifically Google’s Barkour vb, with three (abduction, hip, and knee) joints on each of its legs [13]. The controller receives a command of 3linear and angular velocities (vcmd x,t , v cmd y,t , ω cmd t ), primarily a forward velocity command vcmd x,t . In our case, the goal is to learn a single policy πθ (at | ot), where θ, a t, o t denotes the current policy parameters, action, and observation respectively, that achieves accurate command tracking while exhibiting stable, interpretable, and mode-appropriate gait behavior across multiple speed regimes. The observation space includes user command ( vcmd x , v cmd y , ω cmd ), robot proprioceptive informa-tion ( g, ϕ, ω ), and previous action at−1, where g is gravity projected in the body frame, ϕ is joint angles, ω is the yaw velocity, and the mode flag (walk/trot/bound). We further include a observation history of 15 time steps ( 0.3 s) for the robot proprioception. The action space is absolute joint po-sition with a default offset qdes ,t = qdefault + ka at, where ka is the action scale. The desired joint position is mapped to torque via a PD controller [68]. 
+
+Mode-Dependent Gait Selection. Using the same gait for low speed and high speed motion is not efficient and feasible for quadrupeds. Hence, the robots should follow different gait structure to reach high speed velocities and conserve their energy for low speed motions. To determine transi-tion velocity thresholds between speed regimes, we leverage the Froude number which is used to characterize gait transition speeds of different-sized quadrupeds: Fr = v2 
+
+> gh
+
+, where Fr is the Froude number, v is the linear velocity of the robot’s torso, g is the acceleration due to gravity, and h is the maximum leg length [69]. Building on bio-inspired robotics gait design methodologies and reported gait structures that quadrupeds achieved to succeed, we use three speed regimes (modes): walking-trot ( W ), trot ( T ), and bound ( B), selected based on commanded forward velocity |vcmd x (t)|. Based on reported Froude numbers {0.15 , 0.74 } and Barkour’s leg length of 0.41 m, we set gait transition velocity thresholds at 0.7m/s and 1.7m/s respectively [53]. To prevent mode chattering near tran-sition boundaries, we incorporate hysteresis by defining separate enter and exit thresholds for each regime. We denote the active locomotion mode at time t as g(t) ∈ { W, T, B }, which also serves as the Boolean indicator for the corresponding gait mode. 
+
+Signal Temporal Logic (STL) & Quantitative Robustness. Signal Temporal Logic (STL) spec-ifies temporal properties over real-valued signals x(t) using Boolean and temporal operators [15]. Formulas are built from atomic predicates f (x(t)) ≥ 0, Boolean connectives ( ∧, ∨, ¬), and time-bounded temporal operators G[a,b ] (always) and F[a,b ] (eventually). We use quantitative seman-tics of STL [70, 71]; for a given trace x, and each formula φ ρ φ(t) assigns a real value captur-ing the degree of satisfaction. Positive values imply satisfaction; negative imply violation, and the magnitude measures the satisfaction margin. For atomic predicates, ρ(f (x) ≥ 0, x, t ) =
+
+f (x(t)) . For conjunction/disjunction, robustness uses min/max: ρφ∧ψ (t) = min( ρφ(t), ρ ψ (t)) , and 
+
+ρφ∨ψ (t) = max( ρφ(t), ρ ψ (t)) . For time-bounded operators, we have ρGI φ(t) = inf t′∈t+I ρφ(t′),and ρFI φ(t) = sup t′∈t+I ρφ(t′) for an arbitrary time interval I = [ a, b ]. Parametric Signal Tempo-ral Logic (PSTL) extends STL by allowing constants in predicates and intervals in temporal opera-tors to be represented by parameters [72]. The specification mining problem seeks to infer parameter ranges where the template formula is satisfied providing a data-driven way to instantiate temporal specifications from expert-provided locomotion trajectories. 
+
+# 3 Methodology 
+
+Data Collection & Feature Extraction. To capture diverse locomotion behaviors, we compile trajectory datasets from three specialized models corresponding to low-speed (walk-trot), mid-high speed (trot), high speed (bound) regimes. We adopt the base model from [13], introducing a revised reward formulation and a curriculum learning strategy for the different speed profiles. We demon-strate that a compact dataset of 50 expert trajectories per regime is sufficient for extracting PSTL parameters. Although these parameters could be estimated using heuristics from the literature, we opt for this data-driven approach to directly leverage the available expert trajectories. Each trajectory consists of 500 simulation steps with timestep ∆t = 0 .02 s. To remove startup transients, we discard an initial warmup interval t ∈ [0 , t warm ], where twarm = 100 steps ( ∼ 2 s). All features are computed from the post-warmup trajectory and include signals describing tracking performance, stability, contact coordination, and gait structure: 4Table 1: Shared safety and tracking STL predicates. 
+
+ID Predicate STL constraint Robustness S1 Torque limit GWg (|τj | ≤ τ max  
+
+> j
+
+), ∀j ρτ (t) = min j (τ max  
+
+> j
+
+− | τj (k)|)
+
+S2 Roll limit GWg (|ϕ| ≤ ϕg
+
+> max
+
+) ρϕ,g (t) = ( ϕg 
+
+> max
+
+− | ϕ(k)|)
+
+S3 Pitch limit GWg (|θ| ≤ θg
+
+> max
+
+) ρθ,g (t) = ( θg 
+
+> max
+
+− | θ(k)|)
+
+S4 CoM height GWg (zcom ≥ zg
+
+> min
+
+) ρz,g (t) = ( zcom (k) − zg
+
+> min
+
+)
+
+S5 Support contacts GWg (nc ≥ ng
+
+> min
+
+) ρc,g (t) = ( nc(k) − ng
+
+> min
+
+)
+
+T1 Linear velocity GWg (|vi − vcmd i | ≤ ϵgv,i ), i ∈ { x, y } ρvi,g (t) = ( ϵgv,i − | vi(k) − vcmd i (k)|)
+
+T2 Yaw-rate tracking GWg (|ωz − ωcmd z | ≤ ϵgω ) ρω,g (t) = ( ϵgω − | ωz (k) − ωcmd z (k)|)
+
+• Tracking features: |vx(t) − vcmd x (t)|, |vy −vcmd y |, and |ωz − ωcmd z |.• Safety/stability features: Center of mass (CoM) position pcom (t) and velocity vcom (t), a cen-ter of pressure (CoP) proxy pcop (t), base roll/pitch (ϕ(t), θ (t)) , CoP-CoM distance ∥pcop (t) −
+
+pxy com (t)∥2, and slip proxy max ℓ∈C (t) ∥vxy ℓ (t)∥2.• Contact-pattern features: foot contacts cℓ(t) ∈ { 0, 1} for ℓ ∈ { F L, F R, HL, HR }, pair-synchronization errors (diagonal pairs for trot, front/hind pairs for bound). • Stride-level features: est. stride period T and duty factor DF from rising/falling edges of contact signals; diagonal phase error computed from timing difference between diagonal touch-downs. We define contact count nc(t) = P 
+
+> ℓ
+
+cℓ(t) and foot tangential speed ∥vxy ℓ (t)∥2 in stance. For gait structure we compute windowed statistics such as stride period ¯T (t), duty factor DF (t), diagonal phase error ediag (t), and the fraction of 2-contact states that correspond to diagonal pairs pdiag 2(t).These windowed statistics are used as pSTL template terms. 
+
+Data to STL Specifications. We define a family of PSTL templates. Each mode g ∈ { W, T, B }
+
+has: (i) a shared safety template φsafe ,g with mode-dependent thresholds, (ii) a commanded velocity tracking template φtrack ,g with mode-dependent thresholds, and (iii) a gait-structure template φg
+
+capturing regime-specific contact patterns. We fit parameters of the fixed templates from data in a quantile-based approach. For each atomic predicate μk(t) used in a template, we select thresholds based on empirical quantiles of the successful trajectories. For example, for a strict windowed-G
+
+implementation (min/softmin over time), we use tolerant high quantiles (e.g., 99th percentile for error magnitudes and a low percentile for floors) to reduce over-penalizing short transients. The thresholds and weights introduced in the next section are obtained empirically by fitting the reward components to expert demonstration datasets. For completeness, the full set of parameters, thresholds, and weights used in our work is reported in the Appendix. 
+
+Mode-Dependent STL Specifications for Multi-Gait Locomotion. We consider three locomotion regimes parameterized by the commanded forward velocity vcmd x : walking-trot for 0 ≤ vcmd x ≤ 0.7
+
+m/s, trot for 0.7 < vcmd x ≤ 1.7 m/s, and bound for vcmd x > 1.7 m/s. For each mode 
+
+g(t) ∈ { W, T, B }, we define a mode-specific STL specification composed of a shared safety, ve-locity tracking, and a gait-shape part. The reward is then derived from the quantitative robustness of the active specification over a finite horizon Wg = [ t − Hg , t ]. Hg is the horizon for mode g,which is chosen to cover roughly one complete gait cycle, with a slightly longer window for slower walking-trot and shorter windows for faster trot/bound. For any Boolean event A(k), we define the window fraction pA(t) = 1 
+
+> |W g(t)|
+
+P  
+
+> k∈W g(t)
+
+1{A(k)}.
+
+Positive robustness indicates satisfaction, negative robustness indicates violation, and the magnitude gives the satisfaction/violation margin. Tables 1 and 2 summarize the predicates used in our reward. Using the predicate definitions in Tables 1-2, we obtain the following STL templates. 
+
+Safety. Torque limits: For Barkour vb, the actuators provide a peak output torque of 18Nm at each, hence motor torque limits must be bounded by this limit. 
+
+Roll & pitch limits: To not loose the balance, roll and pitch of the robot’s torso should be bounded. 5Table 2: Mode-dependent gait-structure STL predicates. 
+
+ID Mode STL specifications Robustness G1 W, T GWg (ediag ≤ ϵg
+
+> diag
+
+) ρdiag ,g (t) = ϵg 
+
+> diag
+
+− ediag (t)
+
+G2 W, T GWg (pdiag2 ≥ ηg
+
+> diag2
+
+) ρdiag2 ,g (t) = pdiag2 (t) − ηg
+
+> diag2
+
+G3 W GWW F[0 ,K ](nc ≥ 3) ρ3+event (t) = max τ ∈[t−K+1 ,t ](nc(τ ) − 3) 
+
+G4 T GWT (p2contact ≥ p2,min ) ρ2contact (t) = p2contact (t) − p2,min 
+
+B1 B GWB (pflight ≥ pflight ,min ) ρflight (t) = pflight (t) − pflight ,min 
+
+B2 B GWB (pfront ≥ pfront ,min ) ρfront (t) = pfront (t) − pfront ,min 
+
+B3 B GWB (phind ≥ phind ,min) ρhind (t) = phind (t) − phind ,min 
+
+B4 B GWB (p4 ∈ [p4,min , p 4,max ]) ρall4 (t) =min {p4(t) − p4,min , p 4,max − p4(t)}
+
+B5 B GWB (pdiag2 ≤ pdiag2 ,max ) ρdiag2 ,B (t) = pdiag2 ,max − pdiag2 (t)
+
+B6 B FWB EF ∧ FWB EH ρbound event (t) = min {NF (t), N H (t)} − 1
+
+CoM height: Height of the torso should be lower-bounded to ensure no fall or tip over. 
+
+Support contacts: We enhance the robot’s stability by specifying the number of legs in stance ac-cording in a desired gait mode. Walk/trot requires ≥ 2 support contacts at all times (included only in the early curriculum stage and removed when training the bound gait.) The shared safety specifi-cation for mode g is 
+
+φsafe ,g = GWg
+
+
+
+ρτ ≥ 0 ∧ ρϕ,g ≥ 0 ∧ ρθ,g ≥ 0 ∧ ρz,g ≥ 0
+
+
+
+.
+
+Velocity Tracking. The objective is for the robot to follow the commanded linear velocity. Here, 
+
+vx(t), v y (t), ω z (t) denote linear and angular base velocities, and vcmd x (t), v cmd y (t), ω cmd z (t) are the corresponding target velocities. The velocity tracking specification for mode g is 
+
+φtrack ,g = GWg
+
+
+
+ρvx,g ≥ 0 ∧ ρvy ,g ≥ 0 ∧ ρω,g ≥ 0
+
+
+
+.
+
+Walk-Trot Gait. This is characterized by support-rich diagonal locomotion with no flight. We use the following mode-specific predicates: 
+
+G1-Diagonal phase error: This predicate is applied to both walk-trot and trot gaits, and it quantifies the temporal synchronization of diagonal leg pairs. 
+
+G2-Diagonal pair fraction: This predicate quantifies how strongly the gait exhibits trot-like diagonal contact structure. 
+
+G3-Multi-support moment: This predicate encourages the walk gait to exhibit at least one recent multi-support phase (three or more feet are simultaneously in contact) by rewarding the existence of a timestep within the trailing K-step window. The walk-trot specification is 
+
+φW = GWW
+
+
+
+mW ⇒ (ρdiag ,W ≥ 0 ∧ ρdiag2 ,W ≥ 0 ∧ ρ3+event ≥ 0) 
+
+
+
+,
+
+Trot Predicates: While we have common predicates (G1 and G2) with walk-trot regime, trot is characterized by dominant diagonal 2-contact support and lower duty factor than walk-trot. 
+
+G4-Two-leg support: This predicate is the fraction of timesteps in which exactly two feet are in contact with the ground. The trot specification is 
+
+φT = GWT
+
+
+
+mT ⇒ (ρdiag ,T ≥ 0 ∧ ρdiag2 ,T ≥ 0 ∧ ρ2contact ≥ 0) 
+
+
+
+,
+
+Bound Gait: This is a high-speed pair-synchronized running gait where the forelegs and hind legs move approximately in phase, the two leg pairs alternate in stance, and locomotion includes one or more aerial phases, yielding larger sagittal extension and higher speed than diagonal trot. 
+
+B1-Minimum aerial-phase occupancy: This computes the time-fraction when no foot is in contact with the ground, and enforces the minimum aerial-phase occupancy for bounding. 
+
+B2/3-Pair-only support states: This computes the fractions of times when only the fore or hind legs are in contact; robustness enforces the minimum pair-only support occupancy for bounding. 6B4-All four contact fraction: This constrains the time fraction where all four legs are in contact. 
+
+B5-Trot suppression term: This predicate computes the fraction of 2-contact states that correspond to diagonal leg pairs; thus, for the bound mode, positive robustness favors suppression of trot-like diagonal support patterns in favor of pair-based fore/hind support. 
+
+B6-Pair touchdown events: This predicate enforce that there should be at least one front-pair touch-down event and at least one hind-pair touchdown event within the current temporal window. The bound specification is 
+
+φB = GWB
+
+
+
+mB ⇒ (ρflight ≥ 0∧ρfront ≥ 0∧ρhind ≥ 0∧ρall4 ≥ 0∧ρdiag2 ,B ≥ 0∧ρbound event ≥ 0) 
+
+
+
+.
+
+Robustness Reward: We aggregate multiple robustness terms using the sign-preserving soft-min 
+
+smin sp  
+
+> β
+
+(z1, . . . , z K ) := PKk=1 πkzk, where πk = e−βz k  
+
+> PKj=1 e−βz j
+
+. For the final reward shaping, each grouped robustness is normalized as tanh( ρ) to map to a value in [−1, 1] , preventing large robustness magnitudes from dominating the reward. 1 We also include the torque-effort penalty for energy efficiency Jτ (t) = mean τ ∈W (m)
+
+> t
+
+P 
+
+> j
+
+τj (τ )2. The final scalar reward is: 
+
+rt = w(g)safe tanh( μsafety ) + w(g)track tanh( μtrack ) + w(g)pattern tanh( μpattern ) − weffort Jτ (t). (1) 
+
+# 4 Experimental Results 
+
+Robot and Simulation Setup. The locomotion controller is designed for the Barkour vb quadruped robot, modeled using the MuJoCo physics engine [13, 10]. The simulation leverages MuJoCo XLA (MJX), a JAX-based implementation of MuJoCo, which allows for highly parallelized simulation entirely on the GPU. We train the locomotion policy using the PPO algorithm with the hyperpa-rameters listed in the Appendix [73, 74]. During training, a new velocity command is randomly sampled every 10 s. The initial command range is set to v⋆x ∈ [0 .0, 1.7] m/s , v⋆y ∈ [−0.2, 0.2] m/s ,and ˙ω⋆ ∈ [−0.2, 0.2] rad/s for the walk/trot regimes. The forward-velocity range is then gradually expanded to v⋆x ∈ [0 .0, 1.9] m/s as part of the curriculum for learning the bound gait. Details of the training procedure and domain randomization are provided in the Appendix. The baseline is a hand-engineered reward function from [68], a de facto standard in recent quadrupedal RL. We evaluate two baseline configurations: heuristic-best, which utilizes the original optimized parameters and velocity ranges, and heuristic-default, which applies the same training structure within our specific experimental setup and velocity ranges to ensure a fair comparison. We evaluate each policy under forward velocity commands vx ∈ {0.3, 0.5, 0.7, 1.0, 1.3,
+
+1.6, 1.9, 2.0, 2.1} m/s, with zero lateral and yaw commands. For each command, we run 20 inde-pendent rollouts, each with a horizon of 500 steps. For command-tracking performance, we ignore the first 50 steps as a warm-up period and evaluate tracking only over the remaining trajectory. We leverage three evaluation metrics: cost of transportation (CoT) , survival rate , and success rate .We measure energy efficiency using cost of transportation Em g d where E is the total energy con-sumed, m is the robot mass, g is gravitational acceleration, and d is the planar distance traveled during the rollout. Lower CoT indicates better transport efficiency. A rollout is counted as survived 
+
+if the robot does not terminate early due to falling or violating the environment termination condi-tions. We define success based on velocity tracking accuracy after the warm-up phase. Let vx, cmd 
+
+be the commanded forward velocity, and let vx, loc (t) denote the robot’s forward velocity in its local body frame. The average post-warm-up forward speed for rollout k is ¯v(k) 
+
+> x
+
+= 1 
+
+> T−50
+
+PTt=51 v(k)
+
+> x, loc
+
+(t).
+
+A rollout is considered successful if ¯v(k) 
+
+> x
+
+− vx, cmd ≤ 0.15 |vx, cmd |, i.e., the average forward speed stays within ±15% of the commanded velocity. Table 3 shows that STL-based rewards achieve the most consistent performance across the full com-mand range. The STL policy maintains perfect survival and success at every tested velocity, includ-ing the high-speed commands (vx ∈ 1.9, 2.0, 2.1) , where the heuristic baselines begin to degrade. 
+
+> 1All scale factors and weight terms are obtained by fitting the templates to expert datasets. Details in the Appendix.
+
+7Table 3: Benchmark comparison across commanded forward velocities. Each entry reports mean 
+
+± standard deviation over 20 rollouts. Lower CoT is better; higher survival and success are bet-ter. Success means the average post-warmup forward speed stays within ±15% of the commanded speed.                                                                                                                                                                                                                                                                        
+
+> STL-based reward Heuristic-default Heuristic-best
+> vxCoT ↓Survival ↑Success ↑CoT ↓Survival ↑Success ↑CoT ↓Survival ↑Success ↑
+> 0.3 2.1 ±0.1 1.0 ±0.0 1.0 ±0.0 2.1 ±0.1 1.0 ±0.0 0.0 ±0.0 1.2 ±0.0 1.0 ±0.0 1.0 ±0.0
+> 0.5 1.5 ±0.0 1.0 ±0.0 1.0 ±0.0 1.3 ±0.0 1.0 ±0.0 0.0 ±0.0 1.0 ±0.0 1.0 ±0.0 1.0 ±0.0
+> 0.7 1.2 ±0.0 1.0 ±0.0 1.0 ±0.0 1.1 ±0.0 1.0 ±0.0 0.1 ±0.2 1.0 ±0.0 1.0 ±0.0 1.0 ±0.0
+> 1.0 1.2 ±0.0 1.0 ±0.0 1.0 ±0.0 1.5 ±0.0 1.0 ±0.0 0.8 ±0.4 1.2 ±0.0 1.0 ±0.0 1.0 ±0.0
+> 1.3 1.1 ±0.0 1.0 ±0.0 1.0 ±0.0 1.3 ±0.1 1.0 ±0.0 0.3 ±0.5 1.3 ±0.0 1.0 ±0.0 1.0 ±0.0
+> 1.6 1.0 ±0.0 1.0 ±0.0 1.0 ±0.0 1.2 ±0.0 1.0 ±0.2 0.3 ±0.4 1.4 ±0.0 1.0 ±0.0 1.0 ±0.0
+> 1.9 1.1 ±0.0 1.0 ±0.0 1.0 ±0.0 1.2 ±0.1 0.5 ±0.5 0.0 ±0.0 1.4 ±0.0 1.0 ±0.0 1.0 ±0.0
+> 2.0 1.1 ±0.0 1.0 ±0.0 1.0 ±0.0 1.3 ±0.1 0.5 ±0.5 0.0 ±0.0 1.4 ±0.0 1.0 ±0.0 0.1 ±0.2 2.1 1.1 ±0.0 1.0 ±0.0 1.0 ±0.0 1.3 ±0.1 0.3 ±0.4 0.0 ±0.0 1.4 ±0.0 1.0 ±0.0 0.0 ±0.0
+
+This suggests that the mode-dependent STL reward provides a more reliable training signal for pre-serving command tracking and stability across gait regimes. At lower speeds, the heuristic-best baseline attains lower CoT than the STL policy, especially for (vx ≤ 1.0) . This indicates that the hand-tuned heuristic reward can be more energy efficient in the slower walking/trotting regimes. However, this advantage does not persist at higher speeds. From (vx = 1 .3) onward, the STL-based policy achieves the lowest CoT while maintaining perfect survival and success. We attribute this high-speed advantage to the mode-dependent gait structure encoded by the STL reward: at high commanded velocities, the STL policy learns to transition to a bound-like gait, whereas the heuristic-best baseline continues to execute a trot-like gait induced by its static reward design. Since bounding is mechanically more suitable for fast forward locomotion, the STL policy can achieve lower CoT in the high-speed regime while preserving tracking accuracy. The heuristic-default baseline is the least reliable overall. Although it remains stable at low and moderate velocities, its success rate is poor for most commands, indicating that survival alone does not imply accurate velocity tracking. This result highlights a key limitation of static manually tuned rewards: their performance can be highly sensitive to implementation details and training proce-dure, and even small changes may substantially degrade their ability to sustain reliable locomotion performance. Overall, the table demonstrates the main benefit of the proposed STL-based reward: it provides a unified, mode-aware objective that maintains both stability and command-tracking suc-cess across slow, moderate, and high-speed locomotion. While the heuristic-best baseline can be more energy efficient at low speeds, the STL reward offers better robustness and scalability to high-speed regimes by explicitly encouraging the appropriate gait structure, including the transition to bound at high forward velocities. 
+
+Limitations. Our study is conducted entirely in simulation (MJX). We employ domain randomiza-tion over friction and actuator parameters, but the results do not yet establish sim-to-real transfer. Thus, the present conclusions should be interpreted as evidence of improved simulation perfor-mance and reward design. The current formulation also models gait transitions primarily as speed-dependent without incorporating terrain information (slope, roughness) into the mode-selection mechanism. 
+
+# 5 Conclusion 
+
+We presented a specification-driven reinforcement learning framework for quadruped locomotion in which the reward is synthesized from mode-dependent Signal Temporal Logic (STL) templates rather than from a purely heuristic Markovian objective. The resulting policy was trained as a single unified controller using PPO, which suggests that STL-based reward shaping is a practical middle ground between black-box reward tuning and explicitly scripted gait controllers. 8References 
+
+[1] M. Raibert, K. Blankespoor, G. Nelson, and R. Playter. Bigdog, the rough-terrain quadruped robot. IFAC Proceedings Volumes , 41(2):10822–10825, 2008. [2] B. Katz, J. Di Carlo, and S. Kim. Mini cheetah: A platform for pushing the limits of dynamic quadruped control. In 2019 international conference on robotics and automation (ICRA) , pages 6295–6301. IEEE, 2019. [3] X. Peng, E. Coumans, T. Zhang, T. Lee, J. Tan, and S. Levine. Learning agile robotic locomo-tion skills by imitating animals. arxiv 2020. arXiv preprint arXiv:2004.00784 .[4] J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter. Learning quadrupedal locomo-tion over challenging terrain. Science robotics , 5(47):eabc5986, 2020. [5] Z. Xie, X. Da, M. Van de Panne, B. Babich, and A. Garg. Dynamics randomization revisited: A case study for quadrupedal locomotion. In 2021 IEEE International Conference on Robotics and Automation (ICRA) , pages 4955–4961. IEEE, 2021. [6] A. Agarwal, A. Kumar, J. Malik, and D. Pathak. Legged locomotion in challenging terrains using egocentric vision. In Conference on robot learning , pages 403–415. PMLR, 2023. [7] D. Kim, J. Di Carlo, B. Katz, G. Bledt, and S. Kim. Highly dynamic quadruped locomotion via whole-body impulse control and model predictive control. arXiv preprint arXiv:1909.06586 ,2019. [8] Q. Nguyen, M. J. Powell, B. Katz, J. Di Carlo, and S. Kim. Optimized jumping on the mit cheetah 3 robot. In 2019 International Conference on Robotics and Automation (ICRA) , pages 7448–7454. IEEE, 2019. [9] J. Di Carlo, P. M. Wensing, B. Katz, G. Bledt, and S. Kim. Dynamic locomotion in the mit cheetah 3 through convex model-predictive control. In 2018 IEEE/RSJ international confer-ence on intelligent robots and systems (IROS) , pages 1–9. IEEE, 2018. [10] E. Todorov, T. Erez, and Y. Tassa. Mujoco: A physics engine for model-based control. In 2012 IEEE/RSJ international conference on intelligent robots and systems , pages 5026–5033. IEEE, 2012. [11] M. Hutter, C. Gehring, D. Jud, A. Lauber, C. D. Bellicoso, V. Tsounis, J. Hwangbo, K. Bodie, P. Fankhauser, M. Bloesch, et al. Anymal-a highly mobile and dynamic quadrupedal robot. In 2016 IEEE/RSJ international conference on intelligent robots and systems (IROS) , pages 38–44. IEEE, 2016. [12] V. Makoviychuk, L. Wawrzyniak, Y. Guo, M. Lu, K. Storey, M. Macklin, D. Hoeller, N. Rudin, A. Allshire, A. Handa, et al. Isaac gym: High performance gpu-based physics simulation for robot learning. arXiv preprint arXiv:2108.10470 , 2021. [13] K. Caluwaerts, A. Iscen, J. C. Kew, W. Yu, T. Zhang, D. Freeman, K.-H. Lee, L. Lee, S. Sal-iceti, V. Zhuang, et al. Barkour: Benchmarking animal-level agility with quadruped robots. 
+
+arXiv preprint arXiv:2305.14654 , 2023. [14] J. Tan, T. Zhang, E. Coumans, A. Iscen, Y. Bai, D. Hafner, S. Bohez, and V. Vanhoucke. Sim-to-real: Learning agile locomotion for quadruped robots. arXiv preprint arXiv:1804.10332 ,2018. [15] O. Maler and D. Nickovic. Monitoring temporal properties of continuous signals. In Interna-tional symposium on formal techniques in real-time and fault-tolerant systems , pages 152–166. Springer, 2004. 9[16] X. Ding, S. L. Smith, C. Belta, and D. Rus. Optimal control of markov decision processes with linear temporal logic constraints. IEEE Transactions on Automatic Control , 59(5):1244–1257, 2014. [17] X. Li, C.-I. Vasile, and C. Belta. Reinforcement learning with temporal logic rewards. In 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 3834– 3839. IEEE, 2017. [18] D. Aksaray, A. Jones, Z. Kong, M. Schwager, and C. Belta. Q-learning for robust satisfaction of signal temporal logic specifications. In 2016 IEEE 55th Conference on Decision and Control (CDC) , pages 6565–6570. IEEE, 2016. [19] J. Kapinski, X. Jin, J. Deshmukh, A. Donze, T. Yamaguchi, H. Ito, T. Kaga, S. Kobuna, and S. Seshia. St-lib: A library for specifying and classifying model behaviors. Technical report, SAE Technical Paper, 2016. [20] J. V. Deshmukh, A. Donz´ e, S. Ghosh, X. Jin, G. Juniwal, and S. A. Seshia. Robust online monitoring of signal temporal logic. Formal Methods in System Design , 51(1):5–30, 2017. [21] A. Camacho, R. T. Icarte, T. Q. Klassen, R. A. Valenzano, and S. A. McIlraith. Ltl and be-yond: Formal languages for reward function specification in reinforcement learning. In IJCAI ,volume 19, pages 6065–6073, 2019. [22] A. Balakrishnan and J. V. Deshmukh. Structured reward shaping using signal temporal logic specifications. in 2019 ieee/rsj iros, 3481–3486, 2019. [23] L. Z. Yuan, M. Hasanbeig, A. Abate, and D. Kroening. Modular deep reinforcement learning with temporal logic specifications. arXiv preprint arXiv:1909.11591 , 2019. [24] Y. Jiang, S. Bharadwaj, B. Wu, R. Shah, U. Topcu, and P. Stone. Temporal-logic-based reward shaping for continuing reinforcement learning tasks. In Proceedings of the AAAI Conference on artificial Intelligence , volume 35, pages 7995–8003, 2021. [25] M. Hasanbeig, D. Kroening, and A. Abate. Deep reinforcement learning with temporal logics. In International Conference on Formal Modeling and Analysis of Timed Systems , pages 1–22. Springer, 2020. [26] M. Wen, R. Ehlers, and U. Topcu. Correct-by-synthesis reinforcement learning with tempo-ral logic constraints. In 2015 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 4983–4990. IEEE, 2015. [27] R. T. Icarte, T. Q. Klassen, R. Valenzano, and S. A. McIlraith. Reward machines: Exploiting reward function structure in reinforcement learning. Journal of Artificial Intelligence Research ,73:173–208, 2022. [28] P. Dayan and B. W. Balleine. Reward, motivation, and reinforcement learning. Neuron , 36(2): 285–298, 2002. [29] J. Eschmann. Reward function design in reinforcement learning. Reinforcement learning algorithms: Analysis and Applications , pages 25–33, 2021. [30] J. Hare. Dealing with sparse rewards in reinforcement learning. arXiv preprint arXiv:1910.09281 , 2019. [31] G. Kim, Y.-H. Lee, and H.-W. Park. A learning framework for diverse legged robot locomotion using barrier-based style rewards. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 10004–10010. IEEE, 2025. [32] J. Fu, K. Luo, and S. Levine. Learning robust rewards with adversarial inverse reinforcement learning. arXiv preprint arXiv:1710.11248 , 2017. 10 [33] A. Y. Ng, S. Russell, et al. Algorithms for inverse reinforcement learning. In Icml , volume 1, page 2, 2000. [34] S. Arora and P. Doshi. A survey of inverse reinforcement learning: Challenges, methods and progress. Artificial Intelligence , 297:103500, 2021. [35] P. F. Christiano, J. Leike, T. Brown, M. Martic, S. Legg, and D. Amodei. Deep reinforcement learning from human preferences. Advances in neural information processing systems , 30, 2017. [36] D. Youm, H. Jung, H. Kim, J. Hwangbo, H.-W. Park, and S. Ha. Imitating and finetuning model predictive control for robust and symmetric quadrupedal locomotion. IEEE Robotics and Automation Letters , 8(11):7799–7806, 2023. [37] T. Li, J. Won, J. Cho, S. Ha, and A. Rai. Fastmimic: Model-based motion imitation for agile, diverse and generalizable quadrupedal locomotion. Robotics , 12(3):90, 2023. [38] H.-C. Liao. A survey of reinforcement learning with temporal logic rewards. 2020. [39] X. Li, C.-I. Vasile, and C. Belta. Reinforcement learning with temporal logic rewards. In 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 3834– 3839. IEEE, 2017. [40] P. Kapoor, A. Balakrishnan, and J. V. Deshmukh. Model-based reinforcement learning from signal temporal logic specifications. arXiv preprint arXiv:2011.04950 , 2020. [41] A. Puranic, J. Deshmukh, and S. Nikolaidis. Learning from demonstrations using signal tem-poral logic. In Conference on Robot Learning , pages 2228–2242. PMLR, 2021. [42] S. Feng, X. Xinjilefu, W. Huang, and C. G. Atkeson. 3d walking based on online optimization. In 2013 13th IEEE-RAS International Conference on Humanoid Robots (Humanoids) , pages 21–27. IEEE, 2013. [43] Y. Zhao, U. Topcu, and L. Sentis. High-level planner synthesis for whole-body locomotion in unstructured environments. In 2016 IEEE 55th Conference on Decision and Control (CDC) ,pages 6557–6564. IEEE, 2016. [44] H. Audren, A. Kheddar, and P. Gergondet. Stability polygons reshaping and morphing for smooth multi-contact transitions and force control of humanoid robots. In 2016 IEEE-RAS 16th International Conference on Humanoid Robots (Humanoids) , pages 1037–1044. IEEE, 2016. [45] Z. Gu, R. Guo, W. Yates, Y. Chen, Y. Zhao, and Y. Zhao. Walking-by-logic: Signal temporal logic-guided model predictive control for bipedal locomotion resilient to external perturba-tions. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 1121–1127. IEEE, 2024. [46] Z. Gu, Y. Zhao, Y. Chen, R. Guo, J. K. Leestma, G. S. Sawicki, and Y. Zhao. Robust-locomotion-by-logic: Perturbation-resilient bipedal locomotion via signal temporal logic guided model predictive control. IEEE Transactions on Robotics , 2025. [47] J. Humphreys and C. Zhou. Learning to adapt through bio-inspired gait strategies for versatile quadruped locomotion. Nature Machine Intelligence , 7(7):1141–1153, 2025. [48] D. DeFazio, Y. Hayamizu, and S. Zhang. Learning quadruped locomotion policies using logi-cal rules. In Proceedings of the International Conference on Automated Planning and Schedul-ing , volume 34, pages 142–150, 2024. [49] G. Sch¨ oner, W. Y. Jiang, and J. S. Kelso. A synergetic theory of quadrupedal gaits and gait transitions. Journal of theoretical Biology , 142(3):359–391, 1990. 11 [50] S. M. Danner, S. D. Wilshin, N. A. Shevtsova, and I. A. Rybak. Central control of interlimb coordination and speed-dependent gait expression in quadrupeds. The Journal of physiology ,594(23):6947–6967, 2016. [51] L. Righetti and A. J. Ijspeert. Pattern generators with sensory feedback for the control of quadruped locomotion. In 2008 IEEE International Conference on Robotics and Automation ,pages 819–824. IEEE, 2008. [52] C. Liu, Y. Chen, J. Zhang, and Q. Chen. Cpg driven locomotion control of quadruped robot. In 2009 IEEE International Conference on Systems, Man and Cybernetics , pages 2368–2373. IEEE, 2009. [53] J. Humphreys, J. Li, Y. Wan, H. Gao, and C. Zhou. Bio-inspired gait transitions for quadruped locomotion. IEEE Robotics and Automation Letters , 8(10):6131–6138, 2023. [54] M. Neunert, F. Farshidian, A. W. Winkler, and J. Buchli. Trajectory optimization through contacts and automatic gait discovery for quadrupeds. IEEE Robotics and Automation Letters ,2(3):1502–1509, 2017. [55] H. Sun, J. Yang, Y. Jia, and C. Wang. Online hierarchical planning for multicontact locomotion control of quadruped robots. IEEE/ASME Transactions on Mechatronics , 30(3):1718–1728, 2024. [56] K. Liu, L. Dong, X. Tan, W. Zhang, and L. Zhu. Optimization-based flocking control and mpc-based gait synchronization control for multiple quadruped robots. IEEE Robotics and Automation Letters , 9(2):1929–1936, 2024. [57] G. Bellegarda, M. Shafiee, and A. Ijspeert. Allgaits: Learning all quadruped gaits and tran-sitions. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 15929–15935. IEEE, 2025. [58] Y. H. Lee, D. T. Tran, J.-h. Hyun, L. T. Phan, I. M. Koo, S. U. Yang, and H. R. Choi. A gait transition algorithm based on hybrid walking gait for a quadruped walking robot. Intelligent Service Robotics , 8(4):185–200, 2015. [59] B. Hu, S. Shao, Z. Cao, Q. Xiao, Q. Li, and C. Ma. Learning a faster locomotion gait for a quadruped robot with model-free deep reinforcement learning. In 2019 IEEE International Conference on Robotics and Biomimetics (ROBIO) , pages 1097–1102. IEEE, 2019. [60] V. Tsounis, M. Alge, J. Lee, F. Farshidian, and M. Hutter. Deepgait: Planning and control of quadrupedal gaits using deep reinforcement learning. IEEE Robotics and Automation Letters ,5(2):3699–3706, 2020. [61] Y. Shao, Y. Jin, X. Liu, W. He, H. Wang, and W. Yang. Learning free gait transition for quadruped robots via phase-guided controller. IEEE Robotics and Automation Letters , 7(2): 1230–1237, 2021. [62] S. Xu, L. Zhu, and C. P. Ho. Learning efficient and robust multi-modal quadruped locomotion: A hierarchical approach. In 2022 international conference on robotics and automation (ICRA) ,pages 4649–4655. IEEE, 2022. [63] L. Wei, Y. Li, Y. Ai, Y. Wu, H. Xu, W. Wang, and G. Hu. Learning multiple-gait quadrupedal locomotion via hierarchical reinforcement learning. International Journal of Precision Engi-neering and Manufacturing , 24(9):1599–1613, 2023. [64] Y. Yang, T. Zhang, E. Coumans, J. Tan, and B. Boots. Fast and efficient locomotion via learned gait transitions. In Conference on robot learning , pages 773–783. PMLR, 2022. [65] Y. Kim, B. Son, and D. Lee. Learning multiple gaits of quadruped robot using hierarchical reinforcement learning. arXiv preprint arXiv:2112.04741 , 2021. 12 [66] A. L. Mitchell, W. Merkt, A. Papatheodorou, I. Havoutis, and I. Posner. Gaitor: Learning a unified representation across gaits for real-world quadruped locomotion. arXiv preprint arXiv:2405.19452 , 2024. [67] M. Shafiee, G. Bellegarda, and A. Ijspeert. Manyquadrupeds: Learning a single locomotion policy for diverse quadruped robots. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 3471–3477. IEEE, 2024. [68] K. Zakka, B. Tabanpour, Q. Liao, M. Haiderbhai, S. Holt, J. Y. Luo, A. Allshire, E. Frey, K. Sreenath, L. A. Kahrs, et al. Mujoco playground. arXiv preprint arXiv:2502.08844 , 2025. [69] R. M. Alexander and A. Jayes. A dynamic similarity hypothesis for the gaits of quadrupedal mammals. Journal of zoology , 201(1):135–152, 1983. [70] A. Donz´ e and O. Maler. Robust satisfaction of temporal logic over real-valued signals. In 
+
+International conference on formal modeling and analysis of timed systems , pages 92–106. Springer, 2010. [71] G. E. Fainekos and G. J. Pappas. Robustness of temporal logic specifications for continuous-time signals. Theoretical Computer Science , 410(42):4262–4291, 2009. [72] E. Asarin, A. Donz´ e, O. Maler, and D. Nickovic. Parametric identification of temporal proper-ties. In International Conference on Runtime Verification , pages 147–160. Springer, 2011. [73] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [74] N. Kohl and P. Stone. Policy gradient reinforcement learning for fast quadrupedal locomotion. In IEEE International Conference on Robotics and Automation, 2004. Proceedings. ICRA’04. 2004 , volume 3, pages 2619–2624. IEEE, 2004. [75] J. Schulman, S. Levine, P. Abbeel, M. Jordan, and P. Moritz. Trust region policy optimization. In International conference on machine learning , pages 1889–1897. PMLR, 2015. [76] V. Mnih, A. P. Badia, M. Mirza, A. Graves, T. Lillicrap, T. Harley, D. Silver, and K. Kavukcuoglu. Asynchronous methods for deep reinforcement learning. In International conference on machine learning , pages 1928–1937. PmLR, 2016. [77] C. D. Freeman, E. Frey, A. Raichuk, S. Girgin, I. Mordatch, and O. Bachem. Brax–a differen-tiable physics engine for large scale rigid body simulation. arXiv preprint arXiv:2106.13281 ,2021. 
+
+# A Appendix 
+
+A.1 STL Specifications 
+
+We additionally evaluated the two rules described below; however, given the constraints already established in the main text, they did not significantly contribute to the training process or improve overall model performance: • Prior literature frequently constrains the CoM or CoP within the support polygon, defined as the convex hull of all feet currently in contact with the ground. To ensure static or dynamic stability, the respective balance point (CoM or CoP) must remain inside this area. • Another common stability criterion is the enforcement of a slip bound, which limits the tangential motion of a foot during its stance phase. 13 Algorithm 1 Mode-dependent STL reward learning  
+
+> 1:
+
+Collect rollouts for low, mid, and high speed regimes;  
+
+> 2:
+
+Extract safety and gait-structure features (contacts, stride period, duty factor, phase error, CoM/CoP, slip).  
+
+> 3:
+
+Fit PSTL template parameters θW , θ T , θ B from the datasets.  
+
+> 4:
+
+for each PPO step do  
+
+> 5:
+
+Update mode g(t) from vcmd x (t) using hysteresis.  
+
+> 6:
+
+Update rolling buffers over horizon Hg . 
+
+> 7:
+
+Compute ρsafe ,g (t)(t), ρtrack ,g (t)(t) and ρg(t)(t) via softmin windowed robustness.  
+
+> 8:
+
+Compute reward rt from bounded robustness and optional effort penalty.  
+
+> 9:
+
+PPO policy update.  
+
+> 10:
+
+end for A.2 Proximal Policy Optimization 
+
+Proximal Policy Optimization (PPO) is an on-policy policy-gradient algorithm that optimizes a clipped surrogate objective to constrain policy updates while enabling multiple epochs of minibatch SGD per rollout batch. PPO is commonly used in locomotion because it is relatively stable under noisy, high-dimensional continuous control, and provides sample-efficient training. The core intu-ition is to keep each update close to the behavior policy. PPO instantiates this trust-region idea by clipping the importance ratio rather than imposing a hard KL constraint as in TRPO, while retaining advantage-based updates in the spirit of A2C [75, 76, 73]. The surrogate objective function is 
+
+L(s, a, θ k, θ ) = min 
+
+ πθ (a | s)
+
+πθk (a | s) Aπθk (s, a ),
+
+clip 
+
+ πθ (a | s)
+
+πθk (a | s) , 1 − ϵ, 1 + ϵ
+
+
+
+Aπθk (s, a )
+
+
+
+.
+
+(2) where θ denotes the current policy parameters and θk denotes the pre-update (behavior) policy, 
+
+Aπθk (s, a ) is the advantage estimate computed under πθk , and ϵ is the clipping hyperparameter that bounds how far the updated policy may deviate from πθk via the ratio range [1 − ϵ, 1 + ϵ]. The policy updates occur via 
+
+θk+1 = arg max 
+
+> θ
+
+E(s,a )∼πθk [ L(s, a, θ k, θ ) ] . (3) We leverage Brax’s JAX-based PPO implementation as it is optimized for accelerator-parallel sim-ulation [77]. 
+
+Domain Randomization The goal of domain randomization is to prevent the reinforcement learn-ing agent from relying too heavily on the exact, nominal parameters of the simulation. In our work, we randomize two critical sets of physical parameters: friction (chosen in the range (0.6, 1.4)) and actuator gain and bias (chosen in the range (−5, 5)). This forces the learned policy to cope with slippery or sticky terrains and be robust to inaccurate torque control. 
+
+Mode selection and hysteresis. A unified locomotion policy must change its preferred gait struc-ture as the commanded forward speed changes. However, directly switching reward templates at a single threshold can cause chattering near the regime boundary. To address this, we use hysteresis in mode selection: the controller switches from walking-trot to trot only when the commanded forward velocity exceeds an upper threshold, and switches back only when it drops below a lower threshold. This separation introduces a buffer zone that prevents rapid back-and-forth mode changes and makes the reward landscape smoother around the transition region. 
+
+A.3 Evaluation Under Mixed Velocity Commands 
+
+Table 6 shows the evaluation results for the learned unified model with the heuristic-best base-line under commanded forward velocities vx ∈ { 0.3, 0.5, 0.7, 1.0, 1.3, 1.6, 1.9, 2.0, 2.1} ms -1 ,14 Table 4: PPO training hyperparameters used in our experiments. 
+
+Hyperparameter Value 
+
+Number of timesteps 200,000,000 Number of evaluations 10 Reward scaling 1Episode length 1000 Normalize observations True Action repeat 1Unroll length 30 Number of minibatches 32 Number of updates per batch 4Discount factor 0.955 Learning rate 0.00015 Entropy cost 0.004 Number of environments 8192 Batch size 256 
+
+Table 5: Mode-dependent grouped reward weights and tanh saturation parameters. 
+
+Parameter Walk Trot Bound 
+
+wsafe 1.0 1.0 1.0 
+
+wtrack 1.0 1.0 1.15 
+
+wpattern 1.1 1.1 1.3 
+
+αsafe 0.9 0.6 0.8 
+
+αtrack 0.8 0.7 0.8 
+
+αpattern 1.2 0.4 0.7 Torque regularization coefficient weffort 1 × 10 −6
+
+and additionally lateral-velocity and yaw-rate commands from (v⋆y ∈ [−0.4, 0.4] , m, s−1) and 
+
+(ω⋆z ∈ [−0.4, 0.4] , rad , s−1), respectively. For each setting, we run 20 independent rollouts, each with a horizon of 500 time steps. Table 6: Evaluation under mixed velocity commands. We compare the learned unified model with the heuristic-best baseline across commanded forward velocities while additionally sampling lateral-velocity and yaw-rate commands from (v⋆y ∈ [−0.4, 0.4] , m, s−1) and (ω⋆z ∈ [−0.4, 0.4] , rad , s−1),respectively. This setting evaluates robustness beyond straight-line forward locomotion. Lower CoT is better; higher survival and success rates are better. 
+
+STL-based unified model Heuristic-best 
+
+vx CoT ↓ Survival ↑ Success ↑ CoT ↓ Survival ↑ Success ↑
+
+0.30 1.87 ± 0.06 1.00 1.00 2.55 ± 0.21 1.00 0.00 0.50 1.46 ± 0.04 1.00 1.00 2.11 ± 0.11 1.00 0.35 0.70 1.24 ± 0.02 1.00 1.00 1.83 ± 0.07 1.00 1.00 
+
+1.00 1.21 ± 0.02 1.00 1.00 1.74 ± 0.06 1.00 1.00 
+
+1.30 1.10 ± 0.01 1.00 1.00 1.76 ± 0.05 1.00 1.00 
+
+1.60 1.07 ± 0.01 1.00 1.00 1.74 ± 0.05 1.00 1.00 
+
+1.90 1.11 ± 0.01 1.00 1.00 1.72 ± 0.05 1.00 0.00 2.00 1.12 ± 0.01 1.00 0.80 1.69 ± 0.06 1.00 0.00 2.10 1.13 ± 0.01 1.00 0.00 1.69 ± 0.15 0.90 0.00 
+
+15 Table 7: Mode-dependent STL predicate thresholds and related configuration. 
+
+Parameter Walk Trot Bound 
+
+Effective horizon Hm 30 24 24 Warm-up minimum valid steps 8 8 8Aggregation sharpness β 0.5 0.5 0.1 Walk →Trot enter threshold on |vx| [m/s] 0.72 –Trot →Walk exit threshold on |vx| [m/s] 0.65 –Trot →Bound enter threshold on |vx| [m/s] – 1.75 Bound →Trot exit threshold on |vx| [m/s] – 1.45 Commanded vx range [m/s] [0.0, 1.9] Commanded vy range [m/s] [-0.2, 0.2] Commanded yaw range [rad/s] [-0.2, 0.2] Velocity tracking tolerance ϵvx [m/s] 0.55 0.60 0.60 Velocity tracking tolerance ϵvy [m/s] 0.05 0.05 0.05 Yaw-rate tracking tolerance ϵω [rad/s] 0.05 0.05 0.05 Minimum required contacts 2 2 -Minimum CoM height [m] 0.18 0.22 0.16 Maximum roll magnitude [deg] 10.0 7.0 15.0 Maximum pitch magnitude [deg] 8.0 7.0 15.0 Maximum diagonal phase error 0.10 0.11 -Minimum diagonal 2-contact purity 0.92 0.99 -Maximum diagonal 2-contact purity - - 0.03 Minimum 2-contact fraction - 0.70 -Recent 3+ contact requirement window K 11 - -Minimum flight fraction - - 0.04 Minimum front-only fraction - - 0.18 Minimum hind-only fraction - - 0.16 Maximum all 4 contact fraction - - 0.30 Minimum all 4 contact fraction - - 0.10 
+
+16

@@ -1,0 +1,486 @@
+Title: Point as Skeleton: Accumulated Point Cloud Enhanced Autoregressive Generation for Closed-Loop Autonomous Driving Simulation
+
+URL Source: https://arxiv.org/pdf/2607.06516v1
+
+Published Time: Wed, 08 Jul 2026 01:29:20 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Point as Skeleton: Accumulated Point Cloud Enhanced Autoregressive Generation for Closed-Loop Autonomous Driving Simulation 
+
+Songbur Wong 1, Xiaosong Jia 3✉, Junqi You 1, Bo Zhang 4, Pei Xu 2
+
+Renqiu Xia 1, Yuping Qiu 2, Shaofeng Zhang 5, Zelin Zhao 6, Xuechao Yan 2
+
+Yuchen Zhou 3, Yurui Chen 2, Wen Guo 2, Hang Xu 2, Junchi Yan 1✉
+
+> 1
+
+Shanghai Jiao Tong University 2Yinwang Intelligent Technology Co., Ltd. 
+
+> 3
+
+Fudan University 4Shanghai Artificial Intelligence Laboratory 
+
+> 5
+
+University of Science and Technology of China 6Georgia Institute of Technology  
+
+> ✉
+
+Corresponding authors 
+
+## Abstract 
+
+Evaluating end-to-end autonomous driving (E2E-AD) remains challenging, as existing driving simulation methods often trade off closed-loop interactivity (e.g., CARLA) and real-world visual fidelity (e.g., nuScenes). We present Point as Skele-ton , a generative sensor simulation framework for state-updated autoregressive driving video generation, in which an autoregressive generator synthesizes visual observations from step-wise updated ego states, actor states, scene maps, and point-cloud skeleton conditions. To support closed-loop rollout, we introduce Reset-and-Roll, which adapts rolling diffusion inference to simulation by preventing future-conditioned latent states from being committed across simulation steps. To stabilize error accumulation during step-wise autoregressive rollout, we introduce point-cloud skeletons that decouple foreground and background assets and project them into camera-view painted-point and template-depth conditions, providing ap-pearance and geometric cues. We further implement a nuPlan-based renderer-level closed-loop generative interface for evaluating generation under ego deviations from the original log. Experiments on nuScenes and nuPlan show that Point as Skeleton improves autoregressive generation quality during closed-loop rollout, demonstrating its potential for visually faithful closed-loop driving simulation. The code is available at https://github.com/krauwu/point-as-skeleton .
+
+## 1 Introduction 
+
+End-to-end autonomous driving (E2E-AD) [ 1 , 2, 3, 4, 5] has attracted increasing attention in recent years. A central challenge in evaluating E2E-AD systems is to provide sensor observations that respond to the actions selected by the driving policy. Open-loop benchmarks such as nuScenes [ 6]provide realistic sensor data, but the observations are fixed by the recorded trajectory and cannot react to policy-induced actions. In contrast, closed-loop simulators such as CARLA [ 7, 8 , 9] provide interactive feedback, but their rendered sensor appearance can still differ from real-world camera data. This motivates generative sensor simulation, where a learned generative model synthesizes camera observations from simulator-provided ego states, actor states, and scene conditions. However, closed-loop simulation goes beyond standard driving-scene reconstruction [ 10 ] and genera-tion [ 11 , 12 ]. The ego vehicle may deviate from the logged trajectory, while the planner and traffic simulator update online. The generator therefore needs to render multi-view observations under off-log motions and repeatedly refreshed conditions. This introduces two additional requirements: 
+
+(I) Spatiotemporal Extrapolation. Closed-loop policies may deviate from the logged motion in speed or heading, exposing vehicles and pedestrians that are not observed in the recorded images.    
+
+> Preprint. arXiv:2607.06516v1 [cs.CV] 7 Jul 2026 Simulation
+> Trajectory
+> Log
+> Trajectory
+> Record data:
+> Multi -view
+> Image
+> Point Cloud
+> & 3D Bbox
+> Agent
+> Track ID Projection Matrices
+> Simulator:
+> Transportation Flows
+> Tracklet Actors
+> Paste
+> Depth / Color / Map/ 3DBoxes
+> Previous Frame Latent
+> Generator
+> Camera Control Generation
+> E2E -AD
+> planner
+> Point Cloud
+> Skeleton
+> Controlling Transportation
+> Simulator
+> Scene Layout
+
+Figure 1: Point as Skeleton Generative Simulator. We utilize offline logs to build a foreground-background decoupled Point Cloud Skeleton. At each time step, the evaluated E2E-AD model predicts an action, and the traffic simulator updates the ego state and surrounding actor states accordingly. Based on the updated actor information, the Point Cloud Skeleton is edited and projected back to the camera views as multiple conditions. Finally, the generator synthesizes the latest sensor observations, which are fed back to the E2E-AD model for the next-step decision. This is challenging for classical reconstruction pipelines [ 13 ]. Recent methods [ 14 , 15 ] use generative models as reconstruction post-processing to improve visual plausibility, but they require scene- or frame-specific processing, reducing their ease of deployment. 
+
+(II) Instantaneous Interactivity. Closed-loop simulation updates the planner action at every step, requiring the simulator to synthesize the next observation from the latest scene state. Reconstruction-based renderers can be repeatedly queried once a scene is built. However, reconstruction-generation hybrids [ 16 , 17 ] and urban-scene generators [ 18 , 19 ] usually assume pre-defined conditions over a full clip. This calls for frame-wise autoregressive generation with step-wise condition updates. Existing studies [ 20 , 21 ] show that directly applying full-clip video generators to frame-wise autore-gressive rollout causes severe error accumulation (Fig. 3). We therefore propose Point as Skeleton ,which uses point-cloud assets accumulated once offline as stabilizing conditions for autoregressive generation. The resulting simulator uses an autoregressive video generator as the visual backbone, while the point skeleton provides editable geometric cues to reduce error accumulation. To realize this framework, we make the following designs. 
+
+Reset-and-Roll autoregressive generation. We observe that Rolling Diffusion [ 22 ] inference is better suited to highly dynamic driving scenes, but its input-output timestamps are not aligned with the simulator interface. A simulator step expects the generator to consume the current scene condition and immediately return the next observation, whereas rolling diffusion emits the earliest observation in its rolling window after using lookahead conditions. Reset-and-Roll bridges this gap by allowing rolling-style denoising while resetting the committed latent state before future-conditioned information is passed to the next simulation step. 
+
+Point-skeleton conditions. We design two point-cloud conditions to stabilize autoregressive gen-eration. The painted point cloud [ 23 ] provides pixel-level appearance guidance and suppresses visual degradation during long rollout. However, painted points may suffer from reconstruction inconsistency when actor instances are only partially scanned, motivating a parallel depth condition as a stable geometric anchor. The template-based depth branch replaces foreground actors with category-level point templates, providing stable depth guidance for autoregressive rollout. 
+
+nuPlan SimGen. We implement a closed-loop generative interface on nuPlan [ 24 ]. The interface attaches our visual generator to the nuPlan traffic simulation core, allowing the ego vehicle to change speed and heading according to user-defined commands or nuPlan planners. It enables evaluation of 2autoregressive generation under trajectories that deviate from the original log and provides projected point-based semantic labels for perception-oriented evaluation. 
+
+## 2 Related Works 
+
+2.1 Driving World Models 
+
+Conditional diffusion models have shown strong controllability in visual generation [ 25 , 26 ]. As conditioning signals extend from text and semantic maps to 3D boxes, HD maps, ego motion, and camera geometry, these models have become increasingly applicable to driving-scene generation [ 27 ,28 , 29 , 30 ]. A line of work studies driving video generation as predictive world modeling [ 12 , 31 , 11 ,32 , 18 , 33 , 19 ]. These methods synthesize future scene observations under given actions or scene-level conditions, and introduce driving-specific designs such as structured trajectory tokens [ 12 ], action-controllable future prediction [ 31 ], and depth or occupancy conditions [ 19 , 18 ]. Their main focus is to generate plausible future clips under a specified condition sequence. More recent works further explore autoregressive driving world models. Epona [ 34 ] formulates driving world modeling as next-token prediction and jointly studies generation and planning. Omn-iNWM [ 35 ] extends this direction toward panoramic navigation world modeling with state, action, and reward awareness. These methods indicate a shift from fixed-length video synthesis toward longer-horizon and more interactive world modeling. However, their design objective still differs from closed-loop simulation. They are generally designed to predict future pixels and actor motions from historical observations and action-related inputs, rather than to render observations under externally updated scene layouts. As a result, fine-grained control over individual participants is less direct than in explicit layout-conditioned simulation, where 3D boxes, HD maps, and simulator states can be updated at every step. 
+
+2.2 Driving Scene Simulation 
+
+Driving scene simulation aims to provide sensor observations for interactive evaluation of autonomous-driving policies. Classical simulators such as CARLA [ 7] support closed-loop interaction, but their rendered appearance often differs from real-world camera data. Reconstruction-based methods improve visual fidelity by reconstructing urban scenes from recorded logs [ 10 , 36 ], yet they are most reliable near the logged trajectory. When the ego vehicle deviates from the recorded motion, unseen regions and weakly observed actors become difficult to render faithfully. Recent methods introduce generative priors to alleviate this limitation. FreeVS [ 16 ] improves free-viewpoint synthesis under shifted driving trajectories, ReCamDriving [ 14 ] conditions generation on reconstructed scenes, and R3D2 [ 15 ] refines projected dynamic instances with generative models. These reconstruction-generation hybrids improve visual plausibility beyond logged views, but they still rely on scene-specific reconstruction, object-level editing, or post-processing modules. Therefore, extending them to continuous closed-loop rollout with online condition updates is not straightforward. Generative simulation systems move one step further by using learned world models as simulator engines. DriveArena [ 37 ] builds a closed-loop generative simulation platform, where generated observations are consumed by a driving agent, the resulting trajectory updates the scene layout, and the updated layout is fed back to the generator. Closed-source systems such as Waymo World Model [ 38 ] and GAIA-3 [ 39 ] further demonstrate controllable autonomy evaluation with action-, layout-, and scenario-conditioned generation. These systems suggest that driving simulation is moving from graphics- or reconstruction-centered pipelines toward generation-centered closed-loop simulators. Nevertheless, open autoregressive video-generation designs that can be readily integrated with closed-loop driving systems remain limited. 
+
+## 3 Method 
+
+Overview. We build a frame-wise generative rendering interface for closed-loop-compatible au-tonomous driving simulation: each updated simulator state defines the next scene layout, and the generator synthesizes the corresponding camera observation. Our method includes (i) an autore-gressive video diffusion model with diffusion-forcing training and Reset-and-Roll inference for 3Reset -and -Roll Full Sequence Autoregressive       
+
+> Reference History Current
+> Layout
+> Planner
+> Action
+> Current
+> Layout
+> Full
+> Sequence
+> Denoising
+> …..
+> Causal Inference
+> Reference History Current
+> Layout
+> Planner
+> Action
+> Current
+> Layout
+> …..
+> Non -causal Inference
+> Predict
+> Layout
+> Predict
+> Layout
+> Reference History Current
+> Layout
+
+4
+
+3
+
+3
+
+2
+
+4
+
+43 
+
+> Predict
+> Layout
+> Predict
+> Layout Output
+> Output
+> Output
+
+3 4
+
+> Predict
+> Layout
+
+1 2
+
+0
+
+> Planner
+> Action
+
+3
+
+> Denoising
+
+4
+
+> Current
+> Layout
+
+32
+
+32 4
+
+> Predict
+> Layout
+> …..
+
+0 
+
+> Planner
+> Action
+> …..
+> Non -causal Inference —Causal latent propagating
+
+Figure 2: Reset-and-Roll Framework. Unlike full-sequence denoising [ 37 , 20 , 34 ], Reset-and-Roll supports past-to-future conditioned denoising, while preventing the non-causal guidance from accumulating errors across simulation steps. In our implementation, a world prediction model [ 33 ]trained with standard diffusion forcing [40] is sufficient for Reset-and-Roll inference. stable rollouts (Sec. 3.1), (ii) a Point Cloud Skeleton projected as color and depth conditions for view-consistent geometry (Sec. 3.2), and (iii) nuPlan-SimGen, an interactive generative rendering interface and evaluation protocol for ego-deviated trajectories (Sec. 3.3). 
+
+3.1 Autoregressive Framework 
+
+In closed-loop simulation, the generator acts as a step-wise visual renderer. At simulation step  t, the planner outputs a short-horizon trajectory as discrete ego waypoints. The simulator commits only the next executable waypoint as the current ego state, while the remaining waypoints are treated as short-horizon forecasts. We therefore distinguish between committed states and forecast states . Committed states include the generated history, the current ego state, the current actor states, and the simulator layout  Lsim  
+
+> t
+
+at step  t. Forecast states include future ego waypoints and their corresponding future layouts  ˆLt+1: t+K , which may be revised after the policy receives the newly generated observation. As shown in the left part of Fig. 1, the traffic simulator places the committed ego and actor states on the map to construct the current layout  Lsim  
+
+> t
+
+. Future layouts are constructed in the same format, but they remain mutable forecasts rather than simulator states to be inherited. The video generator is therefore invoked at every simulation step , conditioned on the generated history, the current committed layout, and the forecast layouts within the generation window. This setting casts generative simulation as a frame-wise autoregressive video generation problem: each synthesized observation is returned to the policy and affects the next simulator query. Without dedicated training or rollout design, autoregressive diffusion suffer from severe error accumulation [ 20 ,21 ], making standard autonomous-driving video generators difficult to use as interactive renderers, as shown in Fig. 3-(2). Existing works alleviate this issue by noising frames during training and inference [ 20 , 35 ], or by simulating inference-time histories during training [ 34 ]. However, when deployed as closed-loop renderers, full-sequence inference still suffers from two failure modes. 
+
+Causal full-sequence. As shown in Fig. 2, if the generator avoids future layouts, the next-frame distribution is marginalized over possible future motions: 
+
+p(xt+1 | ht) = 
+
+Z
+
+p(xt+1 | ht, f t)p(ft | ht) df t,
+
+where  ht denotes the committed history and current simulator layout, and  ft denotes future layout trajectories. This removes explicit motion cues during denoising; thus low-speed or occluded actors are often generated conservatively, causing weak or static motion in rollout (Fig. 3-(3),(4)). 
+
+Non-causal full-sequence. Lookahead layouts improve dynamics, but full-sequence non-causal inference entangles the current output with unrealized forecasts. In closed-loop rollout, the lookahead used at step  t may change after the policy receives the generated observation. Once observations or 4Figure 3: Qualitative Observation. Results are generated frame-wise autoregressively on the first nuScenes-val sequence. Note that sequence (3) and (5) share the same checkpoint from diffusion forcing training, and sequence (2) and (4) used official model. Both sequences (3) and (4) use full-sequence causal AR and show vehicle stagnation. Sequence (5) shows static background moves with the ego vehicle, suggesting weak geometric consistency in frame-wise autoregressive generation. latent states produced under the old forecast are reused in later queries, future-conditioned information becomes part of the committed rollout state, causing state mismatch and accumulated errors. We therefore adopt rolling-window diffusion, which we find better suited to step-wise high-dynamic rendering. Instead of denoising a full future clip at once, rolling diffusion maintains a FIFO latent window: each roll injects a new noisy latent, denoises the window, and emits one frame. This rolling form naturally matches the simulator’s step-wise query pattern and avoids committing an entire future-conditioned sequence. It also allows predicted layouts to guide near-future dynamics, which improves instance motion compared with causal full-sequence inference, as shown in Fig. 3-(5). However, naive rolling still exposes the inherited latent state to predicted layouts, so future-conditioned information can be carried into the next simulator query. 
+
+Reset-and-Roll aligns rolling inference with the closed-loop simulator interface as shown in Fig. 2. At each step, the window contains  (L − 1)  history frames and one current-step latent. After the first denoising update, before injecting any lookahead layout, we cache the current latent and timestep. This cached latent has only seen the committed history and the current simulator layout  Lsim  
+
+> t
+
+. We then continue rolling denoising with predicted layouts  ˆLt+1: t+K to render the current observation with stronger dynamic cues. Before moving to the next simulator step, all lookahead-exposed latents are discarded. The next query is formed with the newly realized layout and the cached latent at the same diffusion scheduler timestep. Thus, predicted layouts are used for temporary denoising in the current query, but future-conditioned latent states are not committed across steps. 
+
+3.2 Point Cloud Skeleton 
+
+To address the error accumulation observed in AR generation (Fig. 3-(5)), we introduce the Point Cloud Skeleton as a training-inference-consistent scene representation. It accumulates offline LiDAR observations into static background and track-indexed foreground assets, which are recomposed by the simulator and projected to camera views at each rollout step. The projected skeleton provides sparse but state-aligned current-view evidence, turning each step into conditional rendering rather than pure history-based extrapolation. Thus, the primary role of the skeleton is to provide a consistent state representation during rollout, rather than to reconstruct the scene at the pixel level. As illustrated in Fig. 4, we colorize each LiDAR frame by projecting points onto calibrated images, obtaining  P ct . Using 3D boxes and track IDs, we split it into background and foreground points: 
+
+P ct = P bg  
+
+> t
+
+∪ P fg  
+
+> t
+
+, P fg  
+
+> t
+
+= [
+
+> i∈A t
+
+P fg 
+
+> t,i
+
+, P bg  
+
+> t
+
+∩ P fg  
+
+> t
+
+= ∅, (1) 5Original Point Cloud  Multi-view Images  
+
+> Color Projected Points Foreground Points Remove
+> Accumulat ed Scene Background
+> Clustering Actor Points
+> Tracklet Actor Points
+> Traffic Simulator
+> Original Image
+> Projection
+> Depth Map
+> Color Map
+> Tracklet Actor Occasionally Unscanned
+> Depth Map Synthesis
+> Color Map Synthesis
+
+Figure 4: Construction and Utilization of Point Cloud Skeleton. We separately accumulate foreground and background skeleton using point cloud and images from recorded logs. During simulation, actor assets are recomposed with the background according to simulator states and projected to camera views. The skeleton provides two conditioning inputs: a color map for appearance anchors and a template-based depth map for view-consistent geometry of moving agents. where  At denotes the actors observed at frame  t. We accumulate background points in the global frame, and normalize each actor’s foreground points into canonical coordinates: 
+
+P bg global =
+
+> N
+
+[
+
+> t=1
+
+Tglobal (t)P bg  
+
+> t
+
+, P fg actor( i) = [
+
+> t:i∈A t
+
+B−1 
+
+> t,i
+
+P fg 
+
+> t,i
+
+. (2) Here  Tglobal (t) maps frame-t points to the global frame, and  Bt,i  denotes the 3D box pose of actor  i.Thus,  B−1 
+
+> t,i
+
+recenters and aligns foreground points into canonical coordinates, forming a track-indexed actor asset. During simulation, the simulator places each actor according to box pose, merges it with 
+
+P bg global , and projects the composed skeleton to each camera view as the color map condition. The projected skeleton is used through two complementary branches. The color branch preserves pixel-level appearance from accumulated colorized points, providing degraded but useful appearance anchors for autoregressive rendering. However, foreground actors are often only partially scanned in the logs. Under trajectory drift, their color projections may become sparse or view-inconsistent, creating a training-inference gap that is amplified during rollout. We therefore introduce a depth branch to provide more stable geometry. We cluster training-log 3D boxes by category, and aggre-gate LiDAR points within each cluster to build category-level point templates for common traffic participants, such as sedan, SUV, and pedestrian. During simulation, these templates are placed according to simulator-provided actor boxes and projected as depth maps . The color map supplies appearance anchors, while the template-depth map supplies geometry. We concatenate both maps with the box&hdmap layout as conditions for the driving world model. 
+
+3.3 nuPlan-SimGen 
+
+To connect generative models with practical closed-loop simulation, we implement nuPlan-SimGen ,a nuPlan [ 24 ] plugin for closed-loop generative rendering. The plugin attaches the visual generator to the nuPlan traffic simulator: after each planner action, the simulator updates ego and actor states, and the generator renders the corresponding camera observations. Enabled by our template-based depth map, nuPlan-SimGen also supports a simulator-state alignment proxy under deviated ego trajectories. We project movable-object point templates to obtain vehicle pseudo masks and compare them with vehicle masks predicted by an off-the-shelf segmentor, reporting projected-mask IoU (Fig. 5). As shown in Fig. 5, nuPlan-SimGen evaluates generative rendering under ego-trajectory drift. During the first  N steps, the ego vehicle and surrounding actors follow the logged trajectories, where  N
+
+is the number of reference frames required by the generator. Starting from frame  N , a predefined 6t0   
+
+> Initial
+> Frame
+> Generative Simulation Original Log
+> t1
+> t2
+> t3
+> t4
+> t5
+> Unseen Part Synthesis
+> Color Actor Absent
+> Same Actor
+> nuPlan -SimGen
+> Record
+> Trajectory
+> Pre -defined
+> Trajectory
+> Multi -view Images
+> Novel T rajectory Generation (w/o GT)
+> Depth Template Projection (w Semantic)
+> Semantic IoU Score
+
+Figure 5: nuPlan-SimGen. Starting from GT reference frames, nuPlan-SimGen evaluates generative rendering when a predefined lane-change trajectory takes over the ego motion. Projected point templates provide vehicle pseudo masks for projected-mask IoU under novel trajectories where no image ground truth is available. Table 1: Comparison on nuScenes Dataset. 
+
+Method Backbone Condition Resolution FID (↓) FVD (↓)
+
+Panacea+ [41] SD1.5 Layout +Text 256 ×512 15.50 103.00 MagicDrive [28] SD1.5 Layout +Text 224 ×400 16.20 217.94 DriveArena [37] SD1.5 Layout +Text +Prev 224 ×400 16.03 185.32 MagicDiT [29] Sora-DiT Layout +Text +Video 224 ×400 20.91 97.21 Epona [34] Flux-DiT Ego Traj +Text +Video 512 ×1024 7.50 82.80 Ours (Image) SD1.5 Layout +Point +Prev 224 ×400 7.09 69.47 Ours (Video) SD3.5 Layout +Point +Video 256 ×448 5.97 58.3 
+
+lane-change trajectory takes over the ego motion. This trajectory gradually adjusts the ego speed toward a target value of 10m/s and applies a yaw deviation from the recorded path. At each simulator step, the next executable waypoint is committed as the current layout, while the remaining waypoints are treated as future layouts. Surrounding actors can either continue along their logged tracks or be controlled by nuPlan’s IDM policy; for consistency, our evaluation keeps them on the logged tracks. Although their motions are unchanged, the deviated ego pose alters relative viewpoints and visibility, which may bring actors outside the logged camera view into the generated field of view. 
+
+## 4 Experiments 
+
+4.1 Datasets and Implementation Details 
+
+We conduct experiments on nuScenes and nuPlan-mini. On nuScenes, we use 700 training and 150 validation scenes, reporting FID, FVD, and UniAD scores [ 37 , 1]. On nuPlan-mini, we use all 64 sequences for model training and select 300 customized-trajectory clips (specific in appendix) for nuPlan-SimGen evaluation. This benchmark evaluates trajectory deviation within logged scenes, rather than scene-level generalization to unseen logs or maps. We report FID and Mask2Former vehicle segmentation scores [42]. We implement two variants of Point as Skeleton : an SDv1.5-based single-frame generator [ 43 ] for comparison with image generators [ 37 , 20 ], and an SDv3.5-based autoregressive video generator for comparison with video generators [ 34 , 44 ]. The SDv1.5 variant is trained for 200 epochs on nuScenes and 150 epochs on nuPlan, with batch sizes of 16 and 8, respectively. The SDv3.5 variant is trained for 15k iterations with batch size 16 on both datasets. All models use diffusion forcing [ 40 ]. We generate 2 Hz images and 6 Hz videos on nuScenes using ASAP labels [ 45 ], and 5 Hz videos on nuPlan. More implementation details are provided in the appendix. 7Table 2: UniAD’s [1] Different Tasks in nuScenes Generation. 
+
+Source Data 3DOD ↑ Segmentation ↑ L2 ↓
+
+mAP NDS Lanes Drivable Divider Crossing 1.0s 2.0s 3.0s ori nuScenes [6] 37.98 49.85 31.31 69.14 25.93 14.36 0.51 0.98 1.65 MagicDrive [28] 12.92 28.36 21.95 51.46 17.10 6.57 0.57 1.14 1.95 Panacea [30] 13.72 27.73 18.23 52.37 17.21 6.32 0.58 1.14 1.97 DriveArena [37] 16.06 30.03 26.14 59.37 20.79 8.92 0.56 1.10 1.89 Ours (Image) 15.82 32.87 26.37 57.66 21.59 9.18 0.53 1.06 1.84 Ours (Video) 25.59 40.93 28.76 63.76 23.69 12.04 0.56 1.10 1.83 Ground Truth    
+
+> T=0
+> T=18
+> T=36
+> T=54
+> T=66
+> T=72
+> T=90
+> Vanilla Rolling Inference Ours Epona FreeVS
+
+Figure 6: Visualization of Long Horizon Rollout. FreeVS [ 16 ] is reproduced in a non-causal full-sequence setting. Our method is better suited to simulation scenarios than the compared methods. 
+
+4.2 Main Results 4.2.1 Quantitative Analysis 
+
+We first evaluate Point as Skeleton on nuScenes. In video generation, the model conditions on 2s history and generates a 4s clip at 6 Hz, yielding 24 autoregressive steps. The image variant is evaluated for 16 autoregressive steps at 2 Hz. Table 1 shows the best FID and FVD under this evaluation protocol, indicating improved visual quality and temporal consistency. We further evaluate generated sequences with UniAD. Table 2 shows stronger downstream detection and segmentation, with competitive planning performance. These results suggest that Point as Skeleton better preserves perception-relevant information while maintaining competitive planning performance. Table 3: Results on the Interactive Generation. 
+
+*FreeVS is reproduced in an autoregressive set-ting using the same resolution and backbone.                   
+
+> Method Design Mode FID ↓IoU(%) ↑
+> MagicDrive [28] Image 47.15 42.47 DriveArena [37] Autoregressive Image 45.38 46.34 FreeVS* [16] Video 27.37 54.72 Ours (Image) Autoregressive Image 27.96 58.57 Ours (Video) Autoregressive Video 18.37 59.92
+
+nuPlan-SimGen. We evaluate closed-loop gen-eration in Table 3, and report FID together with point-label IoU. Since the ego trajectory deviates from the log, no image ground truth is available and FID is only an auxiliary metric. In contrast, projected-mask IoU measures whether generated vehicles align with simulator-provided geometry. Our method achieves the best IoU, suggesting bet-ter closed-loop alignment. 
+
+4.2.2 Qualitative Analysis. 
+
+As shown in Fig. 5, Point as Skeleton can synthesize long-horizon interactive multi-view camera sequences. It offers a simple way to handle unobserved actor parts during temporal extrapolation and allows new actions to be inserted at each rollout step. We further evaluate long-horizon generation on nuScenes in Fig. 6. We roll out 100 consecutive frames at 6 Hz, covering nearly the full nuScenes validation sequence length of 17 seconds. Compared with prior methods [ 34 , 37 , 16 ], our design is better suited to simulation-oriented rollouts. It also remains more stable than autoregressive generation without point-skeleton conditioning, especially when the ego vehicle moves beyond initially observed regions (T40–70) or encounters rare street layouts (T80–90). 8w Instance   
+
+> Augmentation
+> w/o Instance
+> Augmentation
+> Instance Point
+> Projection Artifact Projection -visible Sampling
+> Voxel Sampling
+> Original Instance Skeleton Instance
+> Augmentation
+> Augmented Projection
+> Color Map
+> Diffusion Forcing
+> Training
+> Original Skeleton
+> Inference
+
+Figure 7: 3D Instance Augmentation Pipeline. 30 40 50 60 70 80 90 
+
+> Frame index
+> 80
+> 100
+> 120
+> 140
+> 160
+> 180
+> FVD
+> box & map (rolling)
+> abs-depth (rolling)
+> rel_depth (rolling)
+> color (rolling)
+> ours (rolling)
+> epona* (full-seq)
+
+Figure 8: Framewise-AR Comparison. We compute 15-frame window FVD with stride 1. Since Epona* outputs only the front view, we replicate it to 6 views for evaluation. Table 4: Condition ablation on nuPlan. LO/P/ ˜P :layout/previous/noisy latent; C/D: color/depth condition; Aug(C): color augmentation. Cond. FID ↓ IoU ↑
+
+Color conditioning 
+
+LO+P 44.88 46.89 LO+P+C 38.27 50.91 
+
+Template depth 
+
+LO+ ˜P +C 27.82 54.52 LO+ ˜P +C+D 28.45 55.67 
+
+Color aug. with depth 
+
+LO+ ˜P +C+Aug(C) 28.32 56.19 LO+ ˜P +C+D+Aug(C) 27.85 58.57 4.3 Ablation Study Ablation of Conditions. We ablate Point Skeleton conditioning on nuScenes and nuPlan. On nuScenes, we compare box & map, relative depth with denser near-range bins, raw metric depth, color, and metric depth+color for 100-frame AR generation, as shown in Fig. 8. Metric depth provides stronger guidance than relative depth, while color further stabilizes synthesis quality; combining color and metric depth achieves the best result. The FVD drop around frame 90 is caused by tail-flush generation, where the rolling window stops and stays fixed until all frames are fully denoised. On nuPlan, we study short-clip arbitrary-trajectory generation in Tab. 4 using image generation model. Here, ˜P denotes a previous latent perturbed by 50–200 diffusion steps during training. Diffusion forcing improves robustness, and projected color conditioning further improves both FID and IoU. Directly appending metric depth to color brings only marginal gains, as the depth signal can be masked by dominant appearance and history cues. However, with foreground-instance augmentation, color+depth achieves the best overall result, indicating that depth provides complementary geometric guidance when color cues degrade during autoregressive inference. 
+
+Instance augmentation. As shown in Fig. 7, foreground vehicles are more prone to projection artifacts than static backgrounds when the ego pose and viewing direction change. This introduces a training-validation gap: during training, point projections are usually aligned with logged camera views, whereas arbitrary simulation trajectories can expose unseen views of nearby agents. To mitigate this mismatch, we augment foreground instances during training by corrupting 80% of instance assets with either voxelization or simulated camera projections, and mixing them with clean assets. Since the sparse point clouds in nuScenes naturally reduce this gap, we evaluate this augmentation mainly on nuPlan. The last block of Tab. 4 and Fig. 7 show that instance augmentation improves both quantitative performance and visual consistency. 95 Conclusion 
+
+We present Point as Skeleton , a point-cloud-conditioned generative simulator for closed-loop-compatible autonomous driving rendering. Reset-and-Roll separates committed simulator states from transient forecasts, allowing rolling denoising to use lookahead guidance without carrying future-conditioned latents across simulation steps. The point-cloud skeleton further decomposes logged LiDAR observations into static background and track-indexed foreground assets, which are projected as color and template-depth conditions to anchor autoregressive rollout. Experiments on nuScenes and nuPlan show improved visual realism and geometric alignment, demonstrating the potential of integrating autoregressive generative models into closed-loop driving rollout. 
+
+## References 
+
+[1] Yihan Hu, Jiazhi Yang, Li Chen, Keyu Li, Chonghao Sima, Xizhou Zhu, Siqi Chai, Senyao Du, Tianwei Lin, Wenhai Wang, et al. Planning-oriented autonomous driving. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 17853–17862, 2023. [2] Qifeng Li, Xiaosong Jia, Shaobo Wang, and Junchi Yan. Think2Drive: Efficient Reinforcement Learning by Thinking in Latent World Model for Quasi-Realistic Autonomous Driving (in CARLA-v2). In ECCV , 2024. [3] Zhenjie Yang, Yilin Chai, Xiaosong Jia, Qifeng Li, Yuqian Shao, Xuekai Zhu, Haisheng Su, and Junchi Yan. Drivemoe: Mixture-of-experts for vision-language-action model in end-to-end autonomous driving, 2025. URL https://arxiv.org/abs/2505.16278 .[4] Xiaosong Jia, Junqi You, Zhiyuan Zhang, and Junchi Yan. Drivetransformer: Unified trans-former for scalable end-to-end autonomous driving. In The Thirteenth International Con-ference on Learning Representations , 2025. URL https://openreview.net/forum?id= M42KR4W9P5 .[5] Xiaosong Jia, Yulu Gao, Li Chen, Junchi Yan, Patrick Langechuan Liu, and Hongyang Li. Driveadapter: Breaking the coupling barrier of perception and planning in end-to-end au-tonomous driving. In ICCV , 2023. [6] Holger Caesar, Varun Bankiti, Alex H Lang, Sourabh Vora, Venice Erin Liong, Qiang Xu, Anush Krishnan, Yu Pan, Giancarlo Baldan, and Oscar Beijbom. nuscenes: A multimodal dataset for autonomous driving. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11621–11631, 2020. [7] Alexey Dosovitskiy, German Ros, Felipe Codevilla, Antonio Lopez, and Vladlen Koltun. Carla: An open urban driving simulator. In Conference on robot learning , pages 1–16. PMLR, 2017. [8] Bo Zhang, Xinyu Cai, Jiakang Yuan, Donglin Yang, Jianfei Guo, Xiangchao Yan, Renqiu Xia, Botian Shi, Min Dou, Tao Chen, et al. Resimad: Zero-shot 3d domain transfer for autonomous driving with source reconstruction and target simulation. arXiv preprint arXiv:2309.05527 ,2023. [9] Xiaosong Jia, Zhenjie Yang, Qifeng Li, Zhiyuan Zhang, and Junchi Yan. Bench2Drive: Towards multi-ability benchmarking of closed-loop end-to-end autonomous driving. 2024. [10] Yunzhi Yan, Haotong Lin, Chenxu Zhou, Weijie Wang, Haiyang Sun, Kun Zhan, Xianpeng Lang, Xiaowei Zhou, and Sida Peng. Street gaussians: Modeling dynamic urban scenes with gaussian splatting. In European Conference on Computer Vision , pages 156–173. Springer, 2024. [11] Xiaofeng Wang, Zheng Zhu, Guan Huang, Xinze Chen, Jiagang Zhu, and Jiwen Lu. Drive-dreamer: Towards real-world-drive world models for autonomous driving. In European Confer-ence on Computer Vision , pages 55–72. Springer, 2024. [12] Jiazhi Yang, Shenyuan Gao, Yihang Qiu, Li Chen, Tianyu Li, Bo Dai, Kashyap Chitta, Penghao Wu, Jia Zeng, Ping Luo, Jun Zhang, Andreas Geiger, Yu Qiao, and Hongyang Li. Generalized predictive model for autonomous driving. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024. 10 [13] Ziyu Chen, Jiawei Yang, Jiahui Huang, Riccardo De Lutio, Janick Martinez Esturo, Boris Ivanovic, Or Litany, Zan Gojcic, Sanja Fidler, Marco Pavone, et al. Omnire: Omni urban scene reconstruction. arXiv preprint arXiv:2408.16760 , 2024. [14] Yaokun Li, Shuaixian Wang, Mantang Guo, Jiehui Huang, Taojun Ding, Mu Hu, Kaixuan Wang, Shaojie Shen, and Guang Tan. Recamdriving: Lidar-free camera-controlled novel trajectory video generation. arXiv preprint arXiv:2512.03621 , 2025. [15] William Ljungbergh, Bernardo Taveira, Wenzhao Zheng, Adam Tonderski, Chensheng Peng, Fredrik Kahl, Christoffer Petersson, Michael Felsberg, Kurt Keutzer, Masayoshi Tomizuka, et al. R3d2: Realistic 3d asset insertion via diffusion for autonomous driving simulation. arXiv preprint arXiv:2506.07826 , 2025. [16] Qitai Wang, Lue Fan, Yuqi Wang, Yuntao Chen, and Zhaoxiang Zhang. Freevs: Generative view synthesis on free driving trajectory. arXiv preprint arXiv:2410.18079 , 2024. [17] Shuyun Wang, Haiyang Sun, Bing Wang, Hangjun Ye, and Xin Yu. Mirage: One-step video diffusion for photorealistic and coherent asset editing in driving scenes. arXiv preprint arXiv:2512.24227 , 2025. [18] Tianyi Yan, Dongming Wu, Wencheng Han, Junpeng Jiang, Xia Zhou, Kun Zhan, Cheng-zhong Xu, and Jianbing Shen. Drivingsphere: Building a high-fidelity 4d world for closed-loop simulation. arXiv preprint arXiv:2411.11252 , 2024. [19] Jiazhe Guo, Yikang Ding, Xiwu Chen, Shuo Chen, Bohan Li, Yingshuang Zou, Xiaoyang Lyu, Feiyang Tan, Xiaojuan Qi, Zhiheng Li, et al. Dist-4d: Disentangled spatiotemporal diffusion with metric depth for 4d driving scene generation. arXiv preprint arXiv:2503.15208 , 2025. [20] Junqi You, Xiaosong Jia, Zhiyuan Zhang, Yutao Zhu, and Junchi Yan. Bench2drive-r: Turning real world data into reactive closed-loop autonomous driving benchmark by generative model. 
+
+arXiv preprint arXiv:2412.09647 , 2024. [21] Boyuan Chen, Diego Martí Monsó, Yilun Du, Max Simchowitz, Russ Tedrake, and Vincent Sitzmann. Diffusion forcing: Next-token prediction meets full-sequence diffusion. Advances in Neural Information Processing Systems , 37:24081–24125, 2024. [22] David Ruhe, Jonathan Heek, Tim Salimans, and Emiel Hoogeboom. Rolling diffusion models, 2024. URL https://arxiv.org/abs/2402.09470 .[23] Sourabh Vora, Alex H Lang, Bassam Helou, and Oscar Beijbom. Pointpainting: Sequential fusion for 3d object detection. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 4604–4612, 2020. [24] Holger Caesar, Juraj Kabzan, Kok Seang Tan, Whye Kit Fong, Eric Wolff, Alex Lang, Luke Fletcher, Oscar Beijbom, and Sammy Omari. nuplan: A closed-loop ml-based planning benchmark for autonomous vehicles. arXiv preprint arXiv:2106.11810 , 2021. [25] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In Proceedings of the IEEE/CVF international conference on computer vision ,pages 3836–3847, 2023. [26] Zhenxiong Tan, Qiaochu Xue, Xingyi Yang, Songhua Liu, and Xinchao Wang. Ominicontrol2: Efficient conditioning for diffusion transformers. arXiv preprint arXiv:2503.08280 , 2025. [27] Kairui Yang, Enhui Ma, Jibin Peng, Qing Guo, Di Lin, and Kaicheng Yu. Bevcontrol: Accurately controlling street-view elements with multi-perspective consistency via bev sketch layout. arXiv preprint arXiv:2308.01661 , 2023. [28] Ruiyuan Gao, Kai Chen, Enze Xie, Lanqing Hong, Zhenguo Li, Dit-Yan Yeung, and Qiang Xu. Magicdrive: Street view generation with diverse 3d geometry control. arXiv preprint arXiv:2310.02601 , 2023. [29] Ruiyuan Gao, Kai Chen, Bo Xiao, Lanqing Hong, Zhenguo Li, and Qiang Xu. Magicdrivedit: High-resolution long video generation for autonomous driving with adaptive control. arXiv preprint arXiv:2411.13807 , 2024. 11 [30] Yuqing Wen, Yucheng Zhao, Yingfei Liu, Fan Jia, Yanhui Wang, Chong Luo, Chi Zhang, Tiancai Wang, Xiaoyan Sun, and Xiangyu Zhang. Panacea: Panoramic and controllable video generation for autonomous driving. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 6902–6912, 2024. [31] Shenyuan Gao, Jiazhi Yang, Li Chen, Kashyap Chitta, Yihang Qiu, Andreas Geiger, Jun Zhang, and Hongyang Li. Vista: A generalizable driving world model with high fidelity and versatile controllability. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [32] Guosheng Zhao, Xiaofeng Wang, Zheng Zhu, Xinze Chen, Guan Huang, Xiaoyi Bao, and Xingang Wang. Drivedreamer-2: Llm-enhanced world models for diverse driving video gen-eration. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 10412–10420, 2025. [33] Rui Chen, Zehuan Wu, Yichen Liu, Yuxin Guo, Jingcheng Ni, Haifeng Xia, and Siyu Xia. Unimlvg: Unified framework for multi-view long video generation with comprehensive control capabilities for autonomous driving. arXiv preprint arXiv:2412.04842 , 2024. [34] Kaiwen Zhang, Zhenyu Tang, Xiaotao Hu, Xingang Pan, Xiaoyang Guo, Yuan Liu, Jingwei Huang, Li Yuan, Qian Zhang, Xiao-Xiao Long, Xun Cao, and Wei Yin. Epona: Autoregressive diffusion world model for autonomous driving, 2025. URL https://arxiv.org/abs/2506. 24113 .[35] Bohan Li, Zhuang Ma, Dalong Du, Baorui Peng, Zhujin Liang, Zhenqiang Liu, Chao Ma, Yueming Jin, Hao Zhao, Wenjun Zeng, et al. Omninwm: Omniscient driving navigation world models. arXiv preprint arXiv:2510.18313 , 2025. [36] Jiawei Yang, Boris Ivanovic, Or Litany, Xinshuo Weng, Seung Wook Kim, Boyi Li, Tong Che, Danfei Xu, Sanja Fidler, Marco Pavone, et al. Emernerf: Emergent spatial-temporal scene decomposition via self-supervision. arXiv preprint arXiv:2311.02077 , 2023. [37] Xuemeng Yang, Licheng Wen, Yukai Ma, Jianbiao Mei, Xin Li, Tiantian Wei, Wenjie Lei, Daocheng Fu, Pinlong Cai, Min Dou, et al. Drivearena: A closed-loop generative simulation platform for autonomous driving. arXiv preprint arXiv:2408.00415 , 2024. [38] Waymo. The waymo world model: A new frontier for au-tonomous driving simulation. https://waymo.com/blog/2026/02/ the-waymo-world-model-a-new-frontier-for-autonomous-driving-simulation ,2026. [39] Wayve. Gaia-3. https://wayve.ai/thinking/gaia-3/ , 2026. [40] Kiwhan Song, Boyuan Chen, Max Simchowitz, Yilun Du, Russ Tedrake, and Vincent Sitzmann. History-guided video diffusion. arXiv preprint arXiv:2502.06764 , 2025. [41] Yuqing Wen, Yucheng Zhao, Yingfei Liu, Binyuan Huang, Fan Jia, Yanhui Wang, Chi Zhang, Tiancai Wang, Xiaoyan Sun, and Xiangyu Zhang. Panacea+: Panoramic and controllable video generation for autonomous driving, 2024. URL https://arxiv.org/abs/2408.07605 .[42] Bowen Cheng, Ishan Misra, Alexander G Schwing, Alexander Kirillov, and Rohit Girdhar. Masked-attention mask transformer for universal image segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 1290–1299, 2022. [43] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 10684–10695, 2022. [44] Jianbiao Mei, Tao Hu, Xuemeng Yang, Licheng Wen, Yu Yang, Tiantian Wei, Yukai Ma, Min Dou, Botian Shi, and Yong Liu. Dreamforge: Motion-aware autoregressive video generation for multi-view driving scenes. arXiv preprint arXiv:2409.04003 , 2024. [45] Xiaofeng Wang, Zheng Zhu, Yunpeng Zhang, Guan Huang, Yun Ye, Wenbo Xu, Ziwei Chen, and Xingang Wang. Are we ready for vision-centric driving streaming perception? the asap benchmark. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 9600–9610, 2023. 12 Figure 10: Long Video Generation. A 17-second generation produces a 100-frame video, including 89 autoregressive steps after excluding the 11 initial frames. This long video demonstrates that the point-as-skeleton representation supports a generation length sufficient to complete a full sequence of actions. 
+
+## A Visualization 
+
+All our videos are generated in a frame-by-frame autoregressive manner. Before generating each frame, the motion trajectory can be specified by the user, which enables interactive generation . The nuScenes videos are generated at 6 Hz, while the nuPlan videos are generated at 5 Hz. The details explanation of the videos are shown in the Fig. 10 and Fig. 11. Note that the stored video loses some degree of visual clarity. 
+
+## B Discussion Rolling Autoregressive  
+
+> Condition
+> Condition
+> Noise
+> Clean
+> Tail Condition Autoregressive
+> Last Condition
+> …
+
+Figure 9: Tail Generation of Fixed-Length Condition. 
+
+In Fig. 9, all rolling-based methods exhibit a decreasing trend in tail FVD, which is inconsistent with the common understanding of autoregressive error accumulation. We find that this phenomenon is specific to fixed-length, fixed-trajectory video generation on nuScenes, and does not arise in the nuPlan simulation. As shown in the Fig. 9, when the rolling window reaches the end of the video (17.5 s), the nuScenes dataset cannot provide additional trajectory conditions for most sequences. We therefore keep the window fixed in place to complete the remaining generation. As a result, this stage follows a generation pattern different from the normal rolling process, which rollout future trajectory in each step. Although we have some intuition about this phenomenon, the clean frame sink design [ 21 ] remains an open question. While it may improve short-term video quality, its impact on motion fidelity and error accumulation in autonomous driving simulation deserve systemically exploration. 
+
+## C Derivations 
+
+Causal full-sequence tends to static instances. Without future layout cues, the next-frame condi-tional is a marginal over future layouts: 
+
+p(xt+1 | ht) = 
+
+Z
+
+p(xt+1 | ht, f t) p(ft | ht) df t. (3) Let zs denote the diffusion latent at noise level s. Under the standard forward perturbation, we have 
+
+zs = √¯αs xt+1 + √1 − ¯αs ϵ, ϵ ∼ N (0 , I ). (4a) 13 Figure 11: nuPlan Plugin. Starting from step 16, we perform a rollout every 0.2 seconds for trajectory control and generate one frame at each rollout. This video demonstrates that our method can be seamlessly integrated with modern driving planning systems. 
+
+p(zs | ht) = 
+
+Z
+
+p(zs | ht, f t) p(ft | ht) df t, (4b) where p(zs | ht, f t) is the distribution induced by forward diffusion from p(xt+1 | ht, f t).In conditional diffusion score matching, the optimal denoising direction is the conditional score 
+
+s∗(zs; ht) := ∇zs log p(zs | ht), which for the above mixture satisfies 
+
+∇zs log p(zs | ht) = Eft∼p(ft|zs,h t)
+
+∇zs log p(zs | ht, f t). (5) Eq. (5) shows that, without future layout cues, the optimal denoising direction becomes a posterior-weighted average over future-conditioned modes. When p(ft | zs, h t) is multi-modal (e.g., at low-speed or stop-and-go where multiple motion hypotheses are plausible), mode-wise denoising directions may partially cancel, yielding conservative updates that favor persistence of current instances and leading to static agents in rollouts. Conversely, when future motion is near-deterministic, 
+
+p(ft | zs, h t) concentrates and the averaging effect diminishes. 
+
+## D Implementation Details 
+
+Autoregressive Generator. For the nuPlan-mini dataset, we use a fixed prompt template with a variable weather description: “weather. A driving scene in city”, where the weather term is instantiated for each sample. For nuScenes, we adopt the text annotations from OpenDWM [ 33 ]. The model is trained using the AdamW optimizer with a learning rate of 6e-5. For the video setting, we use an autoregressive window of 2 seconds, corresponding to 12 frames at 6 Hz, with 11 initial reference frames. For the image setting, only a 2-frame window is used. Note that the FVD for long-video generation is computed from saved MP4 files, which may introduce a slight loss in visual quality due to compression. 
+
+Point Cloud Skeleton. We apply voxel downsampling with a voxel size of 0.01m to the stacked city background point clouds, while the tracklet actors remain unchanged. For depth-map synthesis, we mainly use vehicle-size prototype templates as foreground depth hints, while during nuPlan-SimGenEval we use tracklet actor first if the points number is higher than 20000. During the simulation, we only consider point clouds within a 100m radius of the ego vehicle. We implement CUDA-based rasterization to accelerate point projection in nuPlan-SimGenEval. 
+
+Interactive Divergence Track Construction. For nuPlan-mini, we uniformly sample data instances such that each video sequence of approximately 400 s can be divided into about 30 clips. We first pretrain the layout-based autoregressive model on the text-annotated nuPlan-mini set using all available splits, and then finetune it on 12 subsets with point-skeleton. Finally, we select 10 subsets for customized-trajectory evaluation. In the trajectory-customization test, we generate camera data corresponding to a right-lane-change maneuver of the ego vehicle. The point mask for segment GT applies Gaussian blur with a kernel size of 3 to make the projected point cloud denser in the image plane. 14 For the IoU evaluation, we assign a category label to each decoupled actor point when constructing the point-cloud skeleton. During rasterized point-to-image projection, these point-wise labels serve as point-template pseudo labels for evaluating alignment with simulator-provided actor geometry. For evaluation, we use an official Mask2Former checkpoint trained on the Cityscapes dataset and report segmentation scores on the Vehicle category. The public Mask2Former checkpoint is fixed across all methods, so the metric is used as a consistent geometry-alignment proxy rather than image-grounded semantic ground truth. The evaluation subsets used for customized-trajectory nuPlan-SimGenEval are: • 2021.05.12.22.28.35_veh-35_00620_01164 
+
+• 2021.05.12.22.00.38_veh-35_01008_01518 
+
+• 2021.05.12.23.36.44_veh-35_02035_02387 
+
+• 2021.05.12.23.36.44_veh-35_01133_01535 
+
+• 2021.05.12.23.36.44_veh-35_00152_00504 
+
+• 2021.05.25.14.16.10_veh-35_01690_02183 
+
+• 2021.06.09.12.39.51_veh-26_01943_02303 
+
+• 2021.06.09.14.58.55_veh-35_01894_02311 
+
+• 2021.06.09.17.23.18_veh-38_00773_01140 
+
+• 2021.06.14.16.32.09_veh-35_05038_05402 
+
+15

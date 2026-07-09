@@ -1,0 +1,2034 @@
+Title: Search-Based Spatiotemporal and Multi-Robot Motion Planning on Graphs of Space-Time Convex Sets
+
+URL Source: https://arxiv.org/pdf/2607.00444v1
+
+Published Time: Thu, 02 Jul 2026 00:30:19 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Search-Based Spatiotemporal and Multi-Robot Motion Planning on Graphs of Space-Time Convex Sets 
+
+## Jingtao Tang ∗
+
+## , Zining Mao, Lufan Yang, and Hang Ma Simon Fraser University, Canada 
+
+## Abstract 
+
+Spatiotemporal motion planning, especially in multi-robot settings, requires robots to reason about collision-free regions that change over time, which is challeng-ing in continuous spaces when feasible regions are tran-sient and geometrically constrained. We present an al-gorithmic framework based on graphs of space-time con-vex sets (ST-GCSs), where collision-free regions are rep-resented as convex sets in space-time and trajectories correspond to paths on the graph together with contin-uous motions within the selected sets. We formulate time-optimal planning on ST-GCSs as a graph-search problem over path-indexed states and develop a best-first search solver that evaluates partial paths via con-tinuous trajectory optimization, guided by admissible heuristics and dominance checks. We further present an Exact Convex Decomposition (ECD) scheme to re-serve trajectory occupancies in space-time, enabling uni-fied handling of dynamic obstacles and multi-robot in-teractions. For multi-robot motion planning, we inte-grate ST-GCS planning and ECD into prioritized plan-ning methods and introduce a windowed coordination scheme to improve efficiency. Extensive experiments on single-robot and multi-robot problems demonstrate sub-stantial speedups over various planners while maintain-ing high solution quality, particularly in environments with narrow and transient feasible regions. Large-scale demonstrations further show that the proposed multi-robot motion planner can solve instances with up to 100 robots within only a few minutes. Project homepage: 
+
+https://sites.google.com/view/stgcs .
+
+Keywords: Motion Planning, Multi-Robot Coordina-tion, Heuristic Search, Graphs of Convex Sets 
+
+## 1 Introduction 
+
+Spatiotemporal motion planning is a core problem in robotics. A robot must move from a start state to a goal while avoiding both static obstacles and time-varying constraints induced by dynamic environments or other robots. This problem becomes particularly chal-lenging in continuous domains when feasible regions are 
+
+> ∗Corresponding author email: jingtao tang@sfu.ca time
+
+Figure 1: Demonstration of the proposed MRMP plan-ner on ST-GCS, where robots 1 and 3 exchange positions with robots 2 and 4, respectively. Left: Solution trajec-tories visualized in 2D space, with higher transparency indicating states at later time stamps. Right: Solution trajectories τ1 and τ2 visualized in 3D space-time, where 
+
+τ2 treats τ1 as a space-time obstacle and plans a trajec-tory through space-time collision-free convex sets (col-ored polyhedra) that exclude the τ1 occupancy. transient, geometrically constrained, and tightly coupled with time. Such conditions arise naturally in Multi-Robot Motion Planning (MRMP), where each robot must treat the trajectories of others as dynamic obsta-cles, as well as in single-robot planning tasks with moving obstacles or temporal constraints. Despite extensive progress, existing approaches still struggle to provide efficient and reliable solutions in these settings. Sampling-based planners, such as PRM (Kavraki et al., 1996) and RRT (LaValle, 1998), and their spatiotemporal variants (H¨ uppi et al., 2022; Grothe et al., 2022), offer modeling flexibility but rely on random exploration, which can be ineffective in cap-turing narrow or short-lived feasible regions in space-time. Their performance further degrades due to re-peated collision checking in a time-augmented state space. Optimization-based approaches based on the Graph of Convex Sets (GCS) replace random explo-ration with deterministic reasoning over convex decom-positions (Marcucci et al., 2023, 2024b), but extending them to dynamic environments requires a unified treat-ment of time, velocity constraints, and dynamic obstacle avoidance. When formulated as a single large optimiza-tion, this leads to significant computational challenges. In this work, we present a general framework for time-optimal spatiotemporal motion planning in contin-1
+
+> arXiv:2607.00444v1 [cs.RO] 1 Jul 2026
+
+uous spaces with dynamic obstacles based on a novel graph representation, namely a Graph of Space-Time Convex Sets (ST-GCS), where vertices correspond to collision-free convex sets in space-time and edges en-code nonempty intersections between sets. An ST-GCS extends a spatial GCS into the time dimension, allow-ing both geometric and temporal constraints to be cap-tured within a single graph structure. A feasible trajec-tory then corresponds to a path on an ST-GCS together with a continuous trajectory constructed within the se-lected convex sets. This representation also provides a natural basis for spatiotemporal planning in dynamic environments and for multi-robot coordination, where planned robot trajectories can be incorporated back into the graph as reserved occupancies. A key challenge in solving time-optimal planning on an ST-GCS by graph search is that the cost and feasibility of reaching a vertex cannot be determined solely by the ver-tex itself. Instead, they depend on the entire prefix path used to reach that vertex, since different paths induce different feasible arrival states and different continuation costs. As a result, standard shortest-path formulations that identify search states only by vertices are generally insufficient. To address this, we formulate planning on an ST-GCS as a graph search over path-indexed states, where each search node represents a partial path together with the corresponding optimal trajectory and its cost. Building on this formulation, we develop a best-first search solver for planning on ST-GCSs and in-troduce several algorithmic components that together make it practical and scalable. The search repeat-edly evaluates partial paths by solving the correspond-ing continuous trajectory optimization over the convex sets along that path. To improve efficiency, we de-sign admissible heuristics over partial paths and develop reachability-based dominance checks, including a safe set-containment check that preserves optimality and two lightweight heuristic checks that are substantially faster while maintaining high solution quality in practice. In addition, we present the Exact Convex Decomposition 
+
+(ECD) scheme to reserve the spatiotemporal occupancy of trajectories by updating an ST-GCS, thereby enabling a unified treatment of dynamic obstacles and inter-robot interactions. On top of this, we integrate ECD into pri-oritized planning methods for MRMP, and further intro-duce a windowed coordination scheme to improve effi-ciency in multi-robot coordination by focusing planning effort on the relevant time intervals. We demonstrate the proposed Windowed-PBS + BFS planner on large-scale and highly congested MRMP instances, solving a bottle-necked 50-robot instance in 1 .64m and a dense 100-robot instance in 1 .60m, which shows its scalability beyond the main benchmark range. We summarize our contributions as follows: 1. We formulate time-optimal spatiotemporal motion planning as a graph-search problem on ST-GCSs. 2. We develop a search-based solver that operates on path-indexed states, together with admissible heuristics and dominance checks tailored to search-ing ST-GCSs. 3. We present the ECD scheme to reserve trajec-tory occupancies in arbitrary-dimensional space-time, enabling unified handling of dynamic obstacles and multi-robot interactions. 4. We integrate ST-GCS planning and ECD into pri-oritized planning methods for MRMP, and further introduce a windowed coordination scheme to im-prove efficiency in multi-robot coordination. 5. We provide extensive empirical evaluation demon-strating substantial speedups over optimization-based approaches and strong performance in chal-lenging spatiotemporal scenarios. This work substantially extends our prior conference version (Tang et al., 2025) as follows: 1. The prior version formulates time-optimal motion planning on an ST-GCS as a unified optimization problem, whereas this work develops a search-based formulation on ST-GCSs with path-indexed states, pruning strategies, and heuristic guidance, resulting in orders of magnitude faster in practice. 2. The prior version presents ECD in the original 3D setting arising from 2D spatial motion plus time, whereas this work generalizes ECD to arbitrary-dimensional space-time. 3. The prior version integrates ST-GCS within prior-itized multi-robot planning, whereas this work ad-ditionally introduces windowed coordination to im-prove efficiency in multi-robot coordination. 4. This work also provides substantially more extensive empirical evaluation, including additional search ab-lations and real-robot experiments. 
+
+## 2 Related Work 
+
+This section positions our work relative to spatiotempo-ral planning, MRMP, and planning on GCSs. 
+
+2.1 Spatiotemporal Motion Planning 
+
+Spatiotemporal motion planning treats time as part of the planning domain to handle moving obstacles with known trajectories (Erdmann and Lozano-Perez, 1987). Grid-based methods reserve discrete space-time states (Silver, 2005); SIPP reasons over safe time in-tervals for discrete spatial occupancies (Phillips and Likhachev, 2011); any-angle variants such as Zeta ∗-SIPP combine safe intervals with any-angle search for time-optimal planning in dynamic environments (Zou and 2Borst, 2024); and state-lattice methods plan over spa-tiotemporal lattices built from continuous space and fixed motion primitives (McNaughton et al., 2011). Sampling-based planners lift RRT-, PRM-, and RRT ∗-style methods into configuration–time space, validating sampled time-parameterized states or edges against mov-ing obstacles over their execution intervals (Sintov and Shapiro, 2014; H¨ uppi et al., 2022; Grothe et al., 2022); they are flexible, but can struggle when feasible re-gions are narrow, short-lived, or repeatedly changing, and their runtime can be dominated by collision check-ing in the time-augmented state space. Recent work mitigates this issue by bringing safe-interval ideas from MAPF (Phillips and Likhachev, 2011) into sampling-based planning (Sim et al., 2024; Kerimov et al., 2025). In contrast, we plan on ST-GCSs: collision-free space-time is represented by convex sets connected through nonempty intersections, so reserved occupancies can be removed from an updatable free-space decomposition while continuous trajectory optimization remains avail-able over remaining regions. 
+
+2.2 MRMP 
+
+MRMP methods differ mainly in how they represent and resolve inter-robot conflicts. Coupled methods reason in composite configuration spaces. Coordi-nated PRMs explicitly construct products of individ-ual roadmaps ( ˇSvestka and Overmars, 1998), dRRT-style methods explore implicit tensor-product roadmaps with-out materializing the full joint graph (Solovey et al., 2016; Shome et al., 2020), and partially coupled meth-ods such as M∗ plan independently when possible while expanding into higher-dimensional coupled search near conflicts (Wagner and Choset, 2015). Decoupled and conflict-based methods improve scalability by us-ing priorities, reservations, or constraints. Prioritized planning treats planned robots as moving obstacles in configuration–time space (Erdmann and Lozano-Perez, 1987; Van Den Berg and Overmars, 2005), cooperative pathfinding uses discrete space-time reservations (Sil-ver, 2005), CBS separates high-level conflict resolution from low-level planning (Sharon et al., 2015), and PBS searches over priority constraints rather than a fixed or-dering (Ma et al., 2019). These ideas underlie MAPF variants including continuous-time MAPF (Andreychuk et al., 2022), safe-interval planning on continuous-time roadmaps (Kasaura et al., 2022), and representation-optimal MRMP for heterogeneous robots in continuous spaces (Solis et al., 2021). Recent MRMP work connects conflict-based coordi-nation with sampling-based, kinodynamic, optimization, and control-based planning. Kinodynamic CBS incor-porates motion primitives into CBS (Kottinger et al., 2022), while adaptive methods vary coupling online through adaptive robot coordination (Solis et al., 2024), kinodynamic adaptive coordination (Qin et al., 2025), or guidance-informed grouping (McBeth et al., 2026). Other approaches use decentralized trajectory optimiza-tion (Tordesillas and How, 2021), path retiming (Mao et al., 2024), CBS-guided MPC (Tajbakhsh et al., 2024), or mixed-integer continuous formulations (Zhao et al., 2025a; Ren et al., 2025). Our MRMP planner is closest to prioritized planning, but each low-level query plans on an ST-GCS; after a robot is planned, ECD updates the ST-GCS to reserve its swept occupancy, so later robots plan in the remaining collision-free space-time and jointly rea-son about route choice, timing, and dynamic collision avoidance. 
+
+2.3 Planning on GCSs 
+
+GCSs combine graph structure with convex optimiza-tion for mixed discrete–continuous planning (Marcucci et al., 2023, 2024b). They have been applied beyond clut-tered Euclidean motion planning to non-Euclidean con-figuration spaces (Cohn et al., 2023), temporal-logic and precedence-constrained planning (Kurtz and Lin, 2023; You et al., 2025), contact-rich manipulation (Graesdal et al., 2024), and guidance for downstream noncon-vex trajectory optimization (von Wrangel and Tedrake, 2024). These works demonstrate the breadth of GCS modeling, but mainly consider static, task-augmented, or contact-mode domains rather than a free-space rep-resentation repeatedly updated by moving obstacles and planned robot trajectories. GCS performance depends strongly on the con-vex decomposition of free space. IRIS grows large obstacle-free convex regions (Deits and Tedrake, 2015); visibility-graph clique covers and certified polyhedral decompositions improve coverage, certification, and scalability (Werner et al., 2024; Dai et al., 2024); and GPU-accelerated methods compute collision-free configuration-space convex sets online in changing envi-ronments (Werner et al., 2025). Our ECD scheme is com-plementary. It updates an ST-GCS by removing swept occupancies while maintaining a convex decomposition of the remaining collision-free space-time. Efficient GCS solving has also received substantial attention. Large safe-box planners exploit offline pre-processing with fast runtime shortest-path and convex-control subproblems (Marcucci et al., 2024a), while search-based solvers such as GCS ∗ (Chia et al., 2024), implicit graph search (Natarajan et al., 2024), and A∗-GCS (Sundar and Rathinam, 2024) reduce reliance on one monolithic mixed-integer convex program over the full graph. Other variants address multi-query planning (Morozov et al., 2024), shortest walks with repeated vertices (Morozov et al., 2025), nonconvex-cost (Clark and Xie, 2025) or parametrized-space objec-tives (Garg et al., 2025), fixed-sequence minimum-time motion through convex sets (Marcucci et al., 2025), and routing problems that couple discrete visitation order with continuous trajectories (Philip et al., 2024; Bhat 3et al., 2025; Tang and Ma, 2026). Closest to our set-ting, Osburn et al. (2025) studies ST-GCS planning in dynamic environments and constructs GCS-compatible constraints, while Zhao et al. (2025b) combines CBS with time-augmented GCS under a fixed time-step rep-resentation. Recent GCS work has expanded modeling scope and solver efficiency, but has not jointly addressed path-indexed search on ST-GCSs, occupancy reservation by convex-decomposition updates, and windowed multi-robot coordination. 
+
+## 3 Preliminaries 
+
+This section introduces the notation and basic GCS for-mulation used in this paper. We first review the standard definition of (spatial) GCSs, where vertices correspond to collision-free convex sets and edges indicate nonempty intersections. We then describe the standard motion-planning problem on GCSs and the path-conditioned convex subproblem used later by our search-based solver for planning on ST-GCSs. 
+
+3.1 GCS Definition 
+
+We consider a robot with an m-dimensional state space, whose collision-free region is decomposed into a collec-tion of convex sets. These spatial convex sets need not be disjoint. A GCS, denoted as G = ( V, E, X ), is a connected graph representing such a convex decomposi-tion, where V is the vertex set, E is the edge set, and 
+
+X = {Xv }v∈V is the collection of convex sets. Each ver-tex v ∈ V corresponds to a convex set Xv = {x | Av x ⪯
+
+bv } ⊆ Rm of states. Each edge e = ( u, v ) ∈ E indicates that Xu ∩ Xv̸ = ∅. Our use of GCS is slightly more re-strictive than the original formulation of Marcucci et al. (2024b), where constraints may be attached more gener-ally to vertices and edges. A path on G is an ordered sequence of vertices π =
+
+⟨v1, v 2, . . . , v l⟩ where ( vi−1, v i) ∈ E for all i = 2 , . . . , l .Unless otherwise stated, we consider simple paths, i.e., paths without repeated vertices. A trajectory associated with π is a continuous curve obtained by concatenating local trajectory segments inside the convex sets along π.
+
+3.2 Motion Planning on GCSs 
+
+Given a start state xs and a goal state xg , motion plan-ning on a GCS G = (V, E, X ) asks for a trajectory from xs to xg . Since the start and goal states may lie in multiple convex sets, we introduce auxiliary source and target vertices vs and vg , with Xvs = {xs} and 
+
+Xvg = {xg }, connected to all start- and goal-containing vertices, respectively, and use these auxiliary vertices as the unique endpoints of the graph path. We introduce two sets of variables. The binary edge-selection variables Φ = {ϕe}e∈E parameterize a path πΦ, where ϕe = 1 if v1
+
+v2
+
+v3
+
+v4
+
+v5
+
+v6  
+
+> Discrete Graph G= ( V; E )
+
+Xv1
+
+Xv2
+
+Xv3
+
+Xv4
+
+Xv5
+
+Xv6    
+
+> GCS G= ( V; E; X)
+
+xs = xv1
+
+yv5 = xg
+
+Figure 2: A motion planning problem on a GCS, where each vertex denotes a collision-free convex set and a fea-sible solution reconstructs a continuous piecewise-linear trajectory from xs to xg along a selected graph path. and only if edge e is selected by the path πΦ. The contin-uous variables xv , yv ∈ Xv represent the entry and exit states of the local trajectory segment inside Xv . For each vertex v ∈ V , let ℓv (xv , yv ) denote a given local cost as-sociated with vertex v. The motion planning problem on GCS can be written as: min 
+
+> Φ,x,y
+
+X
+
+> v∈πΦ
+
+ℓv (xv , yv ) (1a) 
+
+s.t. πΦ = ⟨vs, . . . , v g ⟩ ∈ P (vs, v g ; G), (1b) 
+
+xv , yv ∈ Xv , ∀v ∈ πΦ, (1c) 
+
+xv = yu, ∀(u, v ) ∈ E(πΦ), (1d) 
+
+xvs = xs and yvg = xg , (1e) where P(vs, v g ; G) denotes the set of simple paths in G
+
+that start from vs and end at vg .The objective in Eqn. (1a) sums the local costs of the trajectory segments xv → yv along the selected path. Eqn. (1b) enforces that the selected edges form a valid simple path from the auxiliary source vertex to the aux-iliary target vertex. This path constraint can be encoded using standard flow-conservation and degree constraints for routing problems (Miller et al., 1960; Bertsimas and Tsitsiklis, 1997), yielding a Mixed-Integer Convex Pro-gram (MICP). Eqn. (1c) enforces that each local segment lies inside the corresponding convex set. Since Xv is con-vex, the straight-line segment ( xv , yv ) is collision-free. Eqn. (1d) enforces continuity between consecutive local segments for every selected edge. Eqn. (1e) enforces the trajectory starts from and ends at the given start state and goal state, respectively. As illustrated in Fig. 2, a feasible solution reconstructs a continuous, collision-free, piecewise-linear trajectory from xs to xg by chaining the local segments xv → yv
+
+along v ∈ πΦ. The above formulation focuses on kine-matic feasibility, which aligns with the standard conven-tion in the literature. Differential or kinodynamic con-straints can be incorporated by augmenting the state space and adding suitable constraints, such as in Mar-cucci et al. (2023). The formulation can also be adapted to a convex start set Xs or a convex goal set Xg by 4replacing the point constraints in Eqn. (1e) with set-membership constraints. 
+
+3.3 Path-Conditioned Optimization 
+
+Solving Eqns. (1a–1e) directly as an MICP can be com-putationally expensive (Marcucci et al., 2024b). A useful subproblem is obtained by fixing the graph path and op-timizing only the continuous variables along that path. This operation is commonly referred to as convex restric-tion (Diamond et al., 2018) and is used as a subroutine in several search-based solvers for graph optimization prob-lems on GCSs (Marcucci, 2024; Natarajan et al., 2024; Tang and Ma, 2026). Given a path π = ⟨v1, v 2, . . . , v l⟩ on G, we say that a trajectory τ is conditioned on π if it is represented by an ordered sequence τ = ⟨(xvi , yvi )⟩li=1 of entry and exit states, where xvi , yvi ∈ Xvi with continuity enforced between consecutive sets. Conditioning on a path π fixes the binary variables Φ so that πΦ = π. The remaining optimization is the convex program over the continuous entry and exit states, given as follows: min 
+
+> x,y
+> l
+
+X
+
+> i=1
+
+ℓvi (xvi , yvi ) (2a) 
+
+s.t. xvi , yvi ∈ Xvi , i = 1 , . . . , l, (2b) 
+
+xvi = yvi−1 , i = 2 , . . . , l, (2c) 
+
+xv1 = xs and yvl = xg . (2d) This is a convex program that off-the-shelf optimizers can efficiently solve whenever the local costs and set con-straints are convex. If feasible, its solution defines the optimal trajectory conditioned on the fixed path π. For example, in Fig. 2, fixing π = ⟨v1, v 2, v 3, v 4, v 5⟩ removes the discrete path-selection variables and optimizes only the entry and exit state variables along that path. 
+
+## 4 Spatiotemporal Planning on ST-GCSs 
+
+This section extends the GCS formulation in Sec. 3 to spatiotemporal motion planning. The key concept is a Graph of Space-Time Convex Sets (ST-GCS), where each convex set lies in the joint space of position and time. Planning on an ST-GCS allows dynamic-obstacle avoidance, variable arrival times, velocity limits, and time optimality to be handled within a unified graph-optimization problem. 
+
+4.1 Problem Formulation 
+
+Let G = (V, E, X ) denote an input ST-GCS, where 
+
+X = {Xv }v∈V is a collection of space-time convex sets. Each vertex v ∈ V corresponds to a space-time convex set Xv ⊂ Rm+1 that is collision-free from both static and dynamic obstacles. Each edge ( u, v ) ∈ E indicates that 
+
+Xu ∩ Xv̸ = ∅. As shown in Fig. 3, an ST-GCS can be Xv1  
+
+> Xv2
+> Xv3
+> Xv4
+> Xv5
+> Xv6
+> x
+> y
+> xy
+> tmax
+> t
+> 0
+> pg
+> xs
+> xg
+> 2D Spatial GCS 3D ST-GCS
+
+Figure 3: A 3D ST-GCS (right) constructed by extrud-ing each set of a 2D spatial GCS (left) along the time dimension t ∈ [0 , t max ]. A feasible trajectory is planned from the start state xs to the goal position pg , with the dashed vertical line indicating the possible goal states 
+
+xg = ( pg , t ) across time. initialized by extruding each given spatial collision-free convex set from time 0 to an arbitrarily large but finite time limit tmax . In addition, the ECD scheme introduced in Sec. 6 can further remove the space-time occupancies of dynamic obstacles or previously planned robots, po-tentially subdividing the extruded sets. Let x = ( p, t ) ∈ Rm+1 denote a space-time state, where x.p ∈ Rm is the spatial position and x.t ∈ R
+
+is the time. Within each space-time convex set Xv , the local trajectory segment xv → yv is linear in space-time, that is, traversed at a uniform speed but may vary across different sets. For each v, we let ∆ tv = yv .t − xv .t and ∆pv = yv .p − xv .p denote the elapsed time and spatial displacement of the segment within Xv , respectively. For each query, we consider a start space-time state 
+
+xs and a goal spatial position pg , with an unconstrained arrival time. To avoid treating multiple start- or goal-containing vertices specially, we augment G with a single auxiliary start vertex vs and a single auxiliary goal vertex 
+
+vg (Bertsimas and Tsitsiklis, 1997). In this work, we consider a single start state point xs and define: 
+
+Xvs = {xs}.
+
+More generally, Xvs can be any convex set of admissible start states. The auxiliary goal set contains all admissi-ble goal states induced by pg . In this work, by conven-tion, a solution must also allow the robot to remain at 
+
+pg after arrival until the time limit tmax . We therefore define the auxiliary goal set by 
+
+Xvg =
+
+n
+
+(pg , t ) 0 ≤ t ≤ tmax and (pg , t ′) ∈ [
+
+> v∈V
+
+Xv for all t′ ∈ [t, t max ]
+
+o
+
+.
+
+Thus, membership in Xvg certifies that the robot reaches 
+
+pg at a time from which it can safely remain there until tmax through the space-time collision-free region S 
+
+> v∈V
+
+Xv represented by G. If the query instead speci-fies a full goal state, or only requires reaching pg without 5v1  
+
+> v2
+> v3v4
+> v7
+> v8
+> v5
+> v6
+> vsvg
+> time
+
+Xv3
+
+Xv4
+
+Xv7
+
+Xv1
+
+Xv2
+
+Xv8
+
+Xv5
+
+Xv6
+
+Xv2xs
+
+pg
+
+> tmax
+
+Figure 4: A query-augmented 2D ST-GCS with auxil-iary start vs and goal vg . Input-graph edges are solid while augmented edges are dashed. Vertices v1 and v8
+
+are adjacent to vs because their sets contain xs. Vertices 
+
+v5 and v6 are adjacent to vg because their sets intersect 
+
+Xvg , the set of goal states from which the robot can re-main at pg until tmax . If the robot is only required to reach pg , then v2 is also adjacent to vg .remaining there, the definition of Xvg can be modified directly while the rest of the formulation remains un-changed. We define the query-augmented ST-GCS as 
+
+G♯ = (V ♯, E ♯, X ♯), where V ♯ = V ∪ { vs, v g }, X ♯ =
+
+X ∪ { Xvs , X vg }, and E♯ = {(u, v ) | u, v ∈ V ♯, u ̸ =
+
+v, X u ∩ Xv̸ = ∅} . We denote this construction by (G♯, v s, v g ) = QueryAugment (G, xs, pg ). Fig. 4 illus-trates a query-augmented ST-GCS. Given a component-wise velocity bound vlim ∈ Rm>0,the time-optimal spatiotemporal planning problem on the query-augmented ST-GCS G♯ is written as: min  
+
+> Φ,x,y
+
+c(τ ) = X
+
+> v∈πΦ
+
+∆tv (3a) 
+
+s.t. πΦ ∈ P (vs, v g ; G♯), (3b) 
+
+xv , yv ∈ Xv , ∀v ∈ πΦ, (3c) 
+
+xv = yu, ∀(u, v ) ∈ E♯(πΦ), (3d) ∆tv ≥ 0, ∀v ∈ πΦ, (3e) 
+
+− vlim ∆tv ⪯ ∆pv ⪯ vlim ∆tv , ∀v ∈ πΦ. (3f) Eqn. (3a) minimizes the time cost c(τ ), defined as the total elapsed time of trajectory τ reconstructed from the selected path πΦ and continuous variables. Eqns. (3b– 3d) folllow the graph topology, set membership, and continuity constraints from Eqns. (1b–1d), specialized to the query-augmented ST-GCS G♯. Eqn. (3e) en-forces time monotonicity within each selected convex set. Eqn. (3f) imposes component-wise velocity limits by bounding spatial displacement over elapsed time within each selected convex set. The auxiliary start and goal vertices encode the query through set membership and graph connectivity. Since Xvs = {xs}, the trajectory starts at xs. Since Xvg contains only states with spatial position pg , any feasible path ending at vg reaches the goal position. Under the goal-staying convention, mem-bership in Xvg further guarantees that the robot can re-main at pg until tmax . As illustrated in Fig. 3, a feasible solution reconstructs a continuous, space-time collision-free, piecewise-linear trajectory τ from xs to some goal state xg = ( pg , ·). 
+
+4.2 Optimization-Based Solving 
+
+The formulation above can be solved as an MICP. The binary variables select a sequence of space-time convex sets, while the continuous variables optimize the entry and exit states within the selected sets. Time mono-tonicity, velocity limits, and continuity between consecu-tive local trajectory segments constrain these continuous states. Following Tang et al. (2025), we use two optimization-based variants as baselines in our experiments. The first, denoted by MICP, solves the mixed-integer program di-rectly. The second, denoted by MICP(g), solves the continuous relaxation and then applies stochastic path rounding multiple times. Once a graph path is fixed, the remaining trajectory optimization is path-conditioned, as described in Sec. 3.3. 
+
+## 5 Graph Search on ST-GCSs 
+
+This section presents the search-based solver for spa-tiotemporal planning on ST-GCSs. We first define the path-indexed search space and explain why vertex-indexed shortest-path search is insufficient. We then justify excluding set revisitation under the piecewise-linear trajectory representation. Finally, we describe the best-first search solver, which repeatedly solves path-conditioned convex programs, uses admissible heuristics for guidance, and applies upper-bound pruning and dom-inance checks for pruning the search tree. 
+
+5.1 Search Space 
+
+In standard cost-minimal-path search on a discrete graph, such as A ∗ search (Russell and Norvig, 2020), a search state is typically identified by the current ver-tex. This is valid because the graph has a vertex-level optimal substructure. Once the minimum cost-to-come to a vertex v is known, any more expensive prefix ending at v can be discarded, since all future costs depend only on v and the remaining path. This vertex-level optimal substructure does not gener-ally hold for motion planning on GCSs or ST-GCSs. The cost of a path is not the sum of fixed edge costs. Instead, once a vertex sequence is chosen, the continuous trajec-tory variables along the entire sequence are optimized jointly. Consequently, when a prefix path π = ⟨vs, . . . , v ⟩
+
+is extended to π′ = ⟨vs, . . . , v, w ⟩, the optimal continu-ous states along the earlier part of the path, including the state at v, may change. Thus, the optimal trajectory conditioned on π′ is not obtained by simply appending a locally optimal transition from v to w to the optimal trajectory conditioned on π. A prefix that is more ex-pensive when considered only up to v may still result in a lower-cost full trajectory after extension. Thus, search nodes for planning on ST-GCSs must be indexed by the full prefix path, rather than only by the 6arrival vertex. Let Π denote the set of partial vertex paths on the query-augmented G♯ that start from the auxiliary start vertex vs. As justified in Sec. 5.2, we restrict Π to paths that do not revisit a vertex. 
+
+Definition 1 (Path-Indexed Search Node). A search node, identified by its prefix path, is a record 
+
+N = ( π, v, τ, g, f ),
+
+where N.π ∈ Π is the prefix path, N.v is the last vertex of 
+
+N.π , N.τ is the optimal trajectory conditioned on N.π ,
+
+N.g = c(N.τ ) is the cost-to-come, and N.f = N.g +
+
+ϵ · h(N.π ) is the search key. For convenience, let N. x
+
+and N. y denote the entry and exit states of the terminal segment of N.τ in XN.v , respectively. The fields N.τ , N.g , N. x, and N. y are computed by solving the path-conditioned convex program for N.π , as defined in Sec. 3.3 and specialized to the ST-GCS formu-lation in Sec. 4.1. The states N. x and N. y are not part of the search-node identity; they are stored only as wit-nesses from the optimized trajectory conditioned on N.π .Since the terminal segment has no successor-continuity constraint, time-minimization implies xN.v = yN.v in an optimal solution. Therefore, N. x can be viewed as the stored witness state at N.v . If N.v = vg , membership in Xvg ensures that N.τ is a solution trajectory. If the path-conditioned program is infeasible, no search node is created for N.π . Here ϵ ≥ 1 is a heuristic inflation factor, and h : Π → R≥0 is an admissible heuristic as defined in Definition 3. 
+
+Definition 2 (Prefix-Consistency and Prefix-Condi-tioned Solution Cost). For a generated search node 
+
+N , a solution trajectory ¯ τ is N.π -consistent if its ver-tex path has N.π as a prefix. Let Tsol (N.π ) denote the set of all N.π -consistent solution trajectories. The 
+
+prefix-conditioned optimal solution cost is J∗(N.π ) =inf ¯τ ∈T sol (N.π ) c(¯ τ ), with J∗(N.π ) = + ∞ if Tsol (N.π ) = ∅.
+
+Definition 3 (Admissible Heuristic). A heuristic h :Π → R≥0 is admissible if, for every generated search node N , N.g + h(N.π ) ≤ J∗(N.π ), and h(N.π ) = 0 when N.v = vg . Equivalently, h(N.π ) lower-bounds the 
+
+optimal remaining solution cost J∗(N.π ) − N.g from its prefix N.π , and this remaining cost is zero if N.v = vg .
+
+5.2 Set Transition and Revisitation Exclusion 
+
+The candidate graph transition follows the topology of the query-augmented ST-GCS G♯. For a vertex v, let Adj( v) = {w ∈ V ♯ | (v, w ) ∈ E♯}
+
+denote its adjacent vertices. By construction of G♯, w ∈
+
+Adj( v) implies Xv ∩Xw̸ = ∅. The temporal direction and velocity feasibility of an extended path are not imposed at the graph-transition level, but are instead enforced by the path-conditioned convex program. Unlike a monolithic GCS optimization, which needs additional machinery to explicitly allow repeated visits to the same convex set, graph search can naturally rep-resent such paths by allowing the same vertex to ap-pear multiple times in a prefix path. However, for the piecewise-linear trajectory representation and time-cost objective as described in Sec. 4.1, such set revisitation is unnecessary. Intuitively, if a trajectory enters the same convex set more than once, then the portion between the first entry and the later exit can be replaced by a single line segment inside that set with no higher cost. 
+
+Lemma 1. Consider a feasible trajectory conditioned on a vertex path π = ⟨v1, . . . , v i, . . . , v j , . . . , v l⟩ on an ST-GCS, where vi = vj = v for some i < j . Un-der the piecewise-linear trajectory representation and the time-cost objective in Eqn. (3a), there exists a feasi-ble trajectory conditioned on the shortened path π′ =
+
+⟨v1, . . . , v i, v j+1 , . . . , v l⟩, where the suffix ⟨vj+1 , . . . , v l⟩ is omitted when j = l, with no higher cost. 
+
+Proof. : Let the feasible trajectory conditioned on π
+
+have entry and exit states ( xk, yk) for the k-th vertex occurrence, where xk, yk ∈ Xvk , and continuity gives 
+
+yk = xk+1 for k = 1 , . . . , l − 1. Since vi = vj , both xi
+
+and yj lie in the same convex set Xvi . Hence the straight shortcut segment xi → yj lies entirely in Xvi .It remains to check time monotonicity and velocity feasibility for this shortcut segment. For each original segment k = i, . . . , j , let ∆ tk = yk.t − xk.t and ∆ pk =
+
+yk.p − xk.p. Feasibility of the original trajectory gives ∆tk ≥ 0 and −vlim ∆tk ⪯ ∆pk ⪯ vlim ∆tk for all k =
+
+i, . . . , j . Summing these inequalities gives 
+
+−vlim 
+
+> j
+
+X
+
+> k=i
+
+∆tk ⪯
+
+> j
+
+X
+
+> k=i
+
+∆pk ⪯ vlim 
+
+> j
+
+X
+
+> k=i
+
+∆tk.
+
+By continuity, the sums are 
+
+> j
+
+X
+
+> k=i
+
+∆tk = yj .t − xi.t, 
+
+> j
+
+X
+
+> k=i
+
+∆pk = yj .p − xi.p.
+
+Thus, the shortcut segment xi → yj satisfies the same time-monotonicity and velocity constraints. Replacing the portion of the trajectory τ from xi to 
+
+yj by this shortcut yields a feasible trajectory on π′,while preserving continuity with the preceding segment and, if j < l, the following segment. Its time cost 
+
+yj .t −xi.t = Pjk=i ∆tk is equal to the time cost of the re-moved portion. Thus, the shortened path has a feasible trajectory with no larger cost. Repeating this shortcut operation removes all repeated vertices. ■
+
+Lemma 1 shows that set revisitation is not needed for time optimality under this trajectory representation and cost objective. Thus, it is sufficient to search over simple partial vertex paths without cycles. In Alg. 1, candidate successors are generated from Adj( N.v ), and successors already appearing in N.π are skipped. 7Algorithm 1: Best-First Search on an ST-GCS 
+
+Input : ST-GCS G = ( V, E, X ), query ( xs, pg )
+
+Param : admissible heuristic h, inflation factor 
+
+ϵ ≥ 1, valid incumbent pair (cub , τ ub ) ← (+ ∞, ∅), dominance check 
+
+δ ← δ∅
+
+Output: solution trajectory if one exists  
+
+> 1
+
+(G♯, v s, v g ) ← QueryAugment (G, xs, pg ) 
+
+> 2
+
+τr ← zero length trajectory at xs 
+
+> 3
+
+Nr = ( ⟨vs⟩, v s, τ r , 0, ϵ · h (⟨vs⟩))  
+
+> 4
+
+OPEN ← [Nr ] ▷ min-heap prioritized by N.f  
+
+> 5
+
+initialize S(v) ← ∅ for each vertex v ∈ V ♯ 
+
+> 6
+
+S(vs) ← { Nr } 
+
+> 7
+
+while OPEN ̸ = ∅ do  
+
+> 8
+
+N ← OPEN.pop()  
+
+> 9
+
+if N.v = vg then  
+
+> 10
+
+return N.τ  
+
+> 11
+
+foreach w ∈ Adj( N.v ) with w / ∈ N.π do  
+
+> 12
+
+π ← N.π ⊕ ⟨ w⟩ 
+
+> 13
+
+(τ, g ) ← PathOptimize (G♯, π ) 
+
+> 14
+
+if τ is feasible then  
+
+> 15
+
+Nchild ← (π, w, τ, g, g + ϵ · h(π))  
+
+> 16
+
+if Nchild .f < c ub and not δ(Nchild , S (w)) 
+
+then  
+
+> 17
+
+Update S(w) with Nchild  
+
+> 18
+
+OPEN.add( Nchild ) 
+
+> 19
+
+if τub ̸ = ∅ then  
+
+> 20
+
+return τub and “no better solution found ” 
+
+> 21
+
+else  
+
+> 22
+
+return “no solution found ”;  
+
+> 23
+
+Function PathOptimize( G♯, π): 
+
+> 24
+
+construct the path-conditioned convex program by fixing πΦ = π in Eqns. (3a–3f)  
+
+> 25
+
+solve the resulting convex program  
+
+> 26
+
+return the optimal trajectory τ conditioned on π
+
+and its cost g = c(τ ), or report infeasibility 
+
+5.3 Best-First Search (BFS) Solver 
+
+We now present the BFS solver for spatiotemporal plan-ning on ST-GCSs. Given an input ST-GCS G =(V, E, X ) and a query ( xs, pg ), the solver first applies 
+
+QueryAugment to construct the query-augmented ST-GCS G♯ = ( V ♯, E ♯, X ♯) from Sec. 4.1. It then searches over path-indexed nodes and returns a solution trajec-tory if one is found. Optionally, it can take a feasible incumbent trajectory τub with cost cub ; if the search ex-hausts OPEN without finding a better trajectory, this incumbent is returned. The optimality guarantee de-pends on the heuristic inflation factor, the validity of the incumbent upper bound, and whether the selected dominance check is safe. Alg. 1 summarizes the procedure. The solver creates the root node Nr corresponding to the trivial path ⟨vs⟩,inserts into OPEN, and stores it in S(vs) (Lines 2–5). The map S defined by S(v) = {N | N.v = v} records the accepted search nodes that arrive at each vertex v.These stored nodes are used by dominance checks. At each iteration, the solver expands the node N with the smallest f -value in OPEN (Lines 7–8). If N.v = vg , the stored trajectory N.τ is returned as a solution (Lines 9– 10). Otherwise, the solver expands N by considering each adjacent vertex w of N.v that does not already appear in N.π (Lines 11–18). For each extended path 
+
+π = N.π ⊕ ⟨ w⟩, the solver calls PathOptimize to solve the corresponding path-conditioned convex program. If the program is feasible, a child node is created (Lines 13– 15). The child node is discarded if its key is no smaller than the input cost upper bound cub , or if the domi-nance check δ certifies that it is dominated by accepted nodes in S(w). Otherwise, the child node is inserted into both S(w) and OPEN, and previously accepted nodes in 
+
+S(w) that are dominated by the child node are removed (Lines 15–18). If OPEN becomes empty, the solver re-turns the incumbent trajectory τub if one was provided; otherwise, it reports failure (Lines 20–22). 
+
+5.3.1 Upper-Bound Pruning with cub 
+
+Alg. 1 uses an optional input cost upper bound cub to avoid exploring nodes that cannot improve the current incumbent, inspired by the spatial GCS search (Natara-jan et al., 2024). If no incumbent is available, it uses 
+
+cub = + ∞ and τub = ∅. If cub < +∞, it must be paired with a corresponding feasible incumbent trajectory τub 
+
+for the same query, with c(τub ) = cub . This ensures that, if all remaining nodes are pruned by the upper-bound test, the solver can still return a valid trajectory. We obtain τub using a fast vertex-indexed best-first search on the same query-augmented ST-GCS G♯. This auxiliary search still generates graph paths and calls 
+
+PathOptimize to validate each path and compute its trajectory, but it applies the standard duplicate-pruning rule from graph search. For each arrival vertex, it keeps only the lowest-cost node found so far and discards later nodes arriving at the same vertex with no smaller cost. As discussed in Sec. 5.1, this vertex-indexed pruning is not sound for optimal planning on ST-GCSs, as future costs depend on the entire prefix path. We therefore use this auxiliary search only to obtain a feasible incum-bent. If it reaches vg , the returned trajectory is feasible because it is produced by PathOptimize , and its cost provides a valid cub for Alg. 1. 
+
+5.3.2 Pruning with Dominance Checks δ
+
+We now define the dominance relation used by the op-tional check δ on Line 16 of Alg. 1. Since search nodes are path-indexed, dominance is defined through the path-conditioned optimal solution cost J∗(·) (Defi-nition 2). Consider two search nodes N and N ′ with the same arrival vertex v. We say that N ′ dominates N if 8J∗(N ′.π ) ≤ J∗(N.π ). A dominance check δ(N, S (N.v )) is safe if it returns true only when there exists a retained node N ′ ∈ S(N.v ) that dominates N . Safe checks are sufficient but may be conservative. They need not de-tect all dominated nodes, and they only compare nodes pairwise rather than detecting whether a set of nodes jointly dominate another node. In contrast, heuristic 
+
+dominance checks may prune without certifying this re-lation and therefore do not by themselves preserve the theoretical guarantee. 
+
+5.3.3 Optimality with Safe Pruning 
+
+The following theorem states the optimality guarantee for Alg. 1 when the pruning operations used on Line 16 are safe. 
+
+Theorem 2 (ϵ-Optimality). For any ϵ ≥ 1, with an admissible heuristic h, a valid incumbent pair (cub , τ ub ),and a safe dominance check, Alg. 1 returns an ϵ-optimal trajectory for the query on the input ST-GCS whenever a feasible trajectory exists. In particular, when ϵ = 1 ,the returned trajectory is cost-optimal. 
+
+Proof. : Let c∗ be the optimal trajectory cost. Be-cause the graph is finite and Lemma 1 lets us restrict attention to simple prefixes, the search space is finite. If τub ̸ = ∅ and cub ≤ ϵc ∗, returning τub is already ϵ-optimal. Any goal returned before the incumbent has passed the upper-bound test, so its key, and hence its cost, is smaller than cub ≤ ϵc ∗. Thus, it remains to consider the complementary case. Either no incumbent is available or cub > ϵc ∗. In both cases, upper-bound pruning keeps every node with key at most ϵc ∗.We maintain the following invariant: until termi-nation, OPEN contains a representative node N with 
+
+J∗(N.π ) = c∗ and N.f ≤ ϵc ∗. Initially this holds for the root because ⟨vs⟩ prefixes every feasible trajectory and admissibility gives Nr .f = ϵh (⟨vs⟩) ≤ ϵc ∗. If OPEN expands a non-representative node, the representative remains in OPEN unless the expanded node is a goal; in that case the minimum-key rule and h = 0 imply that the returned trajectory has cost at most ϵc ∗.It remains to show that the invariant is preserved when a representative node N is expanded. If N.v = vg , then 
+
+N.τ is an optimal solution. Otherwise, take an optimal 
+
+N.π -consistent solution of cost c∗, and let w be its next vertex, giving the feasible prefix π′ = N.π ⊕ ⟨ w⟩. Then 
+
+PathOptimize creates a child M with M.π = π′ and 
+
+J∗(M.π ) = c∗. By admissibility, we have 
+
+M.f = M.g + ϵh (M.π )
+
+≤ M.g + ϵ(c∗ − M.g ) = ϵc ∗ − (ϵ − 1) M.g ≤ ϵc ∗.
+
+By the case assumption above, upper-bound pruning keeps M . If M is inserted into OPEN, the invariant follows. If M is pruned by a safe dominance check, some 
+
+M ′ ∈ S(w) satisfies J∗(M ′.π ) ≤ J∗(M.π ) = c∗. Opti-mality of c∗ gives J∗(M ′.π ) = c∗, and the same admis-sibility argument gives M ′.f ≤ ϵc ∗. Thus M ′ is a valid representative if it is in OPEN; if it has already been expanded, the same argument applied at its expansion transfers the representative to an OPEN descendant or to a retained node safely dominating such a descendant. Likewise, if a retained representative is later removed from S(w), safety implies that the newly accepted node has J∗ = c∗ and key at most ϵc ∗. Safe dominance prun-ing therefore transfers, but never eliminates, all repre-sentatives before termination. The incumbent-return case was handled above. In the complementary case, the invariant prevents OPEN from becoming empty before termination, so Alg. 1 must re-turn a goal node Ng expanded from OPEN. The invari-ant and the minimum-key rule give Ng .f ≤ ϵc ∗; since 
+
+h(Ng .π ) = 0, c(Ng .τ ) = Ng .g = Ng .f ≤ ϵc ∗. Setting 
+
+ϵ = 1 gives cost optimality. ■
+
+5.4 Pairwise Dominance Checks 
+
+We now present three pairwise dominance checks as the optional check δ used in Alg. 1. Throughout this subsec-tion, let N be a newly generated node and N ′ ∈ S(N.v )be a retained node with the same arrival vertex v =
+
+N.v = N ′.v . The trivial case is v = vg , where both nodes already represent solution trajectories, and exact dominance reduces to directly comparing their trajec-tory costs. The checks below are therefore described for non-goal vertices v̸ = vg . Each check compares N only with each retained node N ′, rather than testing whether several retained nodes jointly dominate N . This pair-wise restriction affects pruning power but not correctness when the check is safe. Recall from Sec. 5.3.2 that N ′ dominates N if 
+
+J∗(N ′.π ) ≤ J∗(N.π ). A dominance check is safe if it returns true only when this dominance relation is guar-anteed to hold for some N ′ ∈ S(N.v ). Among the three checks below, δset is safe, while δstate and δpos are heuris-tic checks that trade optimality guarantees for stronger empirical pruning. 
+
+5.4.1 Safe Set-Containment Check δset 
+
+The set-containment check δset certifies dominance by showing that N ′ can reach every state that an N.π -consistent trajectory may reach after entering the shared vertex v. Let N.π = ⟨vs, . . . , u, v ⟩ and define the arrival set 
+
+RN = Xu ∩ Xv ∩ { x | x.t ≥ N. x.t }. (4) The set RN contains all states that any N.π -consistent solution trajectory may use to enter v. Continuity (Eqn. (1d)) requires membership in the predecessor in-terface Xu ∩ Xv , and N. x.t is the earliest arrival time achieved by the path-conditioned optimum for N.π . For 90 2 4               
+
+> 0
+> 2
+> 4time
+> N0:x
+> N: x
+> Xv
+> Xz
+> Xu
+> 024
+> N0:x
+> N: x
+> x¤
+> Xv
+> Xz
+> Xu
+> 024
+> p1p2
+> N: x
+> x¤
+> N0:x
+> x1
+> x2
+> Xv
+> Xz
+> Xu
+
+Figure 5: Comparison of dominance checks on a 2D ST-GCS. A node N reaches Xv from Xu, while a retained node N ′ ∈ S(v) reaches Xv from Xz . In the left panel, 
+
+δstate prunes N because C(N. x) ⊆ C(N ′.x). In the mid-dle panel, δset tests all states in RN (hatched region; Eqn. (4)) and keeps N because ∃x∗ ∈ RN such that 
+
+C(x∗)̸ ⊆ C(N ′.x). In the right panel, δpos compares ar-rival times at sampled spatial positions p1 and p2; it prunes N if x∗.p is sampled since x1.t > x∗.t , but keeps 
+
+N if N ′.x.p is sampled since x2.t > N ′.x.t .a space-time state x, define its forward reachable gener-alized cone under the velocity limits by 
+
+C(x) = {z ∈ Rm+1 | z.t ≥ x.t, 
+
+− vlim (z.t − x.t ) ⪯ z.p − x.p ⪯ vlim (z.t − x.t )}.
+
+Thus, C(x) contains all states reachable from x by a sin-gle time-forward segment satisfying the velocity bounds. Then δset is defined by 
+
+δset (N, S ) ≡ ∃ N ′ ∈ S(N.v ),
+
+s.t. ∀ x ∈ RN , C (x) ⊆ C(N ′.x). (5) In implementation, since RN is convex, it is sufficient to check whether every corner of RN lies in C(N ′.x) by transitivity of the cone reachability relation under the same velocity limits. 
+
+Lemma 3 (Safety of δset ). If δset (N, S (N.v )) is true, then N is dominated by a retained node N ′ ∈ S(N.v ).
+
+Proof. : Let N ′ ∈ S(N.v ) satisfy Eqn. (5). Consider any N.π -consistent solution trajectory ¯ τ . Let x and y
+
+be the states where ¯ τ enters and exits XN.v , respectively. By construction, x ∈ RN . Moreover, the segment x → y
+
+is part of ¯ τ within XN.v , so y ∈ C(x). Eqn. (5) gives 
+
+C(x) ⊆ C(N ′.x), and therefore y ∈ C(N ′.x). Since 
+
+N ′.x, y ∈ XN.v , the straight segment N ′.x → y remains in XN.v and satisfies the time-monotonicity and veloc-ity constraints. Replacing the zero-duration terminal segment of N ′.τ with this segment, and then concate-nating the suffix of ¯ τ after y, yields a solution trajec-tory with the same time cost as ¯ τ . Since this holds for every N.π -consistent solution trajectory, we have 
+
+J∗(N ′.π ) ≤ J∗(N.π ). Thus, N ′ dominates N . ■
+
+5.4.2 Heuristic Arrival-State-Containment Check δstate 
+
+The arrival-state-containment check δstate approximates 
+
+δset by testing only the stored witness state N. x, rather than all states in RN . Then δstate is defined by 
+
+δstate (N, S ) ≡ ∃ N ′ ∈ S(N.v ),
+
+s.t. C(N. x) ⊆ C(N ′.x).
+
+This check is cheaper than δset because it only compares two cones. It is heuristic since N. x is only the stored witness state of the prefix-optimal trajectory for N.π ,while an optimal N.π -consistent solution trajectory may use a different state to enter XN.v .
+
+5.4.3 Heuristic Position-Based Dominance Check δpos 
+
+The set-containment check δset can be expensive because it reasons over all states in RN . A cheaper alternative is to compare two prefixes only at a sampled spatial posi-tion p ∈ { x.p | x ∈ XN.v }. For a generated search node 
+
+N , let Jp(N.π ) denote the cost of the optimal trajectory conditioned on N.π whose terminal state in Xv has spa-tial position p, with Jp(π) = + ∞ if no such trajectory exists. Then δpos is defined by 
+
+δpos (N, S ) ≡ ∃ N ′ ∈ S(N.v ),
+
+s.t. Jp(N ′.π ) ≤ Jp(N.π ).
+
+This check can be strengthened by using multiple sam-pled positions. In the limiting case of covering all rel-evant positions in XN.v , it can certify a safe pairwise dominance relation between N and a retained node N ′.One can further extend the idea to certify joint domi-nance by allowing different retained nodes in S(N.v ) to dominate N at different positions. These extensions are more expensive. Experimentally, we use only one sam-pled position, so δpos remains heuristic. 
+
+5.4.4 Comparison and Use with Upper-Bound Pruning 
+
+Fig. 5 illustrates the difference between the three pair-wise dominance checks. The δ = δset check reasons over all relevant states in RN , δstate only compares the stored witness states, and δpos compares the prefixes at sampled spatial positions. In our implementation, upper-bound pruning is applied before one of these dominance checks. When the input δ = δ∅ or δ = δset , the guarantee in The-orem 2 applies. When δstate or δpos is used, the solver be-comes heuristic and can run substantially faster, but the pruning no longer preserves the optimality guarantee. Combining upper-bound pruning with heuristic domi-nance checks is empirically effective but can make the search more likely to return the incumbent trajectory. The heuristic checks may remove nodes that would oth-erwise lead to a feasible solution, while the upper-bound test further restricts the search to trajectories with cost strictly below cub . Thus, a solution that the heuristic search might find without upper-bound pruning can be discarded if it is no better than the incumbent. In that case, Alg. 1 falls back to the stored incumbent trajec-tory τub . Among the two heuristic checks, δpos is usu-ally more aggressive because it compares prefixes only 10 (v0; )           
+
+> N: ¼ = ( v0; v 1)
+> (v0; v 3)
+> N0: ¼ = ( v0; v 1; v 2)
+> (v0; v 1; v 3)
+> 012345
+> 0
+> 1
+> 2
+> 3
+> time
+> Xv3
+> Xv0
+> Xv1Xv2
+> pg
+> N: xx0
+> xg
+> x0
+> g
+> xs
+
+Figure 6: Inadmissibility of a point-to-go heuristic for a search node N . In the left panel, the search tree con-tains N and its child N ′. In the right panel, although N
+
+stores the stored witness state N. x ∈ Xv1 , expanding to 
+
+N ′ re-optimizes the full path and instead passes through 
+
+x′ ∈ Xv1 before reaching the goal. Thus, even a valid lower bound (red dashed) from N. x to the goal can over-estimate the optimal remaining solution cost from N.π .through sampled spatial positions and may miss useful unsampled states. The check δstate is also heuristic, but remains tied to the actual stored witness states through cone containment. This makes δpos generally more sen-sitive to upper-bound pruning, while δstate tends to be more conservative in practice. 
+
+5.5 Admissible Heuristics 
+
+We now describe admissible heuristics for Alg. 1. All heuristics below are defined to be zero when N.v = vg ,since N.τ is already a solution trajectory. Thus, the definitions in this subsection focus on non-goal nodes 
+
+N.v ̸ = vg . By Definition 3, an admissible heuristic must lower-bound the optimal remaining solution cost from a prefix path N.π , rather than the cost-to-go from the stored witness state N. x alone. This distinction is im-portant because N. x is only the stored witness state of the trajectory optimized for N.π ; after extending the path, the optimal trajectory may pass through a differ-ent state in XN.v . Thus, a heuristic evaluated from N. x
+
+can overestimate the optimal remaining solution cost for the path-indexed node, as illustrated in Fig. 6. For a non-goal node N , we define the prefix interface 
+
+IN =
+
+(
+
+{xs}, if N.π = ⟨vs⟩,Xu ∩ Xv , if N.π = ⟨vs, . . . , u, v ⟩, (6) which is a useful source set for computing heuristics, as any N.π -consistent trajectory must pass through some state in IN before continuing beyond the prefix. A general way to construct admissible heuristics is to relax different subsets of constraints in the path-conditioned ST-GCS problem. The original problem en-forces graph topology, set membership, continuity be-tween adjacent sets, motion constraints, and the query-specific goal-position constraint. The three heuristics below represent different choices. The hmot heuristic keeps only the motion constraints, htri keeps local set-membership and motion constraints but relaxes continu-ity across local transitions, and htab uses precomputed true interface-to-set costs with an online correction to the query goal position. Offline precomputation can use the static environ-ment and any dynamic obstacles known before the query. Query-specific information, such as xs, pg , and vg , is in-corporated online after query augmentation. In MRMP, trajectories of previously planned robots are not known during offline preprocessing; the resulting ECD-updated ST-GCSs only remove feasible space, so lower bounds computed on the initial ST-GCS remain admissible re-laxations, as discussed later in Sec. 7. For the ST-GCS trajectory representation in Sec. 4.1, we define the following useful quantity for query-specific online computation. For a set Y of space-time states, define the velocity-only travel-time lower bound to the query goal position by 
+
+ρ(Y, pg ) = min  
+
+> x∈Y
+
+∥(pg − x.p) ⊘ vlim ∥∞
+
+with value of + ∞ if Y = ∅, where ⊘ denotes element-wise division. Since the query specifies a goal position with free arrival time, all our heuristics estimate the cost to pg rather than to a fixed goal state. 
+
+5.5.1 Motion-Only Heuristic hmot 
+
+This heuristic relaxes all the graph-topology and set-membership constraints after the prefix and keeps only the motion constraints needed to reach goal pg . In a more general setting, hmot is the minimum travel cost from some state in IN to any state with spatial position 
+
+pg , subject only to the chosen motion constraints. For our ST-GCS trajectory representation, the retained mo-tion constraints are time monotonicity and component-wise velocity limits. Therefore, hmot is defined by 
+
+hmot (N.π ) = ρ(IN , pg ).
+
+This is a lightweight online heuristic. Compared with estimating from any state in XN.v (Chia et al., 2024), using IN is stronger because it respects the predecessor– current-set interface induced by the prefix path. 
+
+Lemma 4. The heuristic hmot is admissible. 
+
+Proof. : Consider any N.π -consistent trajectory ¯ τ . Let 
+
+x ∈ IN be the state through which ¯ τ passes before con-tinuing beyond the prefix. The prefix portion of ¯ τ has cost at least N.g as N.g is the optimal cost conditioned on N.π . The remaining portion from x to pg satisfies the the velocity limits, so its cost is at least ρ({x}, pg ), and therefore at least ρ(IN , pg ). Thus, c(¯ τ ) ≥ N.g + hmot 
+
+holds for any N.π -consistent solution trajectory ¯ τ . ■
+
+11 5.5.2 Triplet-Relaxation Heuristic htri 
+
+This heuristic keeps the graph topology and local con-straints within each convex set, but relaxes continuity between consecutive local transitions. A similar idea has been used by spatial GCS solvers (Natarajan et al., 2024; Tang and Ma, 2026). For each input-graph triplet (u, v, w ) with u, v, w ∈ V and u, w adjacent to v in 
+
+G, a local lower-bound cost is precomputed for moving through Xv from the interface Xu ∩ Xv to the inter-face Xv ∩ Xw, subject to the same local set-membership and motion constraints. In our piecewise-linear instan-tiation, this cost is computed offline by a local convex program over one segment inside Xv with time mono-tonicity and velocity limits, denoted by q(u, v, w ). If no such segment exists, q(u, v, w ) = + ∞. At query time, costs of query-specific triplets induced by the aux-iliary goal vertex vg of the form q(u, v, v g ) are com-puted online by a local convex program similarly. For 
+
+N.π = ⟨. . . , u, v ⟩, let Π suf  
+
+> N
+
+denote the set of all the suf-fixes with its predecessor u, where each π ∈ Πsuf  
+
+> N
+
+is in the form of π = ⟨u, v = w0, . . . , w l = vg ⟩ ending at vg . We define htri as the minimum accumulated relaxed triplet cost over Π suf  
+
+> N
+
+by 
+
+htri (N.π ) = min 
+
+> π∈Πsuf
+> N
+
+h
+
+q(u, w 0, w 1) + 
+
+> l−1
+
+X
+
+> i=1
+
+q(wi−1, w i, w i+1 )
+
+i
+
+,
+
+where the first term is omitted if u = vs, and the summa-tion is omitted if l = 1. For the root node N.π = ⟨vs⟩,it omits the first two triplets and minimizes over the first input-graph vertex w1 after vs. The minimization is computed online as a shortest-path problem on the induced triplet graph, e.g., by Dijkstra’s algorithm (Di-jkstra, 2022). 
+
+Lemma 5. The heuristic htri is admissible. 
+
+Proof. : Fix any N.π -consistent trajectory. Its suffix induces a sequence of triplets. For each triplet, the ac-tual segment through the middle convex set is feasible for the corresponding triplet subproblem, so the triplet cost is at most the actual segment cost. Omitting query-specific start triplets only further relaxes the cost. Sum-ming these inequalities over the suffix lower bounds the optimal remaining solution cost. Since htri takes the minimum over all suffixes in the relaxed triplet graph, it is at most the remaining cost of any N.π -consistent trajectory beyond the prefix represented by N.π . ■
+
+5.5.3 Interface-to-Set Cost Table Heuristic htab 
+
+This heuristic precomputes stronger lower bounds by solving interface-to-set problems offline and storing their solution costs in a table. For any input-graph interface 
+
+I = Xu ∩ Xv with u, v ∈ V and any input-graph vertex 
+
+w ∈ V , let d(I, w ) denote the minimum trajectory cost of reaching any state in Xw from any state in I, over all 1 2 3
+
+> 1
+> 2
+> 3time
+
+Xv0
+
+Xv1
+
+Xv4
+
+Xv5
+
+Xv6 Xv7
+
+Xv9
+
+x pgx0  
+
+> 123
+
+Xv0
+
+Xv1
+
+Xv4
+
+Xv5
+
+Xv6 Xv7
+
+Xv9
+
+x pg  
+
+> 123
+
+Xv0
+
+Xv1
+
+Xv4
+
+Xv5
+
+Xv6 Xv7
+
+Xv9
+
+x pg
+
+Figure 7: Heuristic comparison for a prefix path 
+
+⟨. . . , v 0, v 1⟩ and a query goal position pg on a 2D ST-GCS. Green indicates query-specific online computation, while blue indicates offline precomputed costs. In the left panel, hmot relaxes the graph and set constraints after the prefix and computes the online motion-only cost from 
+
+Xv0 ∩ Xv1 to pg . In the middle panel, htri concatenates offline relaxed triplet costs and the online query-specific cost q(v5, v 7, v g ) along the online-computed minimum-cost suffix ⟨v1, v 4, v 5, v 7, v g ⟩. In the right panel, htab 
+
+combines the offline interface-to-set cost from Xv0 ∩ Xv1
+
+to v7 with an online correction to pg .graph paths, subject to the same graph, set-membership, continuity, and motion constraints. These values can be precomputed offline for all interfaces and all vertices by running Alg. 1 to solve the corresponding interface-to-set problems. They are query independent because they start from input-graph interfaces and end at input-graph sets. For a non-goal search node N , define the relaxed table-start value by ˆdN (vp) = 
+
+
+
+min 
+
+> v∈Adj( vs )∩Vw∈Adj( v)∩V
+
+d(Xv ∩ Xw, v p), if N.v = vs,
+
+min  
+
+> w∈Adj( N.v )∩V
+
+d(XN.v ∩ Xw, v p), if N.π = ⟨vs, N.v ⟩,d(IN , v p), otherwise .
+
+The first two cases handle query-specific start interfaces by omitting the nonnegative cost from xs to the first input-graph interface used by the cost table. For a non-goal N with N.v / ∈ Adj( vg ), we define the heuristic by 
+
+htab (N.π ) = min  
+
+> vp∈Adj( vg)∩Vu∈Adj( vp)∩V
+
+h ˆdN (vp) + ρ(Xu ∩ Xvp , pg )
+
+i
+
+.
+
+If N.v ∈ Adj( vg ), we instead set htab (N.π ) = ρ(IN , pg ). 
+
+Lemma 6. The heuristic htab is admissible. 
+
+Proof. : If N.v ∈ Adj( vg ), then htab (N.π ) = ρ(IN , pg )is admissible by the same argument as Lemma 4. Now consider N.v /∈ Adj( vg ) S{vg } and any N.π -consistent solution trajectory ¯ τ . Let vp ∈ Adj( vg ) ∩ V be the input-graph vertex through which the vertex path of ¯ τ reaches 
+
+vg , and let u ∈ Adj( vp) ∩ V be the input-graph vertex 12 preceding vp on that path. If IN is an input-graph in-terface, the portion from IN to Xvp has cost at least 
+
+d(IN , v p). If IN is query-specific because N.v = vs or 
+
+N.π = ⟨vs, N.v ⟩, then ˆdN (vp) starts from a later input-graph interface and omits only nonnegative cost needed to reach that interface, so it remains a lower bound. The final portion from Xu ∩ Xvp to pg satisfies the velocity limits and is lower-bounded by ρ(Xu ∩ Xvp , pg ). Thus, the corresponding term in the minimization defining htab 
+
+is no larger than the remaining cost of ¯ τ . Since htab min-imizes over all such pairs ( u, v p), it is also no larger than the remaining cost of ¯ τ , for any N.π -consistent solution trajectory. ■
+
+5.5.4 Comparison and Maximum Heuristic hmax 
+
+Fig. 7 illustrates the three heuristics above on an exam-ple query. They capture complementary relaxations of the optimal remaining solution cost from a prefix path. The maximum heuristic hmax combines them by taking their pointwise maximum: 
+
+hmax (N.π ) = max {hmot (N.π ), h tri (N.π ), h tab (N.π )} .
+
+This preserves the strongest available lower bound at each search node. 
+
+Lemma 7. The heuristic hmax is admissible. 
+
+Proof. : Each component heuristic is no larger than the optimal remaining solution cost from N.π by Lemmas 4, 5, and 6. The maximum of several lower bounds is still a lower bound, so hmax is admissible. ■
+
+## 6 Trajectory Occupancy Reservation 
+
+This section presents the Exact Convex Decomposition (ECD) scheme for reserving piecewise-linear trajectory occupancies in an ST-GCS. Given the spatiotemporal occupancy of a moving object, such as a robot or a dy-namic obstacle, ECD removes the occupied region from the relevant space-time convex sets and decomposes the remaining free space into convex subsets. The result-ing ST-GCS can then be used for subsequent planning queries that must avoid the reserved trajectory in space-time. 
+
+6.1 Spatiotemporal Trajectory Occupancy 
+
+We assume that each moving object, including a robot or a dynamic obstacle, is represented by a piecewise-linear center trajectory τ = ⟨x1, . . . , xl⟩ in ( m + 1)-dimensional space-time with radius r > 0. At each time, the object is centered at the position x.p of state x along τ and occupies a spatial collision body of hypercube 
+
+⊡(x.p, r ) = {p | || p − x.p|| ∞ ≤ r} ⊆ Rm. (7) Let Ψ( xi, xi+1 , r ) be the parallelotope obtained by sweeping the spatial ⊡(x.p, r ) along each segment xi →
+
+xi+1 of τ . A piecewise-convex spatiotemporal occupancy for trajectory τ with object radius r can be defined by Ω( τ, r ) = 
+
+> l−1
+
+[
+
+> i=1
+
+Ψ( xi, xi+1 , r ) ⊆ Rm+1 . (8) Consider a robot with radius r and another moving ob-ject with trajectory τ and radius r′. An ST-GCS without any intersections with Ω( τ, r + r′) naturally represents the collection of the space-time collision-free space for the robot. In the next section, we introduce the ECD scheme, which aims to reserve (i.e., remove) any occu-pancy represented as in Eqn. (8) from an ST-GCS. Fig. 8 illustrates two piecewise-linear trajectories and their re-served occupancies in 1D and 2D spaces. 
+
+6.2 Exact Convex Decomposition (ECD) 
+
+ECD reserves trajectory occupancy on an arbitrary ST-GCS G = ( V, E, X ) using a piecewise-linear trajectory 
+
+τ = ⟨x1, . . . , xl⟩ and a safe clearance parameter R as in-put. As aforementioned, R is typically the sum of the radii of two objects, with a positive offset if needed. For each parallelotope piece Ψ( xi, xi+1 , R ) ∈ Ω( τ, R ) of τ , it may intersects multiple convex sets of G. On the other hand, a convex set of G might also contain multiple par-allelotope occupancy pieces. To account for above cases, ECD subdivides τ and constructs an ordered sequence of vertex–segments tuples Lv = ⟨(xj , yj )⟩ηv 
+
+> j=1
+
+for each 
+
+v ∈ V , such that for every j = 1 , . . . , η v , it satisfies that Ψ( xj , yj , R ) ∩ Xv̸ = ∅ and that yj .t ≤ xj+1 .t if j̸ = ηv .Intuitively speaking, each sequence Lv collects the time-sorted subdivided segments of τ whose occupancies in-tersect with Xv ∈ X . Writing L for all collected vertex– segment tuples, we have 
+
+[
+
+> (v, x,y)∈L
+
+Ψ( x, y, R ) = Ω( τ, R )Alg. 2 summarizes the ECD scheme. It starts by iter-ating each vertex v ∈ V and collects the corresponding vertex–segments tuple sequence Lv from τ (Lines 2-3). If Lv is not empty, ECD replaces Xv by a convex de-composition of Xv \ Ω( τ, R ) (Lines 6–12) and removes the original v and Xv from G′ (Line 13). For each seg-ment xj → yj from Lv , it slices only the time-bounded subset Y ⊆ Xv (Line 7). Using each facet of the par-allelotope occupancy Ψ( xj , yj , R ) as the separating hy-perplane (Line 8), ECD creates outside convex pieces disjoint from the parallelotope (Line 9) and updates the residual on the occupancy side (Line 10). By conven-tion, each facet ( A, b) is formed such that the convex set {x | Ax ⪯ b} contains parallelotope Ψ( xj , yj , R ). After the subdivision by each time-bounded Y , there re-main three types of Xv residuals that are outside the 13       
+
+> 
+> 
+> 
+> 
+> 
+>     
+> 𝑟 𝑟
+
+Figure 8: Reserved trajectory occupancy Ω( τ, r ) in Eqn. (8) and the ECD scheme. (a) A piecewise-linear trajectory 
+
+τ = ⟨x1, x2, x3, x4⟩ in 2D space-time and its occupancy Ω( τ, r ), represented as a union of parallelotopes. (b) The input 2D ST-GCS, together with the first separating hyperplanes induced by the occupancy parallelotopes. (c)– (d) Progressive ECD slicing of Xv . Previously used separating hyperplanes are shown in light dashed lines, and newly introduced hyperplanes are shown in black dashed lines. (e) The updated ST-GCS after ECD, whose convex sets partition Xv \ Ω( τ, r ), overlaid with the trajectory and the outline of Ω( τ, r ). (f) A 3D ST-GCS after ECD reservation, with a trajectory in red and its reserved occupancy overlaid. 
+
+Algorithm 2: Exact Convex Decomposition 
+
+Input: ST-GCS G = ( V, E, X ), piecewise-linear trajectory τ , safe clearance R
+
+Output: updated ST-GCS with Ω( τ, R ) removed  
+
+> 1
+
+G′ = ( V ′, E ′, X ′) ← a copy of G = ( V, E, X ) 
+
+> 2
+
+foreach v ∈ V do  
+
+> 3
+
+Lv ← vertex–segments tuple sequence of τ for v 
+
+> 4
+
+if Lv is empty then  
+
+> 5
+
+continue  
+
+> 6
+
+foreach (xj , yj ) ∈ Lv do  
+
+> 7
+
+Y ← Xv ∩ { x | xj .t ≤ x.t ≤ yj .t } 
+
+> 8
+
+foreach (A, b) ∈ the facets of Ψ( xj , yj , R ) do  
+
+> 9
+
+X ← Y ∩ { x | Ax ⪰ b} 
+
+> 10
+
+Y ← Y ∩ { x | Ax ⪯ b} 
+
+> 11
+
+add vertex v′ to V ′ and set Xv′ = X to X ′ 
+
+> 12
+
+add the Xv residuals defined in Eqn. (9) to G′ 
+
+> 13
+
+remove v and Xv from G′ 
+
+> 14
+
+E′ ← { (u, w ) | u, w ∈ V ′, u ̸ = w, X u ∩ Xw̸ = ∅}  
+
+> 15
+
+return updated ST-GCS G′ = ( V ′, E ′, X ′)interiors of the time-bounded subsets Y and thus need to be added back to G′ if nonempty (Line 12). We define the three types of Xv residuals as follows: 
+
+Xv ∩ { x | x.t ≤ x1.t }, (9a) 
+
+Xv ∩ { x | yj−1.t ≤ x.t ≤ xj .t }, ∀j = 2 , . . . , η v , (9b) 
+
+Xv ∩ { x | x.t ≥ yηv .t } (9c) Finally, ECD rebuilds the adjacency of G′ by checking set intersections (Line 14), and returns the updated ST-GCS G′ (Line 15). The ECD scheme is quite general and applies to various other motions that can be represented by a piecewise-linear space-time trajectory. For example, waiting or in-place turning can be encoded as a segment (p, t ) → (p, t ′) along τ and being reserved in the in-put ST-GCS. More importantly, as we will see in Sec. 7, pre-start and post-arrival waiting segments should be in-serted into the beginning and end of every single-robot trajectory τ , respectively. As a result, when planning on the ST-GCS with τ reserved by ECD, the other robots must avoid the robot that stays at the start and goal positions before and after executing τ .
+
+## 7 Multi-Robot Motion Planning 
+
+This section integrates spatiotemporal planning on ST-GCSs and ECD reservation for Multi-Robot Motion Planning (MRMP). The low-level solver solves single-robot queries one at a time with the BFS solver in Sec. 5, while the high-level coordinator resolves inter-robot con-flicts by deciding which robot trajectories are reserved in each low-level call. 
+
+7.1 Problem Definition 
+
+We consider n robots with the same radius r sharing a given base ST-GCS G0 = ( V0, E 0, X0), which repre-sents the collision-free space-time region before inter-robot reservations and may be constructed, for example, by extruding a spatial GCS through time and then apply-ing the ECD scheme to remove occupancies of known dy-namic obstacles. Each robot i = 1 , 2, . . . , n has a query (xs,i , pg,i ) with xs,i = ( ps,i , t s,i ) ∈ Rm+1 , where the ar-rival time at pg,i is unconstrained. A feasible solution of any query ( xs,i , pg,i ) on ST-GCS is a piecewise-linear trajectory τi = ⟨x1, . . . , xl⟩, where 
+
+x1 = xs,i and xl.p = pg,i . When ts,i ̸ = 0 or xl.t ̸ = tmax ,the pre-start or post-arrival staying motions are absent in τi. Planning on an ECD-reserved ST-GCS with such 
+
+τi could lead to collisions on ps,i during t ∈ [0 , t s,i ] or on 
+
+pg,i during t ∈ [xl.t, t max ]. Therefore, we let ˜ τi denote its endpoint-augmented variant, defined as follows: ˜τi =
+
+D
+
+(x1.p, 0) , x1, . . . , xl, (xl.p, t max )
+
+E
+
+,
+
+A trajectory set T = {τi}ni=1 is feasible if and only if each τi is a feasible single-robot trajectory for query (xs,i , pg,i ) on G0, and every robot pair is collision-free under the robot occupancy model defined in Eqn. (8): Ω(˜ τj , r ) ∩ Ω(˜ τi, r ) = ∅, ∀ i̸ = j. 
+
+14 The MRMP problem seeks to find such a feasible tra-jectory set described above. We evaluate the MRMP so-lution quality by two common aggregate metrics, namely the sum-of-costs (SOC) and the makespan: SOC( T ) = 
+
+> n
+
+X
+
+> i=1
+
+c(τi), Makespan( T ) = max  
+
+> i=1 ,...,n
+
+c(τi),
+
+where makespan is the maximum individual trajectory duration, excluding the pre-start waiting time. For notation, let ECD( G, τ, R ) denote the ST-GCS re-turned by Alg. 2. For an ordered list of trajectories, ECD( G, ⟨τ1, . . . , τ l⟩, 2r) denotes the ST-GCS obtained by applying Alg. 2 successively to τ1, . . . , τ l in that or-der, with ECD( G, ⟨⟩ , 2r) = G. It is worth noting that, for MRMP where the robots have different radii, we only need to construct an individual base G0 for each robot and change the ECD clearance parameter accordingly, while the low-level single-robot solver and the following high-level coordination algorithms remain unchanged. 
+
+7.2 Prioritized Planning with ST-GCS and ECD 
+
+We instantiate Prioritized Planning (PP) (Erdmann and Lozano-Perez, 1987) in the ST-GCS setting using the BFS solver in Alg. 1 for low-level single-robot planning and ECD for trajectory reservation. We consider a total priority order σσσ = ⟨σ1, . . . , σ n⟩, where σσσ is a permutation of the robot indices 1 , 2, . . . , n . Robot σi has higher pri-ority than robot σj if i < j . PP plans robots sequentially on progressively updated ST-GCSs. When planning for robot σk, the trajectories of robots σ1, σ 2, . . . , σ k−1 have already been planned and reserved. Set G(1) = G0. At iteration k, robot σk is planned on G(k). The low-level solver solves the query ( xs,σ k , pg,σ k ) on G(k), so the re-turned trajectory avoids all higher-priority trajectories, including their endpoint-staying portions. If this call fails, PP reports failure for the priority order σσσ. Other-wise, after obtaining τσk , PP updates the graph for the next iteration by 
+
+G(k+1) = ECD( G(k), ˜τσk , 2r). (10) After all robots have been processed, PP returns the solution set of trajectories. We consider the base ST-GCS G0 constructed by ex-truding a spatial GCS along the time dimension from 0 to 
+
+tmax . Without loss of generality, we assume no dynamic obstacles are present to analyze the MRMP solvability on ST-GCS. Let t0 = max i=1 ,...,n ts,i defines the time when all robots are ready to move. In case there are dynamic obstacles, we shift t0 to the time when all dynamic obsta-cles have reached their terminal positions and all robots are ready to go, and the rest analysis remains identical. Let τstay (p, t ) = ⟨(p, t ), (p, t max )⟩ denote the trajectory segment staying at position p from some time t ≤ tmax 
+
+to tmax . We further define a sequence 
+
+Si(t) = ⟨τstay (ps,j 1 , t ), . . . , τ stay (ps,j n−1 , t ),τstay (pg,j 1 , t ), . . . , τ stay (pg,j n−1 , t )⟩
+
+collecting the start and goal staying trajectories for all robots j = j1, . . . , j n−1 and j̸ = i. We now define well-formedness conditions for MRMP instances that are suf-ficient for the completeness of PP on ST-GCS. 
+
+Definition 4 (Well-Formedness). The MRMP instance is well-formed if it satisfies the following conditions: (i) The query starts and goals are pairwise separated, that is, for every pair i̸ = j, || ps,i − ps,j || ∞ ≥ 2r,
+
+|| pg,i − pg,j || ∞ ≥ 2r, and || ps,i − pg,j || ∞ ≥ 2r;(ii) The robots are also assumed to be able to safely stay at their query start and goal positions indefi-nitely throughout the time horizon, that is, 
+
+{x | x.p ∈ { ps,i , pg,i }, x.t ∈ [0 , t max ]} ⊆ [
+
+> v∈V0
+
+Xv ;(iii) For each robot i = 1 , . . . , n , query (( ps,i , t 0), pg,i ) is feasible on ECD( G0, Si(t0), 2r) and has an optimal trajectory cost of C∗ 
+
+> i
+
+;(iv) The ST-GCS global time limit tmax ≥ t0 + nC ,where C = max {ϵC ∗ 
+
+> 1
+
+, . . . , ϵC ∗
+
+> n
+
+} with ϵ ≥ 1. 
+
+Theorem 8 (Completeness of PP). For a well-formed MRMP instance, PP with an ϵ-bounded-suboptimal low-level BFS solver returns a feasible trajectory set using an arbitrary total priority order. 
+
+Proof. : Fix any total priority order σσσ = ⟨σ1, . . . , σ n⟩.Let tk = t0 + ( k − 1) C. We prove by induction that, before robot σk is planned, every higher-priority robot has reached its goal by time tk. The claim is trivial for k = 1. Assume it holds for k. By induction, all higher-priority robots have reached their goals by time 
+
+tk, and they can safely stay at their corresponding goal positions onward by conditions (i-ii). According to con-dition (iii), we know that query (( ps,σ k , t 0), pg,σ k ) is fea-sible on ECD( G0, Sσk (t0), 2r) with optimal cost C∗ 
+
+> σk
+
+. In fact, Sσk (tk) is a time-padded copy of Sσk (t0) in the sense that each spatial position in Sσk (tk) has the same time offset ∆ t = tk − t0 ≥ 0 compared to each correspond-ing spatial position in Sσk (t0). Therefore, it is easy to see that a feasible trajectory for query (( ps,σ k , t k), pg,σ k )with at most ϵC ∗ 
+
+> σk
+
+cost can always be found by shifting ∆t in each state time along an ϵ-optimal trajectory for query (( ps,σ k , t 0), pg,σ k ), since we know that 
+
+tk + ϵC ∗ 
+
+> σk
+
+≤ t0 + ( n − 1) C + ϵC ∗ 
+
+> σk
+
+≤ tmax 
+
+by condition (iv). Thus, robot σk starts at tk, reaches its goal no later than tk+1 = tk + C ≥ tk + ϵC ∗ 
+
+> σk
+
+, and stays at its goal after arrival while being collision-free with σk+1 , . . . , σ n staying at their starts and σ1, . . . , σ k−1
+
+staying at their goals. This proves the induction. 15 It remains to show that an ϵ-bounded-suboptimal low-level solver in PP is certified to plan a trajectory with a cost of at most C for robot σk on G(k) defined in Eqn. (10). Notice that as σk departs at time tk, its fea-sible solution space regarding each convex set Xv from 
+
+G(k) is a time-bounded subset ¯Xv = Xv ∩ { x | x.t ≥ tk}.Denote the ST-GCS built from each such ¯Xv as ¯G(k).It is easy to see that the union of all convex sets in ECD( G0, Sσk (tk), 2r) is a subset of the union in ¯G(k),and then subsequently a subset of the union in G(k).Therefore, the query (( ps,σ k , t k), pg,σ k ) is always fea-sible on the larger solution space of G(k), since we have seen from above that same query is feasible on ECD( G0, Sσk (tk), 2r). Thus, the ϵ-bounded-suboptimal low-level solver finds a trajectory for robot σk with at most ϵC ∗ 
+
+> σk
+
+≤ C cost, which concludes the proof. ■
+
+7.3 PBS with ST-GCS and ECD 
+
+We instantiate Priority-Based Search (PBS) (Ma et al., 2019) in the ST-GCS setting by using the BFS solver in Alg. 1 for low-level single-robot planning and ECD for reserving spatiotemporal occupancies. PBS searches over partial priority orders instead of committing to one total priority order. A PBS node N stores a set ≺≺≺N of ordered robot pairs and a trajectory set N. T . Let ≺+
+
+> N
+
+denotes the transitive closure of ≺≺≺N such that if i ≺+ 
+
+> N
+
+j,then robot j must avoid robot i. Namely, its trajectory 
+
+N.τ j can be obtained by planning on 
+
+G(j) 
+
+> N
+
+= ECD( G0, ⟨N. ˜τi1 , . . . , N. ˜τil ⟩, 2r), (11) where ⟨i1, . . . , i l⟩ is any fixed topological ordering of the set {i | i ≺+ 
+
+> N
+
+j} of all high-priority robots. Here, N. ˜τi
+
+denotes the endpoint-augmented reservation trajectory corresponding to the stored trajectory N.τ i. Unlike PP, PBS reserves only endpoint-augmented trajectories that are constrained to have higher priority than j. If two robots have no priority relation, neither is forced to avoid the other’s endpoint-augmented trajectory until a colli-sion introduces such a constraint. Alg. 3 summarizes the procedure of PBS. It starts with an empty partial priority set and independently planned trajectories (Lines 1-2). PBS performs a depth-first search on a priority tree using STACK. When PBS se-lects a node N from STACK, if the endpoint-augmented trajectories corresponding to N. T are pairwise collision-free, PBS returns it (Line 7). Otherwise, it identifies a colliding robot pair i1, i 2 whose endpoint-augmented trajectories N. ˜τi1 and N. ˜τi2 collide (Line 8). PBS then creates two child nodes by orienting this collision in both directions. One child adds i1 ≺ i2, and the other adds 
+
+i2 ≺ i1 (Lines 9-10). For any branch ( i, j ), the child node 
+
+N ′ adds i ≺ j and calls UpdateNode (N ′, j ), where j
+
+is the newly lower-priority robot. UpdateNode builds the replanning set K, containing j and all robots whose higher-priority constraints may change after adding i ≺ j
+
+(Line 15). It then processes each robot k ∈ K in a topo-logical ordering of ≺≺≺N ′ . If N ′.˜τk collides with N ′.˜τi′ of some higher-priority robot i′ ≺+  
+
+> N′
+
+k, UpdateNode re-plans τk to respect all of higher-priority reservations of robot k (Lines 18–19). If UpdateNode succeeds, PBS adds the child node N ′ to STACK (Lines 11–12). PBS returns failure if no valid solution can be found after exploring all nodes (Line 13). 
+
+Theorem 9 (Completeness of PBS). For a well-formed MRMP instance, PBS with an ϵ-bounded-suboptimal low-level BFS solver returns a feasible trajectory set. 
+
+Proof. : We first show that the PBS search tree is fi-nite. For every node inserted into STACK, the construc-tion of UpdateNode ensures that each lower-priority robot avoids the endpoint-augmented trajectories of all higher-priority robots. Therefore, when PBS finds a colliding pair at a popped node, the two robots must be incomparable under ≺+ 
+
+> N
+
+; otherwise the lower-priority robot would already avoid the higher-priority reserva-tion. Each child then adds one priority relation between a previously incomparable pair and preserves acyclicity. Since an acyclic priority relation on n robots contains at most n(n − 1) /2 ordered pairs, every branch has finite depth, and the binary priority tree is finite. We now show that every UpdateNode call succeeds. For a PBS node N and robot j, define HN (j) = {i | i ≺+
+
+> N
+
+j} as the higher-priority set of j. We prove this by in-duction over inserted nodes with the invariant that each robot j reaches its goal by time t0 + ( |HN (j)| + 1) C and stays there afterward. The root low-level calls succeed by the same argument used in the proof of Theorem 8. With no higher-priority reservations, each robot can reach its goal by time t0 + C. Now consider UpdateNode (N ′, j )for a child N ′ obtained by adding i ≺ j to a popped node. Robots outside the replanning set K have the same trajectories and higher-priority sets, so the invari-ant remains true for them. Because UpdateNode re-plans the robots in K in topological order, the trajec-tory of every higher-priority robot of any k ∈ K is either unchanged from the popped node or has already been replanned in this UpdateNode call. Moreover, by tran-sitivity, any higher-priority robot of such a robot is also a higher-priority robot of k; hence each higher-priority robot of k has at most |HN ′ (k)|− 1 higher-priority robots. By the induction bound, each of them has reached its goal and is staying there by time tk = t0 + |HN ′ (k)|C.Thus all higher-priority reservations for k are goal stays after time tk. Condition (iii) gives robot k a feasible trajectory of cost C∗ 
+
+> k
+
+on ECD( G0, Sk(t0), 2r); shifting that trajectory to depart at tk gives a feasible witness in 
+
+G(k)  
+
+> N′
+
+because, after that time, G(k)  
+
+> N′
+
+reserves only those higher-priority goal stays. This witness fits in the hori-zon since |HN ′ (k)| ≤ n−1 and tmax ≥ t0+nC . Therefore, if UpdateNode replans k, the ϵ-bounded-suboptimal low-level solver succeeds and returns a trajectory with 16 Algorithm 3: PBS with ST-GCS 
+
+Input: queries {(xs,i , pg,i )}ni=1 , base ST-GCS G0
+
+Output: collision-free trajectory set  
+
+> 1
+
+create root node Nroot with ≺≺≺Nroot ← ∅  
+
+> 2
+
+Nroot .T ← solve all queries on G0 using Alg. 1  
+
+> 3
+
+STACK ← { Nroot } 
+
+> 4
+
+while STACK ̸ = ∅ do  
+
+> 5
+
+N ← STACK.pop()  
+
+> 6
+
+if {N. ˜τi}ni=1 is pairwise collision-free then  
+
+> 7
+
+return N. T 
+
+> 8
+
+i1, i 2 ← robot pair with colliding N. ˜τi1 and N. ˜τi2 
+
+> 9
+
+for (i, j ) ∈ { (i1, i 2), (i2, i 1)} do  
+
+> 10
+
+N ′ ← a copy of N with ≺≺≺N ′ ← ≺≺≺N ∪ { i ≺ j} 
+
+> 11
+
+if UpdateNode (N ′, j ) then  
+
+> 12
+
+STACK.add( N ′) 
+
+> 13
+
+return “no solution found ” 
+
+> 14
+
+Function UpdateNode( N ′, j ): 
+
+> 15
+
+K ← { k | k = j or j ≺+  
+
+> N′
+
+k} 
+
+> 16
+
+foreach k ∈ TopologicalSort( K, ≺≺≺N ′ ) do  
+
+> 17
+
+if ∃ i′ ≺+  
+
+> N′
+
+k : N ′.˜τi′ colliding with N ′.˜τk then  
+
+> 18
+
+construct G(k)  
+
+> N′
+
+(Eqn. (11)) via ECD ▷ Alg. 2  
+
+> 19
+
+solve query ( xs,k , pg,k ) on G(k)  
+
+> N′
+
+using Alg. 1  
+
+> 20
+
+if solving finds a feasible solution τ then  
+
+> 21
+
+N ′.τ k ← τ 
+
+> 22
+
+else  
+
+> 23
+
+return False  
+
+> 24
+
+return True 
+
+cost at most ϵC ∗ 
+
+> k
+
+≤ C, so k reaches its goal by time 
+
+tk + C = t0 + ( |HN ′ (k)| + 1) C. If k is not replanned, its current trajectory already avoids all higher-priority reservations, so it also remains valid. Its previous tim-ing bound also remains valid because its higher-priority set has only grown. Hence, every processed robot is up-dated successfully and satisfies the invariant, and thus 
+
+UpdateNode returns success. PBS therefore explores a finite tree without losing any acyclic child to low-level failure. At any total-priority node, every robot pair is comparable, and by construc-tion each lower-priority trajectory respects each higher-priority trajectory. Such a node is collision-free, so PBS eventually pops a collision-free node and returns its fea-sible trajectory set. ■
+
+7.3.1 Node Evaluation and Ordering Rules (Lines 9-12 of Alg. 3) 
+
+PBS can vary how child nodes are generated and ex-panded. A child node is generated once its new priority relation is added, and it is expanded once UpdateNode 
+
+has replanned the affected robots under that relation. With lazy evaluation, both child nodes are generated before calling UpdateNode ; expansion is delayed until a generated child is selected for evaluation. This avoids spending low-level planning effort on generated nodes that may never be expanded. Alternatively, PBS can expand both child nodes immediately and order the ex-panded children by a metric. A metric of sum-of-costs or makespan favors branches with better current solu-tion quality, while a metric of the number of pairwise conflicts favors less congested branches. These metric-based rules require immediate node expansion via Up-dateNode and therefore are not compatible with lazy evaluation. Since Alg. 3 uses a stack, the favored ex-panded child is pushed after the other child so that it is selected first. 
+
+7.4 Reuse of Base ST-GCS Heuristic Values 
+
+In PP or PBS, the low-level solver is repeatedly called on ECD-updated ST-GCSs. The motion-only heuris-tic hmot is evaluated directly on the current query-augmented graph using the actual prefix interface IN .In contrast, htri and htab rely on heuristic values com-puted on the base ST-GCS G0, and we reuse these val-ues on ECD-updated graphs through the correspond-ing base vertices and interfaces. Let G = (V, E, X )be any ST-GCS obtained from G0 by a finite sequence of ECD reservations, and consider any query-updated (G♯, v s, v g ) = QueryAugment (G, xs, pg ). For every non-query vertex v ∈ V , let β(v) ∈ V0 denote the base vertex of G0 from which v descends, so that Xv ⊆ Xβ(v).This map is inherited through ECD subdivisions. Ini-tially β(v) = v for v ∈ V0, and when ECD subdivides a vertex v into new vertices, each new vertex w is as-signed β(w) = β(v). Specifically, we define β(vs) = vs
+
+and β(vg ) = vg for the auxiliary query vertices. Consider a non-goal search node N generated on G♯,and write its prefix as N.π = ⟨v0, . . . , v l⟩, where v0 = vs
+
+and vl = N.v . Similar to the prefix interface in Eqn. (6), we define a projected base interface ˜IN . If l = 0, then ˜IN = {xs}. Otherwise, let uN be the latest vertex vk in the prefix such that k < l and β(vk)̸ = β(vl), and define ˜IN = Xβ(uN ) ∩ Xβ(N.v ).
+
+In short, ˜IN is the interface in G0 where the base-projected prefix last enters the current base vertex. Thus, consecutive ECD-subdivision vertices with the same base vertex are collapsed before evaluating the reusable heuristics. The reused htri and htab are then evaluated on G♯ 
+
+> 0
+
+from ˜IN using the precomputed values from G0 and the same query goal, where ( G♯
+
+> 0
+
+, v s, v g ) = 
+
+QueryAugment (G0, xs, pg ). Same as in Sec. 5.5, all heuristic values are defined to be zero when N.v = vg .
+
+Lemma 10. For any non-goal search node N generated on G♯, the value obtained by evaluating either htri or 
+
+htab on G♯ 
+
+> 0
+
+from ˜IN is an admissible heuristic for the remaining cost of the current low-level query on G♯.
+
+17 Proof. : Consider any N.π -consistent solution trajec-tory ¯ τ for the current low-level query on G♯. By construc-tion of ˜IN , after collapsing consecutive ECD-subdivision vertices with the same base vertex, the suffix of any N.π -consistent trajectory begins from a state in ˜IN . Since every refined set in G is contained in the base set from which it was subdivided, replacing each refined vertex in this suffix by its base vertex and dropping the ECD reservations gives a feasible trajectory in the relaxed base query graph G♯ 
+
+> 0
+
+that starts from ˜IN . Lemmas 5 and 6 show that the corresponding htri and htab on G♯
+
+> 0
+
+lower bound the remaining cost of this relaxed problem. Hence, the reused values also lower bound the remain-ing cost of any N.π -consistent solution trajectory for the current low-level query on G♯, and are admissible. ■
+
+7.5 Windowed Coordination 
+
+Full-horizon robot coordination can be computationally intensive, as low-level solver calls may reserve long tra-jectory occupancies, including portions that have no near-term spatiotemporal correlation with the current coordination step, causing ECD-updated ST-GCSs to grow rapidly. Windowed coordination reduces this com-putation by applying either PP or PBS over a finite plan-ning window, so high-level ECD reservations and PBS conflict detection use only trajectory portions inside that window. Let W = [ t, t + ∆ tplan ] be the planning window, where ∆tplan > 0 is the window span. Let ∆ texec ≤ ∆tplan 
+
+be the execution horizon. At coordination time t, each robot i starts from a window-start state xWs,i , equal to its original start at the first call and otherwise the endpoint of its last executed prefix. After each successful call, the coordinator commits the returned trajectory only over [t, t +∆ texec ], appends this prefix to the global trajectory, discards the remaining suffix, and uses its endpoint as the next xWs,i . The selected high-level coordinator, either PP or PBS, solves the current query ( xWs,i , pg,i ) for every robot, including robots that have already reached their goals. For a goal-reached robot, this query starts at its current goal position and can still be replanned if priority constraints require it to move away temporarily and then return. For a trajectory τ , let τ |W denote the trajectory clipped to window W , with segment endpoints clipped to the window boundaries when necessary. For both windowed-PP and windowed-PBS, ECD reservations use ˜τ |W , so they reserve the same trajectory occupancy as in Eqn. (8) but only within W . Under the same window restriction, a robot pair i̸ = j is in conflict within W if Ω(˜ τj |W , r ) ∩ Ω(˜ τi|W , r )̸ = ∅.
+
+Since windowed ECD only subdivides the base ST-GCS to exclude reserved trajectory occupancy within W , any trajectory feasible on the windowed ECD-reserved ST-GCS remains feasible on the base ST-GCS G0 when the reservations are ignored. Therefore, the admissible heuristics remain valid by Lemma 10. Windowed-PP constructs the reserved graph sequence along a fixed priority order σσσ, starting from G(1)  
+
+> W
+
+= G0.For each k, robot σk is planned on G(k) 
+
+> W
+
+; after this plan is found, the next reserved graph is updated as G(k+1)  
+
+> W
+
+=ECD( G(k) 
+
+> W
+
+, ˜τσk |W , 2r). For windowed-PBS, replanning at a node uses the same window-restricted ECD reservations. When robot 
+
+i is replanned at node N , let ⟨j1, . . . , j l⟩ be any fixed topological ordering of the set {j | j ≺+ 
+
+> N
+
+i} under ≺+ 
+
+> N
+
+.The query ( xWs,i , pg,i ) is then solved on ECD( G0, ⟨N. ˜τj1 |W , . . . , N. ˜τjl |W ⟩, 2r).
+
+The child node expansion ordering is also adjusted to prefer progress by unreached robots. When a detected conflict involves one robot that has reached its goal and one that has not, PBS first considers the child node that prioritizes the unreached robot. Otherwise, it follows the node expansion rules as described in Sec. 7.3.1. This commit-and-replan cycle naturally matches aclosed-loop execution with receding-horizon. After each execution horizon, the planner replans from the updated window-start states and incorporates updated reserva-tions or dynamic obstacles. The special case ∆ texec =∆tplan commits the entire planned window before re-planning; choosing ∆ texec < ∆tplan retains a lookahead suffix that guides the current solve but is not commit-ted. A smaller lookahead gap ∆ tplan − ∆texec potentially leaves the robots in better states for subsequent calls, but increases total planning effort because replanning is invoked more often depending on the gap. On the other hand, as ∆ tplan approaches the remaining horizon, windowed-PP or PBS recovers its full-horizon counter-part. For finite ∆ tplan , windowed coordination is in-complete in general because conflicts outside the current window are ignored until later. However, in practice, it greatly reduces the computation cost, since each low-level call reserves fewer trajectory segments and thus the ECD-updated ST-GCSs remain smaller. 
+
+7.5.1 Dynamic Window Adjustment 
+
+A short fixed window can defer conflicts that should be exposed before the robots commit another prefix. To reduce this failure mode, we use a dynamic adjustment rule that enlarges the planning window only when the current horizon appears insufficient. For windowed-PP, this retry is triggered when the fixed-priority solve fails in the current window. For windowed-PBS, it is trig-gered either by current-window failure or by repeatedly returning the same topological priority order among the same unreached robots without meaningful progress. In either case, the coordinator retries the same coordination step with doubled ∆ tplan and commits no new trajectory 18 rand ( 4 £ 4) maze iris Figure 9: Example instances of the generated spatial GCS. Colors indicate convex regions in the spatial de-composition. Black regions indicate environment static obstacles. prefixes. The larger window exposes more future interac-tions and reserves longer portions of higher-priority oc-cupancies. After a successful step, ∆ tplan is reset to its nominal value, keeping easy windows small while giving congested windows additional horizon. 
+
+## 8 Numerical Results 
+
+This section presents our numerical results for spatiotem-poral planning and MRMP on ST-GCS. We implement the proposed planners and algorithmic components in 
+
+Python and evaluate on an Apple ® M4 CPU machine with 16GB RAM. The GCS-related trajectory opti-mization uses Drake (Tedrake and the Drake Develop-ment Team, 2019) library and the Mosek solver (MOSEK ApS, 2026). The source code and numerical results are publicly available on https://github.com/reso1/ stgcs . More detailed visualizations and simulation videos of the proposed planners can be found at https: //sites.google.com/view/stgcs .
+
+8.1 Experiment Setup 
+
+We consider three two-dimensional base domains, rand ,
+
+maze , and iris , to define the problem domains for bench-marking the spatiotemporal and MRMP planners. Each ST-GCS instance initializes a seeded spatial GCS as de-scribed in Sec. 8.1.1, and then extrudes the spatial sets through time t ∈ [0 , t max ] with tmax = 1000. We pre-compute the heuristics htri and htab on only these base ST-GCSs, although Sec. 8.1.2 additionally adds dynamic obstacles into each base ST-GCS instance. 
+
+8.1.1 Spatial GCS Generation 
+
+For rand , we generate an n × n grid, sample a random convex polygon around each grid cell, connect intersect-ing convex sets, and retain the largest connected compo-nent. For maze , we first generate a random 10 × 10 maze via recursive division (Buck, 2011) and then merge ad-jacent free cells into larger axis-aligned rectangles when-ever possible using a bipartite matching procedure sim-ilar to that of Lu et al. (2023). For iris , we sample 10 ¡1 10 0 10 1 10 2            
+
+> runtime (s)
+> hzero
+> hmot
+> htri
+> htab
+> hmax
+> rand
+> 10 ¡110 010 110 2
+> runtime (s)
+> maze
+> 10 ¡110 010 110 2
+> runtime (s)
+> iris
+> 10 110 310 5
+> expanded nodes
+> hzero
+> hmot
+> htri
+> htab
+> hmax
+> 10 110 310 5
+> expanded nodes
+> 10 110 310 5
+> expanded nodes
+
+Figure 10: BFS heuristic ablation. Rows show runtime and expanded-node distributions on common-success in-stances. 10 polygonal static obstacles in a square workspace and grow a connected cover of collision-free convex sets with the IRIS algorithm (Deits and Tedrake, 2015). This presents a set of more realistic GCS commonly seen in practice. The robot radius is 0 .1 in rand , and 0 .25 in 
+
+maze and iris . Fig. 9 shows examples of the generated spatial GCS. 
+
+8.1.2 Spatiotemporal Planning Instances 
+
+We generate 60 single-robot spatiotemporal planning in-stances, with 20 instances from each of rand , maze , and 
+
+iris . Each query is a feasible query on one seeded base ST-GCS and starts at time 0 with a velocity bound 
+
+vlim = [1 .0, . . . , 1.0]. We then add moving obstacles with piecewise-linear trajectories and the same object occupancy model as defined in Eqn. (8) while preserving query feasibility. The resulting ST-GCS instances have a median of 33 vertices and 184 edges. 
+
+8.1.3 MRMP Instances 
+
+We generate 60 MRMP instances, with 20 instances from each of rand , maze , and iris . Each instance con-tains n-robot queries on a seeded base ST-GCS, where each robot query starts at time 0 with a velocity bound 
+
+vlim = [1 .0, . . . , 1.0]. The query generation for the start positions ps, 1, . . . , ps,n and goal positions pg, 1, . . . , pg,n 
+
+follow the assumption as in condition (i), while keeping their independent trajectories still intersects to make the MRMP instances emphasize coordination rather than isolated planning. 
+
+8.2 Ablation Study 
+
+This subsection follows our algorithmic stack for MRMP. We first ablate the low-level single-robot spatiotemporal planning BFS solver (Alg. 1), and then the child node 19 1.25 2.5 5 10             
+
+> heuristic inflation "
+> 0%  30%  60%  90%
+> runtime reduction
+> 0100 200
+> G0size ( jV0j+jE0j)
+> 10 ¡5 10 ¡1 10 3
+> precomputation time (s)
+> htab
+> htri
+> 0% 10% 20% 30%
+> optimality gap
+> 1.25  2.5  5 10
+> heuristic inflation  "
+> hmot htri htab hmax
+
+Figure 11: Effect of heuristic inflation and offline heuris-tic precomputation cost. The top-left panel shows the median runtime reduction from increasing ϵ relative to 
+
+ϵ = 1 on common-success instances. The bottom-left panel shows the htab and htri precomputation median runtime versus the base ST-GCS G0 size. The right panel shows optimality-gap distributions relative to the optimal ϵ = 1 solutions. expansion rules used by full-horizon PBS (Alg. 3), and at last the planning horizons in windowed coordination in Sec. 7.5. All ablation planners have a 10-minute runtime budget. Unless otherwise stated, we set all their inflation factors to ϵ = 1 for the heuristics used in the low-level BFS solvers. 
+
+8.2.1 BFS Heuristics 
+
+This ablation isolates the BFS heuristic (Sec. 5.5) with upper-bound pruning enabled and no optional pairwise dominance check (Sec. 5.4). Fig. 10 shows that hmax is the most robust choice. The hmax and htab heuristics solve all 60 instances in Sec. 8.1.2, while hmot , htri , and 
+
+hzero solve 58, 56, and 53, respectively. On common-success instances, hmax has the smallest median runtime and expanded-node count in every domain. Relative to 
+
+hzero , it reduces the median runtime by 5 .3–56 .2× and the median number of expanded nodes by 11 .5–56 .5×
+
+across the three domains. Among the single-component heuristics, hmot is competitive on rand and strongest on the most open iris , while htab solves all instances and is strongest on maze , where detours make the motion-only bound less informative; htri is weaker without inflation. Fig. 11 shows that increasing ϵ substantially reduces run-time, especially for htri and htab , but larger inflation fac-tors produce wider optimality-gap tails. At ϵ = 5, the median runtime reductions are about 65% for hmot , 91% for htri , 88% for htab , and 56% for hmax . The precompu-tation panel reports median preprocessing runtime. The 
+
+htri heuristic stays in the seconds range, whereas htab 10 ¡1 10 0 10 1                 
+
+> runtime (s)
+> UB
+> +±set
+> +±state
+> +±pos
+> rand
+> 10 ¡110 0
+> runtime (s)
+> maze
+> 10 ¡110 010 1
+> runtime (s)
+> iris
+> 10 110 210 3
+> expanded nodes
+> UB
+> +±set
+> +±state
+> +±pos
+> 10 110 210 3
+> expanded nodes
+> 10 110 210 3
+> expanded nodes
+> 0% 2% 4%
+> optimality gap
+> +±state
+> +±pos
+> 0% 2% 5% 8%
+> optimality gap
+> 0% 5% 10% 15%
+> optimality gap
+
+Figure 12: BFS dominance check ablation. Top and mid-dle rows show runtime and expanded-node distributions for UB (upper-bound pruning with the incumbent cost 
+
+cub ), the safe δset check, and the heuristic δstate and δpos 
+
+checks. The bottom row reports the optimality gap rel-ative to the optimal solution from the δset variant on common-success instances. requires substantially more precomputation and peaks over 2 .5 hours. We therefore use hmax as the default BFS heuristic and inflate it when bounded suboptimality is allowed. It inherits the strongest available component lower bound at each prefix path, and its offline cost is amortized in MRMP because many low-level calls reuse the precomputation for the same base ST-GCSs. 
+
+8.2.2 BFS Dominance Checks 
+
+This ablation isolates the effect of the pairwise domi-nance check (Sec. 5.4) with the heuristic fixed to hmax .All variants use the same upper-bound pruning, and differ only in the optional pairwise dominance check. The alternatives are the safe set-containment check δset ,the heuristic position-based check δpos , and the heuris-tic arrival-state-containment check δstate . The auxiliary vertex-indexed search used to obtain the incumbent con-tributes only the scalar upper-bound cost cub , so differ-ences in success, runtime, and solution cost come from the selected pairwise dominance check. Fig. 12 com-pares the upper-bound-only variant (UB) and the three pairwise dominance checks in runtime, expanded nodes, and solution-cost increase. UB, δset , and δstate solve all 60 instances in Sec. 8.1.2, while δpos solves 59 in-stances. Relative to δset on common-success instances, 
+
+δpos and δstate reduce the median expanded-node count by 65 .4% and 42 .7%, and reduce the median runtime by 41 .1% and 42 .1%, respectively. Both heuristic checks have zero median solution-cost increase over all common-20 5 60 600              
+
+> runtime (s)
+> 0%  50%  100%
+> success rate
+> 624 100
+> expanded nodes
+> 10 40 150
+> generated nodes
+> 1.3 1.6 1.9
+> generated/expanded
+> Lazy
+> SoC
+> MS
+> NC
+> 10 100 200
+> sum-of-costs
+> 112 24
+> makespan
+> Lazy SoC MS NC
+
+Figure 13: Full-horizon PBS child-node expansion rules ablation. The top row shows success rate over runtime, expanded PBS nodes, and generated PBS nodes in log scale. The bottom row shows the ratio of the gener-ated/expanded nodes, and sum-of-costs and makespan distributions on common-success instances. success instances. δstate has three positive solution-cost increases, with a 1 .68% median positive increase and a 4.8% worst-case increase. In contrast, δpos trades more aggressive pruning for fourteen positive solution-cost in-creases, with a 4 .14% median positive increase and a 15 .1% worst-case increase. Overall, these results sug-gest using δpos as the default scalable pairwise domi-nance check when small heuristic losses are acceptable, and using δstate when low-level success and solution qual-ity should stay closer to the δset reference. 
+
+8.2.3 PBS Node Expansion Rules 
+
+This ablation isolates the node expansion rule of full-horizon PBS in Alg. 3. As introduced in Sec. 7.3.1, we compare the four rules of lazy evaluation (Lazy), the sum-of-costs (SoC) metric, the makespan (MS) metric, and the number of conflicts (NC) metric. All variants share the same low-level BFS solver with hmax heuristic, upper-bound pruning, and δpos dominance check. Recall that a PBS node is said to be generated once created by adding a new partial priority order, while it is ex-panded once the robots are replanned via UpdateNode .As shown in the first row of Fig. 13, the NC rule gives the strongest PBS scalability on 60 10-robot MRMP in-stances generated in Sec. 8.1.3. It solves 58 instances within the 600s budget, compared with 55, 52, and 46 for the MS, SoC, and Lazy rules, respectively. It also ex-hibits the best anytime behavior, solving 42 instances by 120s and 52 instances by 200s, which is consistent with the two node-count curves. We now look at the second row containing 45 instances solved by all four rules. The generated/expanded ratio subplot shows that the Lazy 10 80 600                            
+
+> runtime (s)
+> 0%  50%  100%
+> success rate
+> 10 210 310 4
+> SoC
+> F2.5
+> D2.5
+> H2.5
+> F5
+> D5
+> H5
+> F10
+> D10
+> H10
+> 10 110 2
+> makespan
+> F2.5
+> D2.5
+> H2.5
+> F5
+> D5
+> H5
+> F10
+> D10
+> H10
+> F2.5: fixed, ®= 2 :5
+> F5: fixed, ®= 5
+> F10: fixed, ®= 10
+> D2.5: dynamic, ®= 2 :5
+> D5: dynamic, ®= 5
+> D10: dynamic, ®= 10
+> H2.5: dynamic, ®= 2 :5,¯= 0 :5
+> H5: dynamic, ®= 5 ,¯= 0 :5
+> H10: dynamic, ®= 10 ,¯= 0 :5
+
+Figure 14: Windowed-PBS ablation comparing fixed windows (F), dynamic windows (D), and dynamic win-dows with half execution windows (H). Panels show success rate versus runtime, sum-of-costs (SoC), and makespan in log scale. rule does postpone node expansions, with the largest ra-tio reaching 1 .93 as PBS moves closest to a binary search tree. The two solution-quality subplots show that me-dian solution-quality differences among expansion rules are modest. The NC and SoC rules have nearly tied median SoC (78 .1 and 78 .2), while Lazy and MS have higher median SoC (82 .6 and 81 .2). The MS rule gives the lowest median MS of 10 .9, compared with at least 11 .1 for the other rules. In general, the NC rule is sug-gested as the default node expansion rule because it gives the strongest scalability while remaining competitive in median SoC and MS. 
+
+8.2.4 Windowed Coordination 
+
+This ablation isolates the planning window tplan and the execution window texec for windowed-PBS as described in Sec. 7.5. We compare ∆ tplan = αr/ ∥vlim ∥∞ with a planning span factor α ∈ { 2.5, 5, 10 }, and ∆ texec =
+
+β∆tplan with an execution span factor β ∈ {0.5, 1}.In addition, we compare the variants with static win-dows and dynamically adjusted windows as introduced in Sec. 7.5.1. All variants use hmax heuristic with in-flation factor ϵ = 10, upper-bound pruning, δpos domi-nance check, and the NC child-node expansion rule on 60 20-robot MRMP instances generated in Sec. 8.1.3, with a 600s per-instance runtime budget. Fig. 14 shows that dynamic window adjustment improves the β = 1 success count for all spans, from 36 to 50 instances at 
+
+α = 2 .5, from 50 to 55 at α = 5, and from 49 to 50 at 
+
+α = 10. Larger windows are not monotonically ben-eficial because they trade fewer coordination calls for harder local subproblems. Increasing α from 5 to 10 raises the β = 1 median runtime from 40 .1s to 65 .1s and reduces success from 55 to 50 instances. For fixed 
+
+α, dynamic β = 0 .5 shifts the corresponding β = 1 curve toward larger runtimes. It recovers some instances missed by β = 1, but is not a strict improvement. For 
+
+α = 2 .5, 5, 10, it gains 5, 4, and 6 instances while losing 21 12, 5, and 2 instances solved by the corresponding β = 1 variant. The solution-quality panels show the comple-mentary tradeoff. Shorter windows can yield shorter successful trajectories, with fixed α = 2 .5 giving the lowest median SoC/makespan (250 .0/12 .5), but only 36 successes. Among the more reliable variants, dynamic 
+
+α = 5 , β = 1 achieves the highest success count (55) with median SoC/makespan 325 .0/16 .2. Using β = 0 .5improves median SoC/makespan for the same dynamic 
+
+α values, but at the cost of longer runtimes. Overall, dynamic α = 5 , β = 1 gives the best scalability–quality tradeoff in this ablation. 
+
+8.3 Performance Comparison 
+
+This subsection presents the performance comparison re-sults on spatiotemporal planning and MRMP. 
+
+8.3.1 Spatiotemporal Planning Benchmark 
+
+We evaluate the spatiotemporal planners under 60s run-time budget on the 60 instances from Sec. 8.1.2. The first two are BFS variants shortlisted from previous ablations. Both use hmax , upper-bound pruning, and ϵ = 10, and differ only in whether they use δpos or δset . The δpos 
+
+variant tests the more aggressive point-based dominance check, whereas the δset variant tests set-containment pruning with the same inflated max heuristic. The optimization-based baselines are MICP and MICP(g), which solve Eqns. (3). MICP directly solves the program to optimality, while MICP(g) solves its linear relaxation and then applies stochastic path rounding (see Sec. 4.2) with ⌈1000 log |E|⌉ rounded paths (Tang et al., 2025). We also compare against the sampling-based baseline ST-RRT ∗ (Grothe et al., 2022) from OMPL (S ¸ucan et al., 2012), reporting both the first feasible trajectory and the final incumbent solutions. Given the robot radius r,we also compare against the discrete search-based Zeta ∗-SIPP (Zou and Borst, 2024) with cell sizes of r and 2 r.
+
+8.3.2 Spatiotemporal Planning Scalability 
+
+Fig. 15 shows that the proposed BFS solvers on ST-GCS are the only planning variants that solve all 60 instances while remaining consistently subsecond. The bounded-suboptimal δset variant has a 0 .10s median run-time, while the δpos variant has a 0 .12s median runtime. Running the same δset solver with ϵ = 1 increases the median runtime to 0 .23s. The two optimization base-lines on ST-GCS are substantially less scalable. MICP solves 31 instances with a 6 .03s median runtime on suc-cessful runs, whereas MICP(g) solves 59 instances with a 1 .30s median runtime. The non-ST-GCS baselines expose representation-dependent scalability and success behavior. For ST-RRT ∗, the first feasible trajectory ap-pears on 57 instances with a 0 .06s median time-to-first-solution, but the planner reaches its final incumbent only 0.01 1 10 60                            
+
+> runtime (s)
+> 0%  50%  100%
+> success rate
+> rand
+> 0.01 110 60
+> runtime (s)
+> maze
+> 0.01 110 60
+> runtime (s)
+> iris
+> 357
+> solution cost
+> B1
+> B2
+> B3
+> M1
+> M2
+> S
+> Z1
+> Z2
+> 15 20 25
+> solution cost
+> 210 18
+> solution cost
+> 0% 9% 18%
+> cost increase
+> B1
+> B2
+> M2
+> 0% 8% 16%
+> cost increase
+> 0% 4% 8%
+> cost increase
+> B1: BFS ( ±pos +hmax ,"=10)
+> B2: BFS ( ±set +hmax ,"=10)
+> B3: BFS ( ±set +hmax ,"=1)
+> M1: MICP
+> M2: MICP (g)
+> S: ST-RRT*
+> Z1: Zeta*-SIPP (r)
+> Z2: Zeta*-SIPP (2r)
+
+Figure 15: Spatiotemporal planning performance com-parison. The top row shows success rate over runtime in log scale. The middle row shows cost distributions on common-success instances, with planners whose suc-cess rates are below 25% excluded. The bottom row shows cost increase relative to M1 on common-success instances. after the full anytime budget. The domain split still shows geometry dependence, since ST-RRT ∗ solves all 20 
+
+rand and iris instances but only 17 maze instances. This dependence is visible in the success-rate curves. The iris 
+
+instances reach 20 /20 successes by 0 .005s, rand reaches 16 /20 by 0 .47s and 20 /20 only after the last successful first solution at 8 .84s, and maze reaches 17 /20 by 3 .82s and remains below full success through 60s. ST-RRT ∗
+
+samples and connects directly in continuous collision-free space rather than using the GCS adjacency, so the maze 
+
+domains make it harder to discover a temporally feasi-ble connection within the budget. Zeta ∗-SIPP with cell size r solves 46 instances with a 0 .34s median runtime, while the coarser 2 r grid solves 41 instances with a 0 .13s median runtime. Its success depends on the spatial dis-cretization. The finer grid improves success on rand in-stances (9 /20 versus 4 /20), while both grids solve 17 /20 
+
+maze instances and all 20 iris instances. Zeta ∗-SIPP searches safe intervals only on fixed spatial grids; when the grid cells and line-of-sight edges do not represent the relevant passage, a feasible trajectory may be absent from the discretized search space. 22 2 4 6 8 10 12 14 16 18 20                                                                         
+
+> 0%  50%  100%
+> rand
+> success rate
+> 246810 12 14 16 18 20
+> 0.1  1 10  180  runtime (s)
+> 246810 12 14 16 18 20
+> 5 15  45  150  sum-of-costs
+> 246810 12 14 16 18 20
+> 3 7 15  makespan
+> 246810 12 14 16 18 20
+> 0%  50%  100%
+> maze
+> 246810 12 14 16 18 20
+> 0.1  1 10  180
+> 246810 12 14 16 18 20
+> 15  60  300
+> 246810 12 14 16 18 20
+> 10  22  50
+> 246810 12 14 16 18 20
+
+robots          
+
+> 0%  50%  100%
+> iris
+> 246810 12 14 16 18 20
+
+robots          
+
+> 0.1  1 10  180
+> 246810 12 14 16 18 20
+
+robots          
+
+> 15  60  300
+> 246810 12 14 16 18 20
+
+robots 
+
+> 7 13  24
+> Windowed-PP + BFS
+> Windowed-PBS + BFS
+> PP + BFS
+> PBS + BFS
+> PP + ST-RRT*
+> PBS + Zeta*-SIPP
+> K-CBS
+> CB-GCS
+
+Figure 16: MRMP performance comparison. Runtime, sum-of-costs (SoC), and makespan are plotted in log scale and report medians over common-success instances among planners with at least 10% success rate. 
+
+8.3.3 Spatiotemporal Planning Solution Quality 
+
+The middle and bottom rows of Fig. 15 show that the search-based ST-GCS solvers preserve solution quality while improving scalability. The bounded-suboptimal 
+
+δset variant has a 9 .08 median cost, while the δpos vari-ant has a 9 .18 median cost. Running the δset solver with ϵ = 1 reduces the median cost to 8 .53, compared with a 9 .70 median cost for MICP(g). On the 30 in-stances solved by MICP, the two inflated BFS variants, and MICP(g), the median cost increase relative to MICP is 0 .0% for all three non-MICP planners. Nonzero in-creases occur on 12, 6, and 2 instances for δpos , δset , and MICP(g), respectively, with median positive increases of 4.79%, 5 .95%, and 3 .23%. For the anytime ST-RRT ∗
+
+baseline, the final incumbent substantially improves so-lution quality after the first feasible trajectory is found. Across its 57 successful instances, the final incumbent reduces the median successful cost from 9 .29 to 6 .49. The single ST-RRT ∗ legend entry uses first-feasibility time for success and final-incumbent cost for quality. The solution-cost comparisons should be interpreted rel-ative to the solution space represented by each planner. For rand and maze , the ST-GCS-based planners pro-duce costs close to the ST-GCS optimum, with small increases for the inflated BFS variants and MICP(g) on common-success instances. For iris , however, the ST-GCS-based planners generally have higher costs than the non-ST-GCS baselines. This is expected since IRIS-generated convex sets provide only partial coverage of the full collision-free space, so ST-GCS optimality is with respect to the ST-GCSs rather than the entire continu-ous free space. 
+
+8.3.4 MRMP Benchmark 
+
+We evaluate various MRMP planners under 180s run-time budget on n-robots MRMP instances, where each 
+
+n = 2 , 4, . . . , 20 corresponds to 60 instances generated as in Sec. 8.1.3. The proposed Windowed-PBS + BFS ap-plies windowed-PBS with NC node expansion rule and ∆plan = ∆ exec = 5 r/ || vlim || ∞ as the high-level coordi-nator, and the BFS solver with hmax , ϵ = 10, upper-bound pruning, and δpos as the low-level solver, which empirically is most scalable under limited runtime. With the same low-level BFS solver, we also compare sev-eral composed baselines with different high-level coor-dinators, namely, windowed-PP with ∆ plan = ∆ exec =5r/ || vlim || ∞, PBS with NC node expansion rule, and PP. To test the alternative low-level planners in Sec. 8.3.1, we evaluate PBS + Zeta ∗-SIPP with discretization of 
+
+r, and PP + ST-RRT ∗. PP + ST-RRT ∗ is adopted as an anytime prioritized planning baseline. After the first priority-ordered pass produces a feasible joint solution, the remaining budget is used for improvement rounds that revisit the robots in the same order and replace an incumbent trajectory only when ST-RRT ∗ finds a shorter collision-free trajectory against the current reservations. 23 Table 1: Windowed-PBS+BFS solving profile. Entries report median query density, median total runtime, and component shares. Opt. indicates convex optimization in PathOptimize of Alg. 1. Search includes only BFS and PBS without Opt. 
+
+n Query Density Runtime Total Runtime Breakdown Search Opt. ECD Others 2 19.2% 0.41s 50.2% 37.2% 0.0% 12.6% 4 43.7% 1.29s 44.6% 36.7% 7.8% 11.0% 6 52.0% 2.67s 41.5% 37.7% 10.9% 9.9% 8 58.5% 4.99s 38.3% 38.1% 13.9% 9.7% 10 65.9% 8.04s 35.1% 39.3% 16.5% 9.2% 12 69.5% 12.6s 35.3% 39.2% 17.4% 8.1% 14 71.7% 17.7s 33.1% 37.7% 20.7% 8.6% 16 76.4% 25.9s 29.5% 39.6% 22.5% 8.4% 18 78.4% 48.9s 28.2% 42.1% 22.5% 7.2% 20 79.1% 40.2s 28.9% 40.6% 22.9% 7.6% 
+
+We report its first feasible solution for runtime and its fi-nal incumbent solution for solution quality. In addition, we compare with two standalone MRMP baselines. K-CBS (Kottinger et al., 2022) is a fast feasibility-oriented and sampling-based MRMP planner from OMPL (S ¸ucan et al., 2012). CB-GCS (Zhao et al., 2025b) similarly solves MRMP on GCSs under a fixed time-step repre-sentation. 
+
+8.3.5 MRMP Scalability 
+
+Fig. 16 shows that the proposed Windowed-PBS + BFS has the highest success rate. Over the n ≥ 10 instances, it solves 338 out of 360 instances. All baselines solve fewer cases in the same regime. Among the other com-posed baselines, PP + BFS solves 159, PP + ST-RRT ∗
+
+solves 151, PBS + BFS solves 135, Windowed-PP + BFS solves 108, and PBS + Zeta ∗-SIPP solves 9. The two standalone baselines also degrade at high robot counts. K-CBS solves 242 instances for n ≥ 10, while CB-GCS solves only 6. At n = 20, Windowed-PBS + BFS solves 19 /20 rand , 16 /20 maze , and 16 /20 iris instances, giv-ing 51 /60 successes overall. The next-best baseline at this scale is K-CBS with 20 /60 successes. The remain-ing baselines solve 13 /60 cases for PP + ST-RRT ∗, 7 /60 for Windowed-PP + BFS, 6 /60 for PP + BFS, 2 /60 for PBS + BFS, and 0 /60 for PBS + Zeta ∗-SIPP and CB-GCS. These comparisons separate the two ingredients needed for scalability. Windowing alone is not sufficient. Windowed-PP + BFS uses the same low-level solver and horizon schedule as Windowed-PBS + BFS, but solves only 108 /360 high-count cases and 7 /60 cases at n = 20. PBS alone is also not sufficient. Full-horizon PBS + BFS solves 135 /360 high-count cases and only 2 /60 cases at 
+
+n = 20. The proposed combination avoids these two failure modes by resolving local priority conflicts inside each window while committing only the next execution rand       
+
+> Ours (7.8s/45.0/4.5) PP+ST-RRT* (30.0s/46.7/7.5) K-CBS (9.0s/78.5/11.8)
+> maze
+> Ours (5.7s/175.0/17.5) PP+ST-RRT* (30.0s/103.9/19.1) K-CBS (7.3s/240.2/40.1)
+> iris
+> Ours (14.3s/125.0/12.5) PP+ST-RRT* (30.0s/66.9/8.7) K-CBS (3.6s/165.1/21.1)
+
+Figure 17: Qualitative MRMP comparison on represen-tative 10-robot instances. Each subplot title reports the runtime, sum-of-costs, and makespan. Gray and black regions show the spatial GCS and static obstacles, re-spectively. For K-CBS and PP-ST-RRT ∗, the GCSs in 
+
+rand are used for sampling since there are no explicit ob-stacles presented, while they are not used in maze and 
+
+iris and thus not visualized. interval. The comparison against PP + ST-RRT ∗ and K-CBS is clearest on the most challenging n ≥ 16 in-stances. Windowed-PBS + BFS solves 55 /60, 51 /60, and 55 /60 cases on rand , maze , and iris , respectively. PP + ST-RRT ∗ solves 15 /60, 2 /60, and 39 /60, while K-CBS solves 12 /60, 27 /60, and 49 /60. On successful runs in this regime, the median runtimes of Windowed-PBS + BFS are 37 .1s, 20 .8s, and 51 .9s across the three domains. PP + ST-RRT ∗ has successful-run median runtimes of 15 .1s, 88 .5s, and 1 .07s, while K-CBS has 105s, 82 .3s, and 37 .1s. Thus, although PP + ST-RRT ∗ and K-CBS are very strong baselines on smaller instances with fewer robots, the proposed Windowed-PBS + BFS remains the only scalable choice for the most challenging MRMP in-stances across all three domains. Tab. 1 shows search and optimization dominate the runtime, while ECD becomes substantial at larger n and other costs remain small. The query density reports the area fraction of the entire spa-tial GCSs covered by the union of the start and goal hypercube occupancies as in Eqn. (7). 
+
+8.3.6 MRMP Solution Quality 
+
+The SoC and makespan rows of Fig. 16 show that the proposed Windowed-PBS + BFS retains competitive so-24 (a1) (a2) (b1) (b2) Figure 18: Large-scale 2D coordination with random start-goal pairs. (a1)–(a2) show 50 robots in a four-room workspace, and (b1)–(b2) show 100 robots in an empty workspace. In each pair, the first panel is our MRMP solution and the second is the trajectory-optimized result, solved in 1.64m/1.62m and 1.60m/3.45m, respectively. Hollow circles/squares mark starts/goals. lution quality while achieving the scalability reported above. We report the median SoC and makespan on the n ≤ 10 instances where most planners succeed on substantial subsets. On the corresponding common-success subsets, the median SoC/makespan Windowed-PBS + BFS is 40 .0/10 .0. Full-horizon PBS + BFS and PP + BFS have lower median SoC/makespan 26 .7/8.71 and 27 .3/8.79, respectively. Windowed-PP + BFS gives a similar limited-horizon tradeoff, with median SoC/makespan 40 .0/10 .0. Thus, windowed coordina-tion sacrifices some SoC since it plans and commits only within a finite horizon, while keeping the makespan close to the full-horizon BFS planners. In contrast, the feasibility-oriented K-CBS has substantially worse solution quality with median SoC/makespan 66 .0/21 .7. PP + ST-RRT ∗ is a stronger solution-quality baseline in favorable domains after using the full 180s runtime budget. On iris , it achieves median SoC/makespan 33 .6/8.33, below the median 60 .0/10 .0 of Windowed-PBS + BFS. As in Sec. 8.3.3, this gap is expected since IRIS-generated convex sets only partially cover the full collision-free space. However, its quality advantage is domain-dependent. On maze , PP + ST-RRT ∗ has me-dian SoC/makespan 42 .6/15 .0, while Windowed-PBS + BFS has median SoC/makespan 60 .0/14 .4. Fig. 17 il-lustrates these domain-dependent quality differences on representative 10-robot examples with a 30s runtime budget. Overall, K-CBS emphasizes feasibility at the cost of longer joint plans. PP + ST-RRT ∗ can produce high-quality solutions in favorable domains but is less consistent. Windowed-PBS + BFS provides the most consistent quality-scalability tradeoff across domains. 
+
+## 9 Applications and Demonstrations 
+
+This section complements the quantitative comparisons above with several demonstration scenarios. We first de-scribe a trajectory-optimization postprocessing step for smoothing the piecewise-linear trajectories produced by our planner, then demonstrate the solutions on large-scale simulated problems and real-robot deployments. 
+
+9.1 Global Trajectory Optimization 
+
+The proposed MRMP planner produces piecewise-linear trajectories with fixed vertex paths on ST-GCS. As a postprocessing step, we can smooth these trajectories by solving a Quadratic Program (QP) over sampled spatial positions along the trajectories at fixed time samples. Given n robot trajectories T 0 = {τ 0 
+
+> i
+
+}ni=1 , we choose a shared ordered sample sequence K = ⟨t1, . . . , t l⟩, with 
+
+t1 < · · · < t l, formed from a uniform time grid together with the original trajectory knot times. We will use k to denote the index of the fixed time sample tk.Let ¯ pi,k = τ 0 
+
+> i
+
+(tk).p be the reference position of robot 
+
+i at time tk. The program keeps the times fixed and optimizes only the sampled spatial positions pi,k ∈ Rm.Similarly to Sec. 7.1, we assume a common radius r for the robots. For compactness, we define the sampled ve-locity and velocity-variation term as follows: 
+
+vi,k (p) = pi,k +1 − pi,k 
+
+tk+1 − tk
+
+,
+
+gi,k (p) = pi,k +1 − pi,k −1
+
+tk+1 − tk−1
+
+− pi,k − pi,k −2
+
+tk − tk−2
+
+.
+
+Let Fi denote the samples at which robot i is fixed at its initial or terminal state. For each interval [ tk, t k+1 ], let vi,k be the ST-GCS vertex traversed by the input piecewise-linear trajectory at the interval midpoint. We formulate the trajectory optimization as: min  
+
+> {pi,k }
+> n
+
+X
+
+> i=1
+
+
+
+λcl−1X
+
+> k=3
+
+∥gi,k (p)∥22 + λdlX
+
+> k=1
+
+∥pi,k − ¯pi,k ∥22
+
+
+
+s.t. pi,k = ¯ pi,k , (12a) 
+
+− vlim ⪯ vi,k (p) ⪯ vlim , (12b) (pi,k , t k), (pi,k +1 , t k+1 ) ∈ Xvi,k , (12c) 
+
+n⊤
+
+> ij,k
+
+(pi,k − pj,k ) ≥ 2r, (12d) 25 (a1) t 2 [0 :0; 1:0] 
+
+1£
+
+(b1) t 2 [1 :0; 1:4] 
+
+4£
+
+(c1) t 2 [1 :4; 1:9] 
+
+5£
+
+(d1) t 2 [1 :9; 2:4] 
+
+3£
+
+(e1) t 2 [2 :4; 4:8] 
+
+1£
+
+(a2) t 2 [0 :0; 1:0] 
+
+1£
+
+(b2) t 2 [1 :0; 1:5] 
+
+4£
+
+(c2) t 2 [1 :5; 2:0] 
+
+5£
+
+(d2) t 2 [2 :0; 2:4] 
+
+3£
+
+(e2) t 2 [2 :4; 4:9] 
+
+1£Figure 19: Top-down view snapshots of 32-UAV position-exchange demonstration in a 3D sphere. Top and bottom rows show our MRMP solution and trajectory-optimized result solved in 1.14m and in 0.86m, respectively. Hollow circles/squares mark starts/targets, filled circles mark window-end positions, and dotted circles and labels mark zoom bounds and factors. where Eqns. (12a)–(12c) are enforced for every robot and all valid sample indices, with Eqn. (12a) restricted to 
+
+k ∈ F i. Eqn. (12d) is enforced for every robot pair 1 ≤
+
+i < j ≤ n and every sample k. The objectives regularize velocity variation and penalize deviations from the input reference trajectories. The two nonnegative weights λc
+
+and λd tune the relative emphasis of these two objective terms, respectively. Eqn. (12a) preserves the prescribed start and goal positions. Eqn. (12b) enforces the same component-wise velocity limits constraint as Eqn. (3f) in the original formulation. Eqn. (12c) constrains both endpoints of each optimized segment to lie in the same set Xvi,k of the original trajectory segment. Since each optimized segment is a linear interpolation in space-time between the two endpoints, the convexity of Xvi,k keeps the entire optimized segment inside this collision-free set. Eqn. (12d) is a sampled linearization of pairwise robot separation, where nij,k = (¯ pi,k − ¯pj,k )/∥¯pi,k − ¯pj,k ∥2 is the unit normal precomputed from the original sampled positions ¯ pi,k and ¯ pj,k at time tk.When explicit obstacle representations are available, we can further replace Eqn. (12c) with direct sampled collision-avoidance constraints. At each sample time tk,a static obstacle uses its fixed spatial geometry, while a space-time obstacle uses its spatial slice at tk. For each robot i, obstacle o, and time sample tk, let ai,k,o ∈ Rm
+
+and bi,k,o ∈ R jointly define a precomputed separating halfspace that contains the original trajectory sample ¯pi,k and excludes the obstacle geometry inflated by the robot radius r. We enforce the corresponding sampled collision-avoidance constraint a⊤
+
+> i,k,o
+
+pi,k ≥ bi,k,o , which keeps the optimized sample on the same collision-free side of this halfspace. The resulting smoothed trajectories are certified to be space-time collision-free only at the sampled states (pi,k , t k) where the QP constraints are imposed. For larger instances, we improve scalability with a sequen-tial rolling-horizon variant that optimizes a short block of consecutive time samples, fixes the accepted prefix, advances the block, and repeats until all samples have been processed. This decomposition keeps each local trajectory-optimization QP small and makes the full problem easier to solve, while retaining the same smooth-ing objective and sampled-state collision-free. 
+
+9.2 Large-Scale Coordination 
+
+We demonstrate in large-scale MRMP instances that the proposed Windowed-PBS + BFS planner scales to confined and highly congested workspaces, with trajec-tory optimization applied afterward as a smoothing post-processing step. Fig. 18 shows two planar coordination settings with complementary sources of difficulty. Using the same query-density metric as Tab. 1, the 50-robot and 100-robot instances have query densities of 95 .7% and 77 .1%, respectively. In the 50-robot four-room in-stance, the workspace funnels traffic through narrow inter-room passages, so difficulty comes from geomet-ric bottlenecks and the need to sequence many robots through shared doorways. In the 100-robot empty-workspace instance, the independent trajectories of 97 robots are involved in collisions initially in one connected conflict component, so difficulty comes from dense pair-26 ร า5               
+
+> •S21
+> G3
+> S 2 3
+> S42
+> G47
+> G40 S30:
+> S 4 4
+> G31
+> G 1 3
+> G 3 2
+> G18A3
+> G5
+> S18
+> $ 2 0
+> G 3 4
+> G15
+> G 3 8
+> G 2 8
+> S 3 9
+> G42
+> G25 G12
+> $ 4 7
+> S26
+> LG36
+> G 1 6
+> S 3 7 G 1 4
+> S2,G37
+> G7G30
+> S 2 7
+> S 1 0 S 4 S 1 2
+> S 3 4
+> G171
+> S5
+> 5 5 2
+> S 6
+> • S 1 4
+> $48
+> S 4 0 ° $24
+> •S43•
+> ST
+> S 5
+> S 4 1
+> G 2
+> S 4 6
+> G 9
+> G 2 0
+> S 1 9
+> G 4 G 4 4
+> S13 S 3 1
+> G 1 0
+> S 3 S33 G 2 6
+> G19
+> G11,G46
+> -G43
+> G 3 3
+> G6
+> 6291
+> S3625
+
+ราช576393  
+
+> G 2 7 G45
+> G 2 3
+> G 3 5
+> S 9 S38•
+> S 1 6
+> G8
+> G41
+
+Figure 20: 48-UAV MRMP in a cluttered village with trees and buildings. The trajectory-optimized result is shown and solved in 2.72m after our planner found a solution in 3.75m. wise interaction rather than static obstacles. These re-sults show that the planner remains practical both when difficulty comes from geometric bottlenecks and when it comes from dense pairwise robot interactions. Fig. 19 further stresses coordination with a 32-UAV position-exchange problem on a 3D sphere, where every robot conflicts with any other robots at the sphere center. This fully coupled exchange forces the coordinator to resolve simultaneous conflicts in 3D before trajectory optimiza-tion smooths the resulting paths. Fig. 20 further tests a 48-UAV instance in a fastpathplanning-style 3D village with dense buildings and trees (Marcucci et al., 2024a). The generated village occupies an 8 ×8×3 workspace, in-cludes building footprints together with randomly placed tree and bush obstacles, and decomposes the remain-ing free space into 119 convex boxes. The start–goal pairs are sampled as long-distance trips across this frag-mented free space, so many UAVs must simultaneously route around vertical clutter while avoiding one another in narrow local passages. 
+
+9.3 Mobile Robots Deployment 
+
+We validate our MRMP planner in an open indoor en-vironment with a system of 9 differential drive mobile robots. The system is centrally controlled by an In-tel Core Ultra 5 125U laptop with 16GB RAM, ROS2 Humble (Macenski et al., 2022), and Vicon (Vicon Mo-tion Systems Ltd., 2025) for robot localization. Each robot has a bounding radius of 7cm and is exposed to a velocity command ( v, ω ), with linear velocity v ∈ [0 , 0.6] m/s and angular velocity ω ∈ [−2.5, 2.5] rad/s. Note that this velocity limit is set conservatively smaller than the physical robot limits for system robustness. We construct a rearrange task consisting of a sequence of MRMP queries within a 3m ×3m bounding square. The goal positions in each query consecutively form a t=24.0s t=35.5s 
+
+t=48.5s t=55.0s 
+
+t=64.5s t=82.0s 
+
+Figure 21: Real-robot demonstration of rearrange task for the letters S, T, G, C, S. Opaque robots mark cap-tured poses, and translucent ghosts show preceding mo-tion traces. configuration of five letters: S, T, G, C, and S. All the robots start simultaneously from their previous goal con-figurations; specifically, they initialize and terminate in a 3 × 3 grid configuration. We first compute piecewise-linear solution trajectories via Windowed-PBS+BFS, and then smooth them via the trajectory optimization described in Sec. 9.1. The safe clearance between the robots is set to 20cm during planning, which is 6cm larger than twice the robot radius. The offline planning for the entire task took 16.28s. During online execution, the smoothed trajectories are discretized with a 0 .05s time step into time-indexed way-points, and the tracker precomputes segment-wise refer-ence linear and angular velocities from consecutive sam-ples. All robots receive a common start time and evalu-ate their own trajectory at a system-wide shared elapsed time, preserving the simultaneity encoded by the offline solution. We use a simple trajectory tracking controller for the robots with a 60-Hz frequency. In each con-27 trol cycle, the tracker first identifies the active trajec-tory segment whose time interval contains the system time. The final published velocity command combines the active segment’s reference velocities as feedforward terms with body-frame feedback corrections computed from the interpolated desired pose error. In our deploy-ments, the conservative velocity limits and additional planned inter-robot clearance provided enough margin for the observed tracking errors, and the robots com-pleted the rearrangement without inter-robot collisions. Fig. 21 demonstrates the actual robot trajectories during the rearrange task. 
+
+## 10 Conclusions 
+
+We presented ST-GCS as a continuous-space framework for time-optimal spatiotemporal motion planning with dynamic obstacles and multi-robot interactions. By searching over path-indexed states on space-time con-vex sets, the proposed solver avoids a single large mixed-integer formulation while still optimizing continuous tra-jectories along candidate paths. The ECD scheme fur-ther allows planned occupancies to be reserved directly in the graph, enabling prioritized and windowed coordi-nation for MRMP. Experiments show that the resulting planners substantially improve scalability while main-taining competitive solution quality. Large-scale demon-strations further show practical coordination of up to 100 robots within a few minutes. Several scope limitations suggest natural directions for future work. First, the current ST-GCS formula-tion uses piecewise-linear trajectory representations with time monotonicity and component-wise velocity bounds, motivating richer trajectory representations for nonholo-nomic systems, kinodynamic constraints, and manipula-tion tasks. Second, this work targets offline MRMP with known environments, motivating online MRMP with fre-quent replanning under changing environments or life-long task assignments, together with adaptive or approx-imate convex decompositions that keep such replanning more efficient. Third, finite-window coordination is in-complete in general because conflicts outside the cur-rent window are deferred, motivating stronger window-selection rules with completeness guarantees. 
+
+## Funding 
+
+This work was supported by the NSERC under grant number RGPIN2020-06540 and a CFI JELF award. 
+
+## References 
+
+Anton Andreychuk, Konstantin Yakovlev, Pavel Surynek, Dor Atzmon, and Roni Stern. Multi-agent pathfinding with continuous time. Artificial Intelligence , 305:103662, 2022. Dimitris Bertsimas and John N Tsitsiklis. Introduction to linear optimization , volume 6. Athena scientific Bel-mont, MA, 1997. Anoop Bhat, Geordan Gutow, Bhaskar Vundurthy, Zhongqiang Ren, Sivakumar Rathinam, and Howie Choset. A complete and bounded-suboptimal algo-rithm for a moving target traveling salesman problem with obstacles in 3d. In 2025 IEEE International Con-ference on Robotics and Automation (ICRA) , pages 6132–6138. IEEE, 2025. Jamis Buck. Maze generation: Recursive divi-sion. https://weblog.jamisbuck.org/2011/1/12/ maze-generation-recursive-division-algorithm ,January 2011. Blog post, accessed 2026-03-09. Shao Yuan Chew Chia, Rebecca H Jiang, Bernhard Paus Graesdal, Leslie Pack Kaelbling, and Russ Tedrake. GCS*: Forward heuristic search on implicit graphs of convex sets. arXiv preprint arXiv:2407.08848 , 2024. Charles L Clark and Biyun Xie. Plan optimal collision-free trajectories with non-convex cost functions using graphs of convex sets. IEEE Transactions on Robotics ,2025. Thomas Cohn, Mark Petersen, Max Simchowitz, and Russ Tedrake. Non-euclidean motion planning with graphs of geodesically convex sets. The International Journal of Robotics Research , page 02783649241302419, 2023. Hongkai Dai, Alexandre Amice, Peter Werner, Annan Zhang, and Russ Tedrake. Certified polyhedral decom-positions of collision-free configuration space. The In-ternational Journal of Robotics Research , 43(9):1322– 1341, 2024. Robin Deits and Russ Tedrake. Computing large con-vex regions of obstacle-free space through semidefinite programming. In Algorithmic Foundations of Robotics XI: Selected Contributions of the Eleventh Interna-tional Workshop on the Algorithmic Foundations of Robotics , pages 109–124. Springer, 2015. Steven Diamond, Reza Takapoui, and Stephen Boyd. A general system for heuristic minimization of convex functions over non-convex sets. Optimization Methods and Software , 33(1):165–193, 2018. Edsger W Dijkstra. A note on two problems in connexion with graphs. In Edsger Wybe Dijkstra: his life, work, and legacy , pages 287–290. 2022. Michael Erdmann and Tomas Lozano-Perez. On multiple moving objects. Algorithmica , 2:477–521, 1987. Shruti Garg, Thomas Cohn, and Russ Tedrake. Planning shorter paths in graphs of convex sets by undistorting 28 parametrized configuration spaces. IEEE Robotics and Automation Letters , 2025. Bernhard Paus Graesdal, Shao Yuan Chew Chia, Tobia Marcucci, Savva Morozov, Alexandre Amice, Pablo A Parrilo, and Russ Tedrake. Towards tight con-vex relaxations for contact-rich manipulation. arXiv preprint arXiv:2402.10312 , 2024. Francesco Grothe, Valentin N Hartmann, Andreas Or-they, and Marc Toussaint. St-rrt*: Asymptotically-optimal bidirectional motion planning through space-time. In 2022 International Conference on Robotics and Automation (ICRA) , pages 3314–3320. IEEE, 2022. Matthias H¨ uppi, Luca Bartolomei, Ruben Mascaro, and Margarita Chli. T-prm: Temporal probabilistic roadmap for path planning in dynamic environments. In 2022 IEEE/RSJ International Conference on In-telligent Robots and Systems (IROS) , pages 10320– 10327. IEEE, 2022. Kazumi Kasaura, Mai Nishimura, and Ryo Yonetani. Prioritized safe interval path planning for multi-agent pathfinding with continuous time on 2d roadmaps. 
+
+IEEE Robotics and Automation Letters , 7(4):10494– 10501, 2022. Lydia E Kavraki, Petr Svestka, J-C Latombe, and Mark H Overmars. Probabilistic roadmaps for path planning in high-dimensional configuration spaces. 
+
+IEEE transactions on Robotics and Automation , 12 (4):566–580, 1996. Nuraddin Kerimov, Aleksandr Onegin, and Konstantin Yakovlev. Safe interval randomized path planning for manipulators. In Proceedings of the International Con-ference on Automated Planning and Scheduling , vol-ume 35, pages 213–217, 2025. Justin Kottinger, Shaull Almagor, and Morteza Lahi-janian. Conflict-based search for multi-robot mo-tion planning with kinodynamic constraints. In 
+
+2022 IEEE/RSJ International Conference on Intelli-gent Robots and Systems (IROS) , pages 13494–13499. IEEE, 2022. Vince Kurtz and Hai Lin. Temporal logic motion plan-ning with convex optimization via graphs of convex sets. IEEE Transactions on Robotics , 2023. Steven LaValle. Rapidly-exploring random trees: A new tool for path planning. Research Report 9811 , 1998. Junjie Lu, Bi Zeng, Jingtao Tang, Tin Lun Lam, and Junbin Wen. TMSTC*: A path planning algo-rithm for minimizing turns in multi-robot coverage. 
+
+IEEE Robotics and Automation Letters , 8(8):5275– 5282, 2023. Hang Ma, Daniel Harabor, Peter J Stuckey, Jiaoyang Li, and Sven Koenig. Searching with consistent prioritiza-tion for multi-agent path finding. In Proceedings of the AAAI conference on artificial intelligence , volume 33, pages 7643–7650, 2019. Steven Macenski, Tully Foote, Brian Gerkey, Chris Lalancette, and William Woodall. Robot operating system 2: Design, architecture, and uses in the wild. 
+
+Science Robotics , 7(66):eabm6074, 2022. doi: 10.1126/ scirobotics.abm6074. URL https://www.science. org/doi/abs/10.1126/scirobotics.abm6074 .Katherine Mao, Igor Spasojevic, Malakhi Hopkins, M Ani Hsieh, and Vijay Kumar. Collision-free time-optimal path parameterization for multi-robot teams. 
+
+arXiv preprint arXiv:2409.17079 , 2024. Tobia Marcucci. Graphs of convex sets with applications to optimal control and motion planning . PhD thesis, Massachusetts Institute of Technology, 2024. Tobia Marcucci, Mark Petersen, David von Wrangel, and Russ Tedrake. Motion planning around obstacles with convex optimization. Science robotics , 8(84):eadf7843, 2023. Tobia Marcucci, Parth Nobel, Russ Tedrake, and Stephen Boyd. Fast path planning through large col-lections of safe boxes. IEEE Transactions on Robotics ,2024a. Tobia Marcucci, Jack Umenberger, Pablo Parrilo, and Russ Tedrake. Shortest paths in graphs of convex sets. 
+
+SIAM Journal on Optimization , 34(1):507–532, 2024b. Tobia Marcucci, Mathew Halm, Will Yang, Dongchan Lee, and Andrew D Marchese. A biconvex method for minimum-time motion planning through sequences of convex sets. arXiv preprint arXiv:2504.18978 , 2025. Courtney McBeth, James D Motes, Isaac Ngui, Marco Morales, and Nancy M Amato. Scalable multi-robot motion planning using workspace guidance-informed hypergraphs. IEEE Robotics and Automation Letters ,2026. Matthew McNaughton, Chris Urmson, John M Dolan, and Jin-Woo Lee. Motion planning for autonomous driving with a conformal spatiotemporal lattice. In 
+
+2011 IEEE International Conference on Robotics and Automation , pages 4889–4895. IEEE, 2011. Clair E Miller, Albert W Tucker, and Richard A Zemlin. Integer programming formulation of traveling sales-man problems. Journal of the ACM (JACM) , 7(4): 326–329, 1960. Savva Morozov, Tobia Marcucci, Alexandre Amice, Bernhard Paus Graesdal, Rohan Bosworth, Pablo A 29 Parrilo, and Russ Tedrake. Multi-query shortest-path problem in graphs of convex sets. arXiv preprint arXiv:2409.19543 , 2024. Savva Morozov, Tobia Marcucci, Bernhard Paus Graes-dal, Alexandre Amice, Pablo A Parrilo, and Russ Tedrake. Mixed discrete and continuous planning us-ing shortest walks in graphs of convex sets. arXiv preprint arXiv:2507.10878 , 2025. MOSEK ApS. MOSEK Modeling Software , 2026. URL 
+
+https://www.mosek.com/ . Version 11.1. Ramkumar Natarajan, Chaoqi Liu, Howie Choset, and Maxim Likhachev. Implicit graph search for planning on graphs of convex sets. Robotics: Science and Sys-tems (RSS) , 2024. Matthew D Osburn, Cameron K Peterson, and John L Salmon. Systematic constraint formu-lation and collision-free trajectory planning using space-time graphs of convex sets. arXiv preprint arXiv:2508.10203 , 2025. Allen George Philip, Zhongqiang Ren, Sivakumar Rathi-nam, and Howie Choset. A mixed-integer conic pro-gram for the moving-target traveling salesman prob-lem based on a graph of convex sets. In 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 8847–8853. IEEE, 2024. Mike Phillips and Maxim Likhachev. Sipp: Safe in-terval path planning for dynamic environments. In 
+
+2011 IEEE international conference on robotics and automation , pages 5628–5635. IEEE, 2011. Mike Qin, Irving Solis, James D Motes, Marco Morales, and Nancy M Amato. K-arc: Adaptive robot coordi-nation for multi-robot kinodynamic planning. IEEE Robotics and Automation Letters , 2025. Zhongqiang Ren, Allen George Philip, Shizhe Zhao, Sivakumar Rathinam, and Howie Choset. Cp-milp: Mixed integer linear programming for multi-agent mo-tion planning with linear dynamics. IEEE Robotics and Automation Letters , 2025. Stuart J. Russell and Peter Norvig. Artificial Intelli-gence: A Modern Approach (4th Edition) . Pearson, 2020. ISBN 9781292401133. URL http://aima.cs. berkeley.edu/ .Guni Sharon, Roni Stern, Ariel Felner, and Nathan R Sturtevant. Conflict-based search for optimal multi-agent pathfinding. Artificial intelligence , 219:40–66, 2015. Rahul Shome, Kiril Solovey, Andrew Dobson, Dan Halperin, and Kostas E Bekris. drrt*: Scalable and informed asymptotically-optimal multi-robot motion planning. Autonomous Robots , 44(3):443–467, 2020. David Silver. Cooperative pathfinding. In Proceedings of the aaai conference on artificial intelligence and inter-active digital entertainment , volume 1, pages 117–122, 2005. Joonyeol Sim, Joonkyung Kim, and Changjoo Nam. Safe interval rrt* for scalable multi-robot path planning in continuous space. arXiv preprint arXiv:2404.01752 ,2024. Avishai Sintov and Amir Shapiro. Time-based rrt al-gorithm for rendezvous planning of two dynamic sys-tems. In 2014 IEEE International Conference on Robotics and Automation (ICRA) , pages 6745–6750. IEEE, 2014. Irving Solis, James Motes, Read Sandstr¨ om, and Nancy M Amato. Representation-optimal multi-robot motion planning using conflict-based search. 
+
+IEEE Robotics and Automation Letters , 6(3):4608– 4615, 2021. Irving Solis, James Motes, Mike Qin, Marco Morales, and Nancy M Amato. Adaptive robot coordination: A subproblem-based approach for hybrid multi-robot motion planning. IEEE Robotics and Automation Let-ters , 9(8):7238–7245, 2024. Kiril Solovey, Oren Salzman, and Dan Halperin. Finding a needle in an exponential haystack: Discrete rrt for exploration of implicit roadmaps in multi-robot mo-tion planning. The International Journal of Robotics Research , 35(5):501–513, 2016. Ioan A. S ¸ucan, Mark Moll, and Lydia E. Kavraki. The Open Motion Planning Library. IEEE Robotics & Automation Magazine , 19(4):72–82, December 2012. doi: 10.1109/MRA.2012.2205651. https://ompl. kavrakilab.org .Kaarthik Sundar and Sivakumar Rathinam. A* for graphs of convex sets. arXiv preprint arXiv:2407.17413 , 2024. Petr ˇSvestka and Mark H Overmars. Coordinated path planning for multiple robots. Robotics and au-tonomous systems , 23(3):125–152, 1998. Ardalan Tajbakhsh, Lorenz T Biegler, and Aaron M Johnson. Conflict-based model predictive control for scalable multi-robot motion planning. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 14562–14568. IEEE, 2024. Jingtao Tang and Hang Ma. Ghost: Solving the trav-eling salesman problem on graphs of convex sets. In 
+
+Proceedings of the AAAI Conference on Artificial In-telligence , volume 40, pages 36421–36428, 2026. 30 Jingtao Tang, Zining Mao, Lufan Yang, and Hang Ma. Space-time graphs of convex sets for multi-robot mo-tion planning. In 2025 IEEE/RSJ International Con-ference on Intelligent Robots and Systems (IROS) ,pages 8683–8690, 2025. doi: 10.1109/IROS60139.2025. 11246429. Russ Tedrake and the Drake Development Team. Drake: Model-based design and verification for robotics, 2019. URL https://drake.mit.edu .Jesus Tordesillas and Jonathan P How. Mader: Trajec-tory planner in multiagent and dynamic environments. 
+
+IEEE Transactions on Robotics , 38(1):463–476, 2021. Jur P Van Den Berg and Mark H Overmars. Pri-oritized motion planning for multiple robots. In 
+
+2005 IEEE/RSJ International Conference on Intelli-gent Robots and Systems , pages 430–435. IEEE, 2005. Vicon Motion Systems Ltd. Vicon Tracker. Engineer-ing motion capture and object-tracking software, 2025. URL https://www.vicon.com/software/tracker/ .Used for rigid-body localization / 6-DoF pose track-ing; accessed 2026-06-28. David von Wrangel and Russ Tedrake. Using graphs of convex sets to guide nonconvex trajectory optimiza-tion. In 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 9863– 9870. IEEE, 2024. Glenn Wagner and Howie Choset. Subdimensional ex-pansion for multirobot path planning. Artificial intel-ligence , 219:1–24, 2015. Peter Werner, Alexandre Amice, Tobia Marcucci, Daniela Rus, and Russ Tedrake. Approximating robot configuration spaces with few convex sets using clique covers of visibility graphs. In 2024 IEEE In-ternational Conference on Robotics and Automation (ICRA) , pages 10359–10365. IEEE, 2024. Peter Werner, Richard Cheng, Tom Stewart, Russ Tedrake, and Daniela Rus. Superfast configuration-space convex set computation on gpus for online mo-tion planning. arXiv preprint arXiv:2504.10783 , 2025. Shilin You, Gael Luna, Juned Shaikh, David Gostin, Yu Xiang, Justin Koeln, and Tyler Summers. Mo-tion planning with precedence specifications via aug-mented graphs of convex sets. arXiv preprint arXiv:2510.22015 , 2025. Shizhe Zhao, Yongce Liu, Howie Choset, and Zhongqiang Ren. Mixed integer conic programming for multi-agent motion planning in continuous space. In 
+
+2025 IEEE/RSJ International Conference on Intelli-gent Robots and Systems (IROS) , pages 10540–10547. IEEE, 2025a. Shizhe Zhao, Allen George Philip, Sivakumar Rathinam, Howie Choset, and Zhongqiang Ren. Cb-gcs: Conflict-based search on the graph of convex sets for multi-agent motion planning. In 2025 IEEE 21st Interna-tional Conference on Automation Science and Engi-neering (CASE) , pages 2208–2214. IEEE, 2025b. Yiyuan Zou and Clark Borst. Zeta*-sipp: Improved time-optimal any-angle safe-interval path planning. In 
+
+IJCAI , pages 6823–6830, 2024. 31

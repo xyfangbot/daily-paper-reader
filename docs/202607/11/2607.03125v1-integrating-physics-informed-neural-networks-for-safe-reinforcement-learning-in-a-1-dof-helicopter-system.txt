@@ -1,0 +1,142 @@
+Title: Integrating Physics-Informed Neural Networks for Safe Reinforcement Learning in a 1-DoF Helicopter System
+
+URL Source: https://arxiv.org/pdf/2607.03125v1
+
+Published Time: Tue, 07 Jul 2026 00:43:21 GMT
+
+Number of Pages: 5
+
+Markdown Content:
+# Integrating Physics-Informed Neural Networks for Safe Reinforcement Learning in a 1-DoF Helicopter System 
+
+Georg Schäfer 1,2, Jakob Rehrl 1, and Stefan Huber 1 
+
+> 1
+
+Josef Ressel Centre for Intelligent and Secure Industrial Automation, Salzburg University of Applied Sciences, Salzburg, Austria  
+
+> 2
+
+Paris Lodron University of Salzburg, Salzburg, Austria 
+
+georg.schaefer@fh-salzburg.ac.at 
+
+Abstract. Deep reinforcement learning (DRL) offers powerful control for industrial cyber-physical systems (ICPSs), but its “black-box” ex-ploration risks violating strict hardware safety limits. Typically, these constraints are managed through complex reward shaping. In this work-in-progress paper, we embed a differentiable physics model directly into the proximal policy optimization (PPO) actor loss function. By simu-lating short-horizon future trajectories during training, the policy is pe-nalized for anticipated safety violations independent of the task-reward signal. Evaluated on a simulated 1-degree-of-freedom helicopter testbed with strict pitch constraints, our physics-informed soft regularizations substantially reduce constraint violations while maintaining reliable tar-get tracking. 
+
+Keywords: Reinforcement Learning · Physics-Informed Neural Networks 
+
+· Safe Control · Cyber-Physical Systems. 
+
+## 1 Introduction 
+
+Industrial cyber-physical systems (ICPSs) integrate physical processes with com-putational control, underpinning modern manufacturing and smart production. Reinforcement learning (RL) has demonstrated significant success in optimizing these complex environments, offering data-driven solutions where mathematical modeling is challenging [4]. However, a primary limitation of standard RL is its “black-box” exploration strategy, which can cause irreversible hardware damage in real-world mechatronic systems. The target system is the Quanser Aero 2 3,a mechatronic laboratory testbed suitable for controlling the angle θ of a bar by actuating two rotors, see [7] for details. Traditionally, safety constraints in RL are encoded purely within the reward definition, leading to complex and brittle reward shaping [3]. Other safe RL paradigms rely on constrained Markov decision processes (CMDPs) [1], control barrier functions (CBFs) [2], or offline model predictive control (MPC) projections [9]. To achieve anticipatory and  
+
+> 3
+
+https://www.quanser.com/products/aero-2/ 
+
+> arXiv:2607.03125v1 [cs.LG] 3 Jul 2026
+
+2 G. Schäfer et al. 
+
+safe control without massive computational overhead, we propose embedding a differentiable physics model directly into the loss function of the proximal policy optimization (PPO) algorithm. This approach conditions the actor net-work regarding safety constraints by penalizing predicted future violations via differentiable simulation [6]. The scientific value of this work-in-progress lies in demonstrating constraint satisfaction decoupled from the primary task-reward signal, providing a scalable mechanism for safe RL deployment. 
+
+## 2 Methodology 
+
+Our base algorithm is PPO [11], chosen for its stable performance and continuous action space capabilities. To embed physical foresight, the system dynamics are modeled via known differential equations representing the Quanser Aero 2. We integrate the physics-informed neural network (PINN) via an auto-regressive unroll mechanism. An overview of this dual-path architecture (evaluating actions concurrently in the environment for task reward and in the differentiable physics model for safety constraints) is illustrated in Fig. 1.   
+
+> stActor πθ
+> Physics (RK4)
+> Environment
+> LSafety
+> LPPO
+> Σ
+> xt
+> at
+> at
+> θ(1 ...H )
+> rt, s t+1
+> ·λ
+> Combined gradients flow backward
+
+Fig. 1. Architecture overview: Actions are evaluated concurrently in the environment and the differentiable physics model. Both the task objective ( LPPO ) and the antici-patory safety penalty ( LSafety , scaled by λ) combine into a total loss, whose gradients flow backward to update the policy. 
+
+– Lookahead Horizon: We project 0.3 s into the future (3 steps at 10 Hz). This balances the need to capture system inertia against the computational cost of long-term simulation. 
+
+– System Dynamics vs. RL Observation: For every timestep t, we dis-tinguish the agent’s full observation state st from the physical state xt
+
+used for safety prediction. While the PPO agent observes an augmented state [8], the differentiable physics model isolates strictly the one-degree-of-freedom (1-DoF) Quanser Aero 2 system state: x = [ θ, ˙θ, ω 0, ω 1]T (pitch an-gle, pitch velocity, and internal motor angular velocities). We use these core variables to initialize the non-linear continuous-time dynamics ˙x = f (x, u)
+
+natively in PyTorch. During training, xt is extracted directly from the sim-ulator as privileged information, and the current policy is sampled for new actions using the predicted state as an input. PINNs for Safe RL 3
+
+– Numerical Integration: We utilize a 4th order Runge-Kutta (RK4) inte-gration method, operating at 5 micro-steps per environment step, ensuring accurate trajectory simulation. 
+
+Safety Constraint Definition: To rigorously test the mechanism, we im-pose an artificial pitch limit of ±30 ◦. We simultaneously train the agent to track target signals of ±40 ◦. While contradictory to standard operation, this extreme configuration effectively showcases the algorithm’s ability to prioritize safety bounds over task-reward maximization. 
+
+Loss Modification: The standard PPO actor loss is augmented with a safety penalty derived from the differentiable physics model as L = LPPO + λ · L Safety ,where λ acts as a weighting factor. Because the numerical RK4 integration is built entirely from trackable tensor operations, the computational graph records every simulation step. Consequently, via the chain rule, gradients from antici-pated safety violations flow backward through the unrolled differential equations into the actor network. To compute LSafety , we unroll the system dynamics over the prediction horizon of H = 3 steps. Let θ(h) denote the predicted pitch angle at horizon step h, simulated via the differentiable RK4 integrator. The safety penalty acts as a soft regularizer, relying on a rectified linear unit (ReLU) to penalize the policy strictly when the absolute predicted pitch exceeds the pre-defined safety limit θmax = 30 ◦. The normalized safety loss is defined as: 
+
+LSafety = 1
+
+H
+
+> H
+
+X
+
+> h=1
+
+max(0 , |θ(h)|
+
+θmax 
+
+− 1) (1) Because this formulation is purely composed of differentiable tensor opera-tions, the resulting gradients correctly map anticipated future constraint viola-tions back to the actor network’s current action distribution. 
+
+## 3 Experimental Setup and Results 
+
+We evaluate our approach on a simulated Quanser Aero 2 system in a 1-DoF con-figuration. The underlying system dynamics and base RL problem formulation have been established in previous studies [7], and the environment is accessed via a standard Gym API framework using Python-Simulink interfaces [10]. We tested three primary configurations, running 10 random seeds for each to ensure statistical significance: Naive Baseline (λ = 0 ), PINN Balanced (λ = 150 ), and 
+
+PINN Over-penalized (λ = 1000 ). The penalty weight λ was chosen empirically; a rigorous statistical evaluation of all 10 seeds and a λ Pareto sweep are reserved for future work. 
+
+Training Stability: All configurations successfully converged. We observed that the value loss naturally increases for higher λ configurations due to the conflicting objectives (tracking a 40 ◦ target vs. stopping at 30 ◦), but the policy loss remained comparable across the board. 
+
+Performance Trade-off and Safety: The evaluation results (see Fig. 2) highlight a clear trade-off between target tracking and constraint satisfaction. 4 G. Schäfer et al. 
+
+The Naive Baseline achieves high task reward by accurately tracking the 40 ◦
+
+target, but heavily violates the 30 ◦ safety threshold. The PINN Over-penalized 
+
+model exhibits very few safety violations but results in sluggish overall tracking, failing to adapt dynamically even when within safe regions. The PINN Bal-anced configuration demonstrates a suitable choice of λ. It aggressively tracks the reference signal and largely learns to decelerate to respect the 30 ◦ threshold. Although brief transient violations can still occur during abrupt, extreme set-point changes, it drastically reduces both predicted and actual pitch violations compared to the baseline. 25       
+
+> 0
+> 25
+> Pitch (°)  Target
+> Naive Baseline
+> PINN Over-penalized
+> PINN Balanced
+> Threshold
+> 010 20 30 40 50 60
+> 10
+> 0
+> 10
+> 20
+> Action (V)
+
+Fig. 2. Simulation evaluation profile demonstrating the trade-off between target track-ing and constraint satisfaction. The Naive Baseline ignores the 30 ◦ safety threshold, the PINN Over-penalized struggles to track the signal, and the PINN Balanced suc-cessfully adheres to the constraints while maintaining strong tracking performance. 
+
+## 4 Conclusion and Future Work 
+
+In this work-in-progress paper, we demonstrated that embedding differentiable physics models into the PPO actor loss function provides a scalable and effec-tive mechanism for soft anticipatory safety regularization in ICPSs. This ap-proach enables anticipatory constraint satisfaction and mitigates the need for complex, task-specific reward shaping. Ongoing and future research will focus on the sim-to-real transfer of this PINN-trained agent directly onto the phys-ical Quanser Aero 2 hardware. Beyond zero-shot transfer, we plan to conduct further fine-tuning directly on the real hardware to close the sim-to-real gap. Be-cause relying on a static ordinary differential equation (ODE) model during this phase could introduce systematic errors, this fine-tuning should be coupled with active parameter identification. Building upon our recent work on parameter identification methodologies for the testbed [5], we plan to dynamically update the parameters of the differentiable physics model to match observed real-world trajectories. Finally, we aim to complement our anticipatory training loss with PINNs for Safe RL 5
+
+a reactive safety mechanism (such as a safety shield or CBF) that acts as a real-time execution filter. While the predictive loss smoothly guides the policy toward safe behaviors during training, a reactive architectural constraint would intervene directly during deployment, instantly overriding proposed actions if a forward-simulation predicts an imminent pitch violation. 
+
+Acknowledgments. Financial support for this study was provided by the Chris-tian Doppler Research Association (CDG) through the Josef Ressel Centre for In-telligent and Secure Industrial Automation, the corresponding WISS Co-project of Land Salzburg, and by the European Interreg project BA0100172 AI4GREEN. During the preparation of this work, the authors used AI tools for language edit-ing and formatting assistance. 
+
+## References 
+
+1. Altman, E.: Constrained Markov decision processes. Routledge (2021) 2. Ames, A.D., Coogan, S., Egerstedt, M., Notomista, G., Sreenath, K., Tabuada, P.: Control barrier functions: Theory and applications. In: 2019 18th European control conference (ECC). pp. 3420–3431. Ieee (2019) 3. Garcıa, J., Fernández, F.: A comprehensive survey on safe reinforcement learning. Journal of Machine Learning Research 16 (1), 1437–1480 (2015) 4. Kober, J., Bagnell, J.A., Peters, J.: Reinforcement learning in robotics: A survey. The International Journal of Robotics Research 32 (11), 1238–1274 (2013) 5. Langschwert, J., Schäfer, G., Rehrl, J., Huber, S., Hirlaender, S.: Reinforcement Learning for Optimal Experiment Design in Parameter Identification of Mecha-tronic Systems. In: Database and Expert Systems Applications - DEXA 2026 Work-shops. Communications in Computer and Information Science, Springer Cham, Graz, Austria (2026), submitted 6. Raissi, M., Perdikaris, P., Karniadakis, G.E.: Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations. Journal of Computational physics 378 ,686–707 (2019) 7. Schäfer, G., Rehrl, J., Huber, S., Hirlaender, S.: Comparison of Model Predictive Control and Proximal Policy Optimization for a 1-DOF Helicopter System. In: 2024 IEEE 22nd International Conference on Industrial Informatics (INDIN’24). IEEE, Beijing, China (08 2024). https://doi.org/10.1109/INDIN58382.2024.10774357 
+
+8. Schäfer, G., Rehrl, J., Huber, S., Hirlaender, S.: Anticipatory Reinforcement Learn-ing for Trajectory Tracking. In: Database and Expert Systems Applications -DEXA 2026 Workshops. Communications in Computer and Information Science, Springer Cham, Graz, Austria (2026), submitted 9. Schäfer, G., Rehrl, J., Huber, S., Hirlaender, S.: Safe reinforcement learning us-ing ideas from model predictive control. In: Computer Aided Systems Theory – EUROCAST 2026 – Extended Abstracts. vol. 20 (02 2026) 10. Schäfer, G., Schirl, M., Rehrl, J., Huber, S., Hirlaender, S.: Python-Based Rein-forcement Learning on Simulink Models. In: 11th International Conference on Soft Methods in Probability and Statistics (SMPS 2024). Salzburg, Austria (09 2024). 
+
+https://doi.org/10.1007/978-3-031-65993-5_55 
+
+11. Schulman, J., Wolski, F., Dhariwal, P., Radford, A., Klimov, O.: Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 (2017)

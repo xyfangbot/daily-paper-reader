@@ -1,0 +1,665 @@
+Title: EvoPlan: Evolutionary Neuro-Symbolic Robot Planning with Spatio-Temporal Guarantees
+
+URL Source: https://arxiv.org/pdf/2607.06724v1
+
+Published Time: Thu, 09 Jul 2026 00:11:07 GMT
+
+Number of Pages: 24
+
+Markdown Content:
+# EvoPlan: Evolutionary Neuro-Symbolic Robot Planning with Spatio-Temporal Guarantees 
+
+Bhavya Sai Nukapotula Samin Moosavi Haoze Wang Luke Duncan Diya Shakkottai ∗ Varun Murali Srinivas Shakkottai 
+
+Texas A&M University 
+
+Abstract 
+
+LLM-based robot planners are fluent but cannot guarantee that their plans are executable or safe. Classical PDDL planners can guarantee these properties, but only after the problem is fully specified, and they make poor use of an LLM’s ability to read context and repair plans. This paper presents a neuro-symbolic framework with three parts. All LLM calls use a locally-hosted open-weight model, so the pipeline can be deployed on-robot with no cloud dependency. First, an offline procedure that mines a single global Signal Temporal Logic (STL) constraint on mobility from demonstration data. The procedure recovers codified rules (e.g., stopping at red lights, mined from nuPlan driving logs) or population preferences (e.g., social-navigation comfort, mined from SCAND teleoperation), depending on what the demonstrations encode. Because the demonstrations are a one-class signal, we generate the missing negatives with counterfactual perturbations and an LLM violation generator and then fit the constraint by evolutionary search. We use the mined constraint to shield a vision-language driving policy on Bench2Drive and two discrete-action navigation policies on HA-VLN-CE. Second, an evolutionary PDDL planner : an LLM proposes and repairs plans, programmatic validators decide which ones survive, and the validated portion of the plan grows over iterations. We test the planner on the open-world ALFWorld Text benchmark, where it beats strong baselines and stays robust when the goal vocabulary does not match the action-model vocabulary. Third, a constrained execution loop : the planner’s plan is compiled into waypoints, the waypoints are checked against the mined constraint, and the planner re-plans on a violation. We illustrate the full pipeline via demonstrations using the Gazebo simulator. 
+
+Keywords: Neuro-symbolic planning, planning domain description language (PDDL), signal temporal logic (STL), safety guarantees, constrained control 
+
+# 1 Introduction 
+
+LLM and vision-language models can transform natural instructions, images, and demonstrations into plausible action proposals, but a pure LLM-based plan does not by itself guarantee executability or safety. Conversely, classical PDDL planners give machine-checkable guarantees only after a problem is fully formalised, and they underuse LLMs’ ability to read context and propose repairs. This paper takes a best-of-both-worlds view: a neural model generates and repairs candidate plans, while symbolic validation and data-derived temporal-logic constraints decide which candidates may be executed. 
+
+> ∗
+
+Student at Westwood High School; work done as an intern at Texas A&M University. 
+
+1arXiv:2607.06724v1 [cs.RO] 7 Jul 2026 expert demos  
+
+> kinematic + social signals
+> counterfactual negatives
+> contrastive sets D+/D−
+> evolutionary STL fitting
+> global mobility constraint
+> task + PDDL domain/state
+> evolutionary PDDL solver
+> PDDL validation
+> trajectory planner
+> global STL check
+> monitor + replan
+> Offline constraint extraction
+> Evolutionary PDDL solving and constrained deployment
+
+Figure 1: System overview. Offline , expert demonstrations are reduced to kinematic and social signals; counterfactual negatives turn the one-class data into contrastive sets D+/D−, and evolutionary STL fitting produces a single global mobility constraint. Online , a task together with its PDDL domain/state is consumed by an evolutionary PDDL solver and verified by PDDL validation; the resulting plan is then expanded into waypoints by a trajectory planner, which are subjected to the global STL check and executed under online monitoring and replanning. Figure 1 shows the offline mining pipeline (top row) and the online plan-and-check loop (bottom row). In our framework the LLM is not a standalone planner but a proposal mechanism inside a machine-checkable loop. All LLM calls run on a locally-hosted open-weight model (Qwen3-32B in our experiments), supporting on-robot deployment with no cloud dependency. We instantiate this view with three contributions. The first is an offline procedure that mines a single global Signal Temporal Logic (STL) constraint Φmob from demonstration data (Sec. 4.1). Because every recorded trace is by construction acceptable behaviour, the data is one-class. We synthesise the missing negative class with counterfactual perturbations and an LLM violation generator, turning constraint mining into a supervised classification problem. The constraint is 
+
+global : it is not attached to a particular action schema but encodes how the robot must move at all times (bounds on speed, clearance, social spacing), so it applies uniformly to every mobility action any plan invokes. The same procedure recovers codified rules (mined from nuPlan (Caesar et al., 2021) driving logs) or population preferences (mined from SCAND (Karnan et al., 2022) teleoperation), depending on what the data encodes. The second is an evolutionary PDDL planner (Sec. 4.2). Rather than calling a classical search procedure, an LLM proposes and repairs plans against a fixed PDDL problem P and domain D, and a programmatic validator cascade scores each candidate. Elitism on validator feedback grows the validated prefix of the plan monotonically over iterations, without any explicit suffix-only mutation. The result is a system that uses LLM generation only inside a formally evaluated loop. The third is the constrained execution loop (Sec. 4.3). The planner emits a plan π = ( a1, . . . , a n) from a PDDL problem encoding the natural-language task; each action ak is dispatched to a navigation layer that produces a waypoint sequence wk, which is checked against Φmob . A violation rejects ak, commits the verified prefix, updates the initial state, and re-invokes the planner. For the Gazebo demonstration we instantiate the navigation layer with a trajectory planner that produces a waypoint sequence; the sequence is checked against Φmob before each action is executed. We evaluate the planner on open-world ALFWorld Text, where it outperforms strong baselines and stays robust under goal/action-vocabulary misalignment (Sec. 5.2). We evaluate the mined constraint as a shield over a Qwen2.5-VL driver on Bench2Drive and two discrete-action navigation policies on HA-VLN-CE (Sec. 5.1). We illustrate the constrained execution loop in Gazebo (Sec. 5.3); additional demonstrations are 2in the appendix. 
+
+# 2 Related Work 
+
+LLM/VLM planning with formal representations. Recent work combines foundation models with formal planners to overcome the brittleness of one-shot natural-language planning. VLMFP generates PDDL domain and problem files from visual observations using a dual-VLM loop, then checks symbolic execution against simulated outcomes (Hao et al., 2026). NL-PDDL replaces rigid symbolic predicates with natural-language counterparts and uses lifted regression with commonsense entailment to handle open-world goal-action misalignment (Liu et al., 2026). PIP-LLM uses PDDL for team-level task decomposition and integer programming for robot-level allocation in multi-robot coordination (Shi et al., 2025). These systems show the value of formal intermediate languages, but they generally focus on symbolic plan generation rather than learned signal-level execution contracts. 
+
+Safety-aware symbolic planning and verification. Classical PDDL planning separates domain schemas from problem instances (McDermott et al., 1998), and validators such as VAL provide independent checks of plan executability (Howey et al., 2004). SafeGen-LLM extends this line by training LLMs for safety-aware PDDL3 planning with verifier-derived rewards (Fan et al., 2026). Our approach differs by learning STL contracts from real trajectories and enforcing them during continuous execution, so a symbolic effect is asserted only after the measured trace certifies that the skill actually occurred. 
+
+Temporal logic learning, evolutionary search, and robot safety. STL provides a language for tem-poral properties over real-valued signals (Maler and Nickovic, 2004), and robustness semantics support quantitative monitoring (Donze and Maler, 2010). Recent methods learn temporal-logic predicates from data with statistical guarantees (Soroka et al., 2025), motivating our constraint-identification stage. Al-phaEvolve demonstrates that LLM-guided evolutionary search can improve machine-gradable symbolic artifacts through automatic evaluation (Novikov et al., 2025); we apply this pattern to PDDL plans and STL contracts. Complementary work on grounded heterogeneous teams (Ravichandran et al., 2025) and robot constitutions (Sermanet et al., 2025) highlights the need for closed-loop grounding and semantic safety in real robot systems. Appendix D gives an extended comparison. 
+
+# 3 Problem Definition 
+
+We address the problem of executing a natural-language task in a partially known, dynamic world while satisfying implicit norms that are not stated in the task itself, given only unannotated prior robot operation logs as the source of those norms. 
+
+Inputs. A deployment instance is the tuple I = ( W, A, g lang , N , D). The partially known world model 
+
+W = ( S,̂ T ) has a state space S observed only locally through a perception stack and an incomplete transition model ̂ T : regions are unmapped, semantic labels are noisy, and other-agent dynamics are not given in closed form. A set of dynamic agents A (pedestrians, vehicles, or other moving entities) is observed online but not provided in advance. The explicit language task glang is expressed in natural language (e.g., “drive to the cafeteria”). The implicit norms N , which the robot must additionally satisfy, are codified rules 3(e.g., stop at red lights) or population preferences (e.g., maintain social distance), depending on the domain; crucially, N is not given in symbolic form, only implicitly in the data . The corpus D = {τ1, . . . , τ n} of 
+
+unannotated prior operation logs contains time series of signals over robot, environment, and other-agent state; by construction every trace is acceptable behaviour, but no N annotation is attached to any signal. 
+
+Output. A constrained execution trace that achieves glang : a PDDL plan π = ( a1, . . . , a n) produced by a discrete planner from a domain D and a problem P that encodes glang , such that (i) π is symbolically valid (preconditions, effects, goal reachability), (ii) each action ak is mapped by a navigation layer to a waypoint sequence wk, and (iii) the concatenated trace w1 · · · wn satisfies the implicit norms N . When wk violates 
+
+N at runtime, the verified prefix a1 . . . a k−1 is committed, the resulting world state becomes the new initial state, and the planner is re-invoked to produce a fresh suffix-replacing plan. 
+
+What makes this hard. Three properties of the setting jointly rule out the standard fixes. (1) Partial observability and dynamics. The world model is incomplete and the moving agents’ trajectories must be tracked online from sensor data, so any planner that relies on a fully-specified environment will fail at deployment. (2) Underspecification of the prompt. The language task glang underspecifies the full normative requirement: a planner that optimises only for glang can satisfy the prompt (“you reached the goal”) while violating N (“you ran a red light”, “you brushed past a pedestrian”). (3) One-class data. The only prior signal is the unannotated corpus D in which every recorded trajectory is acceptable behaviour; there are no labelled violations, no preference pairs, and no symbolic specification of N . Conventional fixes (reward shaping with hand-coded penalties, behaviour cloning, or RL from preference pairs) each require either a manually written specification of N , explicitly annotated violation data, or pairwise preference labels. This problem statement assumes none of these are available. 
+
+Approach. Offline , we recover N from the unannotated corpus D by synthesising counterfactual neg-atives that turn one-class data into a supervised discrimination problem, then fitting a global mobility constraint Φmob over signals that separates acceptable demonstrations from violations (Sec. 4.1). Φmob is a single STL formula that applies uniformly to every mobility action; the same procedure produces rule-like 
+
+Φmob when D encodes a rule-governed domain and preference-like Φmob when D encodes a population’s implicit envelope (Sec. 5.1). Online , the language task glang is translated into a PDDL problem, and an LLM-driven evolutionary PDDL planner (Sec. 4.2) generates a syntactically and symbolically valid plan π
+
+against the action domain. Each action ak in π is dispatched to the navigation layer, which produces the waypoint sequence wk; wk is checked against Φmob before execution. If wk satisfies Φmob , ak is scheduled for execution; otherwise, the verified prefix a1 . . . a k−1 is committed, the initial state is updated from the resulting world, and the planner is re-invoked with the same goal under the updated state, yielding a new plan whose remaining actions are themselves re-checked under Φmob .
+
+# 4 EvoPlan Framework 
+
+Figure 1 provides a roadmap. The three subsections below cover, in order: the offline row that produces 
+
+Φmob (Sec. 4.1); the evolutionary PDDL solver and PDDL validation blocks (Sec. 4.2); and the trajectory planner, global STL check, and monitor+replan blocks (Sec. 4.3). 44.1 Evolutionary STL constraint mining 
+
+One procedure, two kinds of constraint. We learn a single global mobility constraint Φmob from demonstrations: a Signal Temporal Logic (STL) formula over named sensor signals (speed, clearances, time-to-collision, etc.) that every move in any plan must satisfy. The same procedure recovers two kinds of constraint depending on the source data. For codified rules (e.g., driving norms), the formula uses exact thresholds and “if A then B” clauses that encode each rule directly. For population preferences (e.g., social navigation), it learns tight bounds that match what operators consistently do. The grammar, the search, and the shield are identical; only the source data and the counterfactual generator change. Sec. 5.1 demonstrates both: rules mined from nuPlan (Caesar et al., 2021) shield a Qwen2.5-VL driving policy on Bench2Drive (Jia et al., 2024); preferences mined from SCAND (Karnan et al., 2022) shield two indoor navigation policies on HA-VLN-CE. 
+
+Counterfactual negatives. The demonstrations are one-class data: every recorded trace is acceptable, so there are no labelled bad examples to fit against. We create them with counterfactual perturbations. Ten procedural modes ( speeding , reckless_turn , crowding_front , density_mismatch ,
+
+red_light_run , tailgating , . . . ) push one or two signals out of range; an LLM generator adds one realistic violation per clip. This gives the positive set D+ (demonstrations) and a contrastive set D−
+
+(counterfactuals), so constraint mining becomes a classification problem. 
+
+Evolutionary STL constraint fitting. We learn the constraint by evolving STL formulas via an LLM-driven search over program edits (Novikov et al., 2025). The grammar has atoms such as dobs ≥ c,
+
+dhuman ≥ c, v ≤ c, inside (z), coverage (z) ≥ c, and link ≥ c. Each candidate is scored by its STL robustness on D+ and D−, minus complexity and triviality penalties: 
+
+max  
+
+> Φ∈G
+
+Eτ ∈D + ρ(τ, Φ)   
+
+> ︸︷︷ ︸
+> expert satisfaction
+
+−λ− Eτ ∈D − max(0 , ρ (τ, Φ))   
+
+> ︸︷︷ ︸
+> reject unsafe traces
+
+−λc complexity(Φ) .
+
+Closely related work learns STL predicates from data with conformal prediction (Soroka et al., 2025); here, the learned formula becomes a global constraint applied to every move in every plan. 
+
+Downstream enforcement. Because Φmob is defined over sensor signals rather than inside a particular controller, it can be enforced on any task without retraining the policy. We use two modes: a trajectory planner that closes the constrained execution loop (Sec. 4.3), and a black-box shield that vetoes an arbitrary discrete-action policy via predicted min-robustness and MPC substitution under a policy-prior weight α
+
+(Sec. 5.1; details in Appendix A.6). 
+
+4.2 Evolutionary PDDL plan synthesis 
+
+We cast PDDL plan search as machine-gradable evolution Novikov et al. (2025): an LLM proposes plan edits, a programmatic cascade decides which survive, and the cascade’s descriptive feedback (the failing action and its unsatisfied precondition) conditions the next LLM mutation, so the loop evolves plans in response to verifier signals rather than free-form sampling. The same loop handles closed-world tasks and open-world tasks with partial belief states. 5Evolutionary search loop. A candidate is a grounded action sequence π evolved against a fixed PDDL problem P and domain D. Each generation, the LLM proposes an edit to the current best candidate conditioned on the parent’s validator feedback; typical edits include inserting a missing precondition action, repairing an object binding, swapping independent actions, or resampling a suffix, but the edit type is not constrained ex ante. A four-stage cascade scores the child: PDDL syntax, VAL Howey et al. (2004) simulation, goal reachability, and (when continuous execution is involved) predicted robustness against the global constraint Φmob from Sec. 4.1. Stages short-circuit. Invalid plans are demoted by the cascade, not by an LLM critic. 
+
+Verified-prefix preservation. Although no prefix is explicitly frozen, the validated fraction |πvalid |/|π|
+
+grows monotonically over iterations on hard tasks in both open- and closed-world runs (Fig. 2). Token usage stays proportional to the unverified work because VAL feedback marks only the failing action. 1 2 3 4 5 6 7 8
+
+> OpenEvolve iteration
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> | valid |/|  |
+> mean (N=22)
+> ± 1
+
+(a) Open-world 1 2 3 4 5 6 7 8 9 10  
+
+> OpenEvolve iteration
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> | valid |/|  |
+> mean (N=97)
+> ± 1
+
+(b) Closed-world 1 2 3 4 5 6 7 8 9 10  
+
+> OpenEvolve iteration
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> \% of tasks
+> Fully solved
+> Partial progress
+> No progress
+
+(c) Closed-world population 
+
+Figure 2: Verified-prefix growth on hard tasks (Qwen3): (a) open-world, (b) closed-world, (c) closed-world population state. 
+
+Open-world and misaligned deployments. In open-world deployments the problem P is built from a belief B; an “object-not-declared” validator failure triggers exploration, B grows monotonically, P is rebuilt, and the search resumes (budget tracked in simulator steps, matching ALFWorld’s 50-step protocol). When the goal vocabulary ̸ ⊆ action vocabulary (e.g., goal “heated” vs. action toast ), a single LLM call produces a predicate-symbol map μ applied to the goal predicates of P just before VAL. It composes cleanly with open-world belief growth: as new objects are observed and inserted into P , the same μ rewrites their goal predicates uniformly, with no per-object re-entailment. Pseudocode for the outer task loop and the inner evolutionary subroutine is given in Appendix B.1. 
+
+4.3 Constrained execution loop 
+
+The two evolved artifacts plug together at runtime through a single bridge. The evolutionary PDDL planner (Sec. 4.2) emits a plan π = ( a1, . . . , a n); each action ak is then expanded by a navigation layer into a waypoint sequence wk, which is checked against the mined STL constraint Φmob (Sec. 4.1) before execution. If wk satisfies Φmob it is dispatched to the robot; if not, the verified prefix a1 . . . a k−1 is committed, the state is refreshed from the resulting world, and the planner is re-invoked from the updated initial state. The bridge is implemented as a ROS 2 adapter that uses a differential-drive robot model (a simulated Jackal in our Gazebo demonstration), local distance fields, human tracking, and terrain labels; the navigation layer is realised by a trajectory planner whose global and local stages produce a waypoint sequence. The grounded Φmob predicates are evaluated on this waypoint sequence before execution; a violation rejects the action, commits the verified prefix, and triggers a replan with an updated initial state. An online 6monitor recomputes robustness from the measured trace and emits failure facts (e.g., route-blocked ,
+
+no-safe-approach ) that the next replan can consume. Implementation details and additional demon-strations are in Appendix C. 
+
+# 5 Experiments 
+
+5.1 Mined STL constraints transfer to downstream policies 
+
+We evaluate the STL constraint mining of Sec. 4.1 on two cases: rules mined from driving demonstrations and 
+
+preferences mined from social-navigation teleoperation. The extraction procedure and shield are identical across both; only the source corpus, base policy, target benchmark, and policy-prior weight α change. Table 1: Downstream-shield evaluation. (a) nuPlan-mined rule shield on Bench2Drive: DS = Driving Score, Coll = collisions, Infr = total infractions. (b) Zero-shot transfer of the SCAND-mined preference constraint to HA-VLN-CE val_unseen , N =1839 paired episodes per row. Best value in each column is in bold.                                       
+
+> (a) Bench2Drive (rule showcase) Config DS ↑Coll ↓Infr ↓
+> Unshielded 62.96 14 20 Shielded, α=0 65.61 47
+> Shielded, α=0 .05 65.10 59Shielded, α=0 .30 66.20 46
+> (b) HA-VLN-CE (preference showcase) Policy Shield SR% ↑CT% ↓
+> PointNav off 58.7 38.1
+> α=0 .05 on 57.6 18.5
+> MLP off 32.1 30.1
+> α=0 on 32.7 5.2
+
+5.1.1 Rule showcase: nuPlan → Bench2Drive 
+
+Driving signals (kinematics, clearance, time-to-collision, lane context, traffic-light state) replace the SCAND social ones; the recovered formula encodes codified norms (stop-on-red, clearance and time-to-collision floors, lane-aware speed caps). Unlike the social-navigation preferences of Sec. 5.1.2, each clause has binary right/wrong semantics, and the contrastive negatives that falsify them are unambiguous rule violations rather than envelope-tightness perturbations. The constraint shields a Qwen2.5-VL (Bai et al., 2025) driving stack on Bench2Drive (Jia et al., 2024): the shield operates on a four-keyword discrete decision, which a P-controller expands into continuous (throttle, steer, brake) actions (interface and shield mechanics: Appendix A.5). The strict shield ( α=0 ) cuts red-light infractions by 77% and collisions by 71% while improving the Driving Score; α=0 .30 reaches the best Driving Score in the sweep (Table 1a). The nuPlan-mined constraint suppresses Bench2Drive’s two heaviest penalty categories zero-shot , with no benchmark-specific training. 
+
+5.1.2 Preference showcase: SCAND → HA-VLN-CE 
+
+Applied to SCAND outdoor sidewalk teleoperation (Karnan et al., 2022), the same procedure recovers implicit social-navigation preferences . The constraint shields two discrete-action policies on HA-VLN-CE (Wu et al., 2024): a pretrained PointNav (DD-PPO (Wijmans et al., 2020)) and an MLP trained by behaviour cloning. Unlike the driving showcase, where a P-controller bridges the discrete shield to a continuous actuation space, the policies’ effective action space here is itself discrete, so the shield’s veto-and-substitute step composes directly with the policy’s output. The full 17 -predicate formula, metric definitions, and per-cause collision decomposition are in Appendix A.6. 7PointNav MLP                        
+
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> metres (higher = safer)
+> off on off on
+> =1.40 =1.53 =1.78 =1.96
+> worst min-clearance per ep
+> PointNav MLP
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> tick count (lower = safer)
+> off on off on
+> =0.88 =0.28 =4.47 =0.15
+> intimate-zone ticks per ep
+> PointNav MLP
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> t
+> max(0, 1.2  d) (lower = safer)
+> off on off on
+> =2.54 =1.22 =12.11 =2.56
+> personal-space integral per ep
+> unshielded shielded (headline cfg)
+
+Figure 3: Per-episode safety distributions on val_unseen (N =1839 per violin): PointNav unshielded (red), PointNav shielded with α=0 .05 (green), MLP unshielded (red), MLP shielded with α=0 (green). The shield compresses the heavy unsafe tail on both architectures. With only α tuned per policy, the shield removes 82% of avoidable contacts on PointNav and 93% on the MLP (Table 1b); Fig. 3 shows the unsafe tails of the per-episode safety distributions collapse rather than the means merely shifting. Together with the rule showcase, the same mining recipe and shield handle both rules and preferences with no method-level changes beyond source data and α.
+
+5.2 Evolutionary PDDL planner 
+
+We evaluate on the NL-PDDL benchmark (Liu et al., 2026): AlfredTWEnv TextWorld on N =134 unseen 
+
+validation tasks with a 50 -step budget. The simulator provides a ground-truth perception and affordance oracle, isolating the planner from recognition errors; the agent must explore to reveal task-relevant objects before interacting with them. Table 2 reports the result; EvoPlan also solves tasks whose optimal plans exceed depth 10 , where NL-PDDL’s fixed-horizon planner “fails beyond depth 10 ” (Liu et al., 2026). In the closed-world setting, EvoPlan (Qwen3-32B) reaches 99 .7% on Blocksworld Plain , 74 .0% on Mystery ,
+
+78 .7% on Randomized , and 100% on Misalignment (FD: 0% ); on the alfred ALFWorld domain ( N =134 
+
+valid_unseen ), 90 .3% . These gains come at a higher LLM token cost than the fully-symbolic NL-PDDL (25 –150 × on Blocksworld); the trade-off and the cost analysis are in App. B.2. Additional local-model comparisons and ablations are in Appendix B. 
+
+5.3 Constrained execution loop end-to-end 
+
+We illustrate the constrained execution loop in a Gazebo factory scene where a Jackal completes pick-and-drop missions (Fig. 4). Plans from the evolutionary PDDL planner (Sec. 4.2) are produced action-by-action: each PDDL move is grounded into a route by Nav2 and checked against Φmob before execution; a clearance-floor violation rejects the action, commits the verified prefix, and triggers a replan. 
+
+Quantitative shield results. We run 5 pick-and-drop missions ( 1 run each) at 9–15 pedestrians per scene with the SCAND-mined Φmob active. The shield completes every planned route and keeps four of five runs collision-free; the lone failure (M4) records a collision when the densest cluster leaves no admissible replan within the budget, and clearance falls to 0.05 m. Personal-zone ( <1.2 m) exposure stays under 13% 
+
+of ticks across all five runs while social-zone exposure climbs to 40 –68% , showing that the loop spends 8Table 2: Open-world ALFWorld Text on the N =134 unseen tasks. Each method is reported on the aligned benchmark and on the misaligned variant where the goal vocabulary ( hot /clean /cool ) does not match the action-model vocabulary ( heated /washed /chilled ). Direct LLM, reflective LLM, BUTLER and NL-PDDL numbers are reproduced from (Liu et al., 2026) (aligned: Table 1; misaligned: Table 3). †Token totals are not reported there.                                                      
+
+> Aligned Misaligned Method # Tok. ↓SR% ↑# Tok. ↓SR% ↑
+> Direct LLM/VLM-based planners
+> GPT-4o 1,358,934 21 1,440,470 17 Gemini-2.0 Flash 1,176,406 16 1,251,533 15 LLaMA-3.1 1,193,640 19 1,310,664 15
+> Reflective LLM-based planners
+> ReAct (with examples) 5,507,266 81 5,215,612 79 ReAct (with model) 4,242,560 34 4,428,914 23 Reflexion-3 †NA 83 NA NA Reflexion-10 †NA 91 NA NA DEPS †NA 76 NA NA BUTLER (fine-tuned, 100K expert traj.) NA 26 NA NA NL-PDDL (Liu et al., 2026) 443,407 94 501,049 91 EvoPlan (Qwen3-32B) 853,022 98.5 1,055,341 98.5
+
+(a) Factory scene (b) Planner’s view (c) Shield in action (d) Completed mission 
+
+Figure 4: Constrained execution loop in Gazebo. (a) Top-down view of the factory floor used as the deployment scene. (b) The trajectory planner’s costmap: PDDL move actions are grounded into routes through the shelf aisles. (c) During execution the global STL check vetoes a forward step when a pedestrian is within the learned clearance floor; the robot stops and replans. (d) A completed delivery: the Jackal has navigated an aisle and dropped a box at the target shelf. most of each run within 3.6 m of a pedestrian yet rarely within personal distance. M3 maintains both low exposure ( 0% personal, Pint =12 .7) and the second-highest minimum clearance ( 0.90 m) by routing around the densest cluster, while M2 takes the longest path ( 90 .3 m) through a sustained dense aisle and accumulates Pint =115 .2 at clearance 0.40 m. The loop therefore degrades gracefully under crowded operation: it trades clearance margin for an isolated failure rather than collapsing wholesale (Table 3). 
+
+# 6 Conclusion and Limitations 
+
+We presented a hybrid PDDL–STL framework for learning and deploying safe robot plans. One-class demonstrations are converted into a single global STL constraint Φmob via counterfactual perturbations and an LLM violation generator; an evolutionary LLM-guided planner proposes and repairs PDDL plans against a programmatic validator cascade; and a constrained execution loop grounds each action into a waypoint sequence and accepts it only if Φmob holds. The resulting system treats neural models as generators of 9Table 3: Per-mission metrics ( 9–15 pedestrians per scene, 1 run per mission). Intim/Pers/Social are the fraction of ticks with the nearest pedestrian inside Hall’s intimate ( <0.45 m), personal ( <1.2 m), and social (<3.6 m) zones; Pint = ∑ max(0 , 1.2 − clr) .                                                        
+
+> Mission Succ. Route % Coll. Path [m] Time [s] Intim % Pers % Social % Pint Min clr [m] M1 1/1 100 0.0 64.1 204 0.0 8.2 63.6 34.6 0.55 M2 1/1 100 0.0 90.3 241 0.5 9.8 40.1 115.2 0.40 M3 1/1 100 0.0 69.2 196 0.0 4.8 67.7 12.7 0.90 M4 0/1 100 1.0 59.1 480 0.8 4.3 51.8 70.1 0.05 M5 1/1 100 0.0 37.8 112 1.0 12.7 61.8 29.4 0.37
+
+candidates rather than sources of unchecked authority. Limitations include dependence on demonstration quality, the expressivity and tractability of the STL grammar, perception uncertainty, sensitivity to the proposal backbone, and the need for broader hardware validation. Future work will extend the framework to richer multi-robot tasks, stronger statistical guarantees for learned constraints, and per-skill constraint families beyond global mobility. 
+
+# References 
+
+Bai, S. et al. (2025). Qwen2.5-VL technical report. https://arxiv.org/abs/2502.13923 .Caesar, H., Kabzan, J., Tan, K. S., Fong, W. K., Wolff, E., Lang, A., Fletcher, L., Beijbom, O., and Omari, S. (2021). nuPlan: A closed-loop ML-based planning benchmark for autonomous vehicles. In CVPR Workshop on Autonomous Driving .codelion (2024). OpenEvolve: LLM-driven evolutionary program search. https://github.com/ codelion/openevolve .Donze, A. and Maler, O. (2010). Robust satisfaction of temporal logic over real-valued signals. In Formal Modeling and Analysis of Timed Systems , pages 92–106. Fan, J., Xu, W., Liu, M., Sokolsky, O., Lee, I., and Kong, F. (2026). SafeGen-LLM: Enhancing safety general-ization in task planning for robotic systems. arXiv preprint arXiv:2602.24235 .Hao, Y., Chen, Y., Fan, C., and Zhang, Y. (2026). Simulation to rules: A Dual-VLM framework for formal visual planning. In International Conference on Learning Representations .Helmert, M. (2006). The fast downward planning system. In Journal of Artificial Intelligence Research ,volume 26, pages 191–246. Howey, R., Long, D., and Fox, M. (2004). VAL: Automatic plan validation, continuous effects and mixed initiative planning using PDDL. In IEEE International Conference on Tools with Artificial Intelligence .Jia, X. et al. (2024). Bench2Drive: Towards multi-ability benchmarking of closed-loop end-to-end au-tonomous driving. https://arxiv.org/abs/2406.03877 .Karnan, H., Nair, A., Xiao, X., Warnell, G., Pirk, S., Toshev, A., Hart, J., Biswas, J., and Stone, P. (2022). Socially compliant navigation dataset (SCAND): A large-scale dataset of demonstrations for social navigation. 
+
+arXiv preprint arXiv:2203.15041 .10 Liu, X., Toroghi, A., Liang, J., Courtis, D., Li, R., Pesaranghader, A., Kim, J., Sadhu, T., Jeon, H., and Sanner, S. (2026). Natural language PDDL (NL-PDDL) for open-world goal-oriented commonsense regression planning in embodied AI. In International Conference on Learning Representations .Maler, O. and Nickovic, D. (2004). Monitoring temporal properties of continuous signals. In Formal Techniques, Modelling and Analysis of Timed and Fault-Tolerant Systems , pages 152–166. McDermott, D., Ghallab, M., Howe, A., Knoblock, C., Ram, A., Veloso, M., Weld, D., and Wilkins, D. (1998). PDDL–the planning domain definition language. In AIPS-98 Planning Competition Committee Report .Novikov, A., Vu, N., Eisenberger, M., Dupont, E., Huang, P.-S., Wagner, A. Z., Shirobokov, S., Kozlovskii, B., Ruiz, F. J. R., Mehrabian, A., Kumar, M. P., See, A., Chaudhuri, S., Holland, G., Davies, A., Nowozin, S., Kohli, P., and Balog, M. (2025). AlphaEvolve: A coding agent for scientific and algorithmic discovery. Google DeepMind white paper. Ravichandran, Z., Cladera, F., Prabhu, A., Hughes, J., Murali, V., Taylor, C., Pappas, G. J., and Kumar, V. (2025). Heterogeneous robot collaboration in unstructured environments with grounded generative intelligence. arXiv preprint arXiv:2510.26915 .Sermanet, P., Majumdar, A., Irpan, A., Kalashnikov, D., and Sindhwani, V. (2025). Generating robot constitutions and benchmarks for semantic safety. In Conference on Robot Learning .Shi, G., Wu, Y., Kumar, V., and Sukhatme, G. S. (2025). PIP-LLM: Integrating PDDL-integer programming with LLMs for coordinating multi-robot teams using natural language. arXiv preprint arXiv:2510.22784 .Soroka, E., Sinha, R., and Lall, S. (2025). Learning temporal logic predicates from data with statistical guarantees. In Proceedings of Machine Learning Research , volume 283, pages 1–13. Wijmans, E., Kadian, A., Morcos, A., Lee, S., Essa, I., Parikh, D., Savva, M., and Batra, D. (2020). DD-PPO: Learning near-perfect PointGoal navigators from 2.5 billion frames. In International Conference on Learning Representations .Wu, F. et al. (2024). Human-aware vision-and-language navigation: Bridging simulation to reality with dynamic human interactions. https://arxiv.org/abs/2406.19236 .11 A Constraint mining: method and validation 
+
+A.1 Trajectory inputs and preprocessing 
+
+Each trajectory is converted into a time-indexed record 
+
+τ = ( x0: T , u 0: T −1, z 0: T , m 0: T ), (1) where xt is robot state, ut is control, zt is perceptual context, and mt contains derived metric signals such as obstacle distance, human distance, terrain label, and region membership. For egocentric videos without reliable pose, structure-from-motion and visual odometry provide approximate trajectories. For SCAND-style data, odometry, joystick commands, lidar, camera, and IMU streams are aligned before mining. 
+
+A.2 STL grammar 
+
+A compact grammar for the mobility constraint is 
+
+ϕ ::= μ | ¬ ϕ | ϕ ∧ ϕ | ϕ ∨ ϕ | □[a,b ]ϕ | ♢[a,b ]ϕ, (2) 
+
+μ ::= dobs ≥ c | dhuman ≥ c | v ≤ c | inside (z) | coverage (z) ≥ c | link ≥ c | battery ≥ c. (3) In practice the learned Φmob is dominated by global □ (always) bounds on threshold atoms; the bounded temporal operators □[a,b ] and ♢[a,b ] are in the grammar but rarely selected by the evolutionary search on this corpus (the full mined formula in App. A.6 is 17 conjoined □-bounded clauses). 
+
+A.3 Evolution operators and acceptance tests 
+
+Formula mutations include threshold perturbation, time-window shift, atom replacement, insertion of 
+
+□ or ♢, and Boolean composition. Crossover swaps subtrees between formulas with compatible signal vocabularies. A formula is accepted when it satisfies four tests: positive held-out robustness on expert traces, low satisfaction rate on contrastive unsafe traces, bounded expression complexity, and interpretability by a human reviewer. 
+
+A.4 Mining failure cases 
+
+Common failures include over-specific formulas that memorize a particular route, trivial formulas that are always true, and constraints that depend on unavailable runtime signals. These failures are handled by grammar restrictions, complexity penalties, and signal-availability checks. 
+
+A.5 Rule showcase: Bench2Drive shield setup and full results 
+
+Recovered formula. The nuPlan extraction recovers a small set of conditional implications, each with binary right/wrong semantics: a stop-on-red-light implication, vehicle-clearance and time-to-collision floors, and lane-aware speed caps. The contrastive negatives that falsify these clauses (a red_light_run ;a closing-rate spike inside the lead-vehicle gap) are unambiguous rule violations rather than envelope-tightness perturbations. 12 Keyword interface and continuous expansion. The Qwen2.5-VL agent is prompted every ten simulator ticks ( ≈ 1 Hz) on the forward-camera frame and emits one of four keywords {accelerate , coast , brake , emergency_stop }.A latched target-speed updated by each keyword (e.g., accelerate raises it by ∆v, brake halves it) and a per-tick P-controller produce continuous (throttle, steer, brake) commands to CARLA on every intervening tick. The policy’s effective control authority is therefore continuous even though the shield’s decision space is the four-option discrete keyword set. 
+
+Shield loop. The shield wraps the keyword decision identically to the HA-VLN-CE case of App. A.6: predict the short-horizon rollout for each candidate keyword, compute min-robustness ρ against the mined formula, veto when ρ< 0 under an imminence gate, and substitute via MPC over the four keywords with the policy-prior weight α.
+
+Full Bench2Drive sweep. Table 4 adds the full policy-prior sweep on Bench2Drive (all seven α settings) with three additional metrics (route completion, total vetoes, completed routes) on top of the condensed main-text Table 1a. Table 4: Full nuPlan-mined rule shield results on Bench2Drive across the policy-prior sweep. DS = Driving Score; RC = Route Completion; Coll = collisions; RL = red-light infractions; Infr = total infractions; Ve-toes = total shield substitutions; Succ = routes completed. Best value in each column is in bold.                                                                     
+
+> Config DS ↑RC ↑Coll ↓RL ↓Infr ↓Vetoes Succ Unshielded 62.96 69.2 14 13 20 032
+> Shielded, α=0 (strict) 65.61 67.2 4377,784 30 Shielded, α=0 .05 65.10 67.3 5697,807 30 Shielded, α=0 .10 65.37 67.6 5698,047 31 Shielded, α=0 .20 65.07 67.9 9512 7,041 31 Shielded, α=0 .30 66.20 67.8 4468,552 31 Shielded, α=0 .50 64.85 67.6 9713 10,157 31
+
+A.6 Preference showcase: architecture, formula, shield mechanism, α analysis 
+
+Base policies. PointNav is the pretrained PointNavResNet50 +LSTM policy from DD-PPO (Wijmans et al., 2020), evaluated on RGB+depth observations from the HA-VLN-CE simulator. The MLP is a stateless two-hidden-layer network ( 256 ×256 , ReLU) trained by behaviour cloning on the PointNav policy’s own decisions across the train split, so it represents a memoryless approximation of the same input–output mapping. Both policies emit one of four discrete actions {stop , fwd , left , right } per tick directly to the simulator. 
+
+Episode protocol and metrics. Each condition is evaluated on the full HA-VLN-CE val_unseen 
+
+split, N =1839 episodes, paired by episode ID so the unshielded and shielded conditions experience the same humans, layouts, and goal poses. An episode is a collision-termination (CT) when the simulator’s colli-sion counter increments while min_clearance <1.0 m. A success is reached-goal-and-never-human-collision. We additionally classify each collision-terminated episode by its final-tick safety log into avoidable contacts (the agent walked into a stationary or slowly-moving human) and trajectory-crossings (a side-cone human only became visible inside the K-step shield rollout); the per-cause decomposition appears in App. A.7. 13 Full mined STL formula. The OpenEvolve (codelion, 2024) mining loop converges to the conjunction of 17 globally-quantified predicates below. Thresholds match the tightest demonstrator extrema and are recovered by the evolutionary search rather than hand-set.                                                      
+
+> G(speed <= 2.603) &G(yaw_rate <= 3.293) &G(accel <= 3.213) &G(jerk <= 5.862) &G(lat_accel <= 2.228) &G(cmd_steer <= 1.000) &G(min_clearance >= 0.483) &G(crowd_count >= 3|min_clearance >= 0.6) &G(front_clearance >= 0.505) &G(left_clearance >= 0.500) &G(right_clearance >= 0.500) &G(rear_clearance >= 0.483) &G(ttc >= 0.452) &G(ped_approach_rate <= 5.000) &G(ped_clearance >= 0.500) &G(front_ped_clearance>= 0.500) &G(ped_ttc >= 0.422)
+
+Three clause families are present. The kinematic comfort envelope (six clauses) bounds speed , yaw_rate ,
+
+accel , jerk , lat_accel , and operator cmd_steer . The social keep-distance floors (seven clauses) bound every directional clearance bin and the time-to-collision, and add the crowd-conditioned disjunction 
+
+G(crowd_count ≥3 | min_clearance ≥0.6 ) that catches the density_mismatch counter-factual negatives the flat min_clearance floor misses. The pedestrian-specific clauses (four clauses) mirror the same structure on ped_clearance signals available when perception has separated pedes-trians from generic returns; the 0.5 m floor on front_ped_clearance is the binding clause at downstream shield time. 
+
+Shield mechanism. At each control tick the shield performs the following steps. 1. Extract a current signal dictionary from the live simulator (the same clearance bins SCAND uses, computed without perception because HA-VLN exposes ground-truth human positions). 2. Call the base agent’s act(obs) to get a proposed action at.3. Hypothesise the next-tick signals under at, append them to a 10 -tick rolling window, and evaluate the formula’s min-robustness ρ.4. If ρ < 0 and the predicted next-tick front_ped_clearance is below an imminence threshold , the action is vetoed ; the imminence threshold is calibrated per base agent ( 0.7 m for the privileged Oracle, 
+
+1.0 m for the noisy SPF and PointNav, none for Random). 5. On veto, a K=5 -step model-predictive substitution enumerates the four discrete actions, rolls each forward under constant-velocity human motion and analytic agent kinematics, scores by predicted ρ,and commits the argmax first action. An optional beam variant (width B=4 ) plans over action sequences of length mpc_horizon ; it finds recovery patterns such as “stop, turn, forward” that the single-step substitution misses. 
+
+Predictive imminence. An early version of the shield gated only on the next-tick front_ped_clearance .Side humans about to cross the agent’s path 2–5 ticks ahead kept this signal high at tick 1, so the shield silently let the agent walk into the crossing; this trajectory-crossing failure mode dominated 65% of the resid-14 ual collisions. The current shield gates on the minimum clearance over the full K-step rollout, taken across 
+
+min_clearance (any direction), front_ped_clearance , and front_obstacle_clearance .The any-direction component is the critical addition: side humans that do not show up in the front cone do show up in min_clearance .
+
+Policy-prior weight α. A soft policy prior augments the candidate score by the log-probability the base policy assigned to each action: 
+
+ˆa = arg max 
+
+> a
+
+ρ(τa) + α log (max( ϵ, Pr  
+
+> π
+
+[a]) ), (4) with ϵ=10 −2 flooring the log to keep the bonus bounded. At α=0 the prior is disabled and the picker recovers the original min-robustness argmax. With the floor, the maximum penalty for a zero-probability action is 
+
+α log(10 −2) ≈ − 4.6α, so for α ∈ { 0.05 , 0.1, 0.2} the prior caps at {0.23 , 0.46 , 0.92 } m of ρ-equivalent: a meaningful tiebreak among comparable-safety candidates that never overrides a >1 m clearance differential. On PointNav, α=0 .05 is the only sweep value that does not over-trust the policy ( α ∈ { 0.1, 0.2} pushes the veto rate to 6–7% and degrades both SR and CT); on the stateless MLP, α=0 already preserves SR within noise and no prior is needed. 
+
+Why the prior is necessary: preserving PointNav’s training distribution. PointNav is a DD-PPO-trained recurrent policy (Wijmans et al., 2020): its LSTM hidden state encodes recent actions through a learned prev_action embedding, and the policy is almost deterministic given an observation. Without the prior, the safety picker substitutes whenever any candidate has higher predicted ρ, even by a margin much smaller than the typical safety differential. Each such substitution drives the LSTM off-distribution at every subsequent tick: the hidden state has “just moved forward” encoded in it while the simulator actually advanced under stop or a turn, so the visual encoder sees paths DD-PPO never traversed during training. The prior fixes this by requiring a substitution’s safety advantage to exceed the policy’s own confidence in its proposal. The bounded −4.6α floor keeps this soft: a substantial ρ gap ( >1 m clearance for α=0 .05 )still overrides the prior, so the prior only suppresses small-margin substitutions that would have desynced the policy without buying real safety. The stateless MLP needs no prior because it has no recurrent state to corrupt — which is why α=0 preserves SR on MLP (Table 1b) but costs 4.3 pp on PointNav, and α=0 .05 is the smallest nonzero setting that closes that gap. 
+
+Full HA-VLN-CE results with confidence intervals. Table 5 adds the McNemar paired 95% confidence intervals on ∆SR and ∆CT for HA-VLN-CE. Table 5: Full SCAND-mined preference shield results on HA-VLN-CE val_unseen , N =1839 paired episodes per row. CIs via McNemar paired SE on discordant cells; “ns” marks |z|<2.                                   
+
+> Policy Shield SR% ↑CT% ↓∆SR (95% CI) ∆CT (95% CI) PointNav off 58.7 38.1 --
+> α=0 .05 on 57.6 18.5 −1.1pp
+> [−2.9,+0 .7] ns
+> −19 .6pp
+> [−22 .0,−17 .2]
+> MLP off 32.1 30.1 --
+> α=0 on 32.7 5.2 +0 .6pp
+> [−0.7,+2 .0] ns
+> −24 .9pp
+> [−27 .2,−22 .6]
+
+15 A.7 Per-cause collision decomposition 
+
+We classify each collision-terminated episode using the 5-tick safety log captured immediately before termi-nation. An avoidable contact is one where, in the final tick, the agent was moving forward ( speed >0.1)and the colliding human was in the front cone ( front_clearance <1.5 m), so a stop would have prevented the contact. A trajectory-crossing contact is one where the agent was moving but the colliding human was not in the front cone; the human’s path crossed the agent’s from the side or rear, leaving only the predictive-rollout horizon to react. A third bucket, human-into-static-agent , is always empty in our data because HA-VLN’s previous_step_collided flag only fires when the agent attempts a move that is physically blocked. Table 6: Per-cause breakdown of collision-terminated episodes (out of 1839 each), on the headline configu-rations of Table 1b.                                           
+
+> Policy Cause unshielded ↓shielded ↓∆↓cut
+> PointNav agent-walked-into (avoidable) 241 (13.1%) 44 (2.4%) −197 −82 %
+> trajectory-crossing (mixed) 455 (24.7%) 297 (16.2%) −158 −35%
+> human-into-static (unavoid.) 00--
+> total CT 696 (37.8%) 341 (18.5%) −355 −51%
+> MLP agent-walked-into (avoidable) 209 (11.4%) 14 (0.8%) −195 −93 %
+> trajectory-crossing (mixed) 344 (18.7%) 81 (4.4%) −263 −76 %
+> human-into-static (unavoid.) 00--
+> total CT 553 (30.1%) 95 (5.2%) −458 −83 %
+
+Two takeaways from Table 6. First, the shield is near-perfect on its core jurisdiction: avoidable contacts drop by ≥82% on both policies, the cleanest demonstration that the mined constraint does what its name promises. The 82% /93% gap reflects the stateless MLP having more avoidable contacts to begin with, not the shield being more effective on MLP per se. Second, the shield also helps on trajectory-crossings ( −35% 
+
+on PointNav, −76% on MLP) because the K-step predictive rollout extrapolates side humans’ positions forward and vetoes a forward that would put the agent in a future contact, even when the human is not yet in the front cone at decision time. 
+
+# B Evolutionary PDDL planner: algorithm and results 
+
+B.1 EvoPlan algorithm 
+
+EvoPlan combines an outer task loop driven by belief growth in the simulator with an inner evolutionary loop that proposes and repairs PDDL plans. The outer loop alternates between exploring to expand the belief and calling the inner loop on the resulting PDDL problem. The inner loop mutates an LLM-proposed plan against feedback from a symbolic validator cascade. When the goal vocabulary disagrees with the action-model vocabulary (misalignment), a one-time LLM call derives a predicate-symbol map μ that is cached and reused. The algorithm consumes a fixed PDDL domain D provided as input. The notation used in Algorithm 1 is summarised first. Symbols are the variables that flow through the procedures; routines are the named subprocedures (their bodies are described informally rather than expanded). For clarity, Algorithm 1 serves as the formal description of EvoPlan, and the accompanying Tables of Symbols and Routines provide a convenient reference for notation and procedures. 16 Symbols (state and inputs). 
+
+D, g PDDL domain and goal predicates (inputs). 
+
+M LLM backbone (used for proposal, repair, and the entailment step). 
+
+E, Bmax TextWorld simulator and total simulator-step budget. 
+
+B running belief: known receptacles plus observed objects. 
+
+P , π PDDL problem instance and grounded action sequence. 
+
+μ plain →misaligned predicate-symbol map ( nil if vocabularies agree). 
+
+pop , c, fi, J candidate population, single candidate, cascade feedback at iteration i, scalar fitness over goal satisfaction and verified-prefix length. 
+
+Routines (subprocedure semantics). 
+
+target_ready (B, g ) true iff every goal-relevant object and affordance is already in B.
+
+belief_to_problem (B, D, g ) emits a PDDL problem with the goal existential over the target type. 
+
+pick_receptacle (B, g, M ) selects an unvisited receptacle; in targeted mode the LLM ranks receptacle types by likelihood of holding g’s target. 
+
+cascade (c, D, P ) runs syntax → VAL ( → STL robustness when a continuous trace exists) and returns 
+
+(valid , feedback ).
+
+rewrite_heads (P, μ ) regex substitution of predicate heads in P by μ.
+
+Worked example. Algorithm 1 run on Blocksworld Mystery instance p0009 (action names renamed to deceptive English; goal: stack yellow-on-pink-on-orange) converges in four iterations. Each row of the box pairs the candidate plan with the validator feedback that drives the next mutation. 
+
+Evolution of an EvoPlan candidate on Mystery Blocksworld instance p0009     
+
+> Iter 1 INVALID steps 3/10 , score 0.31
+
+(feast orange pink) (succumb orange) (attack pink) (attack orange) ←
+
+FAIL (succumb orange) (overcome pink orange) (feast yellow green) (succumb yellow) (attack yellow) (overcome yellow pink)        
+
+> Feedback →next iter: (attack orange) has an unsatisfied precondition at time 4 – set (harmony) to true.
+> ↓
+> Iter 2 INVALID steps 16 /16 , score 0.80
+
+(feast orange pink) (succumb orange) (attack pink) (succumb pink) (feast yellow green) (succumb yellow) (attack yellow) (succumb yellow) (attack yellow) (overcome yellow pink) (feast yellow pink) (succumb yellow) (attack pink) (succumb pink) (attack pink) (overcome pink orange)    
+
+> Feedback →next iter: the goal is not satisfied – set (craves yellow pink) to true.
+> ↓
+
+17 Algorithm 1 EvoPlan. The outer procedure Plan drives belief-based exploration and the inner Evolve 
+
+performs LLM-guided plan repair against the cascade. The predicate map μ is derived once per task on a vocabulary mismatch and cached to disk.  
+
+> 1:
+
+procedure Plan (D, g, M, B max , E ) 
+
+> 2:
+
+B ← E. reset () ; t ← 0; won ← false  
+
+> 3:
+
+while t < B max and not won do  
+
+> 4:
+
+if target_ready (B, g ) then  
+
+> 5:
+
+P ← belief_to_problem (B, D, g ) 
+
+> 6:
+
+π ← Evolve (D, P, M, g ) 
+
+> 7:
+
+else  
+
+> 8:
+
+π ← ∅ ▷ nothing to plan for; trigger exploration  
+
+> 9:
+
+if π = ∅ then ▷ exploration step  
+
+> 10:
+
+r ← pick_receptacle (B, g, M ) 
+
+> 11:
+
+π ← ⟨ goto (r)⟩ extended by ⟨open (r)⟩ if r is openable  
+
+> 12:
+
+for a ∈ π while t < B max and not won do  
+
+> 13:
+
+(o, won ) ← E. step (a); t ← t + 1  
+
+> 14:
+
+B ← update_belief (B, o, a ) 
+
+> 15:
+
+return won  
+
+> 16:
+
+procedure Evolve (D, P, M, g ) 
+
+> 17:
+
+if vocab( g)̸ ⊆ vocab( D) then  
+
+> 18:
+
+μ ← map_predicates (g, D, M ) ▷ one LLM call per task, disk-cached  
+
+> 19:
+
+P ← rewrite_heads (P, μ ) 
+
+> 20:
+
+pop ← { seed (D, P )} 
+
+> 21:
+
+for i = 1 , . . . , I do  
+
+> 22:
+
+c ← M. mutate (select (pop) , f i−1
+
+) 
+
+> 23:
+
+(valid i, f i) ← cascade (c, D, P ) 
+
+> 24:
+
+pop .add (c, J (c, f i))  
+
+> 25:
+
+if valid i then return c.π ▷ early exit on first valid plan  
+
+> 26:
+
+return ∅ ▷ no valid plan within the inner budget     
+
+> Iter 3 INVALID steps 9/14 , score 0.55
+
+(feast orange pink) (succumb orange) (attack pink) (overcome pink orange) (feast yellow green) (succumb yellow) (attack yellow) (overcome yellow pink) (feast yellow pink) (attack pink) ← FAIL 
+
+(succumb pink) (attack pink) (succumb pink) (overcome pink orange)         
+
+> Feedback →next iter: (attack pink) has an unsatisfied precondition at time 10 – set (harmony) to true.
+> ↓
+> Iter 4 ✓VALID steps 8/8, score 1.00
+
+(feast orange pink) (succumb orange) (attack pink) (overcome pink orange) (feast yellow green) (succumb yellow) (attack yellow) 
+
+18 (overcome yellow pink)   
+
+> Loop terminates: plan valid (final value 8); no further iteration needed.
+
+The pattern – precondition fail, goal-miss over-correction, partial repair with spurious tail, then a clean trim to the optimum – is typical: the validator artifact converts “which clause failed” into the next prompt’s repair target. 
+
+B.2 Closed-world Blocksworld results 
+
+This section evaluates EvoPlan on the closed-world benchmarks of the NL-PDDL suite (Liu et al., 2026), where the planning component is isolated from perception and exploration. The only LLM call in the loop is plan proposal/repair; validity is decided by VAL and Fast Downward (Howey et al., 2004; Helmert, 2006). 
+
+Benchmark variants. Following Liu et al. (2026), we use the standard Blocksworld domain (McDermott et al., 1998) ( Plain ) and three surface-form variants that defeat lexical priors: Mystery (predicates and actions renamed to misleading English words), Randomized (renamed to gibberish), and Misalignment (action model in renamed terms, goal in plain vocabulary). On Misalignment we insert a one-time LLM entailment step that maps the goal predicates onto the misaligned domain; the evolutionary loop runs unchanged thereafter. 
+
+Headline result. Table 7 reports SR per variant. Direct LLM planners collapse on the renamed variants (0% on Mystery/Randomized). EvoPlan recovers near-symbolic performance: both backbones match FD on 
+
+Plain ; gpt-oss-120b matches FD on Randomized ; and both backbones exceed NL-PDDL on every variant. On 
+
+Misalignment (FD = 0% ), EvoPlan reaches 98 –100% through the entailment pre-step. 
+
+Mystery as the difficulty floor. Mystery is the hardest variant for Qwen3-32B and exposes a backbone-specific limit: the deceptive vocabulary inflates the model’s reasoning trace, and clearing NL-PDDL’s 70% 
+
+requires raising the per-call reasoning budget. On gpt-oss-120b the same variant is reached at a lower budget, indicating that the bottleneck is per-call reasoning depth rather than the number of iterations. Across all variants, most tasks converge within 1–3 iterations and per-call prompts carry no few-shot exemplars. 
+
+Reporting conventions. The benchmark is the NL-PDDL Blocksworld suite (Liu et al., 2026): Plain plus the three surface-form variants Mystery, Randomized, and Misalignment. Tokens-to-solve are computed as the cumulative LLM tokens up to the iteration that first emits a VAL-valid plan; unsolved tasks count their full iteration budget. Direct-LLM, NL-PDDL, and Fast Downward (Helmert, 2006) numbers are reproduced from Liu et al. (2026). NL-PDDL’s token cells are dashed on Plain/Mystery/Randomized because its FOL regression planner is fully symbolic and invokes the LLM only for one-time commonsense entailment when the goal and action-model vocabularies disagree; on Misalignment that entailment call is reflected in its token cell. EvoPlan analogously inserts a one-time LLM entailment pre-step before the evolutionary loop on Misalignment. 
+
+Token cost. EvoPlan’s tokens-to-solve are higher than NL-PDDL’s on the shared-vocabulary variants. This is structural rather than incidental: NL-PDDL is a fully symbolic FOL regression planner that calls the LLM only for one-time vocabulary entailment when the goal and domain disagree, while EvoPlan uses the LLM as its plan proposer at every iteration with the validator providing repair feedback. The 19 Table 7: Closed-world Blocksworld plan-synthesis: tokens-to-solve (# Tok., per N =100 instances) and success rate (SR) across the four NL-PDDL variants. Best value per column in bold.                                                                    
+
+> Plain Mystery Randomized Misalign. Method # Tok. SR # Tok. SR # Tok. SR # Tok. SR GPT-4o 982,602 34% 834,890 0% 835,974 0% 937,905 27% Gemini-2.0 Flash 928,024 18% 834,060 1% 835,824 0% 939,950 23% LLaMA-3.1 963,565 44% 841,791 0% 842,622 0% 950,490 42% NL-PDDL (Liu et al., 2026) -70% -70% -70% 11,656 70% Fast Downward (upper bound) -100 %-100 %-100 %00% EvoPlan (Qwen3-32B) 273,400 99.7% 1,690,032 74.0% 456,100 78.7% 341,400 100 %EvoPlan (gpt-oss-120b) 256,500 100 %363,100 76.7 %301,100 100 %398,800 98%
+
+per-iteration LLM cost is the price of a few capabilities that the symbolic planner does not offer: the proposer tolerates renamed action-model vocabularies without per-variant entailment engineering, solves tasks whose optimal plans exceed the regression planner’s fixed depth, runs against any input PDDL domain D
+
+without action-schema mining, and is backbone-agnostic, so quality follows the public LLM ecosystem. On problems where symbolic regression succeeds outright, EvoPlan is the more expensive choice; on problems where it does not (deep plans, surface-form renaming, vocabulary misalignment without manual entailment layers), the same budget yields a working plan within an unchanged loop. The cost therefore grows with task difficulty rather than with method complexity. 
+
+B.3 Closed-world ALFWorld results 
+
+Beyond the synthetic Blocksworld variants, we evaluate on the realistic closed-world ALFWorld domain with the canonical alfred PDDL action model and the N =134 valid_unseen tasks of Liu et al. (2026). Each instance encodes the full ground-truth scene as the initial state, with existentially-typed goals; this isolates the symbolic planner from perception and exploration, which are tested separately under the open-world setting (Sec. 5.2). Table 8 reports aggregate SR. The closed-world figure ( 90 .3% for Qwen3-32B) and the open-world figure ( 98 .5% , Sec. 5.2) measure different protocols and are not directly comparable: the former isolates symbolic search, the latter measures the integrated explore–plan–act loop. Table 8: Closed-world ALFWorld plan-synthesis on the full N =134 valid_unseen task set (Liu et al., 2026). Fast Downward (Helmert, 2006) is the symbolic upper bound. 
+
+Method Total tokens ( N =134 ) SR Fast Downward (upper bound) - 100% 
+
+GPT-5.5 (LLM+VAL loop) 2,770,945 100% 
+
+EvoPlan (Qwen3-32B) 10,349,634 90.3% EvoPlan (gpt-oss-120b) 17,071,316 78.4% 
+
+B.4 Same-backbone planner ablation 
+
+We isolate the evolutionary loop’s contribution by holding the backbone (Qwen3-32B), the prompt template, and the per-task budget fixed across two arms that differ only in the search loop: single-shot LLM+VAL (k=1 ) versus the full feedback-conditioned evolutionary loop. Closed-world Blocksworld Plain is the discriminating benchmark because Qwen3-32B’s single-shot SR there ( 86 .7% ) is well below the full-EvoPlan figure ( 99 .7% ), so any lift is attributable to the loop alone. 20 Table 9: Same-backbone ablation on closed-world Blocksworld Plain (N =300 , Qwen3-32B, 10 -iteration budget). Tokens are reported per-100 instances to match the basis of Table 7. The evolutionary loop closes a 13 pp SR gap over single-shot at ∼1.5× the token cost. 
+
+Method Tokens-to-solve / 100 inst. ↓ SR % ↑
+
+Single-shot LLM+VAL ( k=1 , no evolution) 184,178 86.7 EvoPlan (feedback-conditioned evolution, iters =10 ) 273,400 99.7 
+
+Single-shot Qwen3-32B already beats every direct-LLM baseline and the NL-PDDL symbolic floor on Plain, confirming the backbone is strong. Adding the evolutionary loop with descriptive feedback lifts SR by 
+
+13 pp at roughly 1.5× the token budget. The lift comes from the harder instances where the first proposal fails type-checking or omits a precondition: the validator artifact names the failed action, and the next iteration produces a targeted repair rather than another untargeted guess. Most tasks converge within 1–3
+
+iterations (App. B.2). 
+
+# C Constrained execution loop: runtime and integration 
+
+C.1 Evolutionary planning loop pseudocode 
+
+The runtime planner maintains a database of candidate plans and their evaluator feedback. The contract referenced inside the loop is the global Φmob mined in App. A; the loop does not introduce per-skill contracts.                                           
+
+> def evolve_plan(task, world, D, Phi_mob): population =seed_candidates(task, world, D) verified_prefix =[] while budget_remaining(): parent =sample(population) child =llm_mutate(parent, feedback=parent.feedback) if not pddl_syntax_ok(child): population.add(child, score=-inf, feedback="format error") continue val_report =validate_pddl(child, world) if not val_report.success: population.add(child, score=val_report.score, feedback=val_report.message) continue stl_report =check_phi_mob(child, world, Phi_mob) score =aggregate(val_report, stl_report) population.add(child, score=score, feedback=all_reports) if child.is_goal_reaching and stl_report.feasible: return child return best_safe_prefix(population)
+
+C.2 Runtime execution pseudocode 
+
+Once a candidate plan is selected, each PDDL action is dispatched action-by-action: Nav2 grounds the action into a waypoint sequence, the sequence is checked against Φmob , and execution proceeds only if the check succeeds. Symbolic effects come from the fixed PDDL domain D supplied as input; no per-skill effect certification is performed.        
+
+> def execute_action(a, world, Phi_mob): if not symbolic_preconditions_hold(a, world): return emit_failure("precondition-failed")
+
+21 waypoints = nav2_plan_route(a.target, world, costmap=world.costmap) rho = stl_robustness(waypoints, Phi_mob) if rho < 0: return emit_failure(failure_fact_from(rho, waypoints)) dispatch(waypoints) return assert_effects(a.effects) # from PDDL domain D
+
+C.3 Failure facts 
+
+Failure facts are the interface between the continuous executor and the symbolic planner. The two emitted by the runs in this paper are route-blocked(route2) (Nav2 returns no admissible global path or the planned route violates Φmob along its full length) and no-safe-approach(robot1,human1) (the only admissible routes pass within the learned clearance floor of an observed pedestrian). The interface is ex-tensible to additional facts (e.g. low-battery , terrain-risk-high , human-location-uncertain ); these are not used by the current experiments. Emitted facts are added to the next PDDL problem instance so the planner can choose alternate actions rather than repeatedly attempting the failed one. 
+
+C.4 Nav2 navigation interface 
+
+The runtime bridge converts the evolved STL-constrained plan into actual robot motion through Nav2. Each PDDL move action is dispatched as a navigation goal to Nav2’s behaviour-tree navigator; the global planner produces a route over the static costmap and the local planner refines it into a waypoint sequence over a short horizon. The grounded Φmob atoms are evaluated on this sequence before the controller executes it: hard safety clauses (clearance, speed, time-to-collision) gate execution, deadline clauses bound the route length, and soft preferences are aggregated into a robustness margin that is reported back to the evolutionary planner. 
+
+C.5 Crowd-density ablation in Gazebo 
+
+Sec. 5.3 reports the constrained execution loop at a single nominal crowd setting. To show how the loop responds as crowd size grows, we sweep the number of walking pedestrians in the factory scene from 
+
+0 to 50 (ρ ∈ [0 , 0.041] m−2) while holding the five missions, the mined Φmob , and the Nav2 stack fixed. Each setting is averaged over multiple seeded runs. Figure 5 reports four metrics that summarise how the human-aware behaviour of the loop changes with crowd density. At low density ( 10 pedestrians, ρ ≈ 0.008 ) the loop preserves a ∼ 1 m minimum clearance and produces no collisions, with personal-zone exposure under 1% of ticks. As density rises beyond ρ ≈ 0.016 , the closest approach drops sharply into the intimate band: the local planner has no admissible corridor that respects the 1.2 m personal floor, so the robot trades clearance margin to keep making progress. The intimate-zone occupancy in panel (a) nonetheless remains under 2% of ticks even at the densest setting, because the loop only briefly touches the intimate threshold when slipping past a pedestrian. Cumulative personal-space intrusion ( Pint ) grows monotonically with density, reflecting the steady accumulation of small shortfalls below 1.2 m rather than a few catastrophic intrusions. Collisions in panel (d) appear once density exceeds 
+
+ρ ≈ 0.016 and rise non-monotonically with population: at 50 pedestrians the loop averages ∼ 2.5 collisions per run, which is the operating regime where Nav2’s reactive local planner cannot resolve the dense cluster within the shield’s robustness budget. 22 Figure 5: Effect of crowd size on human interaction during warehouse navigation. (a) Mean percentage of timesteps in which the nearest pedestrian falls within the robot’s social ( < 3.6 m), personal ( < 1.2 m), and intimate ( < 0.45 m) zones. (b) Mean minimum clearance to the nearest pedestrian; shaded bands mark Hall’s intimate, personal, and social zones. (c) Mean cumulative personal-space intrusion Pint = 
+
+> ∑
+
+max(0 , 1.2 − clr) . (d) Mean number of collisions per run. All metrics are reported against pedestrian count and the corresponding population density ρ (people per m 2). 
+
+What the sweep shows. The loop degrades gracefully rather than collapsing: success-relevant metrics (clearance, intimate occupancy, collisions) move smoothly with density and do not exhibit a step-change failure. Personal-space discipline is preserved at the population densities a single mobile robot is realistically expected to encounter ( ρ ≤ 0.02 , roughly one person per 50 m2). Beyond that, the constraint is increasingly violated in a controlled way: Pint grows but the intimate-zone-occupancy ceiling holds. The non-monotonic collision count in panel (d) reflects sensitivity to the specific pedestrian routes drawn at each density rather than method-level non-determinism. 
+
+# D Extended related work 
+
+LLM and VLM planning. Early embodied LLM systems showed that language models can sequence high-level robot actions, but purely generative plans are difficult to verify. LLM+P and related approaches 23 use formal planners as back ends, while VLMFP extends this idea to visual inputs by generating PDDL problem and domain files and iteratively aligning symbolic execution with simulated visual outcomes (Hao et al., 2026). Our work shares the view that foundation models are most reliable when paired with external evaluators, but it shifts the evaluation target from only symbolic PDDL files to a hybrid PDDL plan plus a global STL constraint Φmob .
+
+Open-world symbolic planning. NL-PDDL addresses incomplete knowledge and goal-action language mismatch by representing predicates in natural language and performing regression planning with LLM-based entailment (Liu et al., 2026). This is complementary to our system. NL-PDDL expands the expressivity and accessibility of symbolic planning; our approach focuses on mining a global mobility constraint from trajectories and monitoring it on a robot. 
+
+Safety-aware PDDL and verifier feedback. SafeGen-LLM constructs PDDL3 benchmarks with explicit safety constraints and trains LLMs using rewards derived from formal verification (Fan et al., 2026). The reward categories in that work, such as format error, precondition violation, safety violation, goal not satisfied, and success, inspire our evaluator cascade. Our setting differs in that safety constraints are not only PDDL3 plan constraints; they are STL formulas over measured robot/environment traces. 
+
+Multi-robot and grounded collaboration. PIP-LLM combines PDDL team-level plans with integer-programming robot assignment (Shi et al., 2025). SPINE-HT grounds LLM-generated subtasks in heteroge-neous robot capabilities and adapts subtasks from online feedback in unstructured environments (Ravichan-dran et al., 2025). These systems motivate our emphasis on grounding and feedback. The present paper focuses on a single Jackal-style deployment, but the same global Φmob shield and evolutionary planner can be extended to multi-robot missions by adding role assignment, communication, and shared-resource constraints. 
+
+Learning temporal logic. Several works learn temporal-logic structures or parameters from data. The closest project reference learns STL predicates from trajectory data using expression optimization and conformal prediction to obtain finite-sample correctness guarantees (Soroka et al., 2025). Our constraint-mining phase uses a similar grammar-and-evaluator view, but the learned formula is a single global mobility constraint applied uniformly across every PDDL action at runtime. 
+
+Semantic safety and constitutions. Robot constitutions and semantic safety benchmarks provide high-level rules and datasets for embodied safety (Sermanet et al., 2025). Such rules are valuable for selecting or rejecting candidate instructions. Our STL constraint serves a different layer: after a task is judged appropriate, the executed robot trace must still maintain concrete measurable constraints. 24

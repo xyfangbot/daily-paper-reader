@@ -1,0 +1,628 @@
+Title: EFLUX: Elastic Multi-Robot Formation Navigation and Adaptation with Agentic LLMs
+
+URL Source: https://arxiv.org/pdf/2607.12050v1
+
+Published Time: Wed, 15 Jul 2026 11:56:17 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# EFLUX: Elastic Multi-Robot Formation Navigation and Adaptation with Agentic LLMs 
+
+Jinyuan Zhang 1, Yuwei Wu 1, Guangyao Shi 2, Jonathan Diller 1, Gaurav S. Sukhatme 2, Vijay Kumar 1
+
+Abstract —Multi-robot teams operating in confined or cluttered environments must adapt both their formation geometry and group topology to navigate through complex obstacles. This adap-tation requires two complementary behaviors: deformation , where the team continuously reshapes its geometry while remaining connected, and reconfiguration , where robots split into subgroups or merge back into a single formation. Existing methods often model these behaviors independently, connect them through handcrafted rules, or lack explicit geometric criteria for determin-ing when each behavior should be invoked. However, challenging environments may require online changes in formation shape, connectivity, and effective team composition, making decoupled or rule-based approaches prone to suboptimal trajectories and deadlock. We propose EFLUX, a geometry-grounded LLM agen-tic framework for automatic and elastic multi-robot formation navigation. EFLUX extracts a structured scene representation and uses an LLM to reason jointly over both deformation actions, such as scaling and shearing, and reconfiguration actions, such as splitting and merging. These strategies are then translated into executable per-robot waypoints through a closed-loop generation, verification, and correction pipeline. Simulation and hardware experiments show that EFLUX enables safe, continuous, and elas-tic formation navigation in constrained environments, reducing deadlock and navigation failures compared with baselines while maintaining coherent multi-robot coordination. 
+
+I. I NTRODUCTION 
+
+Multi-robot formation navigation is a fundamental capa-bility for collaborative tasks such as search and rescue [1], cooperative transportation [2], and exploration [3]. In cluttered environments, a robot team must reach its target positions and avoid collisions while maintaining desired formation [4], yet these objectives often conflict. Rigid formation maintenance may cause deadlock in narrow corridors [5] or choke points [6], whereas prioritizing collision avoidance alone leads to exces-sive formation distortion and loss of coordination [7]. Robust formation navigation therefore requires adaptive mechanisms that modify team geometry in response to environmental constraints while preserving coordinated behaviors. Existing methods approach formation navigation from control, optimization, and learning perspectives, but they adapt formations only in limited ways: classical control and optimization-based methods rely on fixed structures, prede-fined templates, or handcrafted switching logic [2]–[5, 8]–[13], while learning-based policies are usually reactive and lack explicit high-level reasoning about when and how to adapt [14,                                          
+
+> 1Jinyuan Zhang, Yuwei Wu, Jonathan Diller, and Vijay Kumar are with the GRASP Lab, University of Pennsylvania, Philadelphia, PA 19104, USA. Email: {jinyuanz, yuweiwu, diller, kumar}@seas.upenn.edu .2Guangyao Shi and Gaurav S. Sukhatme are with the Department of Computer Science, University of Southern California, Los Angeles, CA 90089, USA. Email: {shig, gaurav}@usc.edu .We greatly acknowledge the support of TILOS, funded by NSF Grant CCR-2112665.
+> Fig. 1. Formation (a) deformation and (b) reconfiguration of a robot team.
+
+15]. Effective formation adaptation requires both deformation ,the continuous modification of formation geometry, and re-configuration , discrete topological changes corresponding to split and merge behaviors. These two adaptations are usually complementary: deformation alone may preserve connectivity but fail in narrow passages that cannot accommodate the full robot team, whereas reconfiguration alone may over-fragment the team into too many small groups and increase coordination complexity. Thus, moderate constraints can often be handled by deforming a connected formation, while severe bottlenecks require temporary reconfiguration into subgroups that traverse separately before merging back into the nominal formation (Fig. 1). The major challenge is not to execute a predefined formation change, but to determine automatically when to preserve, deform, or reconfigure the formation during navigation. Prior work, however, addresses these behaviors separately and thus lacks a unified framework for continuous geometric and topological adaptation. Recent advances in large language models (LLMs) provide a promising direction for unified, joint reasoning over forma-tion adaptation. LLMs have demonstrated strong capabilities in semantic interpretation, contextual reasoning, and code generation. In multi-robot formation tasks, they are mainly used for static pattern generation [16], shape assembly [17], or automated reward design [18], rather than for reasoning about formation adaptation during navigation. This motivates using LLMs as high-level reasoning modules that interpret scene structure and select adaptation strategies. However, LLM reasoning alone lacks the geometric precision required for arXiv:2607.12050v1 [cs.RO] 13 Jul 2026 TABLE I FEATURE COMPARISON FOR MULTI -ROBOT FORMATION COORDINATION .                                             
+
+> Methods Deformation Reconfigu-ration Dynamic Membership Shape Adaptive Core Method VRB [9] ✓✗✗✗VRB+APF STAF [19] ✓✓✗✗GNN+RL DEFORM [13] ✓✗✗✓MPC DVS [12] ✓✗✓✗MINCO SF [7] ✓✗✗✗MINCO Rel-Form [20] ✓✗✗✗MAPPO LGPF [16] ✗✗✗✓LLM+MADDPG
+> EFLUX (ours) ✓✓✓✓LLM+MPC *Support: ✓yes, ✗no. Deformation: Continuous geometric reshaping of a connected formation. Reconfiguration: Splitting the team into subgroups and merging back. Dynamic Membership: Allowing robots to join or leave (e.g., upon robot failure or new robot joining) while the coordinated formation task continues without restarting or deadlock. Shape Adaptive: Switching among predefined formation shapes during the task.
+
+safe formation navigation, as its direct outputs are proba-bilistic and prone to hallucination, often producing infeasible plans. Executable formation adaptation requires geometric grounding : high-level decision making must be constrained by scene representations, spatial constraints, and feasibility checks before being translated into robot actions. Existing LLM-based methods lack such explicit deterministic geometric grounding and cannot reliably ensure feasible formation adaptation. To address this challenge, we propose EFLUX (Elastic 
+
+Formations with LLMs), an LLM-based agentic framework for multi-robot formation navigation in cluttered environ-ments. EFLUX combines deterministic geometric grounding with language-driven reasoning to jointly handle formation deformation and reconfiguration. It first extracts a structured scene representation from the map information, user-specified nominal formation, and task specification, then interprets this representation to localize geometric bottleneck contexts. It then generates adaptation strategies and converts them into verified waypoints through a closed-loop generation-and-verification pipeline before execution by low-level controllers. EFLUX is evaluated in both simulation and hardware experiments across diverse scenarios requiring deformation, reconfiguration, and combined adaptation. Our contributions are as follows:  
+
+> •
+
+We propose a unified, geometry-grounded LLM frame-work for automatic formation navigation that jointly han-dles elastic adaptation in team composition and formation shape through reconfiguration and deformation.  
+
+> •
+
+We ensure geometric grounding through determinis-tic geometric abstraction and a closed-loop reasoning pipeline that validates and refines LLM-proposed plans for collision-free, safely executable navigation.  
+
+> •
+
+We validate the framework in simulation and hardware, demonstrating higher success rates and fewer failures than baselines, with generalization across team sizes, formation shapes, and dynamic membership changes. II. R ELATED WORKS 
+
+Multi-Robot Formation Navigation. Prior formation navi-gation falls into control-, optimization-, and learning-based approaches (Table I). Classical methods specify desired ge-ometries through virtual structures [8] and leader–follower [5], often combined with artificial potential fields [9] or consensus [10] for distributed motion. While effective in open environments, these methods assume static formations and lack active adaptation, making swarms prone to deadlock in cluttered scenes [7]. Affine transformations [21] relax this by allowing shearing and scaling, yet such continuous deforma-tion alone cannot handle discrete topological changes such as team splitting. These control-theoretic approaches offer strong guarantees but remain task-specific. Optimization and learning-based methods improve adaptability through collision-aware trajectory optimization [2, 22], deformable formations that adapt geometry from sensed traversability [13], and decentral-ized policy learning with obstacle avoidance, curriculum learn-ing, and reconfiguration coordination [14, 19, 20, 23]. Despite these advances, existing methods typically adapt reactively or rely on predefined templates and rules, limiting their ability to provide all capabilities summarized in Table I. 
+
+LLMs for Multi-Robot Coordination. LLMs have recently been applied to robot motion planning and control through natural-language interaction [24], code generation [25], and task planning [26], and extended to multi-robot coordina-tion by code-as-policy pipelines such as LAN2CB [27] and GenSwarm [28], which convert mission descriptions into runnable multi-robot code. For formation control and naviga-tion specifically, LGPF [16] translates language prompts into static patterns realized by RL policies, while LAMARL [17] and related work [18] use LLMs to generate prior policies or shape rewards. Yet these remain limited to one-shot pattern generation or offline training, and to our knowledge none performs closed-loop formation adaptation during navigation. III. P ROBLEM FORMULATION 
+
+Consider N disk-shaped robots of radius r > 0 navigating in a workspace X ⊂ R2 with known static convex obstacles O
+
+and boundary ∂X . Let δsafe > 0 denote a safety margin. Fol-lowing [11], the formation is modeled as a weighted undirected graph G = ( V, E), where V = {1, . . . , N } indexes the robots, 
+
+E ⊆ {{ i, j } : i, j ∈ V , i ̸ = j}, and edge weights encode squared inter-robot distances. Let A ∈ RN ×N denote the adjacency matrix with Aij = ∥pi −pj ∥2 for {i, j } ∈ E , and let 
+
+L = D−A be the graph Laplacian with degree matrix D. The normalized Laplacian is defined as ˆL = D−1/2LD −1/2. Let 
+
+F = {pnom  
+
+> i
+
+}Ni=1 denote a fixed nominal formation template with topology Enom . Let ˆLnom be its normalized Laplacian, which serves as a translation-, rotation-, and uniform-scale-invariant descriptor of the formation geometry. During navi-gation, the planner generates a time-varying desired formation 
+
+Fdes (t) through two modes: deformation and reconfiguration .Over a time interval [ta, t b], deformation is modeled as a time-varying weighted graph Gdes (t) = ( V, Edes (t)) with fixed topology and continuous edge weights, characterized by the normalized Laplacian ˆLdes (t):(i) Fixed membership and topology: V is fixed and Edes (t) ≡Enom on [ta, t b].(ii) Continuous deformation: Ades  
+
+> ij
+
+(t) = ∥pdes  
+
+> i
+
+(t) − pdes  
+
+> j
+
+(t)∥2
+
+varies continuously for all {i, j } ∈ E des (t).(iii) Connectivity preservation: λ2(ˆLdes (t)) > 0 holds for all 
+
+t ∈ [ta, t b].Geometric Summary 
+
+• Centroid reference path 
+
+• Formation configuration 
+
+• Narrow -Region  (NR) 
+
+records , each with: 
+
+• minimum corridor 
+
+width and length 
+
+• formation margin 
+
+• nearby obstacles 
+
+• feasibility  check :
+
+✓ nominal  formation 
+
+pass es 
+
+✗ formation  cannot pass 
+
+... 
+
+Stage I: Scene Interpretation ( ℬ → 𝐶 )
+
+r1: [0.45, 0.0], r2: [ -0.15, 0.0], r3: [ -0.15, 0.6], 
+
+r4: [ -0.15, -0.6]. 
+
+Propose a triangle formation template for 4 robots. 
+
+Map Information 
+
+(Obstacles + 
+
+Workspace) 
+
+You are a Spatial Structure Analyst. The 
+
+geometric information below summarizes 
+
+each NR. Convert the NR records into 
+
+bottleneck context by …
+
+Environment Geometric Grounding   
+
+> obs NR waypoint
+
+“Precompute deterministic 
+
+scene data locally for the 
+
+downstream LLM.” 
+
+Stage  I Output 
+
+NR_1 
+
+“Translate qualitative scene 
+
+context into formation 
+
+adaptation strategies. ”      
+
+> •Role Instruction
+> •Skill Definitions
+> •Decision Protocol
+> •Output Schema
+> •Data Context
+
+<Per -region strategies> 
+
+NR_1 (WP0 –WP1) | skill: deformation 
+
+strategy: lateral offset to +y (single -side squeeze, obs_1 on the right, 
+
+target width ~4.0 m). 
+
+NR_2 (WP4 –WP13) | skill: reconfiguration 
+
+strategy: parallel split around central blockers obs_5 and obs_10 
+
+- SG_Left {R1, R3} → upper bypass (+y) 
+
+- SG_Right {R2, R4} → lower bypass ( -y) 
+
+merge after ~WP15. 
+
+NR_3 … 
+
+<Adaptation Plan> 
+
+seq 1: begin_deform @ ~WP0 → lateral_offset (enter NR_1) 
+
+seq 2: traverse_adapted @ ~WP1 → lateral_offset (hold through NR_1) 
+
+seq 3: begin_split @ ~WP10 → parallel_split (transition NR_1 → NR_2) 
+
+... 
+
+<Inter_NR_handling >
+
+group 1: [NR_1, NR_2] -> continuous_adapted 
+
+group 2: [NR_3] -> independent 
+
+Prompt 
+
+Assembly 
+
+Tool Calling   
+
+> Formation Check Collision Check
+> {
+> "robot_1" : [[x,y],
+> ...],
+> "robot_2" : [[x,y],
+> ...],
+> ... (4 robots)
+> }
+
+Agentic LLM 
+
+Waypoint 
+
+Proposer 
+
+“Translate adaptation strategies 
+
+into per -robot waypoints. ”
+
+Validator 
+
+BLOCKING 
+
+(must fix →  call refiner )
+
+• inter -robot separation 
+
+• obstacle clearance 
+
+• boundary containment 
+
+• segment clearance 
+
+• path monotonicity 
+
+• centroid direction 
+
+• WARNING (no block) 
+
+• temporal order 
+
+• shape similarity 
+
+Prompt Assembly       
+
+> •Stage II output
+> •Role Instruction
+> •Scene Context
+> •Constraint Spec
+> •Decision & Verification Protocol
+> •Output Schema (JSON)
+
+Waypoint 
+
+Refiner  Feedback 
+
+Buffer Revalidate     
+
+> Blocking
+> local edit prompt
+> (if nearly feasible) ↻Full retry with
+> violation history
+> Still
+> blocking
+
+Stage II: Formation Adaptation Strategy ( 𝐶 → 𝒜 )
+
+Stage III: Waypoint Generation ( 𝒜 → Π)
+
+Task Input  
+
+> ✓Pass
+
+User -Prompted 
+
+Nominal Formation 
+
+Task 
+
+Specification 
+
+(Start & Goal) 
+
+Centroid reference path: [(x1,y1), ...] 
+
+Formation config: [shape: triangle, ...] 
+
+Three Narrow -Region records: 
+
+NR_1: w=3.43m; l=0.77m; nearby obs → obs_1, obs_2, ... ✗
+
+NR_2: w=1.21m; l=0.38m; nearby obs → obs_5, obs_10, ... ✗
+
+NR_3: w=0.85m; l=7.14m; nearby obs → obs_8, obs_12, ... ✗
+
+Reasoning: I will assess each NR, identify bottleneck obstacles, describe their layout... 
+
+Per -NR annotations: 
+
+NR_1: Single -Side Squeeze (gap on the right of obs_1)... 
+
+NR_2: Parallel Corridor (obs_5 | obs_10)... 
+
+NR_3: Funnel (obs_8 on the left, obs_12 on the right), narrowing inward... 
+
+Topology description: NR_1 and NR_2 form a continuous narrow stretch; NR_3 opens a new corridor. 
+
+Overall assessment: This map contains 3 narrow regions... the key challenge is ... 
+
+“Interpret raw geometry as 
+
+qualitative scene context. ”
+
+Controller 
+
+> Deploy
+
+Path Planner 
+
+def plan_path (map, start, goal): 
+
+return collision_free_path 
+
+Formation Configurator 
+
+def 
+
+build_formation_config (formation): 
+
+return formation_info 
+
+Map and Path Analysis 
+
+def analyze_map (map, path, 
+
+formation): 
+
+return narrow_region_records 
+
+Stage  I Output 
+
+Stage  II Output Fig. 2. System overview of EFLUX . Given a map, task specification, and a user-specified nominal formation, the framework uses deterministic geometric grounding to identify narrow regions that require formation adaptation. It then applies a three-stage agentic LLM pipeline consisting of scene interpretation, formation adaptation strategy generation, and closed-loop waypoint generation, producing verified per-robot waypoints for execution by a low-level controller. 
+
+A representative example is an affine deformation, in which the nominal formation template is continuously transformed through linear operations such as shearing, and compres-sion [21]. Reconfiguration introduces discrete topological changes by partitioning the vertex set V into independently evolving connected subgroups. Gdes (t) = FK(t)
+
+k=1 Gdes 
+
+k (t), with the k-th subgroup graph Gdes 
+
+k (t) = (Vk(t), Edes 
+
+k (t)) . The following conditions hold: (i) Fixed membership: V = FK(t)
+
+k=1 Vk(t) remains unchanged. (ii) Subgroup connectivity: λ2(ˆLdes 
+
+k (t)) > 0 for |V k(t)| ≥ 2.(iii) Topological variation: the partition {V k(t)}K(t)
+
+k=1 changes at least once within (ta, t b), corresponding to split or merge events. A representative example is splitting the team into parallel subgroups to traverse multiple corridors before merging back into a connected formation. 
+
+Problem: We consider multi-robot formation navigation in a cluttered environment. Given the problem specification 
+
+I = ( X , O, Xs, Xg , F), a robot team must navigate from the start Xs to the goal Xg while preserving the nominal forma-tion F wherever the free space can accommodate it. Here, 
+
+Xs, Xg ∈ X denote the start and goal positions of the team centroid. In regions where the nominal formation cannot be safely maintained, the planner generates time-varying adapted formations through deformation or reconfiguration. EFLUX aims to generate collision-free synchronized trajectories while minimizing formation distortion and traversal costs, subject to dynamic and safety constraints. During reconfiguration, the team temporarily splits into subgroups before merging back into a connected formation. In open space, nominal formation preservation is prioritized, whereas in constrained areas, safety and navigational feasibility dominate. IV. E LASTIC MULTI -R OBOT FORMATIONS WITH LLM S
+
+We introduce an elastic multi-robot formation naviga-tion pipeline (Fig. 2) that integrates deterministic geomet-ric planning with geometry-grounded LLM-guided adaptation in constrained environments. Deterministic modules compute collision-free centroid paths, extract narrow-region geometry, and verify safety, while the LLM interprets geometric bottle-necks and generates deformation or reconfiguration strategies with synchronized waypoint plans. To couple geometric grounding with semantic reasoning, we introduce narrow-region records B, encoding traversability and local obstacle structure along the centroid path γ. As shown in Algorithm 1, the framework follows the representation chain 
+
+B → C → A → Π, where the LLM interprets the records B
+
+as a semantic scene context C, selects adaptation strategies 
+
+A, and proposes waypoint plans Π. Candidate plans are then validated deterministically, with failed plans producing structured feedback H for iterative replanning.                                                                                                              
+
+> Algorithm 1: Formation planning with narrow-region records
+> Input: Information I, planner parameters Θ, maximum attempt number K
+> Output: Admissible plan Π; on failure, the best candidate Π⋆over the Kattempts
+> 1(γ, B)←EnvironmentAnalysis (I,Θ) ;
+> 2Construct the deterministic validator Mfrom Iand Θ;
+> 3C ← SceneAnalysis (B, γ, O);
+> 4A ← AdaptationStrategy (C, γ, F,Θ) ;
+> 5Initialize Π⋆← ∅ ,v⋆←+∞,H ← ∅ ;// v⋆:best blocking-violation score so far
+> 6for k= 1 , . . . , K do
+> 7Πk←WaypointGeneration (A,C, γ, F,Π⋆,H);
+> 8( ˜Πk, v k)←ValidateAndRefine (Π k,M);// validate; if violations remain, run refiner and revalidate
+> 9if vkhas no blocking violation then
+> 10 return ˜Πk;
+> 11 if vkhas fewer blocking violations than v⋆then
+> 12 (Π ⋆, v ⋆)←( ˜Πk, v k);
+> 13 ρk←REPAIR MODE (v⋆)∈ { LOCAL -FIX ,FULL -REPLAN };
+> // choose next-retry mode
+> 14 Append (vk, ρ k)to H;// log this attempt’s feedback
+> 15 return Failure with Π⋆;
+
+A. Deterministic Environment Analysis 
+
+Rather than passing the raw occupancy map to LLMs, this module converts the workspace into abstract narrow-region records with geometric summaries. We first obtain a coarse centroid reference path γ using a sampling-based planner that adaptively densifies samples near turns. The planner enforces single-robot feasibility by requiring every point on γ
+
+to maintain at least r +δsafe clearance from obstacles. We then upsample the path γ at a finer resolution to obtain measurement waypoints {qm}Mm=0 , at which we evaluate the corridor width 
+
+wcor  
+
+> m
+
+and formation margin cform  
+
+> m
+
+. The corridor width wcor  
+
+> m
+
+is estimated by casting Nray opposing ray pairs from qm over 
+
+360 ◦ and taking the minimum summed first-hit distance across all pairs. This approximates the narrowest free-space cross-section through qm, independent of formation geometry. To evaluate whether the nominal formation can traverse the path without deformation or reconfiguration, we place F with its centroid at each qm and its orientation aligned with the local path direction. Let pi(qm) denote the resulting position of robot i. The formation margin is defined as 
+
+cform  
+
+> m
+
+= min 
+
+> i
+
+
+
+min  
+
+> o∈O∪ ∂X
+
+dist  pi(qm), o  − r
+
+
+
+(1) representing the minimum robot-to-obstacle or robot-to-boundary clearance of the nominal formation at qm. Con-secutive waypoints that the nominal formation cannot clear (cform  
+
+> m
+
+< δ safe ) are grouped into discrete narrow-region NR j ,each summarizing its minimum corridor width, length, and bounding obstacles to form B.
+
+B. Hierarchical LLM Reasoning 
+
+Scene Interpretation ( B → C ). The records B quantify the geometric severity of each narrow region NR j , but do not explain the obstacle configuration causing the bottleneck or the spatial relationships among adjacent regions along 
+
+γ. Both are important for deciding whether deformation or reconfiguration is required. To provide this context, the LLM augments each NR j with a severity label, obstacle-grounded spatial description, nominal-formation passability assessment, and inter-region topological relations, to produce the semantic scene context C.The LLM is conditioned on the obstacle layout, reference path, and geometric summaries in B, with bottleneck-forming obstacles separated from nearby contextual obstacles. Since narrow regions are identified upstream, the LLM reasons over one bounded neighborhood at a time rather than the entire workspace. A guided protocol prompts it to identify the local obstacle layout, classify the bottleneck pattern (e.g., funnel, corridor, chicane, or single-side squeeze), and perform a reverse-consistency check before populating the schema. All geometric quantities are deterministically computed, with the LLM restricted to qualitative interpretation rather than geometric estimation. 
+
+Formation Adaptation Strategy ( C → A ). This stage per-forms high-level adaptation selection and scheduling. For each 
+
+NR j , the LLM determines whether the team should remain connected through deformation or temporarily reconfigure into subgroups, and schedules these adaptations along γ to avoid unnecessary adapt–recover oscillations. To reduce the LLM’s numerical reasoning burden, we inject precomputed geometric summaries to provide the LLM with a geometry-grounded heuristic decision rule. Let wj = min qm∈NR j wcor  
+
+> m
+
+denote the minimum width of NR j , and let Wnom denote the path-lateral footprint width of the nominal formation. The width ratio ρj = wj /W nom measures the severity of each narrow region relative to the nominal formation, while the safety-reduced admissible width wsafe  
+
+> j
+
+= wj − 2δsafe defines the maximum formation footprint width allowed. Inter-region gap lengths classify neighboring narrow regions as independent, continuous, or progressive. These quantities are combined with the Stage I semantic annotations, reference path, and obstacles. The LLM follows a guided Chain-of-Thought (CoT) pro-tocol with reverse-prediction checks that simulate the re-sulting team behavior against the Stage I scene description before generating the strategy. The decision process defaults to deformation to preserve the nominal formation descriptor 
+
+ˆLnom whenever feasible. A connected deformation is width-admissible when wsafe  
+
+> j
+
+≥ 2r. If this condition fails, connected deformation through the same passage is rejected, and the planner considers reconfiguration where feasible subgroup traversal channels exist. Reconfiguration is also preferred when the scene contains multiple traversable corridors or obstacle geometries that cannot be handled effectively through affine deformation alone. Even when deformation is geometrically feasible, reconfiguration may still be selected if the required distortion would significantly violate formation-shape preser-vation. To guide the LLM at this decision boundary, the prompt provides canonical pattern-strategy mappings: a narrowing funnel suggests progressive scaling, and a dual-bypass obstacle suggests parallel subgroup reconfiguration with robots grouped by the nearest corridor. The generated adaptation plan specifies both strategy type and execution schedule. For deformation, it specifies the de-formation mode (e.g., scaling, shearing, or line formation), compression axis, target width, and lateral bias relative to 
+
+γ, which together parameterize the desired formation shape. For reconfiguration, it specifies split type (parallel, sequential, or hybrid), subgroup assignments with traversal channels, merge locations, and optional subgroup-local deformation. The LLM additionally records a CoT trace containing path-level reasoning, region grouping, strategy evaluation, and feasibility checks. A final validation step then verifies that the plan covers all narrow regions and is internally consistent before it is passed to Stage III.                                                        
+
+> TABLE II STAGE III TOOL -CALLING AND DETERMINISTIC VALIDATOR CHECKS .Interface Input Check
+> Tool-calling checks
+> Point pdO(p)≥r+δsafe and d∂X(p)≥r+δsafe
+> Segment/path (pa,pb)or τimin ζ∈[0 ,1] dO(seg ab (ζ)) ≥r+δsafe ,applied to one segment or all consecutive segments in τi
+> Snapshot {pi(t)}Ni=1 ∥pi(t)−pj(t)∥ ≥ 2( r+δsafe )for i̸=j;compute the realized normalized formation Laplacian ˆL(t)
+> Deterministic validator checks
+> Schema ΠJSON validity, robot IDs, synchronized waypoint counts, and valid waypoint states Plan ΠBlocking checks for inter-robot separation, obstacle clearance, boundary containment, segment clearance, path monotonicity, and centroid-direction consistency; temporal order, formation-shape error, and smoothness are retained as diagnostics
+> dOand d∂Xdenote obstacle and boundary distances, respectively, while
+> seg ab (ζ) = (1 −ζ)pa+ζpbdenotes a queried segment.
+
+Waypoint Generation (A → Π). This stage performs coordinate-level instantiation by converting the selected adap-tation schedule into synchronized waypoint sequences along 
+
+γ. The LLM is conditioned on scene, formation, path, and constraint context, and is prompted to produce a strict JSON waypoint plan satisfying safety, synchronization, directional consistency, and temporal ordering. Geometric validity is enforced outside the LLM. Stage III treats the LLM as a heuristic waypoint proposer within a tool-calling and validation loop: each candidate plan is checked by the interfaces shown in Table II, locally refined when nearly feasible, and otherwise fed back to the LLM through structured violation records. The deterministic validator M applies plan-level checks to the complete waypoint trajectory and returns a verdict vk. Blocking violations reject the candidate, while non-blocking diagnostics are retained for feedback-guided retry. Thus, M enforces admissibility and consistency rather than trajectory optimality. 
+
+C. Agentic Validation, Retry, and Replanning 
+
+Discrete formation strategies may produce waypoint plans 
+
+Πk that violate geometric constraints such as obstacle clear-ance. To improve robustness, Stage III is augmented with an agentic correction loop: the LLM proposes candidate plans, while deterministic modules validate, refine, and provide struc-tured feedback for subsequent retries. Before re-querying the LLM, a constrained local refiner attempts to repair small coordinate-level violations: 
+
+˜Πk = arg min  
+
+> Π,ϵ
+
+Jtrack (Π , Πk) + λrep Jrep (Π) + λϵ∥ϵ∥22
+
+s.t. g(Π , ϵ ) ≥ 0, ∥Π − Πk∥∞ ≤ δmax ,
+
+(2) where g := {gsep , g obs , g seg } enforces inter-robot separation and waypoint/segment obstacle clearance, Πk denotes the LLM-generated waypoint plan and Π the refined waypoint coordinates. The objective preserves fidelity to the proposed plan while repelling waypoints from nearby obstacles; slack variables ϵ are penalized to maintain feasibility. The trust-region bound δmax > 0 restricts the refinement to local geometric corrections without altering the formation topology. The refined candidate is accepted only if it does not increase the blocking-violation score after revalidation; otherwise, the original proposal is retained for feedback and retry. Remaining violations are encoded as structured feedback records contain-ing the violated constraint type, associated robots or obstacles, waypoint or segment indices, and quantitative clearance errors. These records are accumulated in a feedback buffer H and appended to subsequent prompts during the retry loop with attempt budget K (Algorithm 1). Across retries, C and A
+
+remain fixed, while waypoint generation is conditioned on γ,
+
+F, the best candidate Π⋆, and H. When a nearly feasible solution exists, the prompt explicitly requests minimal edits to violating waypoints rather than full regeneration. The same framework also supports online replanning. Upon an external trigger, the controller pauses execution and con-structs a replanning snapshot from the stopped robot states, remaining reference path γrem , and unexecuted waypoint suffix 
+
+Πrem . Mission-level changes (e.g., goal updates) trigger full replanning from the current team centroid, while team-level changes (e.g., robot failures or additions) reuse γrem and update the team configuration or formation template. The resulting plan is subjected to the same validation, retry, and transition checks before execution, enabling fault-tolerant and dynamically adaptive formations. V. V ALIDATION EXPERIMENTS 
+
+We conduct simulation and hardware experiments to eval-uate EFLUX. The experiments validate three claims: (1) EFLUX outperforms representative baselines in constrained formation-navigation tasks by jointly reasoning over deforma-tion and reconfiguration; (2) geometric grounding over both the robot team and environment, together with deterministic validation and retry, improves the reliability of LLM-generated waypoints; and (3) EFLUX is elastic in both formation shape TABLE III COMPARISON ACROSS FIVE CONSTRAINED SCENARIOS .                                                                                                                                                                                                  
+
+> Scenario Method Triangle formation Square formation
+> SR (%) ↑Ttr (s) ↓esim ↓Ltotal (m) ↓SR (%) ↑Ttr (s) ↓esim ↓Ltotal (m) ↓
+> Narrow corridor (gap = 1 .2m) DEFORM 95.0 92.6 0.217 42.55 70.0 120.8 0.167 44.28 VRB 100.0 51.6 0.048 40.17 100.0 50.5 0.045 40.05 SF 100.0 75.0 0.005 41.31 100.0 71.6 0.011 40.68 Ours 100.0 57.8 0.013 38.79 100.0 57.6 0.011 38.71
+> Narrow corridor (gap = 0 .7m) DEFORM 95.0 170.4 0.162 44.59 85.0 176.4 0.147 45.64 VRB 0.0 –––0.0 –––SF 70.0 54.0 0.053 41.01 90.0 53.8 0.043 41.08 Ours 100.0 63.6 0.084 39.21 100.0 59.3 0.021 38.98
+> Single large obstacle DEFORM 45.0 122.6 0.189 45.31 0.0 –––VRB 0.0 –––0.0 –––SF 0.0 –––20.0 113.1 0.047 63.52 Ours 100.0 67.6 0.001 43.94 100.0 68.8 0.000 43.83
+> Obstacle environment (sparse) DEFORM 100.0 188.4 0.278 44.14 10.0 238.9 0.279 49.94 VRB 100.0 59.5 0.054 42.81 50.0 62.0 0.042 43.62 SF 100.0 71.0 0.048 47.32 90.0 62.3 0.023 44.09 Ours 100.0 79.5 0.040 42.55 95.0 80.3 0.020 41.72
+> Obstacle environment (dense) DEFORM 0.0 –––1.2 300.9 0.275 103.16 VRB 0.0 –––40.0 131.9 0.095 99.22 SF 47.5 181.4 0.040 112.44 68.8 175.9 0.039 111.17 Ours 53.8 176.6 0.087 98.19 88.8 173.6 0.087 97.31
+> *Best result per column is in bold ; “–” marks a method with no successful run. Each entry uses 20 trials; Dense is evaluated with 4 maps ×20 trials = 80 .Ttr ,esim , and Ltotal are averaged over successful runs. All methods are evaluated under identical start-goal settings and obstacle layouts using both triangle and square formations.
+
+and team size, supporting reconfiguration, scaling to different numbers of robots, and dynamic membership changes caused by robot failures or additions. We first describe the imple-mentation details, then benchmark EFLUX against baselines across diverse constrained scenarios, analyze stage-wise abla-tions, LLM backbones, and scalability, and finally validate the framework on hardware platforms. 
+
+A. Implementation Details and Metrics 
+
+We use Gemini-3.1-Pro [29] as the LLM backbone for all planning stages, with the temperature set to 0.2 to balance deterministic behavior and limited exploration. Stage III allows up to five retries, and the candidate waypoint refiner is solved by CasADi [30]. The accepted multi-robot waypoints are then time-parameterized into synchronized reference trajectories and executed in Gazebo simulation using a distributed MPC waypoint tracker. Each robot is modeled as a differential-drive platform with unicycle kinematics. The tracker runs at 10 Hz with a 12-step prediction horizon, prioritizing waypoint tracking and control smoothness, together with a short-range obstacle avoidance term that provides redundancy against residual tracking errors. The maximum linear speed is set to 2.2 m/s, and the maximum angular speed is set to 2 rad/s. The following metrics are used to evaluate performance. SR 
+
+denotes the task success rate. Tplan and Ttr denote the planning and traversal times in seconds, respectively. Natt is the average number of Stage III waypoint-generation attempts, while V1st 
+
+counts the blocking violations in the first Stage III proposal. 
+
+Ntok denotes the total number of LLM tokens used during planning. esim denotes the average normalized-Laplacian based formation similarity error, computed over the full robot set as the squared Frobenius norm ∥ˆL(t) − ˆLnom ∥2
+
+F , treating the swarm as a single formation at each time step [11]. Ltotal 
+
+denotes the summed path length of all robots. EFLUX  
+
+> DEFORM
+> SF
+> VRB
+> 12
+> 1
+> 1
+> 1
+> 2
+> 2
+> 2
+> 3
+> 3
+> 3
+> 3
+> 4
+> 4
+> 4
+> 4
+> 5
+> 5
+> 5
+> 5
+> Larger Distortion
+> Deadlock
+> Deadlock
+
+(a) Traversal through a 0.7 m-gap corridor. EFLUX     
+
+> DEFORM
+> SF
+> VRB
+> 12
+> 1
+> 1
+> 1
+> 2
+> 2
+> 3
+> 3
+> 3
+> 4
+> 4
+> 4
+> 5
+> 5
+> 5
+> Inter -Robot Collision
+> 2345
+> Deadlock
+> Larger Distortion
+
+(b) Traversal through an obstacle environment. Fig. 3. Rows correspond to DEFORM, VRB, SF, and EFLUX. DEFORM becomes trapped in a deadlock, VRB experiences a deadlock or an inter-robot collision, and SF completes the passage but undergoes pronounced transient formation distortion. EFLUX maintains coordinated adaptation throughout traversal, reducing peak distortion and improving success rates. 
+
+B. Benchmark Evaluation in Diverse Scenarios 
+
+We compare EFLUX against three representative baselines: DEFORM [13], which switches formation patterns according to estimated traversable width and tracks them using dis-tributed MPC; VRB [9], which employs a virtual rigid-body structure with potential-field-based collision avoidance; and SF [7], which formulates formation navigation as trajectory optimization with obstacle and formation-similarity costs. The benchmark contains five constrained scenarios, sum-marized in Table III. The first two scenarios involve narrow corridors with gap widths of 1.2 m and 0.7 m to evaluate formation adaptation under different passage widths. The third scenario contains a large obstacle wider than the nominal for-mation, requiring explicit split-merge reconfiguration. The final two scenarios use sparse and dense obstacle fields containing repeated local bottlenecks that require multiple formation adaptations during traversal. As shown in Table III, EFLUX achieves strong performance across all environments and formation types. In the 1.2 m corri-dor, EFLUX achieves a 100% SR with shorter paths than prior methods. In the more constrained 0.7 m corridor (Fig. 3(a)), VRB fails due to local-minimum traps induced by potential-field-based obstacle avoidance at the entrance and inside the narrow corridor. DEFORM can switch to a line-like template based on feasible width, but template convergence can conflict with local obstacle avoidance and inter-robot safety constraints, causing deadlock during switching. SF traverses the corridor successfully but oscillates as each robot trades off obstacle Time  (s)          
+
+> Formation
+> Recovery (t =60 s)
+> 1
+> 2
+> 3
+> t = 20 s
+> t = 37 s
+> t = 51 s
+> Initial Formation
+> (t =0 s)
+
+Fig. 4. EFLUX in a challenging scenario requiring coupled deformation and reconfiguration. Left : real-robot execution on a three-phase map. The team starts from the nominal formation at t = 0 s, splits into two subgroups to bypass central obstacles at t = 20 s, merges and compresses at t = 37 s, and collapses into a line formation at t = 51 s before recovering the nominal formation at t = 60 s. Right : two representative EFLUX Stage III plans for an 8-robot formation, both feasible yet visibly diverse. Black dots denote synchronized formation waypoints. In the reconfiguration phase, the plans split and merge around the obstacles in different ways; in the deformation phase, they traverse the 1.2 m and 0.7 m corridors by deforming into a near-nominal compressed formation and a line formation, respectively. These plans show the framework’s adaptability to varying passage geometry. 
+
+avoidance against formation keeping inside the passage. In contrast, EFLUX uses high-level adaptation reasoning to plan waypoints that anticipate the bottleneck, attaining a 100% SR with formation distortion comparable to the similarity-cost-optimized SF and shorter total paths. The advantage of EFLUX becomes more evident in the large-obstacle and cluttered scenarios (e.g., Fig. 3(b)). VRB lacks explicit topological adaptation, while DEFORM and SF remain constrained by template switching or multi-objective conflicts, which can lead to deadlock, collision, or pronounced transient formation distortion when split–merge behavior is required. By selecting when to preserve, deform, or split the team, EFLUX attains the highest or tied-highest SR in every configuration. Since esim is averaged only over successful runs, it inherently favors methods that fail in the harder cases; under this metric, EFLUX remains comparable to the similarity-cost-optimized SF. These results show that combining LLM-guided adaptation reasoning with deterministic geometric validation improves robustness and achieves balanced performance in constrained environments. 
+
+C. Numerical Analysis of EFLUX 
+
+We analyze EFLUX on challenging scenarios (Fig. 4) that contain multiple narrow regions and require both formation deformation and reconfiguration. This setting isolates the plan-ning behavior of the agentic framework, which we analyze through module ablations, different LLM backbones, and vary-ing team sizes to assess scalability. 
+
+Stage-wise ablation study. We conduct stage-wise ablations to evaluate the contribution of each module in EFLUX. As shown in Table IV, removing either Stage I or Stage II preserves the final success rate but reduces the one-shot success rate and increases the number of Stage III attempts. This indicates that semantic scene interpretation and explicit strategy reasoning mainly improve the quality of the initial waypoint proposal. Removing both stages further lowers one-shot success and raises first-attempt violations; direct waypoint generation is therefore less reliable without intermediate scene and strategy representations. The retry mechanism has the largest effect on robustness; with a single open-loop Stage III attempt, the SR drops to 50 .0% , showing that feedback-guided retry is critical for recovering from invalid waypoint proposals. Removing waypoint refinement also degrades performance and increases planning time, token usage, and replanning attempts, suggesting that local refinement helps correct minor geometric violations before triggering more costly retry rounds. 
+
+TABLE IV STAGE -WISE ABLATION STUDY .                                                
+
+> Variant SR †↑Tplan (s) ↓Natt ↓V1st ↓Ntok ↓
+> Full pipeline 100.0% 429.88 1.15 0.60 97.1k w/o Stage I 100.0% 430.32 1.50 1.50 88.6k w/o Stage II 100.0% 358.39 1.50 0.95 90.6k w/o Stage I & II 95.0% 266.72 1.90 2.30 75.5k w/o retry mechanism, open loop 50.0% 414.36 1.00 ‡1.20 89.2k w/o waypoint refinement 95.0% 477.36 1.58 1.53 111.4k w/o geometric grounding 60.0% 526.12 2.42 3.58 126.3k Each variant uses 20 trials. [†] Retry budget of 5attempts; a run is marked failed once the budget is exhausted. [‡] No retry by design.
+
+LLM backbone comparison. In Fig. 5, we evaluate the same planning pipeline with different LLM backbones, including Gemini [29], OpenAI models [31], and Claude [32]. For Gemini, we additionally compare two model variants to assess the sensitivity of EFLUX to model reasoning capability. All models are evaluated on the same map with identical plan-ner settings. This experiment examines whether the proposed framework is tied to a specific LLM backbone or can gener-alize across different foundation-model families. 
+
+Fig. 5. Performance comparison using different LLM backbones. All back-bones use 20 trials on the same map. 
+
+Scalability with respect to robot number. We evaluate scala-bility by fixing the square formation footprint at 1.5 m × 1.5 m 
+
+and increasing the team size from 4 to 6 and 8 robots. As shown in Table V, EFLUX achieves a 100% SR for both the 4- and 6-robot teams. As the team size increases within the same formation footprint, planning time, token usage, and first-attempt blocking violations all increase, since more robots must be coordinated under higher spatial density. For the 8-robot team, the SR decreases to 60% , indicating that valid waypoint generation becomes more challenging under the fixed retry budget. Fig. 4 (right) shows representative successful 8-robot plans passing different sizes of the narrow corridors. 
+
+TABLE V SCALABILITY W .R.T. ROBOT NUMBER .                             
+
+> Robots SR ↑Tplan (s) ↓Natt ↓V1st ↓Ntok ↓
+> N= 4 100.0% 429.88 1.15 0.60 97.1k
+> N= 6 100.0% 536.79 1.65 4.80 123.1k
+> N= 8 60.0% 581.13 1.75 10.00 139.0k All runs use the Gemini-3.1-Pro backbone; each team size uses 20 trials.
+
+D. Hardware Experiments 
+
+We further validate the proposed framework through indoor hardware experiments using multiple mobile ground robots. The robots perform collaborative tasks in cluttered environ-ments while adaptively maintaining formation. Fig. 4 (left) shows representative snapshots illustrating coordinated and collision-free formation adaptation in real-time. VI. C ONCLUSION 
+
+We propose EFLUX, an elastic multi-robot formation navi-gation framework to reason over continuous formation defor-mation and topology-changing reconfiguration. By integrating deterministic geometric grounding with LLM-guided adapta-tion planning, EFLUX enables coordinated and robust naviga-tion through complex constrained environments. Results from simulation and hardware experiments demonstrate improved success rates and reduced deadlock compared with represen-tative state-of-the-art baselines. Future work will extend the framework to dynamic environments, heterogeneous teams, and long-horizon open-world coordination. REFERENCES [1] J. Hu, P. Bhowmick, I. Jang, F. Arvin, and A. Lanzon, “A decentralized cluster formation containment framework for multirobot systems,” IEEE Transactions on Robotics , vol. 37, no. 6, pp. 1936–1955, 2021. [2] J. Alonso-Mora, S. Baker, and D. Rus, “Multi-robot formation control and object transport in dynamic environments via constrained optimiza-tion,” The International Journal of Robotics Research , vol. 36, no. 9, pp. 1000–1021, 2017. [3] X. Zhou, X. Wen, Z. Wang, Y. Gao, H. Li, Q. Wang, T. Yang, H. Lu, Y. Cao, C. Xu, et al. , “Swarm of micro flying robots in the wild,” Science Robotics , vol. 7, no. 66, p. eabm5954, 2022. [4] J. Alonso-Mora, E. Montijano, M. Schwager, and D. Rus, “Distributed multi-robot formation control among obstacles: A geometric and opti-mization approach with consensus,” in 2016 IEEE International Confer-ence on Robotics and Automation (ICRA) , 2016, pp. 5356–5363. [5] J. P. Desai, J. P. Ostrowski, and V. Kumar, “Modeling and control of formations of nonholonomic mobile robots,” IEEE transactions on Robotics and Automation , vol. 17, no. 6, pp. 905–908, 2002. [6] Y.-H. Su and A. Lanzon, “Formation-containment tracking and scaling for multiple quadcopters with an application to choke-point navigation,” in 2022 International Conference on Robotics and Automation (ICRA) ,2022, pp. 4908–4914. [7] L. Quan, L. Yin, C. Xu, and F. Gao, “Distributed swarm trajectory optimization for formation flight in dense environments,” in 2022 In-ternational Conference on Robotics and Automation (ICRA) , 2022, pp. 4979–4985. [8] M. A. Lewis and K.-H. Tan, “High precision formation control of mobile robots using virtual structures,” Autonomous robots , vol. 4, no. 4, pp. 387–403, 1997. [9] D. Zhou, Z. Wang, and M. Schwager, “Agile coordination and assistive collision avoidance for quadrotor swarms using virtual structures,” IEEE Transactions on Robotics , vol. 34, no. 4, pp. 916–923, 2018. [10] W. Ren and R. W. Beard, “Consensus seeking in multiagent systems under dynamically changing interaction topologies,” IEEE Transactions on automatic control , vol. 50, no. 5, pp. 655–661, 2005. [11] L. Quan, L. Yin, T. Zhang, M. Wang, R. Wang, S. Zhong, X. Zhou, Y. Cao, C. Xu, and F. Gao, “Robust and efficient trajectory planning for formation flight in dense environments,” IEEE Transactions on Robotics ,vol. 39, no. 6, pp. 4785–4804, 2023. [12] Y. Zhou, J. Hou, G. Xu, and F. Gao, “Number adaptive formation flight planning via affine deformable guidance in narrow environments,” arXiv preprint arXiv:2509.18636 , 2025. [13] J. Li, Y. Xu, X. Shi, and L. Li, “Deform: Adaptive formation reconfigu-ration of multi-robot systems in confined environments,” IEEE Robotics and Automation Letters , 2025. [14] Y. Yan, X. Li, X. Qiu, J. Qiu, J. Wang, Y. Wang, and Y. Shen, “Relative distributed formation and obstacle avoidance with multi-agent reinforcement learning,” in 2022 international conference on robotics and automation (ICRA) . IEEE, 2022, pp. 1661–1667. [15] Z. Deng, P. Gao, W. J. Jose, C. Reardon, M. Wigness, J. Rogers, and H. Zhang, “Coordinated multi-robot navigation with formation adaptation,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025, pp. 11 384–11 391. [16] H.-S. Liu, S. Kuroki, T. Kozuno, W.-F. Sun, and C.-Y. Lee, “Language-guided pattern formation for swarm robotics with multi-agent rein-forcement learning,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024, pp. 8998–9005. [17] G. Zhu, R. Zhou, W. Ji, and S. Zhao, “Lamarl: Llm-aided multi-agent reinforcement learning for cooperative policy generation,” IEEE Robotics and Automation Letters , 2025. [18] C. Yao, Z. Yuan, X. Liu, and C. Zhu, “Application of llm guided reinforcement learning in formation control with collision avoidance,” in 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2025, pp. 746–753. [19] Z. Deng, P. Gao, W. J. Jose, M. Wigness, J. G. Rogers III, B. Reily, C. M. Reardon, and H. Zhang, “Subteaming and adaptive formation control for coordinated multi-robot navigation,” in 9th Annual Conference on Robot Learning .[20] Y. Xie, C. Yu, H. Zang, F. Gao, W. Tang, J. Huang, J. Chen, B. Xu, Y. Wu, and Y. Wang, “Multi-uav formation control with static and dy-namic obstacle avoidance via reinforcement learning,” in 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) .IEEE, 2025, pp. 20 410–20 417. [21] S. Zhao, “Affine formation maneuver control of multiagent systems,” 
+
+IEEE Transactions on Automatic Control , vol. 63, no. 12, pp. 4140– 4155, 2018. [22] S. Park and S.-M. Lee, “Formation reconfiguration control with collision avoidance of nonholonomic mobile robots,” IEEE Robotics and Automa-tion Letters , vol. 8, no. 12, pp. 7905–7912, 2023. [23] Z. Yuan, C. Yao, X. Liu, Z. Gao, and W. Zhang, “Multiagent formation control and dynamic obstacle avoidance based on deep reinforcement learning,” IEEE Transactions on Industrial Informatics , 2025. [24] A. Brohan, Y. Chebotar, C. Finn, K. Hausman, A. Herzog, D. Ho, J. Ibarz, A. Irpan, E. Jang, R. Julian, et al. , “Do as i can, not as i say: Grounding language in robotic affordances,” in Conference on robot learning . PMLR, 2023, pp. 287–318. [25] J. Liang, W. Huang, F. Xia, P. Xu, K. Hausman, B. Ichter, P. Florence, and A. Zeng, “Code as policies: Language model programs for embodied control,” arXiv preprint arXiv:2209.07753 , 2022. [26] W. Huang, P. Abbeel, D. Pathak, and I. Mordatch, “Language models as zero-shot planners: Extracting actionable knowledge for embodied agents,” in International conference on machine learning . PMLR, 2022, pp. 9118–9147. [27] Z. Huang, G. Shi, Y. Wu, V. Kumar, and G. S. Sukhatme, “Compositional coordination for multi-robot teams with large language models,” arXiv preprint arXiv:2507.16068 , 2025. [28] W. Ji, H. Chen, M. Chen, G. Zhu, L. Xu, R. Groß, R. Zhou, M. Cao, and S. Zhao, “Genswarm: Scalable multi-robot code-policy generation and deployment via language models,” npj Robotics , vol. 4, no. 1, p. 5, 2026. [29] Google DeepMind, “Gemini 3.1 pro model card,” 2026. [Online]. Available: https://deepmind.google/models/model-cards/gemini-3-1-pro/ [30] J. A. E. Andersson, J. Gillis, G. Horn, J. B. Rawlings, and M. Diehl, “CasADi – A software framework for nonlinear optimization and optimal control,” Mathematical Programming Computation , vol. 11, no. 1, pp. 1–36, 2019. [31] OpenAI, “OpenAI API,” https://platform.openai.com/docs, accessed: 2026-05-31. [32] Anthropic, “Claude API,” https://docs.anthropic.com/, accessed: 2026-05-31.

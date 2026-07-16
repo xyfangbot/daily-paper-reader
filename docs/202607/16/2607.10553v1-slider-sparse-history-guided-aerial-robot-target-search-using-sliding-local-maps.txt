@@ -1,0 +1,395 @@
+Title: SLIDER: Sparse History-Guided Aerial Robot Target Search using Sliding Local Maps
+
+URL Source: https://arxiv.org/pdf/2607.10553v1
+
+Published Time: Tue, 14 Jul 2026 01:38:32 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+> IEEE ROBOTICS AND AUTOMATION LETTERS 1
+
+# SLIDER: Sparse History-Guided Aerial Robot Target Search using Sliding Local Maps 
+
+Xiaolei Hou †, Zheng Pan †,∗, Hua Lan, Zhenghao Zou, Yinhong Chen, Chenxi Zhu, Yang Lyu, Jinwen Hu, Chunhui Zhao 1 
+
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> 11
+> 12
+> 13
+> 14
+> 15 16
+> 17
+> 18
+
+Fig. 1: Autonomous exploration of a large-scale, cluttered environment spanning several thousand square meters. The central image shows the exploration result, including the online-generated point cloud map, detected AprilTags, and the aerial robot’s flight trajectory. The side images provide two snapshots during the search process, illustrating the robot’s first-person view, current pose, and locally planned trajectories. 
+
+Abstract —Efficient exploration and target search in large-scale unknown environments remain challenging for aerial robots due to the demands of broad spatial coverage, fine-grained perception, and real-time decision-making. This paper presents SLIDER, a lightweight and memory-efficient framework that avoids reliance on globally dense maps by combining a local sliding map with sparse global history information. A novel observation quality evaluation method is proposed, leveraging historical poses and sensor models to assess point cloud data in real-time, enabling efficient frontier detection. To support scalable and responsive planning, an incremental viewpoint clustering strategy dynamically adapts to local updates, signifi-cantly reducing the number of candidate targets and decreasing computational load. A sparse global topological map is incremen-tally maintained to assist global planning and cost evaluation. Extensive simulations and real-world experiments demonstrate that the proposed system outperforms state-of-the-art methods in memory usage, decision latency, and search efficiency. 
+
+Index Terms —Aerial Systems: Perception and Autonomy; Aerial Systems: Applications; Search and Rescue Robots 
+
+I. I NTRODUCTION 
+
+# AERIAL robots have shown strong autonomous capabili-ties in tasks such as post-disaster search and rescue as well as security patrols [1]. In unknown environments, aerial robots show great potential for replacing humans in explo-ration and target search, which demand large-scale mapping 
+
+This work was supported in part by the Key Research and Development Program of Shaanxi Province under Grant 2024CY2-GJHX-42 and in part by the National Natural Science Foundation of China under Grants 62371398, 62293543, and 62322605. 
+
+> †
+
+Equal contribution. ∗Corresponding author: poao@mail.nwpu.edu.cn. This article has been accepted for publication in IEEE Robotics and Automation Letters. Copyright 2026 IEEE. Personal use of this material is permitted. Project page: https://github.com/Poaos/SLIDER. 
+
+and fine-grained perception—posing challenges in coverage, accuracy, and real-time decision-making. To address these challenges, environmental representation serves as a critical foundation for guiding robotic perception and decision-making. Most existing exploration methods rely on occupancy grid maps [2] or octree-based structures [3] to model space, selecting candidate targets from the boundaries between known and unknown regions. Some methods further refine this strategy by sampling viewpoints near detected obstacle boundaries [4], enabling more focused observations in areas with a higher likelihood of target presence. While these strategies enhance exploration performance, grid-based methods incur increasing memory costs as the environment grows, limiting their scalability under real-time constraints [5]. Although several studies have proposed more memory-efficient representations through geometric simplification [6] or point cloud compression [7], these approaches often lack sufficient spatial fidelity and adaptability for motion planning. In addition to environmental representation, efficient target selection is crucial for exploration performance. Early methods often rely on greedy strategies that prioritize the nearest [8] or highest-gain [9] targets, offering fast responses at the cost of global efficiency. To address this, the selection problem has been formulated as an Asymmetric Traveling Salesman Problem (ATSP), allowing for more globally optimal deci-sions [2]. However, solving the ATSP becomes increasingly expensive as the number of candidate targets grows, hindering real-time performance [10]. Recent approaches have proposed hierarchical decision-making schemes by partitioning space [11] or clustering viewpoints [12]. However, in target search tasks that require both large-scale coverage and fine-grained observation, methods based on basic region segmentation or arXiv:2607.10553v1 [cs.RO] 12 Jul 2026 IEEE ROBOTICS AND AUTOMATION LETTERS 2
+
+static clustering often fail to handle the wide disparity in spatial scales and the complexity of the decision space. As a result, their computational cost remains high, making real-time performance difficult to achieve in practice. To tackle high memory usage and computational costs in large-scale exploration, we propose SLIDER ( Sparse g Lobal 
+
+Information-Driven Efficient target sea Rch), a lightweight target search framework that avoids reliance on globally dense maps by maintaining a local sliding map augmented with sparse global history. The core idea is to exploit historical robot poses and the sensor model to efficiently evaluate voxel-wise observation quality, enabling rapid identification of under-explored regions without constructing a global obser-vation map. To support real-time decision making, SLIDER employs incremental viewpoint clustering strategy to update clusters online as the environment evolves, avoiding costly global re-clustering. Additionally, a lightweight sparse topo-logical map is incrementally constructed from selected view-points to guide long-horizon cost evaluation and path planning. SLIDER is validated in simulated and real-world environ-ments, demonstrating superior performance over state-of-the-art approaches in memory efficiency, decision latency, and search effectiveness. The main contributions of this work are: 1) A lightweight framework combining a local sliding map with sparse global history, for memory- and computation-efficient target search in large-scale envi-ronments. 2) A history-aware frontier detection strategy that infers coverage quality from historical poses and sensor mod-els, allowing rapid frontier detection without the need for a dense global observation map. 3) An efficient incremental viewpoint clustering strategy that dynamically adapts to local changes, significantly reducing candidate targets and computational costs. II. R ELATED WORKS 
+
+A. Environment Representation for Exploration 
+
+Environment representation serves as a core component in autonomous exploration and target search, as it encodes the robot’s perception and guides its actions in unknown spaces. Traditional methods [2], [3], [13] typically rely on global map representations such as uniform grid maps or octree-based structures, where the environment is discretized into cells labeled as unknown, free, or occupied. Frontiers—free cells adjacent to unknown ones—are subsequently selected as candidate observation targets. While excelling at identifying every voxel for volumetric mapping, these methods are in-efficient for object-centric tasks (e.g., target search), wasting effort on low-value open spaces. To address this mismatch, recent reconstruction [4], [14], [15] and search [12] approaches introduce the concept of surfaces—free cells adjacent to both unknown and occupied regions—to concentrate observations near obstacle boundaries. Although this improves exploration focus, such methods still rely on global occupancy grids, which impose high memory costs in large environments. To reduce memory overhead, several methods explore more compact environmental representations. Gao et al. [6] model free space using star-convex polytopes and extract triangular mesh surfaces as observation targets. While this geometric abstraction lowers memory usage, it may oversimplify com-plex structures, resulting in incomplete coverage. Corah et al. [7] approximate point cloud density using a Gaussian Mix-ture Model (GMM), achieving compression via expectation-maximization. However, GMM encodes probabilistic density rather than explicit geometry, limiting its utility for planning and requiring voxel conversion for downstream tasks. Building on this direction, Geng et al. [5] proposed EPIC, a point cloud-based exploration framework that maintains obstacle surface observations and leverages an incremental kd-tree (ikd-tree) [16] for planning and collision checking. While EPIC avoids the heavy memory footprint of grid-based maps, it still requires maintaining both a global point cloud and a detailed observation map. As exploration scales up, the growing number of stored points increases memory usage and nearest-neighbor query costs, hindering real-time performance in large-scale environments. Inspired by SUPER [17], which maintains only a local map for fast planning, we evaluate point cloud observation quality using historical robot poses, retaining a sliding local map and sparse global history to reduce memory overhead in large-scale target search. 
+
+B. Exploration Target Selection and Path Planning 
+
+Efficiently determining visiting sequences among candidate targets is critical for exploration and target search. Early ap-proaches, such as Yamauchi et al. [8], adopt greedy strategies by selecting the nearest frontier. Similarly, Bircher et al. [9] use rapidly-exploring random trees to select the node with the highest information gain. While computationally efficient, these greedy methods often result in redundant trajectories and frequent backtracking, compromising global exploration effi-ciency. To improve global performance, Zhou et al. [2] formu-late the problem as an ATSP to minimize the cumulative cost over multiple candidate viewpoints. This reduces unnecessary revisits and has been widely adopted in later works [18], [19]. However, solving the ATSP becomes increasingly expensive as the number of candidates grows, limiting scalability in large-scale scenarios [10]. To alleviate this, several studies partition the space into sub-regions, planning a global sequence across regions followed by local planning within each [11], [20]. Zhang et al. [13] further introduce connectivity analysis within subregions, maintaining a global topological graph to guide efficient coverage plan-ning. In target search, Luo et al. [12] proposed Star-Searcher (SSearcher), a hierarchical framework that performs two-stage viewpoint clustering with history-aware decision-making, and this direction has been extended to mobile manipulators [21]. However, repeated clustering at each planning step leads to high computational costs, limiting real-time performance in large environments. To this end, we introduce an incremental viewpoint clus-tering strategy that dynamically updates viewpoint clusters (VCs), enabling scalable, real-time decision-making for effi-cient exploration and target search in large environments. IEEE ROBOTICS AND AUTOMATION LETTERS 3
+
+III. P ROBLEM STATEMENT 
+
+We consider the problem of target search in large-scale, unknown 3D environments. Let the environment be E ⊂ R3,containing a set of static targets T = {t1, ..., t n}, where each 
+
+ti ∈ E denotes the location of a target. A robot equipped with a 3D LiDAR and a camera must autonomously explore E and ensure that all obstacle surfaces relevant to target detection are sufficiently observed by the onboard camera. At time step k, the robot is at pose xk ∈ SE(3) and receives a partial LiDAR scan Pk = {pi ∈ R3 | i = 1 , ..., m }. The sensor’s field of view (FoV) defines a local perception volume 
+
+V(xk) ⊂ E . The goal is to compute a motion policy π =
+
+{ak ∈ A | k = 1 , ..., τ }, where each ak is feasible under the system’s dynamics constraints. The policy aims to explore the environment until all obstacle surfaces relevant to target detection are sufficiently observed by the onboard camera from at least one viewpoint xk. Exploration terminates at the earliest step τ when full coverage is reached. The objective is to develop a scalable, memory-efficient exploration framework that enables the robot to cover all target surfaces with minimal resource usage, without relying on a dense global map. IV. T HE PROPOSED APPROACH 
+
+A. Lightweight Map Representation 
+
+For fine-grained target search in large-scale environments, existing approaches that rely on detailed global map represen-tations often suffer from high memory overhead and complex maintenance. Even the recent EPIC framework [5] requires maintaining a dense global point cloud along with per-point observation quality, limiting scalability. To balance memory efficiency with computational performance, our system adopts a minimal and task-oriented set of map structures (Table I). 
+
+TABLE I: Map Structure Maintained 
+
+Data Explanation 
+
+Mvox rc Local robot-centric uniform voxel grid map 
+
+Mobs rc Local robot-centric point cloud observation quality map 
+
+Tlidar Ikd-tree for storing local robot-centric point clouds 
+
+Mhist Historical robot orientation map 
+
+Thist Ikd-tree for storing historical robot positions 
+
+The proposed framework leverages ROG-MAP [22] to maintain an efficient robot-centered sliding local map Mvox rc =
+
+{(vi, s i) | vi ∈ Z3, s i ∈ S} , for efficient updates. Operating under an optimistic exploration paradigm, our map dispenses with the conventional three-state representation ( occupied ,
+
+free , unknown ), maintaining only a compact two-state model: S = {occupied , unknown }. It stores a downsam-pled point cloud and an inflated obstacle map, with all other voxels being implicitly unknown. By avoiding differentiation between free and unknown space, this representation reduces raycasting overhead, enabling real-time obstacle detection, local planning, and trajectory optimization. In addition, leveraging the efficient update mechanism of 
+
+Mvox rc , the framework also maintains a real-time local point cloud map Tlidar = {pi ∈ R3} and a local observation quality map Mobs rc = {(vi, q i) | vi ∈ N, q i ∈ Q} , where vi is a unique voxel ID and qi ∈ Q encodes observation quality from LiDAR and camera. In parallel, a discretized robot orientation map Mhist = {(vi, θ i) | vi ∈ N, θ i ∈ SO(3) }
+
+and a corresponding position map Thist = {pi ∈ R3} are maintained from the beginning of the exploration process (updated per 0.2 m translation, matching Sec.V-B, or 10 ◦
+
+rotation), serving the subsequent point cloud quality evaluation module. Both Tlidar and Thist are implemented using ikd-tree [16] to support efficient nearest-neighbor and regional queries. Meanwhile, Mobs rc and Mhist adopt hash map structures, offering constant-time O(1) average complexity for insertion, lookup, and deletion. Local detected frontier New point without State Global recorded frontier              
+
+> Explored Boundary Unexplored Boundary
+> Local map box
+> (a) Frontier Detection results at tp(b) Before Frontier Detection at 1tp+
+> (c) Point State Updating at 1tp+(d) Frontier Detection results at 1tp+
+> Historical Trajectory
+> max R
+> good R
+> Good obs. in Local map
+> Good obs. at Current Good obs. at History
+> Current good obs. range History good obs. range History pose invisible
+> Current Sensing range History pose visible Current pose visible
+
+Fig. 2: History-aware frontier detection module. The dashed blue circle indicates the maximum processed sensing range, while the solid blue and dashed yellow circles denote good observation ranges at the current and historical sensor poses. Red, white, yellow, blue, and purple voxels correspond to global frontiers, new candidates, historical good observations, current good observations, and poor observations, respectively. As the robot moves from pt to pt+1 (a–b), voxel states are evaluated using both current and historical sensor poses (c), yielding the refined observation status in (d). 
+
+B. History-Aware Frontier Detection and Clustering 
+
+Traditional exploration methods maintain global maps of previously observed regions, such as occupancy grids in FALCON [13], voxel-wise observation distance maps in SSearcher [12], or per-point observation metrics in EPIC [5], which can incur significant memory and computational costs in large-scale or complex environments. To address this, we propose a lightweight frontier detection module that leverages sparse historical robot poses together with the sensor model to backward-infer observation status, enabling real-time frontier detection while reducing memory usage. Specifically, we define a frontier as any voxel that fails to meet the sufficient-observation criteria: (i) lying within the sensor’s FoV (LiDAR or camera), (ii) being directly visible, as verified by a raycast operation, and (iii) satisfying the good observation distance threshold rlidar or rcamera . While IEEE ROBOTICS AND AUTOMATION LETTERS 4
+
+this generic module processes real-time point clouds to detect frontiers for an individual sensor (as illustrated in Algorithm 1 and Fig. 2), our system executes it hierarchically: voxels satisfying the LiDAR range but failing the stricter camera limits are classified as camera frontiers. 
+
+Algorithm 1 Incremental Frontier Detection and Clustering 
+
+Require: Real-time point cloud data Pk, Mobs rc , Mhist , Thist ,global frontier cluster queue Lclu ,
+
+Ensure: Updated Lclu  
+
+> 1:
+
+Pupd , S old = ObtainUpdatedPoints( Pk, Mobs rc ) 
+
+> 2:
+
+Prem = UpdateObservationbyCur( Pupd , Mobs rc ) 
+
+> 3:
+
+for each pt in Prem do  
+
+> 4:
+
+pnbr = SearchLocalHistory( pt, Mhist , Thist ) 
+
+> 5:
+
+if pnbr == null then  
+
+> 6:
+
+MarkPtFrontier( pt, Mobs rc ) 
+
+> 7:
+
+else  
+
+> 8:
+
+UpdateObservationbyHis( pt, p nbr , Mobs rc ) 
+
+> 9:
+
+Pfrt , B upd = ObtainUpdateFrontier( Prem , Mobs rc , S old ) 
+
+> 10:
+
+Pbox = ResetOldFrtCluster( Bupd , L clu ) 
+
+> 11:
+
+Pold = ReCheckObservation( Pbox , Mobs rc , Mhist , Thist ) 
+
+> 12:
+
+Pfrt + = Pold , ClusterFrt( Pfrt , L clu )
+
+1) Current Observation Evaluation: At each time step, the raw point cloud Pk is filtered using the local observa-tion quality map Mobs rc to remove voxels already sufficiently observed, yielding the intermediate set Pupd (Line 1). The subset Sold ⊂ Pupd stores voxels previously observed but not yet sufficient, shown as purple voxels in Fig. 2(a–b). The observation quality of each voxel in Pupd is evaluated based on the current robot pose. Voxels failing any criterion are added to the remainder set Prem for subsequent processing (Line 2), while the others are marked as sufficiently observed and included in Mobs rc (blue voxels in Fig. 2(c)). Since Pk comes directly from sensor measurements, explicit ray-casting for occlusion checking is unnecessary, simplifying computation. 
+
+2) Historical Pose-Based Observation Inference: Follow-ing the initial update, voxels in the remainder set Prem are further evaluated (Lines 3–8). For each voxel, the algorithm searches for any historical pose pnbr = {pi, θ i} within the predefined good-observation range and sensor FoV, where 
+
+pi ∈ T hist is used as a key to query the associated orientation 
+
+θi ∈ M hist . If at least one such pose satisfies the visibility condition (no occlusion), the voxel is labeled as sufficiently observed and added to Mobs rc , shown as yellow voxels in Fig. 2(c). By avoiding dense global maps, this backward-inference strategy reduces memory overhead and supports real-time performance. Voxels that remain insufficiently observed are labeled as frontier and also added to Mobs rc .
+
+3) Frontier Extraction and Clustering: From the remaining insufficiently observed voxels, newly detected frontier voxels 
+
+Pfrt , which are still labeled as frontier and not yet part of the existing frontier set, are extracted. An axis-aligned bounding box Bupd is then constructed to cover the newly detected frontiers, defining the update region (Line 9). The queue Lclu ,which maintains all clusters and their bounding boxes, is then updated; clusters whose bounding boxes intersect Bupd are reset. Voxels within these reset clusters that remain in the frontier state are collected and denoted as Pbox (Line 10). To account for sensor noise and limited FoV, the observation quality of voxels in Pbox near the robot’s current position is re-evaluated, producing a refined subset Pold (Line 11). Finally, the aggregated frontier voxels Pfrt ∪Pold are clustered to update the global frontier cluster (FC) queue Lclu (Line 12). However, distance-based FC may group frontier voxels with inconsistent surface orientations. We therefore use a normal-aware metric dsim (fi, f j ) = λ1|pi − pj |2 − λ2n⊤ 
+
+> i
+
+nj , where 
+
+pi and ni denote the position and surface normal of fi,respectively, and λ1, λ 2 > 0 are weighting coefficients. 
+
+C. Incremental Viewpoint Clustering for Target Generation 
+
+In target-oriented exploration, frontiers include not only free-space boundaries but also insufficiently observed obstacle surfaces, which expand candidate viewpoints and complicate real-time decision-making. Notably, SSearcher [12] reclusters all FCs at every planning step, requiring heavy ray-casting as the environment and viewpoint set grow. This results in high computational costs and limits responsive decision-making, as later shown in Section V-B. To address this limitation, our method updates only newly added or modified FCs, avoiding redundant computation, and enabling scalable real-time target generation. 
+
+1) Viewpoint Generation: Effective surface exploration re-lies on generating high-quality sensor viewpoints. Traditional uniform sampling often ignores surface geometry, yielding suboptimal coverage. We instead exploit the consistent surface normals within FCs to sample viewpoints aligned with obsta-cle surfaces. Each viewpoint is first generated by applying a template transformation at the cluster centroid, oriented along its dominant normal, and then prioritized according to the number of observable frontiers. 
+
+2) Incremental Viewpoint Clustering: In Algorithm 1, we track FCs that are either reset or newly added, and maintain the global set of viewpoint clusters (VCs) incrementally. Each VC consists of a group of mutually visible viewpoints and the corresponding FC IDs. A new viewpoint is merged into an existing VC if it lies within a distance threshold rvc from the cluster center and satisfies visibility constraints. The update proceeds as follows: first, VCs containing invalid FC IDs, and those whose centers lie within a radius rnbr of the robot’s current position pc, are reset, as shown in Fig. 3 (b). Next, 
+
+pc is inserted as a virtual viewpoint to initialize the first new VC, ensuring that subsequent target generation remains naturally connected to the current pose, thereby avoiding tra-jectory discontinuities and improving local path smoothness. Finally, existing VCs are incrementally extended, remaining viewpoints are clustered into new VCs, and the inter-cluster traversal costs are updated, yielding a dynamic structure that reduces the decision space and enables faster planning and real-time exploration in complex environments. 
+
+D. Sparse Topological Map Construction 
+
+Prior approaches typically construct sparse topological maps by uniformly sampling nodes in free space or extracting IEEE ROBOTICS AND AUTOMATION LETTERS 5Frontier Voxel     
+
+> Old Viewpoint
+> New Viewpoint
+> Global Tour
+> Local Tour
+> Executed Trajectory
+> Obstacle Area
+> Unexplored Area
+> Refined Viewpoint
+> Viewpoint Cluster
+> Reset Viewpoint
+> Cluster
+> Old Node Edge
+> Split Node
+> New Node Edge
+> Edge with Astar
+> Path
+> Cluster Center
+> Viewpoint
+> Refinement
+> Operation
+> (a) (b) (c)
+> (d) (e) (f)
+> Local Reset Range Local Reset Range
+
+Fig. 3: Incremental viewpoint clustering and sparse topological map construction. As the robot moves, new FCs are generated, while invalid ones (containing invalid FC IDs) and those centered near the current pose are reset (light orange box, (a–c)). The global and local visiting orders are updated accordingly (yellow and red arrows sequences). Newly generated viewpoints are refined toward traversable regions (d), and edges are maintained by splitting overly long ones with split nodes and adding low-cost connections between nearby nodes (d–f). 
+
+nodes from a Voronoi-based skeleton graph, but the for-mer often produces redundant nodes and the latter can be computationally expensive. Moreover, such methods generally connect only fully visible nodes, which may break connectivity in complex environments. To address these issues, we use informative viewpoints from updated FCs as candidate nodes, naturally covering structurally important regions while reduc-ing redundancy and computational overhead. Edges between nodes are added whenever a low-cost optimistically feasible path exists, ensuring a sparse yet well-connected topological representation in cluttered or intricate spaces. 
+
+1) Candidate Node Refinement: For each selected view-point vp i, a local refinement is performed using the sliding map, shifting the node toward open and traversable regions while retaining coverage near obstacles. Rays are cast along directions sampled via the Fibonacci sphere, terminating at obstacles or a predefined range limit, and the mean position of all ray endpoints defines a refined pose vp ′
+
+> i
+
+, as a refined viewpoint in Fig. 3(d). 
+
+2) Edge Formation and Topology Maintenance: We con-struct a sparse topological map G = {V, E }, where V denotes the refined viewpoint positions and E represents the intercon-necting edges. To balance sparsity and coverage, especially in complex environments where straight-line connections are often infeasible, edges are initially added between two nodes if an optimistically feasible path exists and its cost does not exceed krate times their Euclidean distance. These edges are dynamically pruned if obstructed by new observations, ensur-ing the topological map provides reliable global guidance. 
+
+E. Trajectory Planning with Global Guidance 
+
+To balance global exploration efficiency and local respon-siveness, we adopt a hierarchical planning strategy. At the global level, the algorithm determines a visiting sequence among VCs and refines the order of FCs within the selected VC, thereby narrowing the decision space and yielding a concrete navigation target. At the local level, trajectories toward this target are generated by the SUPER planner [17], which efficiently produces dynamically feasible paths directly from point cloud data under cluttered constraints. Constrained by its local sliding map, SUPER is susceptible to local minima (e.g., U-shaped traps) during long-range navigation. To resolve this, our framework extracts a global path from the sparse topological map and truncates it to the local planning horizon. This immediate segment is then fed to SUPER as a local reference path, guiding the UAV around large-scale obstacles that exceed its local perception. V. EXPERIMENTS 
+
+A. Simulation Setup 
+
+To evaluate the proposed method, we constructed three large-scale 3D environments in the MARSIM [23]: a forest (90 × 70 × 4 m 3), a garage ( 192 × 156 × 4 m 3), and a campus (140 ×120 ×27 m 3). In each environment, 16 target objects to be searched were randomly distributed near obstacle surfaces. The simulated aerial robot was equipped with a MID360 LiDAR ( 360 ◦ horizontal, [−7◦, 52 ◦] vertical FoV). As MAR-SIM lacks RGB modeling, a virtual sensor was used to approximate the real-world perception setup, configured based on the Seeker Omni camera ( 360 ◦ horizontal, [−50 ◦, 50 ◦]
+
+vertical FoV). These sensors provide geometric information used for visibility checking and observation quality updates. To approximate perception without image data, we adopted a geometry-based observation model in which targets were defined by 3D position and normal. A target was considered detected if it fell within the camera’s FoV and the reliable range rgood .
+
+B. Benchmark Comparisons 
+
+We compare SLIDER against three representative, pub-licly available baselines: SSearcher [12], FALCON [13], and EPIC [5]. To ensure a fair evaluation tailored to target search, observation models were unified with ours while preserving core strategies. Specifically, SSearcher’s visibility checks were IEEE ROBOTICS AND AUTOMATION LETTERS 6
+
+Fig. 4: The trajectories of the proposed method in forest, garage and campus scenes. The red line represents the trajectory of the aerial vehicle, and the green boxes indicate the detected targets. Proposed EPIC FALCON SSeacher IVC      
+
+> SSearcher Local
+> EPIC Proposed EPIC FALCON SSeacher IVC
+> SSearcher Local
+> EPIC
+> (a) (b) (c) (a) (b) (c)
+
+Fig. 5: The exploration progress of all the three state-of-the-art benchmarks and the proposed method in (a) forest, (b) garage and (c) campus scenes. 
+
+aligned with our FoV constraints; FALCON was adapted to use LiDAR input with a map update range of rgood and spatial partition size of 30 m for stability; and EPIC’s angular constraint was replaced with camera visibility. Across all algorithms, the maximum LiDAR update range was limited to 13 .0 m , with an observation quality resolution of 0.2 m for both grid maps and point clouds. The reliable perception range was set to rgood = rcamera = 5 .0 m and 
+
+rlidar = 12 .0 m . The parameters for VCs were set to rvc =
+
+rnbr = 10 .0 m . Robot dynamics were constrained by vmax =5.0 m /s and amax = 5 .0 m /s2. For SLIDER, a ROG-MAP of 
+
+0.1 m resolution was maintained, with map sizes of 30 m ×
+
+30 m × 8 m for the Forest and Garage scenarios, and 30 m ×
+
+30 m × 30 m for the Campus scenario. All simulations were run on a laptop with an Intel i5-12500H CPU and 32 GB 
+
+RAM. Each algorithm was executed five times per scenario, with results summarized in Table II and Fig. 5. The experimental results reveal clear performance dispari-ties among the evaluated algorithms, particularly in large-scale scenarios. In the small, uniformly structured Forest environ-ment, all algorithms successfully completed exploration and identified all targets. FALCON’s connectivity-based coverage strategy yields slight efficiency gains in small environments but performs poorly in larger scenarios such as Garage and Campus, where the lack of directional guidance and the overhead of maintaining a connectivity topology increase computational costs, ultimately degrading performance and causing task failures. In contrast, SSearcher achieves better coverage due to its obstacle-focused method, yet repeated viewpoint clustering incurs heavy computational costs that limit real-time responsiveness. EPIC performs reliably across scenarios by operating directly on point cloud data; however, as the global ikd-tree grows (with nearest neighbor search complexity O(log n)), the computational cost of candidate targets increases significantly, undermining decision efficiency. Consequently, SLIDER leverages a lightweight map rep-resentation and incremental viewpoint clustering to reduce computational burden and enable real-time decision making. Quantitative results show a 30–50% reduction in total explo-ration time, a 29–60% increase in average speed, and minimal computational cost, while all targets were identified. 
+
+C. Ablation Experiments 1) Memory Consumption: We benchmark memory effi-ciency against EPIC, a lightweight baseline significantly more compact than standard grid-based methods (e.g., SSearcher, FALCON). To isolate the impact of global versus local map structures, our variant EPIC Local restricts only EPIC’s global ikd-tree to match our sliding local map scheme, strictly retaining its global observation information. As shown in Table III, localizing EPIC’s map representation substantially reduces its memory usage (e.g., from 293.2 MB to 24.0 MB in the Campus scenario). While EPIC Local 
+
+achieves this reduction, it also incurs a noticeable degradation in exploration efficiency (Table II), suggesting that EPIC’s planning is closely tied to globally consistent map repre-sentations. Even under this favorable setting, the proposed method consistently maintains a more compact environment representation, achieving 4–7 × lower Env. Total memory than both EPIC and EPIC Local across all scenarios. Although an IEEE ROBOTICS AND AUTOMATION LETTERS 7
+
+additional ROG-MAP is maintained for motion planning, its memory overhead remains modest. 
+
+2) Frontier Detection: We compare the proposed local-only frontier detection method ( Flocal ) with a baseline that maintains a global observation-quality map (Fglobal ). The average runtime is reported in Table IV. Flocal outperforms 
+
+Fglobal in both runtime and variance, as the local map contains significantly fewer voxels, reducing the cost of voxel-state queries. Despite requiring additional pose retrieval and visi-bility checks, Flocal achieves consistently lower computational costs across all scenarios. 
+
+3) Incremental Viewpoint Clustering: To assess the ef-fectiveness of incremental viewpoint clustering, we inte-grate the proposed module into SSearcher by replacing its original re-clustering strategy, yielding a variant denoted as 
+
+SSearcher IVC . As summarized in Table II, SSearcher IVC 
+
+reduces the candidate target generation time (Can. Tm., in-cluding viewpoint generation and clustering) by 4.4–32.9 ×
+
+compared to the original SSearcher. This substantial reduction translates into a higher average velocity and improved target recognition rate, highlighting the benefits of incremental clus-tering for real-time decision-making. 
+
+D. Real-World Experiments 
+
+To further assess the proposed algorithm, we conducted real-world experiments with an aerial robot equipped with a MID360 LiDAR and a Seeker Omni camera (Fig. 6(a)). FAST-LIO2 [24] provided onboard state estimation, and a geometric controller [25] handled trajectory tracking, with the maximum velocity limited to 2.5 m /s for safety. Target search tasks were performed in two environments: a park ( 50 × 35 × 3 m 3) and a building ( 60 × 30 × 3 m 3). In both scenarios, the robot successfully detected all 18 randomly placed targets. The park search took 124 .9 s with a flight distance of 244 .2 m (Fig. 1), while the building search took 124 .1 s and 240 .1 m (Fig. 6(c)). 1   
+
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> 9
+> 10
+> 11
+> 12
+> 13
+> 14
+> 15
+> 16
+> 17
+> 18
+> Livox Mid360
+> Lidar
+> Seeker Omni
+> Intel NUC Pixhawk 4
+> Livox Mid360
+> Lidar
+> Seeker Omni
+> Intel NUC Pixhawk 4
+> (a) Aerial Robot Platform (b) Coverage Rate Over Time
+> (c) Experiment Results at Building scene
+
+Fig. 6: Experiment results of real-world exploration. Additional visualizations are available on the project page. 
+
+VI. CONCLUSIONS In this letter, we present SLIDER, an efficient aerial target search framework for large-scale, cluttered environments. By replacing dense global maps with a local sliding map and a sparse global topological map, SLIDER ensures memory- and computation-efficient operations. It integrates real-time obser-vation quality evaluation and incremental viewpoint clustering to achieve adaptive, low-latency planning with long-horizon guidance. Extensive experiments demonstrate that SLIDER outperforms representative baselines in memory usage, plan-ning speed, and search performance. While our lightweight design entails theoretical limitations in extreme occlusion or deadlock scenarios, future work will explore conservative free-space estimation to mitigate observation misjudgments and enhance exploration robustness. REFERENCES [1] D. Bein, W. Bein, A. Karki, and B. B. Madan, “Optimizing border patrol operations using unmanned aerial vehicles,” in 2015 12th International Conference on Information Technology-New Generations . IEEE, 2015, pp. 479–484. [2] B. Zhou, Y. Zhang, X. Chen, and S. Shen, “Fuel: Fast uav exploration using incremental frontier structure and hierarchical planning,” IEEE Robotics and Automation Letters , vol. 6, no. 2, pp. 779–786, 2021. [3] D. Duberg and P. Jensfelt, “Ufoexplorer: Fast and scalable sampling-based exploration with a graph-based planning structure,” IEEE Robotics and Automation Letters , vol. 7, no. 2, pp. 2487–2494, 2022. [4] M. Zhang, C. Feng, Z. Li, G. Zheng, Y. Luo, Z. Wang, J. Zhou, S. Shen, and B. Zhou, “Soar: Simultaneous exploration and photograph-ing with heterogeneous uavs for fast autonomous reconstruction,” in 
+
+2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024, pp. 10 975–10 982. [5] S. Geng, Z. Ning, F. Zhang, and B. Zhou, “Epic: A lightweight lidar-based uav exploration framework for large-scale scenarios,” IEEE Robotics and Automation Letters , vol. 10, no. 5, pp. 5090–5097, 2025. [6] Y. Gao, Y. Wang, X. Zhong, T. Yang, M. Wang, Z. Xu, Y. Wang, Y. Lin, C. Xu, and F. Gao, “Meeting-merging-mission: A multi-robot coordinate framework for large-scale communication-limited exploration,” in 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2022, pp. 13 700–13 707. [7] M. Corah, C. O’Meadhra, K. Goel, and N. Michael, “Communication-efficient planning and mapping for multi-robot exploration in large environments,” IEEE Robotics and Automation Letters , vol. 4, no. 2, pp. 1715–1721, 2019. [8] B. Yamauchi, “A frontier-based approach for autonomous exploration,” in Proceedings 1997 IEEE International Symposium on Computational Intelligence in Robotics and Automation CIRA’97.’Towards New Com-putational Principles for Robotics and Automation’ . IEEE, 1997, pp. 146–151. [9] A. Bircher, M. Kamel, K. Alexis, H. Oleynikova, and R. Siegwart, “Receding horizon “next-best-view” planner for 3d exploration,” in 
+
+2016 IEEE international conference on robotics and automation (ICRA) .IEEE, 2016, pp. 1462–1468. [10] Q. Dong, X. Zhang, S. Zhang, Z. Wang, Z. Ma, and H. Xi, “Eden: Efficient dual-layer exploration planning for fast uav autonomous ex-ploration in large 3-d environments,” IEEE Transactions on Industrial Electronics , vol. 73, no. 5, pp. 7296–7306, 2026. [11] S. Long, Y. Li, C. Wu, B. Xu, and W. Fan, “Hphs: Hierarchical planning based on hybrid frontier sampling for unknown environments exploration,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024, pp. 12 056–12 063. [12] Y. Luo, Z. Zhuang, N. Pan, C. Feng, S. Shen, F. Gao, H. Cheng, and B. Zhou, “Star-searcher: A complete and efficient aerial system for autonomous target search in complex unknown environments,” IEEE Robotics and Automation Letters , vol. 9, no. 5, pp. 4329–4336, 2024. [13] Y. Zhang, X. Chen, C. Feng, B. Zhou, and S. Shen, “Falcon: Fast autonomous aerial exploration using coverage path guidance,” IEEE Transactions on Robotics , vol. 41, pp. 1365–1385, 2024. IEEE ROBOTICS AND AUTOMATION LETTERS 8
+
+TABLE II: Results of Benchmark Comparisons 
+
+Scene Method Exp. Tm. (s) Flt. Dist. (m) Avg. Vel. (m/s) Topo. Tm. (s) Can. Tm. (s) Sel. Tm. (s) Compl. (%) 
+
+Forest SSearcher [12] 1250.15 2352.45 1.88 - 0.518 0.128 100 
+
+SSearcher IVC 1122.92 2097.76 1.87 - 0.117 0.103 100 FALCON [13] 912.51 1811.34 1.99 0.109 0.039 0.124 100 EPIC [5] 921.68 1889.34 2.05 0.025 0.103 0.017 100 
+
+EPIC Local 1196.58 2461.63 2.06 0.028 0.140 0.017 100 Proposed 636.15 1691.74 2.66 0.019 0.030 0.014 100 Garage SSearcher [12] - - 0.61 - 3.193 0.201 63 ✗
+
+SSearcher IVC 3212.42 4977.36 1.55 - 0.097 0.032 100 FALCON [13] - - 1.01 0.504 0.095 0.913 25 ✗
+
+EPIC [5] 2798.49 5533.74 1.98 0.023 0.085 0.035 100 
+
+EPIC Local 3150.53 6135.95 1.95 0.025 0.160 0.039 100 Proposed 1577.60 4893.98 3.12 0.009 0.022 0.010 100 Campus SSearcher [12] - - 0.21 - 9.134 2.655 31 ✗
+
+SSearcher IVC - - 1.08 - 0.462 0.535 75 ✗
+
+FALCON [13] - - 0.56 0.991 0.055 0.256 19 ✗
+
+EPIC [5] 3213.95 5462.52 1.81 0.036 0.273 0.051 100 
+
+EPIC Local 3801.62 6977.65 1.84 0.041 0.391 0.051 100 Proposed 1611.84 4689.24 2.91 0.010 0.034 0.009 100 
+
+Note: The table summarizes key performance metrics, including exploration time (Exp. Tm.), flight distance (Flt. Dist.), average velocity (Avg. Vel.), average time for topological map maintenance (Topo. Tm.), average time for candidate target generation (Can. Tm.; including viewpoint generation and clustering), average time for target selection (Sel. Tm.), and search completeness (Compl.; measured by the number of recognized targets). 
+
+TABLE III: Memory Consumption Comparisons 
+
+Scene Method Obs. Map Hist. Tree Ori. map Env. Total Map Tree Rog Map Mem. Total 
+
+Forest EPIC [5] 7.93 - - 7.93 193.4 - 193.4 
+
+EPIC Local 8.24 - - 8.24 6.8 - 15.0 
+
+Proposed 0.36 0.48 0.56 1.40 5.6 16.6 23.6 Garage EPIC [5] 22.38 - - 22.38 272.7 - 272.7 
+
+EPIC Local 22.39 - - 22.39 5.2 - 27.6 Proposed 0.31 1.20 1.40 2.92 3.9 16.6 23.5 
+
+Campus EPIC [5] 14.22 - - 14.22 293.2 - 293.2 
+
+EPIC Local 16.24 - - 16.24 7.8 - 24.0 
+
+Proposed 0.30 1.44 1.68 3.42 4.2 43.1 50.7 
+
+Note: Columns from left to right indicate the memory usage in MB (megabytes): observation quality map, historical position ikd-tree, histor-ical orientation map, environment representation (sum of the previous three), environment point cloud ikd-tree, robot-centric voxel grid map (ROG-MAP) and the total memory usage of all modules. 
+
+TABLE IV: Frontier Detection Time comparisons (ms) 
+
+Method Forest Garage Campus 
+
+Flocal 4.80 ± 1.79 5.86 ± 2.74 5.29 ± 2.99 Fglobal 7.29 ± 9.28 16 .17 ± 24 .23 9.86 ± 13 .8
+
+[14] G. Hardouin, J. Moras, F. Morbidi, J. Marzat, and E. M. Mouaddib, “Next-best-view planning for surface reconstruction of large-scale 3d environments with multiple uavs,” in 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2020, pp. 1567–1574. [15] Y. Kompis, L. Bartolomei, R. Mascaro, L. Teixeira, and M. Chli, “Informed sampling exploration path planner for 3d reconstruction of large scenes,” IEEE Robotics and Automation Letters , vol. 6, no. 4, pp. 7893–7900, 2021. [16] Y. Cai, W. Xu, and F. Zhang, “ikd-tree: An incremental kd tree for robotic applications,” arXiv preprint arXiv:2102.10808 , 2021. [17] Y. Ren, F. Zhu, G. Lu, Y. Cai, L. Yin, F. Kong, J. Lin, N. Chen, and F. Zhang, “Safety-assured high-speed navigation for mavs,” Science Robotics , vol. 10, no. 98, p. eado6187, 2025. [18] X. Hou, Z. Pan, L. Lu, Y. Wu, J. Hu, Y. Lyu, and C. Zhao, “Laea: A 2d lidar-assisted uav exploration algorithm for unknown environments,” 
+
+Drones , vol. 8, no. 4, p. 128, 2024. [19] H. Lin, X. Yang, G. Wen, and W. X. Zheng, “Fast uav object-searching in large-scale and complex environments,” IEEE Transactions on Cybernetics , vol. 55, no. 6, pp. 2993–3004, 2025. [20] C. Cao, H. Zhu, Z. Ren, H. Choset, and J. Zhang, “Representation gran-ularity enables time-efficient autonomous exploration in large, complex worlds,” Science Robotics , vol. 8, no. 80, p. eadf0970, 2023. [21] H. Zhang, Y. Wang, W. Zhang, Y. Wang, and H. Chen, “Heats: A hierarchical framework for efficient autonomous target search with mobile manipulators,” in 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2025, pp. 14 371–14 378. [22] Y. Ren, Y. Cai, F. Zhu, S. Liang, and F. Zhang, “Rog-map: An efficient robocentric occupancy grid map for large-scene and high-resolution lidar-based motion planning,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024, pp. 8119–8125. [23] F. Kong, X. Liu, B. Tang, J. Lin, Y. Ren, Y. Cai, F. Zhu, N. Chen, and F. Zhang, “Marsim: A light-weight point-realistic simulator for lidar-based uavs,” IEEE Robotics and Automation Letters , vol. 8, no. 5, pp. 2954–2961, 2023. [24] W. Xu, Y. Cai, D. He, J. Lin, and F. Zhang, “Fast-lio2: Fast direct lidar-inertial odometry,” IEEE Transactions on Robotics , vol. 38, no. 4, pp. 2053–2073, 2022. [25] M. Faessler, A. Franchi, and D. Scaramuzza, “Differential flatness of quadrotor dynamics subject to rotor drag for accurate tracking of high-speed trajectories,” IEEE Robotics and Automation Letters , vol. 3, no. 2, pp. 620–626, 2017.

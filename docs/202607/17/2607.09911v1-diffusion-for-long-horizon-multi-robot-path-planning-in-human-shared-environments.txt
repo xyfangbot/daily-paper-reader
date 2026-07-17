@@ -1,0 +1,454 @@
+Title: Diffusion for Long-Horizon Multi-Robot Path Planning in Human-Shared Environments
+
+URL Source: https://arxiv.org/pdf/2607.09911v1
+
+Published Time: Tue, 14 Jul 2026 00:10:13 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Diffusion for Long-Horizon Multi-Robot Path Planning in Human-Shared Environments 
+
+Vaibhav Sanjay 1, Yorai Shaoul 1, and Jiaoyang Li 1
+
+Abstract — Multi-robot path planning in human-shared envi-ronments requires a delicate balance between robust inter-robot coordination and socially aware behavior. While diffusion mod-els excel at generating predictable, human-like paths, existing generative planners are often restricted to paths of fixed dura-tion and high computational latency, limiting their adaptability to varying goal distances and hindering real-time deployment. We present Multi-Robot Rolling Diffusion (MRRD), a novel framework that enables real-time, long-horizon navigation for large robot teams through dense crowds. MRRD combines a rolling-horizon scheme to accommodate the limited prediction horizon of human motion, parallelized diffusion inference for scalable generation of human-like paths, and a conflict-based-search mechanism for resolving inter-robot collisions. It further incorporates urgency-based temporal conditioning to generate paths with varying speeds and employs differentiated guidance terms to maximize both social awareness around humans and efficient coordination between robots. Experimental results in crowded environments demonstrate that MRRD successfully scales to 15 robots in real-time, significantly outperforming existing baselines in both safety and mission success rates. 
+
+I. INTRODUCTION Multi-robot autonomous systems are successfully used in scenarios like warehouse automation, drone fleets, and inspection systems. However, their use in human-shared environments remains largely underexplored. This requires ensuring not only collision-free coordination among robots but also safe interaction with surrounding humans. Single-robot navigation in human-shared environments has been explored extensively [1]–[12], with a wide range of methods including human motion prediction, control barrier functions, and vision-language models. In this work, we focus on methods that directly generate human-like paths because they enable robots to move in a predictable and socially acceptable manner. Diffusion models [13], which excel at learning from demonstrations, are therefore a natural choice for this setting. Recently, CoBL-Diffusion [14] trains diffusion models on large sets of human walking data and demonstrates effective navigation for single robots in human-shared environments. However, these generative planners are often subject to a “fixed-time problem,” where they are restricted to produce paths of fixed duration regardless of the actual distance to the goal, leading to erratic velocities and reduced navigation efficiency. Research on multi-robot path planning in human-shared environments is not as extensive and can be largely sum-marized in a few distinct approaches. Prioritized planning              
+
+> 1Vaibhav Sanjay, Yorai Shaoul, and Jiaoyang Li are with the Robotics Institute, Carnegie Mellon University.
+
+{vsanjay,yshaoul,jiaoyanl }@andrew.cmu.edu 
+
+methods [15], [16] anticipate human motions and plan robot paths in a predefined sequence, avoiding humans and higher-priority robots. Although quite fast, planning in sequence may result in uncooperative behavior since high-priority robots do not take the paths of low-priority robots into account. Hierarchical methods [17], [18] plan global paths ignoring collisions and resolve them during execution by maneuvering robots around each other. Since collisions are resolved by local planning, these methods may lack the abil-ity to perform long-term planning while maintaining social awareness. RL-based methods [19] can directly learn robot coordination policies. However, they often rely on carefully engineered reward functions, which may not capture the full range of desirable human-like behaviors. This paper introduces Multi-Robot Rolling Diffusion (MRRD), a rolling-horizon approach utilizing diffusion mod-els to generate real-time, human-like, and collision-free paths for a team of robots in human-shared environments. Rather than generating a single, globally “pinned” path of rigid duration, our diffusion model produces localized path seg-ments conditioned on a diverse range of urgency values. This gives MRRD significant freedom in planning for complex, dynamic scenes; it can adaptively scale velocities to suit immediate crowd density and distance to the goal. Inspired by [20], MRRD scales single-robot diffusion models trained from human walking data to a multi-robot setup via Conflict-Based Search (CBS) [21], a classical multi-agent path-finding technique. This way, MRRD distinguishes between robot-robot interactions (handled by CBS) and robot-human interactions (handled by the diffusion model). We demon-strate its effectiveness in various simulated environments, showing real-time navigation with up to 15 robots in empty environments and 10 in cluttered ones. II. R ELATED WORKS 
+
+We briefly review related work on multi-robot path plan-ning and robot navigation in human-shared environments. 
+
+A. Multi-Robot Path Planning (Without Humans) 
+
+Multi-robot path planning is a challenging problem of planning collision-free paths for a team of robots in ashared environment. One promising approach is to abstract the problem as Multi-Agent Path Finding (MAPF) [22], which assumes that robots move in discrete timesteps on a graph, typically a 2D grid. Solutions to MAPF range from optimal search-based methods to efficient heuristics. Prioritized Planning (PP) [23] is a fast, suboptimal algorithm that assigns fixed priorities to robots, plans their paths arXiv:2607.09911v1 [cs.RO] 10 Jul 2026 sequentially, and treats higher-priority robots as moving obstacles. However, PP may force lower-priority robots into circuitous routes due to sequential dependencies. The optimal and scalable standard is Conflict-Based Search (CBS) [21], a two-level algorithm that combines single-robot path planning with a high-level constraint tree to resolve collisions, im-posing constraints only where collisions occur. Multi-Agent Reinforcement Learning (MARL) [24] has emerged as a prominent decentralized alternative, where robots learn local navigation policies—often via actor-critic architectures. While MAPF algorithms were originally designed for discrete settings, many have been extended to continuous time and space [25], [26]. In particular, Multi-Robot Multi-Model Planning Diffusion (MMD) [20] combines CBS with diffusion-based planners. By training on large datasets of successful single-robot paths, diffusion-based planners can generate paths that effectively capture the complex spatial dependencies of the environment and movement patterns in the data. MMD uses diffusion models to generate single-robot paths while borrowing the constraint tree structure from CBS to designate constraints to the diffusion-based planners to resolve collisions. It defines spherical constraints that push diffusion-generated paths out of collision regions without over-constraining the entire path like PP would. 
+
+B. Robot Navigation in Human-Shared Environments 
+
+Single-robot path planning in human-shared environments has been extensively studied, utilizing approaches such as A* search [1], model predictive control [2]–[4], reinforce-ment learning [5]–[8], vision language models [9], [10], and generative adversarial networks [11]. We are mainly concerned with algorithms that learn from human data or input, directly embedding socially aware navigation in the planning process. Navi-STAR [12] uses preference learning with human oversight for training, but gathering preferences can be costly. CoBL-Diffusion [14] learns from human walking data using a diffusion model to emulate movement and avoid paths via guidance; however, it requires knowing the full human paths beforehand, which is unrealistic. Multi-robot navigation in human-shared environments is less studied and requires balancing high-level coordination with socially acceptable local reactivity. Existing methods can be divided into three categories: PP, hierarchical plan-ning, and MARL. PP methods employ prioritized planning with A* [15] or model predictive control [16] to avoid predicted paths of humans and higher-priority robots. PP limitations persist and can be worsened by humans cut-ting off paths. Hierarchical methods generate global paths without considering humans or other robots, relying on a local planner for collision avoidance during execution. Recent work integrates neural control barrier functions for safety guarantees [17] or uses a Lloyd-based planner with Voronoi-partitioning to shift paths away from others and predicted human zones [18]. These controllers lack the long-horizon foresight needed for complex social dynamics due to prioritizing local safety. MARL has been adapted to address the specific complexities of social navigation. A primary distinction from standard MARL—which typically focuses on robot-robot coordination and fast goal reaching—is the additional requirement to model asymmetric human-robot interactions and maintain social awareness. SAMARL [19] achieves this by utilizing a hybrid spatial-temporal trans-former to capture and align high-order dependencies in both human-robot and robot-robot interactions. Such methods are computationally efficient during inference, but developing a reward function that truly emulates human-like behavior remains an active research area. In contrast to these existing works, our method uses a rolling-horizon diffusion model. Our framework leverages learned human motion priors directly from data, naturally denoising paths that are socially aware. This generative foun-dation, combined with multi-agent coordination techniques from MAPF, enables our system to maintain high social acceptance and coordination for up to 15 robots, exceeding the scale of existing learning-based benchmarks. III. P RELIMINARIES 
+
+We now introduce the problem definition and background on diffusion models for multi-robot path planning. 
+
+A. Problem Definition 
+
+Our task is multi-robot navigation in a 2D workspace 
+
+W ⊂ R2 containing N robots {Xi}Ni=1 , M humans {Yj }Mj=1 ,and Q static obstacles {Ok}Qk=1 where each Ok ⊆ W.Time is discretized into uniform timesteps separated by 
+
+∆t (set to 0.1 seconds in our experiments). We assume access to a perfect prediction function that provides Hj =
+
+{Y 0 
+
+> j
+
+, Y 1 
+
+> j
+
+, · · · , Y H−1 
+
+> j
+
+}, the predicted path of human Yj over the next H timesteps, where H is the planning horizon (set to 32 in our experiments), and Y tj ∈ W is the position of human 
+
+Yj t timesteps after the prediction is made. Each robot Xi is assigned a start and goal position si, g i ∈ W . A full path of robot Xi is written as a time-indexed sequence of waypoints 
+
+τi = {τ 1 
+
+> i
+
+, τ 2 
+
+> i
+
+, · · · , τ Li 
+
+> i
+
+} with τ 1 
+
+> i
+
+= si and τ Li 
+
+> i
+
+= gi, where 
+
+Li is referred to as the length of the path, and τ ti ∈ W is the position of robot Xi at time t. Our objective is to find a set of full paths {τi}Ni=1 that do not collide with each other (robot-robot collision), with any humans (robot-human collision), or with any obstacles (robot-obstacle collision). We seek to learn a set of human-like paths {τi}Ni=1 . While hand-crafted cost functions struggle to capture complex social dynamics, we instead learn directly from a dataset of human-like movement. We also seek to minimize the maximum path completion time, max( Li), across all robots. 
+
+B. Diffusion Models and Constraints 
+
+Diffusion models learn to emulate complex patterns from a dataset through an iterative denoising process. In this framework, motion planning is formulated as a probabilistic inference problem where the model learns a prior over expert paths. The generated paths should also satisfy task objectives, such as avoiding obstacles. The goal is to maximize the posterior probability of a path τi given task objectives O:
+
+arg max 
+
+> τi
+
+log p(τi|O ) = arg min 
+
+> τi
+
+(J (τi) − log p(τi)) , (1) where J (τi) is a cost associated with the task objectives, and 
+
+log p(τi) represents the prior to the learned data distribution. The training phase uses a denoising diffusion probabilistic model [27] to approximate the distribution of expert paths. This involves a forward diffusion process that gradually adds noise to an expert path 0τi (of fixed length) through an S-step sequence 0τi,1 τi, · · · ,S τi. As S becomes sufficiently large, this process is designed to reach a stationary state where the original structure of the path is erased, leaving only Gaussian noise. Therefore, to generate a new path 0τi, we sample a noisy path S τi ∼ N (0 , I ) from a Gaussian distribution of the same length as the expert path and train a temporal U-net ϵθ
+
+to iteratively reverse the process by predicting and removing noise ϵ added at each step s.During inference, to ensure that generated paths satisfy the task objectives O, classifier guidance gradients are included in the sampling loop. Following MMD [20], the denoising is a probabilistic transition sampled from the distribution 
+
+> s−1
+
+τi ∼ N (μθ (sτi, s ) + ηβ s−1∇τi J (sτi), β s−1I), (2) where μθ (sτi, s ) represents the reverse transition mean pre-dicted by the temporal U-net ϵθ , η is a scalar that controls the weight of the guidance, and βs−1 is the variance of the denoising schedule. The collective “guidance” ∇τi J (sτi) is the gradient of the task objectives from Equation 1. One way to incorporate all task objectives is to use a weighted sum 
+
+J = POo=1 λoJo, where each weighted cost optimizes for a different task objective in O. After each denoising step, the first and last waypoints are fixed to the start and goal, ensuring that the model outputs valid full paths. In multi-robot path planning, the generated paths need to be free of robot-robot collisions. MMD accomplishes this by using a high-level CBS algorithm to find collisions and gen-erate robot-robot constraints, and a low-level diffusion-based planner to generate individual paths that avoid constrained regions. These constraints are included in the guidance term J from Equation 2 as a cost term Jc. Robot-robot constraints are represented as spheres in the workspace, and paths with waypoints inside the spheres incur higher costs, resulting in gradient steps pushing the generation outside of the constrained regions. Specifically, we represent a sphere constraint for robot Xi as ⟨Xi, p, t ⟩, where p ∈ W is the center of the sphere, and t is the associated timestep. The corresponding cost function is formulated as 
+
+Jc(sτi) := 
+
+> t+t0
+
+X
+
+> u=t−t0
+
+max( r − d(sτ ui , p ), 0) , (3) where t0 specifies the half-length of the constrained time window, r is the fixed radius of the sphere, and d(sτ ui , p ) is the distance of robot Xi to p at time u along path sτi.A significant limitation of current diffusion-based path planners, including MMD and CoBL-Diffusion, is that all generated paths contain a fixed number of waypoints. Be-cause consecutive waypoints are separated by a constant time interval ∆t, the robot’s arrival time is fixed. This “fixed-time problem” introduces critical performance issues. In Algorithm 1: MRRD: Rolling-Horizon Planner                             
+
+> Input: Start positions {si}Ni=1 , goal positions {gi}Ni=1 , planning horizon H, execution horizon K
+> 1: while ∃i:|| gi−si|| > δ do
+> 2: {H j}Mj=1 ←GET HUMAN PATHS (H)
+> 3: {πi}Ni=1 ←PLAN SEGMENT ({si},{gi},{H j})
+> 4: {si}Ni=1 ←EXECUTE ({πi},K)
+> 5: end while
+
+particular, the robot’s velocity is dictated primarily by its dis-tance to the goal, leading to dangerously high velocities for distant goals or unnaturally slow, stuttering movements for nearby goals. This behavior is problematic in human-shared environments, where maintaining an acceptable pace is vi-tal. Furthermore, the fixed-time problem prevents diffusion-based planners from optimizing execution time. IV. M ETHOD 
+
+We introduce MRRD, a 3-level diffusion-based path plan-ning algorithm for multi-robot navigation in human-shared environments. At the top level, our method plans robot paths iteratively using a rolling-horizon scheme [28], interleaving planning and execution to form a set of full long-horizon paths. In the middle level, we resolve robot-robot collisions within horizons and assign constraints for path generation. At the bottom level, we generate human-like paths for each robot from a single-robot diffusion policy learned from human path data. 
+
+A. Rolling-Horizon Planning 
+
+Algorithm 1 shows our top-level rolling-horizon planner. Unlike prior diffusion-based planners, which plan the full path from start to finish, MRRD generates short path seg-ments in a rolling-horizon fashion. Since we do not generate full robot paths directly, the human path prediction function only needs to look ahead to the planning horizon H (line 2). In line 3, we generate path segments πi of length H for all robots. During the execution step (line 4), we execute 
+
+K < H steps of this plan, where K is called the execution horizon. The positions of the robots after execution are set as their new start positions for the next iteration. This process is repeated (line 1) until all robots have reached their goals within a certain tolerance δ (set to 0.2 meters in our experiments). In practice, we cap the maximum number of iterations (set to 11 in our experiments) of the while loop such that the robot execution ends. 
+
+B. Multi-Robot Coordination 
+
+MRRD treats each rolling horizon as its own localized multi-robot planning problem, as shown in Algorithm 2. This level is inspired by MMD [20] and is meant to resolve robot-robot collisions. The process requires several key steps. 
+
+Segment Generation : The path segment generation pro-cess begins with the creation of a root node. Each node contains {πi}Ni=1 , a set of path segments of length H for each robot, {Ci}Ni=1 , a set of constraint sets imposed on each robot (initially empty), and colls , a list of robot-robot Algorithm 2: Multi-Robot Planner (P LAN SEGMENT )
+
+Input: Start positions {si}Ni=1 , goal positions {gi}Ni=1 , human paths {H j }Mj=1 
+
+Output: Collision-free paths {πi}Ni=1 
+
+Phase 1: Segment Generation  
+
+> 1:
+
+root ← NODE ()  
+
+> 2:
+
+root .C i ← ∅ ∀ i ∈ { 1 · · · N } 
+
+> 3:
+
+{root .π i}Ni=1 ← DIFF PLAN PARALLEL ({si}, {gi}, {H j }) 
+
+> 4:
+
+root .colls ← GET COLLISIONS (root ) 
+
+> 5:
+
+OPEN ← { root }
+
+Phase 2: Collision Resolution  
+
+> 6:
+
+while OPEN ̸ = ∅ do  
+
+> 7:
+
+Sort nodes in O PEN by number of collisions  
+
+> 8:
+
+P ← OPEN .POP ()  
+
+> 9:
+
+if P. colls = ∅ then  
+
+> 10:
+
+return {P.π i}Ni=1  
+
+> 11:
+
+end if  
+
+> 12:
+
+p, t, X i, X j ← GET CONSTRAINT (P. colls [0])  
+
+> 13:
+
+for k ∈ { i, j } do  
+
+> 14:
+
+P ′ ← COPY (P ) 
+
+> 15:
+
+P ′.C k ← P ′.C k ∪ {⟨ Xk , p, t ⟩}  
+
+> 16:
+
+P ′.π k ← DIFF PLAN (sk , g k , {H j }, P ′.C k ) 
+
+> 17:
+
+P ′.colls ← GET COLLISIONS (P ′) 
+
+> 18:
+
+OPEN ← OPEN ∪ { P ′} 
+
+> 19:
+
+end for  
+
+> 20:
+
+end while  
+
+> 21:
+
+return ∅
+
+collisions between the path segments. During each planning horizon, we start by calling the diffusion-based planner to plan a path segment for each robot (line 3). The returned path segments are guaranteed to be free of robot-human and robot-obstacle collisions. If no such path segments are generated, we terminate the algorithm and report failure (not shown in Algorithm 2). Then, we find the list of all (robot-robot) collisions between path segments in line 4 and add the root node to the OPEN list in line 5. Since diffusion models are known to be computationally intensive, we implement parallelized path generation in line 3 to greatly increase inference speed. Unlike MMD, which creates its root node by generating the path segment of each robot sequentially, we parallelize the process by generating all path segments in one call. This change allows the system to scale to a larger number of robots while maintaining the high-frequency updates required for real-time navigation. 
+
+Collision Resolution : If the path segments generated in the root node contain collisions, MRRD initiates a tree search process to resolve them. In each iteration, the node P with the fewest collisions is popped from the OPEN list for expansion. Upon identifying a collision between two robots 
+
+Xi and Xj at position p and time t (line 12), the search “splits” the problem by generating two child nodes. Each child node P ′ inherits the existing constraints of the parent, but in line 15, we add a new sphere constraint ⟨Xk, p, t ⟩ with 
+
+k ∈ { i, j }, preventing robot Xk from occupying a sphere centered at position p around time t. Each child replans its respective robot’s path segment using the newly added constraint, along with all existing constraints, generating a Time MLP 
+
+> Goal MLP
+> Urgency
+> Embedding
+> +
+> +
+> Context
+> MLP
+> Global Context
+> Vector
+> U- net
+> Gradient
+> Guidance
+> Repeat s times
+
+Fig. 1: Architecture overview of our diffusion model. The de-noising step, robot goal, and urgency are provided as context to a U-net for denoising. Then, task objectives of constraint avoidance, human avoidance, and obstacle avoidance are applied as gradient guidance. This pattern is repeated for 
+
+S iterations, resulting in a fully denoised path 0τi.new path segment guided around the constrained regions (line 16). The resulting child nodes are then evaluated for new collisions and added back to the OPEN list. This process continues until a node containing zero collisions is retrieved (line 9), at which point the set of path segments is returned as a valid solution for the current planning horizon. 
+
+C. Single-Robot Diffusion 
+
+The bottom level of MRRD is the diffusion-based planner that generates a single-robot path segment of length H while taking into account human social norms, obstacle avoidance, and the sphere constraints imposed by Algorithm 2. The primary innovation in this level is the transition from rigid endpoint-pinned conditioning to more flexible temporal goal conditioning. Unlike previous approaches such as Motion Planning Diffusion (MPD) [13] and MMD, which typically perform global planning by fixing both the first and last waypoints to the start and goal positions at each denosing step, MRRD fixes only the first waypoint while allowing the last waypoint to remain flexible. Furthermore, MRRD conditions the diffusion model on the goal position gi and an urgency term ui, where ui represents the total number of waypoints from the start to the goal. Intuitively, an urgency value ui implies that the current generated path segment advances the agent by approximately H/u i of the remaining distance toward the goal. Below, we provide more details on how this modification changes our model architecture, denoising, and inference. 
+
+1) Model Architecture and Training: Our architecture is based on the one utilized in MPD. Like MPD, we take a noisy path S τi ∼ N (0 , I ) of length H and denoise it to generate 
+
+> 0
+
+τi. As shown in Fig. 1, the goal gi and the urgency term ui
+
+are new inputs to the model in addition to the random path and the denoising step s. We obtain a goal embedding using an MLP and an urgency embedding using an embedding dictionary. These inputs are concatenated and fed through a context layer to form the global context vector, providing key information to the model about the goal and desired speed. Our diffusion-based planner is trained on human walking data, providing a set of paths {ψi} of length T > H . For each path ψi = {ψ1 
+
+> i
+
+, ψ 2 
+
+> i
+
+, · · · , ψ Ti }, we sample an integer ui
+
+uniformly from [H, T ). Then, we use the first H waypoints of ψi as the expert path and set the corresponding goal input to gi = ψui 
+
+> i
+
+, effectively training the model to learn the urgency term ui as a “time-to-goal.” 
+
+2) Denoising and Guidance: Our diffusion-based planner is called in both line 3 and line 16 of Algorithm 2, where the inputs {H j } and P ′.C k are used in the guidance steps of the diffusion process. Specifically, the following guidance terms are summed to obtain our complete guidance at each denoising step, J = POo=1 λoJo.
+
+Constraint Costs : As in MMD, we penalize robots that violate the sphere constraints in P ′.C k. This guidance term is the same as it is defined in Equation 3. 
+
+Human Distance Costs : We also penalize robots for being in range of human personal space. We take inspiration from CoBL-Diffusion [14] in designing the cost. The human distance cost at time t for human Yj is modeled as 
+
+Pj (t) = max(0 , R out − D) + max(0 , R in − D)2,
+
+where Rin and Rout (set to 0.1 meters and 0.7 meters in our experiments) specify a core radius with squared penalty and a close radius with linear penalty, and D = d(sτ ti , Y tj )
+
+is the distance between robot Xi and human Yj at time t.To efficiently manage dense crowds, for each time t, we identify the m (set to 3 in our experiments) humans with the highest penalties Pj (t) and sort them in descending order: 
+
+P(1) (t) ≥ P(2) (t) ≥ · · · ≥ P(m)(t). The final cost Jh(sτi)
+
+is the rank-weighted sum of these top m penalties over the planning horizon H:
+
+Jh(sτi) = 
+
+> H−1
+
+X
+
+> t=0
+> m
+
+X
+
+> j=1
+
+(m − j + 1) P(j)(t).
+
+Obstacle Costs : This cost (similar to the one in MPD [13]) evaluates how deeply each waypoint of the generated path penetrates into static obstacles, using the environment’s Signed Distance Field (SDF). The SDF returns negative values for points inside obstacles and positive values for those outside. The cost is weighted by a precision factor κ =1/σ 2
+
+> coll
+
+, where σcoll (set to 1.0 in our experiments) controls the penalty strength. The per-timestep obstacle error is the clamped SDF value (with Mcoll = 0 .02 in the experiments): 
+
+e(t) = max( Mcoll , SDF (sτ ti )) .
+
+The total collision cost over the path is: 
+
+Jcoll (sτi) = κ
+
+> H−1
+
+X
+
+> t=0
+
+e(t).
+
+After the guidance is applied, we set the first waypoint 
+
+> s
+
+τ 0 
+
+> i
+
+of the generated path to si, so that our final path 0τi
+
+starts from the current position of the robot. 
+
+3) Model Inference: During inference, the diffusion model is queried in batches. We vary ui linearly from a range 
+
+[umin , u max ) to generate a batch of B path segments with varying speeds. This diversity ensures that the planner has multiple options, such as moving quickly through a transient opening or slowing down to wait for a pedestrian to pass. In our experiments, umax is set to 200 , and we use the following equation to give umin a larger value when the robot is far from its goal to prevent rushing and slowly relax it as the robot gets closer: 
+
+umin =
+
+(
+
+λ · || si − gi|| , if || si − gi|| < δ close 
+
+λδ close , otherwise. where δclose is set to 4 and λ is set to 10. Then, among the generated paths, we first discard in-feasible ones, namely those that lead to robot-human or robot-obstacle collisions, and then select the path with the smallest ui, corresponding to the highest speed. By doing so, we resolve the fixed-time problem faced by earlier models, allowing the diffusion process to adapt the path’s velocity profile within the fixed H-step window. V. E XPERIMENTAL ANALYSIS 
+
+We evaluate the performance of MRRD in maps with var-ious human crowds, numbers of robots, and static obstacles. Experiments are performed on a machine with an AMD Threadripper 3990X 64-core processor and an NVIDIA RTX 3090Ti. Our implementation is in Python and is based on the official code for MMD [20]. 
+
+A. Training Setup 
+
+The diffusion model is trained on 20,000 20-second paths, discretized into T = 200 waypoints from the ETH human pedestrian dataset [29] (making ∆t = 0 .1 seconds). Paths are augmented by randomizing their starting location and rotation to provide the model with a variety of human-like movements. Our model sets the planning horizon to H = 32 
+
+steps and the execution horizon to K = 16 steps, which correspond to 3.2 seconds and 1.6 seconds, respectively. 
+
+B. Baseline Setups 
+
+We compare our method to baselines that capture social awareness: CoBL-Diffusion [14], a diffusion-based planner, and Navi-STAR [12], an RL-based planner with preference learning. Since the SAMARL repository was unavailable, we used Navi-STAR, an earlier single-robot planner from the same group. We also include an ablation planner of MRRD that generates initial paths sequentially, without paralleliza-tion. CoBL-Diffusion and Navi-STAR, originally single-robot planners, were adapted for multi-robot planning using Fig. 2: Snapshot of ongoing runs. Robots (colored circles) move from starts (squares) to goals (stars). Humans are light gray; tan circles indicate obstacles. Layouts clockwise from top-left: Empty, Simple, Spheres, and Spheres Sparse. a prioritized-planning approach, where paths are planned sequentially to avoid collisions with higher-priority robots. 
+
+C. Crowds in Empty Map 
+
+We use a 20 m × 20 m empty map with 10-20 human crowds from the UCY pedestrian dataset [30]. We tested 50 trials in 6, 9, 12, and 15 robots with randomly initialized start and goal positions (7-12 meters apart) and initial separation from humans (over 1 meter). We evaluated the generated paths using 6 metrics: The robot-robot collision rate (R-R) and the robot-human collision rate (R-H) are the fractions of trials that experience a robot-robot collision and a robot-human collision, respectively; goal reaching (GR) is the average distance from each robot to its goal at the end of the algorithm; the success rate is the fraction of trials that experience no collisions of any type; the planning time (TP )is the overall planning time (summed over all rolling horizons for ours); the travel time (TT ) is the execution time for the robot paths; and the average acceleration (Acc) is a measure of smoothness. The upper left square in Fig. 2 shows an example run of our algorithm in progress. Tables I and II show the performance of the four algo-rithms. MRRD achieves zero robot-robot collisions across all test cases (6 to 15 robots), validating the effectiveness of the multi-robot planner. In contrast, Navi-STAR’s R-R collision rate scales poorly, reaching 0.98 in the 15-robot scenario. Even CoBL-Diffusion still suffers from collision rates of up to 0.28. MRRD only halts due to an imminent R-H collision at a rate of 0.08, while the baselines’ R-H collision rates range from 0.22 to 1.00. This demonstrates that MRRD does not sacrifice human safety for multi-robot coordination. The robustness of MRRD is most evident in the success 0.5 1.0 1.5 2.0 2.5 3.0                
+
+> Online Planning Time (s)
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> Frequency
+> 6 Robots
+> 0.5 1.0 1.5 2.0 2.5 3.0
+> Online Planning Time (s)
+> 0
+> 50
+> 100
+> 150
+> 200
+> 250
+> 300
+> Frequency
+> 9 Robots
+> 0.5 1.0 1.5 2.0 2.5 3.0
+> Online Planning Time (s)
+> 0
+> 50
+> 100
+> 150
+> 200
+> Frequency
+> 12 Robots
+> 0.5 1.0 1.5 2.0 2.5 3.0
+> Online Planning Time (s)
+> 0
+> 50
+> 100
+> 150
+> 200
+> Frequency
+> 15 Robots
+
+Fig. 3: Histogram of online planning times of MRRD for 4 different robot counts. The x-axis is the time it takes for Algorithm 2 to plan path segments for all robots, and the y-axis is the count. Planning times must remain below the execution time of 1.6 seconds for each horizon. rate metric. Although MRRD maintains a high success rate of 0.92 even with 15 robots, the baselines do not scale. CoBL-Diffusion’s success rate drops to 0.32, and Navi-STAR fails to complete a single successful trial at the 15-robot scale. While these methods are individually very successful at navigating single robots through dense human crowds, they were not directly designed to handle a multi-robot scenario efficiently. If any of the generated paths results in a collision, the trial is automatically deemed a failure. Fur-thermore, the data confirms that the “fixed-time” constraint inherent in CoBL-Diffusion’s architecture is a critical flaw. Because CoBL-Diffusion is forced to generate a path within a rigid temporal window, it cannot adapt to various crowds, distances, and robot-robot interactions. This results in higher R-R/R-O collision rates and failure to reach goals, evidenced by a 1.46-meter goal-reaching score. MRRD offers a much better balance: it reaches goals more accurately (GR of 0.37 meters) and produces significantly smoother trajectories, with acceleration profiles that are 5-8x lower than CoBL-Diffusion’s erratic movements. This property is evident in simulated visualizations, where MRRD exhibits smooth and human-like movement. MRRD also demonstrates the best planning efficiency. At the 15-robot scale, MRRD’s planning time is only 8.8 seconds, making it 7 times faster than CoBL-Diffusion (60.2 seconds), 2 times faster than Navi-STAR (17.3 seconds), and 4 times faster than our MRRD without parallelization (38.6 seconds). The histograms in Fig. 3 illustrate the computa-tional efficiency of MRRD across varying robot densities. They display “planning times,” representing the time taken for each call of P LAN SEGMENT . The distributions exhibit a primary peak centered between 0.5 seconds and 0.75 seconds. The larger tails found in the 12-robot and 15-robot TABLE I: Comparison of Collision Rates and Goal Scores.                                                                                    
+
+> 6 Robots 9 Robots 12 Robots 15 Robots Method R-R ↓R-H ↓SR ↑GR ↓R-R R-H SR GR R-R R-H SR GR R-R R-H SR GR CoBL-Diffusion .10 .22 .68 1.00 .10 .34 .56 1.80 .24 .38 .44 1.28 .28 .54 .32 1.46 Navi-STAR .38 .76 .16 .90 .58 .85 .04 1.00 .90 1.00 .00 .92 .98 .96 .00 1.12 Ours (No Parallelization) .00 .04 .96 .36 .00 .04 .96 .36 .00 .12 .88 .40 .00 .14 .86 .44
+> Ours .00 .00 1.0 .29 .00 .04 .96 .24 .00 .08 .92 .34 .00 .08 .92 .37
+
+Note: R-R: Robot-Robot Collision Rate, R-H: Robot-Human Collision Rate, GS: Goal-Reaching ( m), SR: Success Rate .
+
+TABLE II: Comparison of Time and Acceleration Profiles.                                                                  
+
+> 6 Robots 9 Robots 12 Robots 15 Robots Method TP↓TT↓Acc ↓TPTTAcc TPTTAcc TPTTAcc CoBL-Diffusion 25.2 8.0 .242 71.7 8.0 .402 49.2 8.0 .316 60.2 8.0 .319 Navi-STAR 7.1 19.1 .193 10.1 20.0 .123 13.4 20.0 .207 17.3 20.0 .179 Ours (No Parallelization) 14.5 17.0 .043 34.6 16.8 .047 33.3 17.6 .046 38.6 17.6 .047
+> Ours 2.9 16.3 .046 3.3 16.0 .051 4.3 17.4 .046 8.8 17.6 .046
+
+Note: TP : Planning Time (s), TT : Travel Time (s), Acc: Mean Acceleration ( m/s 2). 
+
+TABLE III: Comparison of Collision Rates and Goal Scores (Obstacles).                                                                
+
+> Empty Simple Spheres Sparse Spheres Method R-R ↓R-H ↓R-O ↓SR ↑GR ↓R-R R-H R-O SR GR R-R R-H R-O SR GR R-R R-H R-O SR GR CoBL-Diffusion .04 .70 .00 .30 1.20 .16 .42 .20 .42 1.09 .10 .64 .48 .18 1.56 .26 .60 .94 .00 2.08
+> Ours .00 .04 .00 .96 .50 .00 .10 .18 .72 .42 .00 .02 .12 .88 .54 .00 .10 .30 .56 .52
+
+Note: R-O: Robot-Obstacle Collision Rate. 
+
+TABLE IV: Comparison of Time and Acceleration Profiles (Obstacles).                                          
+
+> Empty Simple Spheres Sparse Spheres Method TP↓TT↓Acc ↓TPTTAcc TPTTAcc TPTTAcc CoBL-Diffusion 52.3 8.0 .313 49.6 8.0 .325 55.3 8.0 .348 54.1 8.0 .363
+> Ours 3.7 17.6 .049 3.5 17.6 .051 4.3 17.6 .054 5.1 17.4 .065
+
+charts correspond to scenarios that require extensive CBS splitting and multiple diffusion replanning calls to resolve inter-robot collisions. Even at the scale of 15 robots, the vast majority of planning times at each horizon successfully conclude within the execution horizon of 1.6 seconds. 
+
+D. Crowds in Obstacle Maps 
+
+Next, we test our algorithms on more complex scenarios with static obstacles. Although neither baseline natively sup-ports planning in environments with obstacles, we provided a competitive comparison by augmenting CoBL-Diffusion with an obstacle-avoidance guidance term. We introduce a new metric robot-obstacle collision rate , which is the fraction of trials with a robot-obstacle collision. We set the number of robots to 10 and ran 50 trials on the empty map and the three 20 m × 20 m obstacle maps, shown in Fig. 2. Tables III and IV present the results. Even as obstacle density increases, MRRD maintains a perfect 0.00 R-R collision rate across all tested scenarios, whereas CoBL-Diffusion reaches a high of 0.26. MRRD also effectively navigates robots around humans, keeping the R-H collision rate at or below 0.12 even in crowded obstacle fields—a 6x improvement over the baseline in the Spheres map. Even in the densest scenario, MRRD’s R-O rate (0.30) is less than a third of CoBL-Diffusion’s (0.94). While CoBL-Diffusion’s success rate reduces from 0.18 to 0 when moving from the Spheres Sparse to Spheres maps, MRRD remains resilient, maintaining strong SRs of 0.88 and 0.56, respectively. This performance gap highlights that MRRD is fundamentally more capable of navigating high-density spaces where tra-ditional diffusion-based planners often fail. Table IV reveals that MRRD achieves a 10 to 15 times decrease in planning time, solving complex obstacle fields in just 5.1 seconds compared to CoBL-Diffusion’s 54.1 seconds. Furthermore, MRRD follows the trend of producing significantly more sta-ble trajectories than CoBL-Diffusion, with mean acceleration profiles that are roughly 6 times lower. VI. C ONCLUSION 
+
+In this paper, we introduced a 3-level diffusion-based algorithm MRRD for real-time, multi-robot path planning in human-crowded environments. MRRD integrates a rolling-horizon planner and a multi-robot coordinator with a dif-fusion model trained on human paths. By generating short, dynamically adaptable path segments rather than long, hard-conditioned paths, our method enables greater dynamic plan-ning than recent diffusion-based works. Our experimental results quantitatively show fewer collisions and greater goal-reaching capability than other baselines trained on human data and input. Qualitatively, the paths are smooth and socially aware with human speed and fluidity. Future work includes adding invariance to the denoising process for path compliance [31] and integrating human movement prediction modules directly into the diffusion denoising step. ACKNOWLEDGMENTS 
+
+This work was partially supported by the National Science Foundation under grant numbers # 2328671 and # 2441629 .REFERENCES [1] P. D. C. Cheng, M. Indri, F. Maresca, A. Ragazzo, and F. Sibona, “Dynamic path planning in human-shared environments for low-resource mobile agents,” in IEEE International Symposium on Indus-trial Electronics (ISIE) , pp. 1–6, 2023. [2] J. R. Han, H. Thomas, J. Zhang, N. Rhinehart, and T. D. Barfoot, “Deep residual model predictive control for real-world social naviga-tion,” IEEE Robotics and Automation Letters , vol. 10, no. 4, pp. 4029– 4036, 2025. [3] S. Samavi, J. R. Han, F. Shkurti, and A. P. Schoellig, “Safe and interactive crowd navigation using model predictive control and bilevel optimization,” IEEE Transactions on Robotics , vol. 41, pp. 801–818, 2025. [4] A. Wang, C. Mavrogiannis, and A. Steinfeld, “Group-based motion prediction for navigation in crowded environments,” in Conference on Robot Learning (CoRL) , vol. 164, pp. 871–882, 2022. [5] Z. Long, X. Zhang, J. Mi, and J. Wang, “Human-risk-aware safe path planning based on reinforcement learning for autonomous mobile robots,” Sensors , vol. 25, no. 23, 2025. [6] Y.-J. Mun, M. Itkina, S. Liu, and K. Driggs-Campbell, “Occlusion-aware crowd navigation using people as sensors,” in IEEE Interna-tional Conference on Robotics and Automation (ICRA) , pp. 12031– 12037, 2023. [7] C. Mavrogiannis, A. M. Hutchinson, J. Macdonald, P. Alves-Oliveira, and R. A. Knepper, “Effects of distinct robot navigation strategies on human behavior in a crowded environment,” in ACM/IEEE Interna-tional Conference on Human-Robot Interaction (HRI) , pp. 421–430, 2019. [8] S. Liu, P. Chang, W. Liang, N. Chakraborty, and K. Driggs-Campbell, “Decentralized structural-RNN for robot crowd navigation with deep reinforcement learning,” in IEEE International Conference on Robotics and Automation (ICRA) , pp. 3517–3524, 2021. [9] D. Song, J. Liang, A. Payandeh, A. H. Raj, X. Xiao, and D. Manocha, “Socially aware robot navigation through scoring using vision-language models,” IEEE Robotics and Automation Letters , vol. 10, no. 1, pp. 508–515, 2025. [10] S. Narasimhan, A. H. Tan, D. Choi, and G. Nejat, “OLiVia-Nav: An online lifelong vision language approach for mobile robot social navi-gation,” in IEEE International Conference on Robotics and Automation (ICRA) , pp. 9130–9137, 2025. [11] Y. Wang, J. Yu, Y. Kong, L. Sun, C. Liu, J. Wang, and W. Chi, “Socially adaptive path planning based on generative adversarial network,” IEEE Transactions on Intelligent Vehicles , vol. 10, no. 8, pp. 4267–4278, 2025. [12] W. Wang, R. Wang, L. Mao, and B.-C. Min, “Socially aware robot navigation with hybrid spatio-temporal graph transformer and prefer-ence learning,” in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 11348–11355, 2023. [13] J. Carvalho, A. Le, M. Baierl, D. Koert, and J. Peters, “Motion plan-ning diffusion: Learning and planning of robot motions with diffusion models,” in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 1916–1923, 2023. [14] K. Mizuta and K. Leung, “Diffusion-based conditional robot planning in dynamic environments using control barrier and lyapunov func-tions,” in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 13801–13808, 2024. [15] A. Bajcsy, S. L. Herbert, D. Fridovich-Keil, J. F. Fisac, S. Deglurkar, A. D. Dragan, and C. J. Tomlin, “A scalable framework for real-time multi-robot, multi-human collision avoidance,” in IEEE International Conference on Robotics and Automation (ICRA) , pp. 936–943, 2019. [16] R. A. Knepper and D. Rus, “Pedestrian-inspired sampling-based multi-robot collision avoidance,” in IEEE International Symposium on Robot and Human Interactive Communication (RO-MAN) , pp. 94–100, 2012. [17] S. Farell, C. Li, H. Yu, R. Yoshimitsu, S. Gao, and H. I. Christensen, “Safe human robot navigation in warehouse scenario,” in IEEE Inter-national Conference on Automation Science and Engineering (CASE) ,pp. 548–555, 2025. [18] M. Boldrer, A. Antonucci, P. Bevilacqua, L. Palopoli, and D. Fontanelli, “Multi-agent navigation in human-shared environments: A safe and socially-aware approach,” Robotics and Autonomous Sys-tems , vol. 149, p. 103979, 2022. [19] W. Wang, L. Mao, R. Wang, and B.-C. Min, “Multi-robot cooperative socially-aware navigation using multi-agent reinforcement learning,” in IEEE International Conference on Robotics and Automation (ICRA) ,pp. 12353–12360, 2023. [20] Y. Shaoul, I. Mishani, S. Vats, J. Li, and M. Likhachev, “Multi-robot motion planning with diffusion models,” in International Conference on Learning Representations (ICLR) , 2025. [21] G. Sharon, R. Stern, A. Felner, and N. R. Sturtevant, “Conflict-based search for optimal multi-agent pathfinding,” Artificial Intelligence ,vol. 219, pp. 40–66, 2015. [22] R. Stern, N. R. Sturtevant, A. Felner, S. Koenig, H. Ma, T. T. Walker, J. Li, D. Atzmon, L. Cohen, T. K. S. Kumar, R. Bart´ ak, and E. Boyarski, “Multi-agent pathfinding: Definitions, variants, and benchmarks,” in International Symposium on Combinatorial Search (SoCS) , pp. 151–158, 2019. [23] D. Silver, “Cooperative pathfinding,” in AAAI Conference on Artificial Intelligence and Interactive Digital Entertainment , vol. 1, p. 117–122, 2005. [24] G. Sartoretti, J. Kerr, Y. Shi, G. Wagner, T. K. S. Kumar, S. Koenig, and H. Choset, “Primal: Pathfinding via reinforcement and imitation multi-agent learning,” IEEE Robotics and Automation Letters , vol. 4, pp. 2378–2385, 2018. [25] A. Andreychuk, K. Yakovlev, E. Boyarski, and R. Stern, “Improving continuous-time conflict based search,” Proceedings of the AAAI Conference on Artificial Intelligence , vol. 35, pp. 11220–11227, 05 2021. [26] J. Liang, J. K. Christopher, S. Koenig, and F. Fioretto, “Multi-agent path finding in continuous spaces with projected diffusion models,” 2024. [27] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 33, pp. 6840–6851, 2020. [28] J. Li, A. Tinka, S. Kiesel, J. W. Durham, T. K. S. Kumar, and S. Koenig, “Lifelong multi-agent path finding in large-scale ware-houses,” in International Conference on Autonomous Agents and Multi-Agent Systems (AAMAS) , pp. 1898–1900, 2020. [29] S. Pellegrini, A. Ess, K. Schindler, and L. Van Gool, “You’ll never walk alone: Modeling social behavior for multi-target tracking,” in 
+
+IEEE International Conference on Computer Vision (ICCV) , pp. 261– 268, IEEE, 2009. [30] A. Lerner, Y. Chrysanthou, and D. Lischinski, “Crowds by example,” 
+
+Computer Graphics Forum , vol. 26, no. 3, pp. 655–664, 2007. [31] W. Xiao, T.-H. Wang, C. Gan, R. Hasani, M. Lechner, and D. Rus, “Safe planning with diffusion probabilistic models,” in International Conference on Learning Representations (ICLR) , 2025.

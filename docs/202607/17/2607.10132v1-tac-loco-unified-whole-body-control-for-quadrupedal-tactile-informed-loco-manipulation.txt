@@ -1,0 +1,752 @@
+Title: TAC-LOCO: Unified Whole-Body Control for Quadrupedal TACtile-Informed LOCO-Manipulation
+
+URL Source: https://arxiv.org/pdf/2607.10132v1
+
+Published Time: Tue, 14 Jul 2026 00:39:51 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# TAC-LOCO: Unified Whole-Body Control for Quadrupedal TACtile-Informed LOCO-Manipulation 
+
+Muqun Hu 1,∗, Yuhao Zhou 1,∗, Kabir Ray Malik 1, Chi Lin 1
+
+Won Suk Lee 2, Yu She 1, Yan Gu 1,†
+
+> 1
+
+Purdue University 2University of Florida 
+
+> ∗
+
+Equal contribution. †Corresponding author. 
+
+Abstract: Dynamic loco-manipulation requires legged robots to coordinate whole-body motion while maintaining stable physical interaction with grasped objects under uncertain external forces. While tactile sensing has been widely studied for robotic manipulation, its role in dynamic whole-body control remains largely unexplored. Existing works without tactile feedback commonly grasp firmly rather than regulate the grasp according to the interaction. We propose TAC-LOCO, a tactile-augmented unified reinforcement learning framework that encodes tactile array observations from compliant grippers into a compact latent representation and joins it with proprioception for unified control of the legs, arm, and gripper. With effective grasp stability reward design, the policy learns to si-multaneously track body velocity and end-effector trajectories, moderate grasp force, and prevent object slip under both gradual load changes and sudden release events. We deploy the policy zero-shot on a Unitree Go2 with an Interbotix Wid-owX 250 arm and tactile gripper, demonstrating dynamic tactile-informed loco-manipulation under varying external interactions, achieving a 47% reduction in grasping force and an object drop rate of less than 1%. 
+
+Keywords: Unified Tactile Sensing and Loco-manipulation, Reinforcement Learning, Whole-body Control Dynamic Loco -Manipulation 
+
+> Tactile -Informed Grasp Adaptation
+
+Figure 1: We present a unified tactile-informed whole-body control policy for dynamic loco-manipulation , reducing grasping force and preventing object slip during unknown and time-varying external forces. The policy can accommodate a variety of object shapes and sizes. 
+
+## 1 Introduction 
+
+Legged robots have rapidly evolved from robust locomotion platforms [1, 2] into mobile manipula-tion systems capable of interacting with complex environments [3, 4]. Recent advances in whole-body control (WBC) and reinforcement learning (RL) have enabled quadruped robots with arms arXiv:2607.10132v1 [cs.RO] 11 Jul 2026 to coordinate locomotion and manipulation, extending their reachable workspace and supporting tasks such as reaching, picking, pushing, pressing, and object transport during locomotion [5]. This progress opens the door to dynamic contact-rich tasks, where the robot must not only track an end-effector (EE) trajectory but also maintain stable physical interaction with the environment. While whole-body loco-manipulation of unconstrained objects in static or quasi-static environments has been extensively studied [6, 7, 8, 9, 10, 11, 12, 13], many real-world tasks remain challenging when objects are subject to unknown and time-varying external forces. This difficulty is particularly pronounced in contact-rich manipulation, where successful execution requires the robot to contin-uously regulate in-hand contact forces in response to changing external loads. For instance, when pulling fruit from a stem, the resisting force may gradually increase as the stem deforms and then disappear abruptly upon detachment. Without sensing these evolving interaction forces, the robot may fail to adjust its grasp strength or whole-body motion in time, leading to object slip, excessive contact force, or unstable manipulation. Despite the importance of interaction forces, existing legged loco-manipulation policies typically rely on implicit modeling to estimate external forces applied to robot body links, without directly observing in-hand grasp forces [14, 10, 15]. This may limit the robot’s ability to regulate contact in dynamic manipulation tasks, since the lack of direct observation of object contact state may lead to slower reactions to object slip. As a result, these methods typically prescribe the gripper state or grasping mode manually, rather than learning dynamic, task-adaptive gripper actions. On the other hand, tactile sensors provide direct access to rich contact information and have been widely studied in robotic manipulation [16, 17, 18]; however, they remain underexplored as policy inputs for dynamic whole-body loco-manipulation control. In contrast, TAC-LOCO integrates tactile ob-servations from compliant grippers into one unified whole-body policy that learns gripper actions together with whole-body motion, addressing the coupled nature of dynamic object movement and grasping regulation, enabling the robot to adapt its grasp in response to changing interaction forces during simultaneous loco-manipulation. The main contributions of this work are summarized as follows: (a) We propose TAC-LOCO, a tactile-informed unified RL framework that jointly controls the legs, arm, and gripper for dynamic whole-body loco-manipulation under unknown time-varying exter-nal forces. (b) We design an MDP formulation that integrates compact tactile latent observations with propri-oception, enabling the policy to infer grasp state and adapt gripper actions online, reducing the grasping force by 47% with an object drop rate of less than 1% .(c) We validate the framework in simulation and zero-shot hardware experiments (Fig. 1), demon-strating a 90% success rate during dynamic loco-manipulation and generalizability to various object shapes. To the best of our knowledge, this is the first whole-body control framework for dynamic legged loco-manipulation that jointly unifies tactile sensing, gripper regulation, and whole-body policy learning. 
+
+## 2 Related Works 
+
+Dynamic Whole-Body Loco-Manipulation. Existing dynamic loco-manipulation methods can be broadly categorized into model-based WBC, hierarchical learning-based control, and unified RL policies. Model-based approaches such as whole-body model predictive control (MPC) explicitly optimize robot dynamics, contact constraints, and task-space objectives, enabling precise EE con-trol and physically consistent interaction, but often require accurate models of contact and external forces [19, 20, 21, 22]. Hybrid methods such as RAMBO [23] combine model-based WBC with RL to improve robustness to unmodeled dynamics while retaining the precision of online opti-mization. Among learning-based methods, Deep Whole-Body Control [3] pioneered the use of a unified RL policy for coordinated loco-manipulation, while hierarchical learning frameworks, such as [6, 7, 9, 24], achieve increasingly diverse capabilities through high-level command or trajectory 2generation and low-level whole-body tracking. More recent methods explicitly consider EE force in-teractions: FALCON [25] trains humanoid policies with a 3D EE force curriculum for implicit force adaptation, while UniFP [14] learns a policy capable of both position and force control without rely-ing on physical force sensors. Despite these advances, most methods either model forces explicitly, inject force perturbations during training, or infer interaction effects indirectly from proprioception, rather than directly observing the internal grasp state at the contact interface, including pressure distribution, slip tendency, or loss of contact. Our work targets this missing layer of interaction information by incorporating tactile array observations from the gripper into the policy. 
+
+Loco-Manipulation with Tactile Sensing. Recent advances in tactile sensing have enabled legged robots to perceive rich contact cues, including ground interaction, local deformation, contact shear/force, terrain properties, and payload stability [5, 26, 27, 28]. For whole-body loco-manipulation policies, tactile sensors have been mostly introduced for contact-rich ma-nipulation, including diffusion-based, transformer-based, and vision-language-action-style frame-works [29, 30, 31]. However, most of these systems perform manipulation in a quasi-static manner, rather than achieving fully synchronized manipulation during locomotion. This challenge becomes more pronounced when the task requires precise grasp regulation, where the robot must coordinate whole-body motion with tactile feedback to maintain stable yet adaptive contact forces. To address this gap, our system leverages tactile grippers as active policy inputs for dynamic object interaction under external disturbances, variable forces, and sudden release events in an end-to-end manner. 
+
+Tactile Simulation. Although vision-based tactile sensors such as the GelSight family [32] provide rich image-based contact information, accurately simulating their measurements remains challeng-ing. Existing rendering-based tactile simulators often struggle to match real-world tactile images, leading to a large sim-to-real gap [33]. In contrast, low-dimensional array-based tactile sensors of-fer a simpler and more simulation-friendly alternative, where each taxel measures contact intensity primarily correlated with local normal force [34, 35]. This compact representation is easier to sim-ulate and transfers more reliably between simulation and the real world, enabling scalable parallel training of reinforcement learning policies. 
+
+Comparison with related works. We compare our work with representative prior works on legged dynamic loco-manipulation to highlight our differences and contributions. A summary of key feature differences is provided in Tab. 1. TAC-LOCO differs from prior works by combining unified whole-body control with explicit online grasp adaptation for dynamic loco-manipulation. Particularly, in contrast to LocoTouch [5], which converts distributed tactile readings into a binary contact map to indicate contact presence, our method preserves the continuous spatial distribution of normalized force readings from the tactile arrays. Table 1: Comparison of existing works and ours.                             
+
+> Method Unified Policy Contact sensing Tactile-informed Online grasp regulation
+> Deep WBC [3] Yes No No No VBC [6] No No No No FALCON [25] No Implicit; external No No UniFP [14] Yes Implicit; external No No LocoTouch [5] -Direct; external Binary -
+> TAC-LOCO (Ours) Yes Direct; in-hand Normalized Adaptive
+
+## 3 Problem Definition 
+
+We formulate the problem as tactile-informed dynamic loco-manipulation of an already-grasped object. Object search, navigation, grasp selection, and reaching-to-grasp are not considered in this work, as they do not involve tactile information and can be can be handled by upstream perception and manipulation modules [3, 6]. We isolate the post-grasp control problem, when the robot is assumed to have established initial gripper-object contact at the object’s initial position pW 
+
+> 0
+
+before 3User Command  
+
+> Proprioception
+> Privileged Info Privileged Info Encoder
+> Adaptation Encoder Obs. History
+> Gripper Tactile Array
+> Tactile
+> Encoder
+> Unified Policy
+> Regularized Online Adaptation Training
+> Policy Deployment
+
+𝐩𝐩 0𝒲𝒲 
+
+𝐨𝐨 𝑡𝑡 
+
+𝐅𝐅 ext 
+
+𝐩𝐩 𝑓𝑓 ℬ
+
+𝐳𝐳 𝑡𝑡 
+
+�𝐳𝐳 𝑡𝑡  
+
+> 𝐚𝐚𝑡𝑡 𝑚𝑚𝑚𝑚𝑚𝑚𝑚𝑚
+> 𝐚𝐚 𝑡𝑡 𝑙𝑙𝑙𝑙𝑙𝑙𝑙𝑙
+> EE Command Trajectory
+> Final Position
+> Equilibrium Point
+> Velocity Command
+> 𝐴𝐴 𝑚𝑚𝑚𝑚𝑚𝑚𝑚𝑚
+> 𝐴𝐴 𝑙𝑙𝑙𝑙𝑙𝑙𝑙𝑙
+> 𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠𝑠 𝑠𝑠𝑠𝑠 𝑟𝑟 𝑠𝑠 𝑟𝑟𝑟𝑟 𝑠𝑠𝑠𝑠 𝑟𝑟 𝑠𝑠
+
+Figure 2: Framework of TAC-LOCO. We encode high-dimensional tactile array information into a lower-dimensional latent representation, then include it in the observation of the unified loco-manipulation policy. The policy is deployed zero-shot and achieves grasp stability under time-varying external forces during dynamic loco-manipulation. the task begins. Given a desired EE trajectory and a non-trivial locomotion velocity command, the robot must coordinate base, leg, and arm movements while pulling the object. The grasped object is subject to an unknown time-varying external force Fext ,t that may vary smoothly or change suddenly. These interactions can alter the internal grasp condition and may induce slip or contact loss. The control objective is to reach the desired final EE position pB 
+
+> f
+
+in the robot body frame without losing object contact, while maintaining the desired body velocity under stable locomotion. We define success as completing the target EE motion without losing the grasp. This problem setting isolates the challenge of using tactile feedback for grasp-aware whole-body control under uncertain external forces. 
+
+## 4 Methodology 
+
+Overview. We propose TAC-LOCO, a tactile-augmented unified WBC framework for dynamic loco-manipulation. The policy extends the framework of [3], where a single multilayer perceptron (MLP) jointly controls the manipulator and leg joints instead of relying on separate locomotion and manipulation controllers, dynamically optimizing whole-body actions to address inherently coupled upper and lower-body motion. Our framework further incorporates tactile feedback from the gripper to inform the policy about the internal grasp state during dynamic interaction, since slip, impending object contact loss, and excessive grasping force are difficult to infer from proprioception alone. We address this by encoding tactile-array observations into a compact latent representation and designing an MDP that enables online grasp regulation during dynamic loco-manipulation. An overview of our framework is shown in Fig. 2. 
+
+Policy architecture. During training, the grasped object is subjected to randomized time-varying external forces, including both gradual load changes and sudden release events. This setting follows our problem formulation and reflects deployment scenarios in which an object is pulled against an uncertain load that may change smoothly or vanish abruptly, such as when a fruit stem snaps during pulling. The actor observes only proprioception, action history, and tactile measurements, restricting the policy to observations available during deployment. For each policy inference, tactile array signals from the two gripper fingers are encoded into a compact tactile latent with a two-layer MLP. This compression keeps the tactile representation comparable in dimension to the other observation components, avoiding direct concatenation of high-dimensional tactile arrays that could dominate the policy input. The tactile latent is concatenated with robot proprioception and an encoded history representation, and then passed to the actor network as Ot. The actor uses a shared backbone to extract common whole-body features and branches into separate leg and arm action heads. The leg 4action head aloco  
+
+> t
+
+outputs desired leg joint positions, while the arm action head amani  
+
+> t
+
+outputs desired arm and gripper joint positions. Although actions are partitioned into leg and manipulation heads for credit assignment, both heads share a common observation backbone and are optimized jointly, yielding a single unified policy at deployment. These desired joint positions are sent to low-level motor or servo controllers and tracked through joint-level PD control. 
+
+Policy training. The policy is trained with rewards grouped into locomotion and manipulation categories. Locomotion rewards rloco encourage commanded base motion, stability, and efficient leg behavior, while manipulation rewards rmanip encourage EE tracking and stable object interaction. Inspired by the advantage-mixing idea in [3], the locomotion and manipulation advantage functions, 
+
+Aloco and Amanip , are first used to primarily update the corresponding leg and arm action heads, respectively, reducing the difficulty of credit assignment in the high-dimensional action space. A scheduled advantage-mixing mechanism then gradually couples the two objectives, allowing the policy to learn coordinated whole-body behaviors in which locomotion supports tactile-informed manipulation to achieve grasp stability under external disturbances. We train the tactile-informed WBC policy using proximal policy optimization (PPO) [36], a widely used and effective on-policy RL algorithm. The observation space, reward terms, and PPO hyperparameters are reported in the Appendix. 
+
+4.1 Simulation Setup Task Simulation. We implement our framework in Isaac Lab [37] using a Unitree Go2 quadruped robot with an Interbotix WidowX 250 arm on its back. At the beginning of each episode, the arm is initialized at a randomized configuration, and the object is placed at the center of the gripper with the gripper width set close to the object diameter, simulating an already-established grasp condition. To model unknown external forces on the object, we use a spring-damper force model whose equilibrium position is set to pW 
+
+> 0
+
+, as illustrated in Fig. 2. The stiffness k, damping c, and force-release threshold Fthr are randomized across episodes to cover a range of realistic deployment conditions. When the external force exceeds the sampled threshold, the force is removed for the remainder of the episode, modeling sudden release events such as detachment when pulling an object from a resisting source. Here the external force Fext ,t is defined as: 
+
+Fext ,t =
+
+(0, ∃ T < t such that ∥Fext ,T ∥ > F thr ,kpe,t + c( ˙ pW · ˆpe,t )ˆ pe,t , otherwise . (1) where pW 
+
+> t
+
+is the object position, pe,t = pW 
+
+> 0
+
+−pW 
+
+> t
+
+and ˆpe,t denotes the unit vector in the direction of 
+
+pe,t . In addition to standard terminations such as robot falling, we terminate the episode 2.0 s after complete object loss from the gripper, avoiding training on post-failure states while discouraging abrupt recovery behaviors that would be undesirable for safe deployment. 
+
+Tactile Simulation. Following prior work [35], we simulate tactile contacts in Isaac Lab using the TacSL formulation [33]: for each taxel point xi, contact is detected by querying the signed distance field (SDF) of the rigid object. Negative SDF values indicate penetration, with depth 
+
+di = max( −ϕ(xi), 0) after correcting for non-uniform mesh scaling. The contact normal ni is ob-tained from the normalized SDF gradient and transformed back to the world frame. The elastomer-object interaction is modeled as compliant contact with PhysX stiffness and damping parameters, equivalent to a Kelvin–Voigt spring-damper model. Small collision offsets allow controlled inter-penetration, improving contact stability and producing smoother tactile signals. For each taxel, the normal force is computed as fn,i = kndini, transformed into the local tactile frame, projected onto the tactile surface normal, and flattened into a 12 × 32 normal-force observation for each sensor. To reduce the sim-to-real gap while preserving spatial contact patterns, we normalize each simulated tactile frame independently. Given the raw force map F ∈ R12 ×32 , we set Fij = |fn,ij | and Fmax =max i,j Fij . The normalized value is ˜Fij = Fij /F ref when Fmax < τ F , and ˜Fij = Fij /F max 
+
+otherwise, where τF is a near-zero contact threshold and Fref is a fixed reference scale. The resulting map is clipped to [0 , 1] and flattened as the tactile observation. Additional implementation details, sim-to-real comparisons, and tactile-domain randomization are provided in the Appendix. 54.2 Observation Design 
+
+The privileged states available to the privileged encoder include not only quantities commonly used for trajectory tracking and dynamics adaptation, such as the base linear velocity and EE position, but also object contact information not directly available on hardware. Specifically, we include the object position and velocity relative to the end effector, which indicate object retention and potential slip, together with the internal contact forces between the object and gripper in both normal and shear directions. These privileged quantities provide supervision for evaluating whether the object is securely grasped, sliding within the gripper, or approaching contact loss. During deployment, the actor must infer the internal grasp state from proprioception and tactile array measurements. This design encourages the policy to use tactile feedback as the deployable sensing modality for grasp-aware whole-body control under external disturbances. A detailed list of observations for each module of our work is listed in the Appendix. 
+
+4.3 Grasp Stability Reward Design 
+
+The grasp stability reward is a subset of the manipulation reward, designed to regulate the internal object-gripper interaction during dynamic loco-manipulation. In addition to tracking the desired EE trajectory, the policy must maintain a secure but not overly tight grasp. We therefore decompose the grasp stability reward into three terms: rgrasp = rforce + rslip + rretention . The force mod-eration term rforce penalizes excessive internal grasping force between the gripper and the object, encouraging compliant contact rather than over-constraining the object. The slip term rslip penal-izes relative velocity between the object and the EE, discouraging incipient sliding within the grasp. The retention term rretention penalizes excessive relative displacement between the object and the gripper, preventing complete loss of contact or object dropping. In summary, these terms encourage the policy to use tactile feedback to maintain stable object retention while avoiding unnecessarily large grasping forces. A complete reward table is provided in the Appendix. 
+
+## 5 Simulation Results (a) Tactile-driven grip tightening in response to force-induced slip 
+
+> (b) Tactile-driven grip adjustment following sudden external force removal
+> sudden force removal time
+> adaptive regulation
+
+Figure 3: Grasping width changes during object-EE relative velocity and time-varying external force. We first evaluate TAC-LOCO in simula-tion to study how tactile feedback affects grasp regulation during dynamic loco-manipulation. We design experiments to answer the following questions: (1) Can the learned policy adapt the gripper width in response to changing external forces and EE motion (Sec. 5.1)? (2) Does tactile feedback improve task success and reduce object slip (Sec. 5.2)? (3) Can the learned policy track long EE trajectories and body commands while maintaining object reten-tion (Sec. 5.3)? (4) How does each com-ponent of the grasp stability reward con-tribute to force moderation, slip suppres-sion, and object retention (Sec. 5.4)? Due to the dynamic nature of our tasks, readers are strongly encouraged to view the supplementary video for a better visualization of our results. 
+
+5.1 Grasping Width Adaptation Tactile feedback enables adaptive grasp regulation under time-varying external forces. We examine whether the learned policy uses tactile feedback to regulate grip strength online rather than maintaining a fixed conservative grasp. Fig. 3 shows two representative simulation rollouts, 6plotting the external force applied to the object Fext ,t , the relative velocity between the object and EE, and the gripper width over time. In the left subplot, the increasing external force induces object slip, indicated by non-zero relative velocity. The policy responds by rapidly reducing the gripper width and further tightening the grasp as the force continues to grow, until the relative velocity is suppressed. In the right subplot, the policy similarly tightens the grasp under increasing force. However, when the force suddenly disappears, the gripper width increases again, relaxing the grasp. These results show that the policy does not rely on overly firm grasping, but adaptively regulates grip online based on tactile cues from object motion and external disturbances. 
+
+5.2 No-slip Object Loco-manipulation with Tactile Feedback 
+
+Figure 4: Fraction of rollouts maintaining grasp contact with the object over trajectory progress. Tactile-informed policy substantially improves slip-free completion of the trajectory. 
+
+Tactile feedback improves robustness under dynamic loco-manipulation. We next evaluate whether tactile feedback improves task success and reduces object slip during dynamic loco-manipulation. We compare our method, which uses tactile arrays on the gripper fingers, against a proprioception-only baseline that does not re-ceive tactile observations but still observes the gripper width through joint position feedback. For both methods, we sample 8000 randomized combinations of body-velocity commands and EE trajectory commands and roll out the policy under randomized external forces. When the object is dropped, we record the trajectory progress at failure, defined as the current time divided by the total trajectory duration. Figure 4 plots the fraction of rollouts that remain grasping the object over the trajectory progress. As the trajectory progresses, the proprioception-only baseline exhibits an increasing object-drop rate due to the magnitude and variance of the external force growing as the object is pulled farther from its equilibrium. As a result, only 46 .4% of the rollouts without tactile observations complete the trajectory successfully. In contrast, our tactile-informed policy maintains object retention for the en-tire trajectory 99 .9% of the time. This indicates that tactile observations provide critical information about the contact state, enabling the policy to adjust the gripper and whole-body motion before slip develops into complete loss of contact. 
+
+5.3 Additional Simulation Evaluation The policy maintains grasp stability over large workspace motions. To further characterize the loco-manipulation capability of the proposed method, we visualize simulation rollouts with a large workspace and long EE trajectories. As shown in Fig. 5, the robot moves the grasped object from an initial position far to the side of the body to a final target position in front of the robot, requiring coordinated locomotion, arm motion, and gripper regulation over a large spatial displacement. This result illustrates that the learned policy can track long EE trajectories while maintaining object re-tention under time-varying external forces. The supplementary video further visualizes the change in the external force applied to the object, together with the corresponding tactile array observations throughout the trajectory. 
+
+The policy preserves whole-body command tracking during tactile-informed grasp regulation. 
+
+We further evaluate command tracking performance across randomized simulation rollouts. Specif-ically, we measure the tracking errors for body linear velocity, body yaw rate, and end-effector po-sition along the commanded trajectory. Fig. 6 reports the distribution of the average tracking error for each metric over 8000 rollouts, where each rollout samples a randomized end-effector trajectory and body velocity command. The tracking errors remain low across randomized rollouts, demon-strating accurate command tracking for both locomotion and end-effector motion comparable to that reported in baseline work [3]. 7Start  Finish      
+
+> Start Finish
+> Start Finish
+> T1
+> T1
+> T1
+> T2
+> T2
+> T2
+> T3
+> T3
+> T3
+> T4
+> T4
+> T4
+> T5
+> T5
+> T5
+> Equilibrium Point Target Trajectory Force Direction Force Magnitude
+
+Figure 5: Simulation evaluation under time-varying external forces with a wider workspace. Each row shows a representative robot trajectory together with the tactile observation from one gripper finger. From T1 to T3, the external force pulling the object toward the equilibrium point gradually increases during loco-manipulation and is suddenly released at T4. The robot maintains balance and grasp stability while reaching the target position at T5.
+
+Figure 6: Distributions of the linear-velocity, angular-velocity, and end-effector position tracking errors over 8000 trajectories in simulation. 85.4 Ablations on Reward Design 
+
+Figure 7: Ratio of environments terminated over policy update iterations. Slip and retention re-wards improve task success. Policy Variant Avg. Force (N) ↓ Width (mm) ↑      
+
+> TAC-LOCO full reward 13.11 24.65 w/o Force Reg. Reward 24.76 22.20 w/o Retention/Slip Reward 25.74 21.62
+
+Table 2: Ablation study on average tactile force and gripping width. Force is averaged over the left and right elastomer contact force magnitudes. 
+
+Grasp stability rewards promote robust yet force-efficient object retention. We examine how the grasp stability reward components con-tribute to force moderation, slip suppression, and object retention. We first study the slip and re-tention terms, which provide dense guidance for keeping the object within the gripper. As shown in Fig. 7, removing these terms forces the pol-icy to rely mainly on episode termination from object drops. This sparse, binary signal makes credit assignment difficult, as it does not reveal whether failure results from gradual slip, exces-sive EE motion, or complete contact loss. We further run an ablation on the force modera-tion term to evaluate whether it prevents overly conservative grasping. Removing this term does not impact the task success rate; however, this results in substantially higher internal grasping force throughout the episode (Tab. 2). Compared with the ablation without force moderation, our full reward design uses only 53% of the average grasping force while maintaining comparable ob-ject retention performance. This indicates that, without explicit force moderation, the policy tends to maximize task success through conservative grasping, whereas the proposed reward encourages a more adaptive grasp that is sufficient for slip prevention without applying unnecessary contact force. 
+
+## 6 Deployment Results 
+
+We deploy the TAC-LOCO policy zero-shot on hardware, using normalized tactile observations and tactile domain randomization to reduce the sim-to-real gap. For the robot hardware, two FlexiTac 
+
+tactile sensors [35] are mounted on fin-shaped parallel TPU fingers, providing the same sensing res-olution ( 12 × 32 ) and contact area ( 25 × 66 mm 2) as in simulation. To reproduce the force-changing task, we use springs with stiffness values of 6.1 and 12 .3 N /m and magnets with breaking forces ranging from 2 to 5 N , matching the randomized force profiles used in simulation. In hardware, the grasped object is a cylindrical object with the same shape and size as the object used during training, connected to a spring-magnet assembly, where the opposite magnet is fixed to a rigid cable. As the robot pulls the object, the spring force increases until it exceeds the magnetic breaking force, causing magnet separation and producing a sudden force-release event. The experiment setup is depicted in Fig. 8. Each trial starts from an already-established grasp, using the same initial gripper configuration as in simulation and producing clear tactile contact features. In the real-world experi-ments, the commanded body velocity and EE trajectory are selected from predefined command sets grouped into two difficulty levels, and 10 trials are conducted for each setting. Detailed trajectory parameters are specified in the Appendix. 
+
+6.1 Whole-body Motion and Dynamic Loco-manipulation     
+
+> Task Large EE Motions Loco-manipulation Success Rate 1.0 0.9
+
+Table 3: Success rates of policy deployment of two difficulty levels. In Fig. 8 (a), the policy successfully maintains the grasp while executing large EE motions and whole-body posture changes. The same policy also enables dynamic loco-manipulation, where the robot walks across the workspace while pulling the object and maintaining contact throughout the motion, shown in Fig. 8 (b). In both tasks, object contact was sustained across sudden changes in the object’s external force caused by magnet separation. Readers may refer to the supplementary video. 9𝐅𝐅 ext         
+
+> T = 0s T = 2.5s
+> T = 4.1s T = 5.0s
+> magnetic detachment
+> T1= 0s T2= 2.1s
+> T3= 4.0s
+> magnetic detachment at T2
+
+b
+
+c 
+
+> Start Finish
+
+a (𝐅𝐅 ext  > 5N  )   
+
+> (𝐅𝐅 ext >2N )
+> 𝐅𝐅 ext
+> Fixed End
+
+Figure 8: Real-world evaluation tasks. (a) Manipulation under time-varying external forces, where magnets and springs generate controlled stiffness, external loading, and sudden force-release events. (b) Dynamic loco-manipulation, where the robot tracks base-velocity commands while transporting a grasped cylinder and recovering from sudden force release. (c) The trained policy generalizes to unseen objects during loco-manipulation. 
+
+6.2 Generalizability in Object Shapes and Sizes 
+
+We further evaluate whether the same policy generalizes to object geometries not seen during train-ing. Without any fine-tuning, the policy successfully completes the task while grasping a sphere and an artificial strawberry, demonstrating that it does not rely on a fixed object shape or contact pattern. We attribute this generalization to tactile-domain randomization and the normalized tactile represen-tation, which encourage the policy to react to changes in contact area and contact distribution rather than memorize explicit object geometry. 
+
+6.3 Robustness to disturbance forces on the object 
+
+We further test the robustness of the deployed policy against additional object disturbances beyond the spring-damper external force modeled in training. During the loco-manipulation task, we manu-ally apply randomized perturbation forces Fd to the grasped object in directions independent of the nominal spring-damper force, with a maximum magnitude of 5.6 N, which is comparable in order of magnitude to the modeled external force. Shown in Fig. 10, despite these disturbances, the robot successfully completes the task, maintaining stable locomotion and object retention, demonstrating that the learned policy can tolerate unmodeled external perturbations during real-world dynamic loco-manipulation. 
+
+6.4 Grasp regulation behavior on hardware 
+
+As shown in Fig. 9, we manually pull a previously unseen grasped object, an artificial strawberry, outward from the gripper to induce in-hand slip. Once slip occurs, the policy rapidly decreases the gripper width and continues tightening the grasp as the object approaches the fingertip edge, con-sistent with the simulation results in Sec. 5.1. Compared with simulation, the hardware response exhibits larger gripper-width adjustments, likely due to differences in fingertip compliance and ma-terial properties between the simulated and real systems. Nevertheless, the policy adapts until a stable tactile contact pattern is restored. Similar behavior is observed across other unseen object geometries, suggesting that the policy relies on generalizable contact features, such as the spatial distribution and relative intensity of tactile signals, rather than object-specific tactile patterns. 10 (a)  (b)   
+
+> Pulling T = 0s T = 2s
+
+Figure 9: Grasp regulation behavior of the trained policy. (a) The artificial strawberry is pulled from the center toward the edge of the elastomer surface. (b) The gripper width is adjusted online in response to in-hand slip and changes in the applied force, maintaining a stable grasp while preventing excessive gripping force. Start         
+
+> Finish
+> T = 0.5s T = 1.5s
+> T = 2.5s T = 4. 0s
+> magnetic detachment
+> (𝐅𝐅 ext >5N )
+> Force Gauge
+
+𝐅𝐅 ext 
+
+𝐅𝐅 𝑑𝑑 
+
+Figure 10: Real-world robustness to unmodeled object disturbances. During loco-manipulation, ran-domized perturbation forces up to 5.6 N are manually applied to the grasped artificial strawberry in directions independent of the nominal spring–damper force. The robot maintains stable locomotion and object retention while completing the task. 
+
+6.5 Baseline comparison 
+
+We compare our method with Deep WBC [3] deployed on hardware, which uses a similar unified policy training framework for coordinated locomotion and manipulation, but does not include tactile observations or actions for adaptive gripper control. During deployment, the gripper width is set to a fixed value matching the initial gripper width used in both training and deployment of our tactile-informed policy. This gripper width firmly grasps the object under no external load, while avoiding an overly conservative grasp. We conduct 10 hardware trials using the same set of loco-manipulation commands as in Sec. 6. Table 4 compares the success rates of our policy and the baseline, showing that our tactile-informed policy achieves a substantially higher success rate. Figure 11 shows that the baseline suffers from gradual object slip during the task. Since the gripper width remains fixed, the policy cannot actively suppress slip once the external force changes. 11 Table 4: Deployment success rate comparison with baseline. Method Deep WBC [3] TAC-LOCO (Ours) Success Rate 0.5 0.9 Start  Finish     
+
+> Start Finish
+> T = 0s T = 2.0s T = 4.0s
+> T = 2.2s T = 1.5s T = 7.0s T = 0s
+> T = 6.0s
+> Locomotion Failure Object Drop
+> Object Slip
+
+Figure 11: Benchmarking against [3]. The baseline uses a fixed gripper width and therefore cannot actively compensate for changes in the external force. The top row shows gradual in-hand object slip during loco-manipulation. The bottom row shows a failure case in which the object is dropped, followed by locomotion failure. We also observe that the baseline can exhibit unstable locomotion when the object is dropped during deployment. In this case, the sudden loss of object contact induces an abrupt change in the force ap-plied to the end effector, causing large oscillatory body motion and poor body-velocity tracking. We attribute this failure mode to the baseline policy not encountering such sudden interaction changes during training, leading to undesirable motion and locomotion failure. 
+
+## 7 Limitations 
+
+Our method has two main limitations. First, although tactile feedback enables the policy to reduce internal grasping force, the current simulator does not perfectly reproduce the real-world deforma-tion of the gripper and tactile array. In particular, after normalizing tactile readings for sim-to-real transfer, the policy can reliably use tactile signals to infer relative changes in contact state, but not to enforce an exact absolute grasp-force threshold. Second, our hardware uses a servo-controlled arm whose actuator dynamics and control are difficult to accurately identify for simulation. As a result, the deployment results may not fully reflect the potential of the proposed method; we expect that a proprioceptive, backdrivable torque-controlled arm would enable stronger dynamic performance. 
+
+## 8 Conclusion 
+
+In this work, we presented TAC-LOCO, a tactile-informed unified reinforcement learning frame-work for quadrupedal loco-manipulation under unknown and time-varying external forces. By inte-grating compact tactile representations with proprioceptive observations, the proposed policy jointly coordinates locomotion, arm motion, and adaptive gripper control. Simulation and zero-shot hard-ware experiments demonstrate that tactile feedback improves object retention, reduces unnecessary grasping force, and enables robust dynamic manipulation across varying interactions and object geometries. These results highlight the potential of tactile sensing for reliable whole-body control. 12 References 
+
+[1] J. Hwangbo, J. Lee, A. Dosovitskiy, D. Bellicoso, V. Tsounis, V. Koltun, and M. Hutter. Learn-ing agile and dynamic motor skills for legged robots. Science robotics , 4(26):eaau5872, 2019. [2] Z. Zhuang, Z. Fu, J. Wang, C. G. Atkeson, S. Schwertfeger, C. Finn, and H. Zhao. Robot parkour learning. In 7th Annual Conference on Robot Learning , 2023. URL https: //openreview.net/forum?id=uo937r5eTE .[3] Z. Fu, X. Cheng, and D. Pathak. Deep whole-body control: Learning a unified policy for manipulation and locomotion. In 6th Annual Conference on Robot Learning , 2022. URL 
+
+https://openreview.net/forum?id=zldI4UpuG7v .[4] M. Hu, W. Chen, W. Li, F. Mandali, Z. He, R. Zhang, P. Krisna, K. Christian, L. Benaharon, D. Ma, et al. Towards versatile humanoid table tennis: Unified reinforcement learning with prediction augmentation. arXiv preprint arXiv:2509.21690 , 2025. [5] C. Lin, Y. R. Song, B. Huo, M. Yu, Y. Wang, S. Liu, Y. Yang, W. Yu, T. Zhang, J. Tan, Y. Luo, and D. Zhao. Locotouch: Learning dynamic quadrupedal transport with tactile sensing. In 9th Annual Conference on Robot Learning , 2025. URL https://openreview.net/forum?id= XaJkbK02Vm .[6] M. Liu, Z. Chen, X. Cheng, Y. Ji, R.-Z. Qiu, R. Yang, and X. Wang. Visual whole-body control for legged loco-manipulation. In 8th Annual Conference on Robot Learning , 2024. URL https://openreview.net/forum?id=cT2N3p1AcE .[7] X. Liu, B. Ma, C. Qi, Y. Ding, N. Xu, Zhaxizhuoma, G. Zhang, P. Chen, K. Liu, Z. Jia, C. Guan, Y. Mo, J. Liu, F. Gao, J. Zhong, B. Zhao, and X. Li. Mlm: Learning multi-task loco-manipulation whole-body control for quadruped robot with arm. IEEE Robotics and Automation Letters , 11(1):81–88, 2026. doi:10.1109/LRA.2025.3632087. [8] H. Zhang, H. Yu, L. Zhao, A. Choi, Q. Bai, Y. Yang, and W. Xu. Learning multi-stage pick-and-place with a legged mobile manipulator. IEEE Robotics and Automation Letters , 10(11): 11419–11426, 2025. doi:10.1109/LRA.2025.3608425. [9] M. Jung, J. Lee, Z. He, D. Youm, J. Mun, H. Kim, H. Oh, D. Choi, J. Hur, J. Song, and J. Hwangbo. Learning dynamic pick-and-place for a legged manipulator. IEEE Robotics and Automation Letters , 11(6):7652–7659, 2026. doi:10.1109/LRA.2026.3688092. [10] T. Portela, G. B. Margolis, Y. Ji, and P. Agrawal. Learning force control for legged manip-ulation. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 15366–15372. IEEE, 2024. [11] R.-Z. Qiu, Y. Song, X. Peng, S. A. Suryadevara, G. Yang, M. Liu, M. Ji, C. Jia, R. Yang, X. Zou, et al. Wildlma: Long horizon loco-manipulation in the wild. In 2025 IEEE International Conference on Robotics and Automation (ICRA) , pages 10011–10019. IEEE, 2025. [12] D. Hou, C. Zhu, Z. Zhang, Z. Li, C. Guo, and Y. Liu. Efficient learning of a unified policy for whole-body manipulation and locomotion skills. In 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 5455–5461. IEEE, 2025. [13] G. Pan, Q. Ben, Z. Yuan, G. Jiang, Y. Ji, S. Li, J. Pang, H. Liu, and H. Xu. Roboduet: Learning a cooperative policy for whole-body legged loco-manipulation. IEEE Robotics and Automation Letters , 10(5):4564–4571, 2025. doi:10.1109/LRA.2025.3551230. [14] P. Zhi, P. Li, J. Yin, B. Jia, and S. Huang. Learning a unified policy for position and force control in legged loco-manipulation. In 9th Annual Conference on Robot Learning , 2025. URL https://openreview.net/forum?id=MpJTyAqA0t .13 [15] B. Xu, H. Weng, Q. Lu, Y. Gao, and H. Xu. FACET: Force-adaptive control via impedance reference tracking for legged robots. In 9th Annual Conference on Robot Learning , 2025. URL 
+
+https://openreview.net/forum?id=EcOGafgvuC .[16] Y. Zhou, W. S. Lee, Y. Gu, and Y. She. Tactile-reactive gripper with an active palm for dexter-ous manipulation. npj Robotics , 4:13, 2026. [17] F. R. Hogan, J. Ballester, S. Dong, and A. Rodriguez. Tactile dexterity: Manipulation primi-tives with tactile feedback. In 2020 IEEE International Conference on Robotics and Automa-tion (ICRA) , pages 8863–8869. IEEE, 2020. [18] Y. Zhou, P. Zhou, S. Wang, and Y. She. In-hand singulation and scooping manipulation with a 5 dof tactile gripper. In 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 5238–5243. IEEE, 2024. [19] J.-P. Sleiman, F. Farshidian, M. V. Minniti, and M. Hutter. A unified mpc framework for whole-body dynamic locomotion and manipulation. IEEE Robotics and Automation Letters , 6 (3):4688–4695, 2021. doi:10.1109/LRA.2021.3068908. [20] J.-R. Chiu, J.-P. Sleiman, M. Mittal, F. Farshidian, and M. Hutter. A collision-free mpc for whole-body dynamic locomotion and manipulation. In 2022 International Conference on Robotics and Automation (ICRA) , pages 4686–4693, 2022. doi:10.1109/ICRA46639.2022. 9812280. [21] A. Rigo, M. Hu, S. K. Gupta, and Q. Nguyen. Hierarchical optimization-based control for whole-body loco-manipulation of heavy objects. In 2024 IEEE International Conference on Robotics and Automation (ICRA) , pages 15322–15328, 2024. doi:10.1109/ICRA57147.2024. 10611656. [22] L. Molnar, J. Cheng, G. Fadini, D. Kang, F. Zargarbashi, and S. Coros. Whole-body inverse dynamics mpc for legged loco-manipulation. IEEE Robotics and Automation Letters , 11(1): 898–905, 2026. doi:10.1109/LRA.2025.3636005. [23] J. Cheng, D. Kang, G. Fadini, G. Shi, and S. Coros. Rambo: Rl-augmented model-based whole-body control for loco-manipulation. IEEE Robotics and Automation Letters , 10(9): 9462–9469, 2025. doi:10.1109/LRA.2025.3594984. [24] Y. Ma, A. Cramariuc, F. Farshidian, and M. Hutter. Learning coordinated badminton skills for legged manipulators. Science robotics , 10(102):eadu3922, 2025. [25] Y. Zhang, Y. Yuan, P. Gurunath, I. Gupta, S. Omidshafiei, A.-a. Agha-mohammadi, M. Vazquez-Chanlatte, L. Pedersen, T. He, and G. Shi. Falcon: Learning force-adaptive hu-manoid loco-manipulation. arXiv preprint arXiv:2505.06776 , 2025. [26] G. Shi, C. Yao, X. Liu, Y. Zhao, Z. Zhu, and Z. Jia. Foot vision: A vision-based multi-functional sensorized foot for quadruped robots. IEEE Robotics and Automation Letters , 9(7): 6720–6727, 2024. [27] Z. Song, C. Li, Z. Quan, S. Mu, X. Li, Z. Zhao, W. Jin, C. Wu, W. Ding, and X.-P. Zhang. Tactid: high-performance visuo-tactile sensor-based terrain identification for legged robots. 
+
+IEEE Sensors Journal , 24(16):26487–26495, 2024. [28] E. A. Stone, N. F. Lepora, and D. A. Barton. Walking on tactip toes: A tactile sensing foot for walking robots. In 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 9869–9875. IEEE, 2020. [29] M. Murooka, T. Hoshi, K. Fukumitsu, S. Masuda, M. Hamze, T. Sasaki, M. Morisawa, and E. Yoshida. Tact: Humanoid whole-body contact manipulation through deep imitation learning with tactile modality. IEEE Robotics and Automation Letters , 10(8):7819–7826, 2025. doi: 10.1109/LRA.2025.3580329. 14 [30] Y. Niu, Z. Fang, B. Chen, S. Zhou, R. Senthilkumaran, H. Zhang, B. Chen, C. Qiu, H. E. Tseng, J. Francis, et al. Learning versatile humanoid manipulation with touch dreaming. arXiv preprint arXiv:2604.13015 , 2026. [31] P. Zhou, Y. Zhou, Q. Luu, S. Han, H. Zhang, B. Huang, Y. Li, A. Ajoudani, Z. Xu, and Y. She. Learning tactile-aware quadrupedal loco-manipulation policies. arXiv preprint arXiv:2604.27224 , 2026. [32] W. Yuan, S. Dong, and E. H. Adelson. Gelsight: High-resolution robot tactile sensors for estimating geometry and force. Sensors , 17(12):2762, 2017. [33] I. Akinola, J. Xu, J. Carius, D. Fox, and Y. Narang. Tacsl: A library for visuotactile sensor simulation and learning. IEEE Transactions on Robotics , 41:2645–2661, 2025. doi:10.1109/ TRO.2025.3547267. [34] B. Huang, Y. Wang, X. Yang, Y. Luo, and Y. Li. 3d-vitac: Learning fine-grained manipulation with visuo-tactile sensing. In 8th Annual Conference on Robot Learning , 2024. URL https: //openreview.net/forum?id=bk28WlkqZn .[35] B. Huang, J. Xu, I. Akinola, W. Yang, B. Sundaralingam, R. O’Flaherty, D. Fox, X. Wang, A. Mousavian, Y.-W. Chao, and Y. Li. VT-refine: Learning bimanual assembly with visuo-tactile feedback via simulation fine-tuning. In 9th Annual Conference on Robot Learning ,2025. URL https://openreview.net/forum?id=bOVF8Rj33i .[36] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms, 2017. URL https://arxiv.org/abs/1707.06347 .[37] M. Mittal, P. Roth, J. Tigue, A. Richard, O. Zhang, P. Du, A. Serrano-Mu˜ noz, X. Yao, R. Zurbr¨ ugg, N. Rudin, L. Wawrzyniak, M. Rakhsha, A. Denzler, E. Heiden, A. Borovicka, O. Ahmed, I. Akinola, A. Anwar, M. T. Carlson, J. Y. Feng, A. Garg, R. Gasoto, L. Gulich, Y. Guo, M. Gussert, A. Hansen, M. Kulkarni, C. Li, W. Liu, V. Makoviychuk, G. Malczyk, H. Mazhar, M. Moghani, A. Murali, M. Noseworthy, A. Poddubny, N. Ratliff, W. Rehberg, C. Schwarke, R. Singh, J. L. Smith, B. Tang, R. Thaker, M. Trepte, K. V. Wyk, F. Yu, A. Mil-lane, V. Ramasamy, R. Steiner, S. Subramanian, C. Volk, C. Chen, N. Jawale, A. V. Kurut-tukulam, M. A. Lin, A. Mandlekar, K. Patzwaldt, J. Welsh, H. Zhao, F. Anes, J.-F. Lafleche, N. Mo¨ enne-Loccoz, S. Park, R. Stepinski, D. V. Gelder, C. Amevor, J. Carius, J. Chang, A. H. Chen, P. de Heras Ciechomski, G. Daviet, M. Mohajerani, J. von Muralt, V. Reutskyy, M. Sauter, S. Schirm, E. L. Shi, P. Terdiman, K. Vilella, T. Widmer, G. Yeoman, T. Chen, S. Grizan, C. Li, L. Li, C. Smith, R. Wiltz, K. Alexis, Y. Chang, D. Chu, L. J. Fan, F. Farshid-ian, A. Handa, S. Huang, M. Hutter, Y. Narang, S. Pouya, S. Sheng, Y. Zhu, M. Macklin, A. Moravanszky, P. Reist, Y. Guo, D. Hoeller, and G. State. Isaac lab: A gpu-accelerated sim-ulation framework for multi-modal robot learning. arXiv preprint arXiv:2511.04831 , 2025. URL https://arxiv.org/abs/2511.04831 .15 A Details for Tactile Simulation Implementation 
+
+A.1 Tactile Signal Computation Taxel Generation: Each tactile sensor is represented by a regular 12 × 32 taxel grid, matching the physical sensor layout with a center-to-center spacing of 2 mm between adjacent taxels. The taxel locations are generated by projecting this planar grid onto the elastomer mesh through ray casting. Each ray is cast along the thin axis of the elastomer toward the contact surface, and its first intersection with the mesh defines the corresponding taxel location. 
+
+Contact Modeling Parameters: Following TacSL [33], we model the elastomer–object interaction using a Kelvin–Voigt contact model. For each taxel i, the normal-force magnitude is computed as 
+
+fn,i = −(kndi + kd ˙di), where di is the penetration depth and ˙di is the relative normal velocity. The stiffness coefficient kn determines the elastic response to penetration, whereas the damping coefficient kd suppresses contact oscillations induced by rapid changes in penetration depth. In our implementation, we followed TacSL and set kn = 1 .0 and kd = 3 × 10 −3. In addition to the force model, PhysX introduces contact-level parameters, including collision offsets and the elastomer material’s compliant-contact stiffness, which determine the realized object–elastomer configuration and thus the taxel penetration depths di. As detailed in App. A.2, we randomize these parameters during training to reduce the sim-to-real gap. 
+
+Tactile Encoder: The normalized tactile observations from the two fingers are flattened and con-catenated into a 768 -dimensional vector. This vector is passed through a shared MLP encoder, and the resulting latent representation is concatenated with the proprioception features. The tactile en-coder consists of two fully connected layers with ELU activations, mapping the input to a compact 
+
+32 -dimensional latent representation through a 128 -dimensional hidden layer. Its parameters are jointly optimized with the actor–critic networks during PPO training. 
+
+A.2 Tactile Sim-to-Real Normalization: Piezoresistive tactile arrays exhibit nonlinear force responses [34]. Moreover, ac-curately reproducing soft-contact mechanics in simulation remains challenging. Therefore, rather than calibrating a taxel-wise force–response curve between simulation and the real sensor, we use the normalized tactile signals introduced in Sec. 4.1. 
+
+Contact Modeling Domain Randomization: Unlike manipulation tasks with a fixed gripper width [35], our dynamic loco-manipulation task requires rapid online grasp regulation. To im-prove robustness, we randomize the elastomer material’s compliant-contact stiffness and the PhysX collision offsets, which affect the realized object–elastomer configuration and the resulting taxel penetration depths. As shown in Fig. 12(a), these parameters substantially influence the simulated tactile patterns. To reduce the sim-to-real gap caused by imperfect modeling of the compliant fin-gertips, we apply domain randomization to the compliant-contact stiffness over [5 , 100] and to the collision-offset-induced penetration allowance over [1 , 3] mm . We set the tactile simulation fre-quency to 100 Hz to match the sampling rate of the real hardware. A comparison of the tactile patterns obtained in simulation and real-world experiments is shown in Fig. 12(b). The real-world evaluations presented in Fig. 8 and Sec. 6 further demonstrate successful sim-to-real transfer and robust generalization to unseen objects. 
+
+## B Training Details 
+
+We train the proposed policy with PPO [36] in Isaac Lab [37] using 4096 parallel environments. To facilitate reproducibility, we report the key implementation details of the training setup in this section. These include the randomized environment parameters, command ranges, observation def-initions, reward terms, and PPO hyperparameters, which are summarized in Tabs. 5–10. 16 Real Sim  
+
+> (a) Compliant Elastomer
+> Rigid Object
+> Taxel
+> (b)
+> High-stiffness contact; 1 mm max. penetration
+> Compliant; stiffness 30; 2 mm max. penetration
+> Compliant; stiffness 5; 4 mm max. penetration
+
+Figure 12: Tactile simulation settings and sim-to-real comparison. (a) Effects of the elastomer stiff-ness and PhysX penetration-offset parameters on the simulated tactile-array signals. (b) Comparison of tactile patterns obtained in Isaac Lab simulation (left) and real-world experiments (right) while grasping a 30-mm-diameter cylinder at the same gripper width. Table 5: Environment parameters for policy training. 
+
+Parameter Range / Value 
+
+Ground static friction [0 .5, 1.5] 
+
+Ground dynamic friction [0 .4, 1.0] 
+
+Gripper static friction [0 .4, 1.2] 
+
+Gripper dynamic friction [0 .3, 1.0] 
+
+Body mass variation [−0.5, 1.5] kg EE mass variation [0 .0, 0.5] kg Leg motor PD gain multiplier [0 .9, 1.1] 
+
+Arm servo PD gain multiplier [0 .8, 1.2] 
+
+Object external force stiffness [0 .0, 18 .0] N/m Object external force damping [0 .1, 0.5] N/ms −1
+
+Object external force threshold [0 .5, 10 .0] NTable 6: Command ranges during policy training. 
+
+Command Range 
+
+Body linear velocity vcmd [0 .1, 0.8] m/s Body yaw rate ωcmd [−0.5, 0.5] rad/s EE final position pB 
+
+> f
+
+([0 .28 , 0.51] , [−0.35 , 0.35] , [−0.07 , 0.20]) mEE trajectory total time ttraj [4 , 8] sTable 8: Notation used in the reward definitions. 
+
+Notation Definition 
+
+pobj Object position 
+
+pee EE position 
+
+pee ,cmd EE position command 
+
+vobj Object linear velocity 
+
+vee EE linear velocity 
+
+d = ∥pobj − pee ∥2 Object-EE distance 
+
+Bg Set of gripper-object contact bodies 
+
+Fb Contact force on body bvx,b Base linear velocity 
+
+vz,b Base vertical velocity 
+
+ωz,b Base yaw rate 
+
+ωx,b , ω y,b Base roll and pitch angular velocities 
+
+Jall Set of all robot leg joints 
+
+Jhip Set of hip joints 17 Notation Definition 
+
+Jtc Set of thigh and calf joints 
+
+ci Contact indicator for foot iti Current air-time or contact-time variable for foot i
+
+F Set of feet 
+
+Fi Contact force of foot ipz,b Base height 
+
+h∗ Target base height 
+
+g = ( gx, g y , g z ) Projected gravity vector in the base frame 
+
+T ai Current air time of foot iT ci Current contact time of foot i
+
+Table 9: Reward terms used in training. The equations show the unweighted reward terms, and w
+
+denotes the configured reward weight. 
+
+Reward Term Reward Equation Weight Manipulation rewards 
+
+Grasp stability object retention 
+
+rretention 
+
+0.5 ( − tanh( α(d − dc)) − 1.0) , 5.0
+
+Grasp stability object slip rslip 1[∥vobj − vee ∥2 > v c] −0.3
+
+Grasp stability force moderation 
+
+rforce 
+
+X
+
+> b∈B g
+
+∥Fb∥2 −0.005 
+
+EE position exponential exp 
+
+
+
+− 2∥pee ,cmd − pee ∥1
+
+σ2
+
+
+
+1.5
+
+EE position L1 −∥ pee ,cmd − pee ∥1 1.0
+
+Manipulation action rate X
+
+> j∈amanip
+
+(at,j − at−1,j )2 −0.002 
+
+Manipulation action smoothness amanip t − amanip t−1 2
+
+−0.005 
+
+Locomotion rewards 
+
+Base linear velocity exp 
+
+
+
+− ∥vcmd − vx,b ∥2
+
+σ2
+
+
+
+1.5
+
+Base yaw rate exp 
+
+
+
+− (ωcmd − ωz,b )2
+
+σ2
+
+
+
+1.5
+
+Base vertical velocity v2 
+
+> z,b
+
+−2.5
+
+Base roll/pitch rate ω2 
+
+> x,b
+
++ ω2 
+
+> y,b
+
+−0.2
+
+Leg joint torque X
+
+> j∈J all
+
+τ 2 
+
+> j
+
+−2.0 × 10 −5
+
+Leg joint acceleration X
+
+> j∈J all
+
+¨q2 
+
+> j
+
+−2.5 × 10 −7
+
+Feet air time max 
+
+
+
+1 − s
+
+P 
+
+> i
+
+ci(ti − t∗)2
+
+max( P 
+
+> i
+
+ci, 1) , 0
+
+
+
+0.4
+
+Feet contact clip 
+
+
+
+min  
+
+> i∈F
+
+∥Fi∥2, 0, F c
+
+
+
+0.005 
+
+Hip joint deviation X
+
+> j∈J hip
+
+qj − q0 
+
+> j
+
+−0.4
+
+Thigh/calf joint deviation X
+
+> j∈J tc
+
+qj − q0 
+
+> j
+
+−0.04 
+
+Locomotion action rate X
+
+> j∈A loco
+
+(at,j − at−1,j )2 −0.01 
+
+Locomotion action smoothness aloco t − aloco t−1 2
+
+−0.02 
+
+Base height (pz,b − h∗)2 −5.0
+
+Continued on next page 
+
+18 Reward Term Reward Equation Weight 
+
+Base orientation g2 
+
+> x
+
++ g2 
+
+> y
+
+−1.0
+
+Feet gait S(C1)S(C2)A(Cfr )A(Cre )A(CL)A(CR) 0.5
+
+For the feet gait reward, 
+
+S(i, j ) = exp − clip(( T ai − T aj )2, 0, c 2
+
+> m
+
+) + clip(( T ci − T cj )2, 0, c 2
+
+> m
+
+)
+
+σ
+
+!
+
+, (2) 
+
+A(i, j ) = exp − clip(( T ai − T cj )2, 0, c 2
+
+> m
+
+) + clip(( T ci − T aj )2, 0, c 2
+
+> m
+
+)
+
+σ
+
+!
+
+, (3) where T ai and T ci are the current air and contact times for foot i. The contact pairs are 
+
+C1 = {F R, RL } and C2 = {F L, RR }. Other foot pairs are defined as CL = {F L, RL },
+
+CR = {F R, RR }, Cfr = {F R, F L }, Cre = {RL, RR }
+
+All networks are MLPs with ELU activation functions. The advantage mixing follows the form 
+
+J(θπ ) = 1
+
+|D| 
+
+X
+
+> (st,a t)∈D
+
+h
+
+log π (aarm  
+
+> t
+
+| st)  Amanip + βA loco  + log π
+
+
+
+aleg  
+
+> t
+
+| st
+
+  βA manip + Aloco i
+
+.
+
+(4) where β is the advantage mixing ratio. [3] provides a detailed definition and analysis. In our work, 
+
+β is increased linearly across the number of advantage mixing steps. 
+
+## C Deployment Setup 
+
+We deploy the policy on a Unitree Go2 quadruped equipped with a back-mounted Interbotix Wid-owX 250 arm and tactile arrays on both inner gripper surfaces. Policy inference and observation processing run at 50 Hz on an external PC, with Ethernet communication to the Go2 and USB com-munication to the arm and tactile sensors. Due to the limited torque capacity and bandwidth of the arm servos, the real-world evaluation uses a subset of the simulated end-effector trajectories to ensure reliable dynamic operation and hardware safety. 19 Table 7: Policy observations of the proposed framework. 
+
+Observation term Dimension Proprioception 
+
+Body angular velocity 3
+
+Joint positions 19 
+
+Joint velocities 19 
+
+Projected gravity vector 3
+
+Previous action 19 
+
+User command 
+
+Body velocity command 2
+
+EE position command 3
+
+Privileged information 
+
+Body mass 1
+
+EE mass 1
+
+Body linear velocity 3
+
+Joint torques/force 19 
+
+Feet contact 4
+
+EE position 3
+
+EE orientation 4
+
+EE linear velocity 3
+
+EE angular velocity 3
+
+Object-EE relative position 3
+
+Object-EE relative velocity 3
+
+Grasping forces 6
+
+Proprioception observations 63 
+
+Table 10: Training hyperparameters. Parameter Value 
+
+Actor backbone dimension [256] 
+
+Locomotion action head dimension [256 , 128] 
+
+Manipulation action head dimension [256 , 128] 
+
+Critic backbone dimension [256] 
+
+Critic locomotion head dimension [256 , 128 , 64] 
+
+Critic manipulation head dimension [256 , 128 , 64] 
+
+Privileged info encoder dimension [256 , 128] 
+
+History encoder dimension [512 , 256 , 128] 
+
+Privileged/history latent size 96 
+
+Tactile encoder dimension [128 , 32] 
+
+Tactile latent size 32 
+
+Initial learning rate 0.001 
+
+Learning rate schedule Adaptive Desired KL divergence 0.01 
+
+Clip range 0.2
+
+Discount factor 0.99 
+
+GAE λ 0.95 
+
+Number of environment steps per training batch 24 
+
+Learning epochs per training batch 5
+
+Mini-batches per training batch 4
+
+Initial advantage mixing ratio 0
+
+Final advantage mixing ratio 1
+
+Number of advantage mixing steps 9000 
+
+20

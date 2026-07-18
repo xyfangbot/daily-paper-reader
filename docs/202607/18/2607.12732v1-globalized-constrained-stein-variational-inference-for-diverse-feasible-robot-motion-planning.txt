@@ -1,0 +1,929 @@
+Title: Globalized Constrained Stein Variational Inference for Diverse Feasible Robot Motion Planning
+
+URL Source: https://arxiv.org/pdf/2607.12732v1
+
+Published Time: Wed, 15 Jul 2026 12:02:11 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+> 1
+
+# Globalized Constrained Stein Variational Inference for Diverse Feasible Robot Motion Planning 
+
+Jiayun Li 1,2, Georgia Chalvatzaki 1,2,3
+
+Abstract —Robot motion planning is inherently multimodal, yet classical planners typically return only a single solution. Probabilistic formulations address this limitation by maintaining a distribution over motions, allowing the planner to reason over mul-tiple low-cost alternatives. In robotics, however, motion samples must also satisfy strict constraints, including collision avoidance, joint limits, contact conditions, and dynamics consistency. These hard requirements make motion sampling substantially more challenging: within a limited planning budget, the ensemble must cover diverse low-cost motions while ensuring that every sample remains feasible under the relevant constraints. We propose SteinSQP ( Stein Variational Sequential Quadratic Programming ), a constrained Stein variational inference method for diverse feasible robot motion sampling. SteinSQP evolves an interacting particle ensemble, as in Stein variational methods, while embedding constraints directly into a kernel-space SQP subproblem. We solve the resulting constrained Stein–Newton subproblem with a GPU-friendly matrix-free primal–dual algorithm, enabling efficient batched ensemble updates. To globalize the method, we introduce an ensemble-level merit function that jointly balances objective value, constraint violation, and particle diversity. Across five constrained motion-planning tasks, SteinSQP returns fully feasible ensembles while preserving diverse motion alternatives. Compared with first-order constrained Stein baselines and serial multistart nonlinear programming, SteinSQP shows faster and more robust ensemble convergence in terms of iterations, improves particle-wise feasibility, and achieves faster batched time-to-solution on challenging robot-scale tasks. 
+
+Index Terms —Constrained Stein variational inference, Sampling as Constrained Optimization, Constrained motion planning. 
+
+I. I NTRODUCTION 
+
+Robot motion planning is conventionally formulated as the search for a single trajectory that minimizes a cost functional subject to hard constraints such as joint limits, collision avoidance, and contact conditions [ 1], [ 2]. Yet a single minimizer discards structure that most tasks naturally possess: a manipulator can pass an obstacle on either side, a throw can be released from different arm configurations, and a push can exploit different contact faces. A planner committed to one solution is brittle precisely where planning matters most. It is easily trapped in a poor local optimum, and it offers no fallback when the environment changes, when a downstream module rejects the trajectory, or when execution fails. What is needed instead is a set of low-cost, feasible, and qualitatively distinct motions, produced within a single planning budget. Casting motion optimization as probabilistic inference pro-vides precisely this structure [ 3 ], [ 4 ]. The objective induces a 
+
+> 1
+
+PEARL Lab, Dept. of Computer Science, TU Darmstadt. 
+
+> 2
+
+Hessian.AI, Darmstadt, Germany. 
+
+> 3
+
+Robotics Institute Germany (RIG). 
+
+Fig. 1. SteinSQP samples a diverse set of feasible throwing motions in a single solve: the arm and ball avoid the obstacles (black) and release the object along a ballistic arc onto the target, while the surrounding particles trace the in-hand trajectories of the ball before release. 
+
+distribution over the optimization landscape, with high-density regions concentrated near distinct local optima of the underlying nonlinear program, while hard constraints restrict its support to the feasible set: a manifold under equality constraints, or a domain with boundary under inequalities. Sampling from this constrained distribution therefore returns a diverse collection of feasible motions in one solve, rather than a single point estimate. The difficulty is computational. The samples must be simultaneously low-cost, feasible with respect to nonlinear equality and inequality constraints, diverse, and they must be obtained fast enough to be useful for planning. Classical constrained samplers fall short of this requirement because they are inherently sequential. Manifold MCMC methods [ 5 ] are asymptotically exact, but rely on long mixing chains and do not share information across samples. Constraint-manifold RRTs [ 6], [ 7 ] similarly expand one projected node at a time. Neither maps well onto the parallel hardware that modern robot software stacks are built around. Stein Variational Gradient Descent (SVGD) [ 8] does. It evolves an entire ensemble of interacting particles in parallel, each driven toward low cost while a pairwise repulsion prevents collapse onto a single solution: in effect, a batched multi-start optimizer whose restarts communicate. SVGD, however, assumes an unconstrained domain. Its constrained extensions either apply only to restricted constraint classes, namely convex sets via mirror maps [ 9] or a single equality manifold via projected kernels [ 10 ], or handle nonlinear inequalities indirectly, through squared slack variables [ 11 ] or penalty and arXiv:2607.12732v1 [cs.RO] 14 Jul 2026 2
+
+augmented-Lagrangian terms [ 12 ]. These reformulations share a common defect: they alter the particle flow precisely at active constraint boundaries, where feasibility is most delicate, introducing spurious local optima and distorting the empirical distribution of the ensemble exactly where the constrained posterior concentrates. In this article we take a different route: rather than refor-mulating the constraints, we make each Stein step feasible by construction. Inspired by the interpretation of constrained SVGD as SQP [ 13 ] and by safe particle flows [ 14 ], we linearize the constraints at the current ensemble and enforce them directly on the kernel-coupled ensemble displacement via a quadratic program (QP). This lets equality and inequality constraints enter the particle flow at first order, without slack variables or hand-tuned penalties. Three observations turn this idea into a practical solver. First, the same QP can incorporate second-order curvature information, such as Gauss–Newton approximations, upgrading the safe first-order flow to a constrained Stein–Newton update. This improves convergence speed while preserving constraint satisfaction, rather than merely enforcing feasibility. Second, although the kernel coupling makes the QP’s KKT system dense and prohibitive to factorize, a primal–dual hybrid gradient scheme (PDHG) [ 15 ], [ 16 ] that never forms this system solves it using only kernel products and small independent per-particle solves, a computational pattern that GPUs execute almost natively. Third, a QP step trusts a linearization and must therefore be globalized. Prior constrained Stein methods either omit globalization entirely or line-search on objective alone, which collapses the very modes the ensemble exists to preserve. We instead globalize with an ensemble-level merit function that balances the three goals a constrained sampler must serve simultaneously: low cost, constraint satisfaction, and transport diversity. By tailoring globalization to the Stein particle flow, this mechanism safeguards ensemble diversity while steering particles toward feasible, low-cost regions. We call the resulting method SteinSQP : an SQP-like particle optimizer that turns constrained Stein transport into a practical GPU-parallel solver for multimodal nonlinear programs. We summarize our contributions as follows:  
+
+> •
+
+Constrained Stein–Newton updates in kernel space. 
+
+We formulate an SQP-like Stein variational Newton step that embeds linearized equality and inequality constraints directly into the kernel-coupled ensemble displacement, avoiding slack variables, fixed penalties, and post-hoc projection.  
+
+> •
+
+A GPU-parallel primal–dual solver. We solve the dense kernel-coupled QP without forming or factorizing its KKT system, using only kernel products and independent per-particle solves. The resulting dual iterates also provide the exact-penalty weight used by the merit function, eliminating a fragile hand-tuned parameter.  
+
+> •
+
+Stein-aware globalization. We introduce an ensemble-level merit function for constrained Stein updates that jointly accounts for cost, feasibility, and transport diver-sity, together with a second-order correction to mitigate Maratos-type stalling.  
+
+> •
+
+Empirical validation on robot-scale tasks. Across five benchmarks, SteinSQP achieves fully feasible ensembles while improving robustness and batched wall-clock time over both first-order Stein and serial multistart NLP baselines. It also shows a faster outer-iteration convergence than serial multistart NLP. The remainder of this article is organized as follows. Section II reviews constrained sampling for motion plan-ning and constrained Stein variational inference. Section III formalizes the constrained posterior sampling problem, and Section IV recalls the necessary background on kernel transport maps and Stein variational inference. Section V develops SteinSQP, Section VI presents the experimental evaluation, and Section VII concludes. II. R ELATED WORK 
+
+A. Constrained Sampling for Robot Motion Planning 
+
+Casting motion optimization as probabilistic inference lets a planner reason about a distribution of low-cost motions rather than a single minimizer [ 3], [ 4 ]. When hard constraints are present, this posterior is supported on a lower-dimensional feasible set, and the central difficulty becomes drawing diverse 
+
+samples that remain feasible. Sampling-based planners address this geometrically: projection-based methods repeatedly retract configurations onto the constraint manifold [ 6 ], while Tangent Space RRT [ 7 ] and Tangent Bundle RRT [ 17 ] grow trees in local tangent charts. Both incur high projection cost and struggle with strongly nonlinear constraints. A complementary line treats the feasible set as an implicitly defined manifold and applies manifold MCMC : constrained Hamiltonian Monte Carlo with RATTLE-type symplectic integrators [ 5], [ 18 ], Riemann manifold HMC [ 19 ], and geodesic Monte Carlo [ 20 ]. These schemes are asymptotically exact but rely on sufficient chain mixing, share no information across samples, and are hard to parallelize, which limits their use under tight planning budgets. Closer to our setting, combining Gauss–Newton constraint satisfaction with interior sampling produces diverse constrained samples [ 21 ], but still proceeds sequentially, while learned generative models amortize manifold sampling [ 22 ]at the cost of training data and poor generalization to unseen constraints. In contrast, particle-based variational inference evolves an interacting ensemble jointly, coupling samples through a repulsion term so that diversity and feasibility are pursued in parallel, the regime our method targets. 
+
+B. Constrained Stein Variational Inference 
+
+Stein Variational Gradient Descent (SVGD) [ 8], [ 23 ] ap-proximates a target by a set of interacting particles that follow the steepest KL-descent field in an RKHS, balancing a score-driving term against a repulsion term, and can be viewed as a gradient flow of the KL divergence [ 24 ]. Second-order variants precondition this flow: the Stein Variational Newton (SVN) method [ 25 ] approximates a Newton iteration in function space, and related second-order Stein schemes have since been applied to dynamic optimization and control [ 26 ]. Extending SVGD to constrained supports has followed three broad strategies. Mirror-map methods evolve particles in a dual space to remain within convex constraints [ 9 ]; moment-constraint approaches enforce 3
+
+expectation constraints through a primal–dual flow [ 27 ]; and projection methods build the constraint into the function space itself. In particular, Orthogonal-space SVGD (O-SVGD) [ 10 ]uses a projected matrix-valued kernel whose fields are tangent to a single equality manifold, while functional gradient flows with boundary conditions confine particles to general domains with convergence guarantees [ 28 ]. Further extensions, such as Riemannian SVGD [ 29 ] and Lie-group SVGD [ 30 ], are tailored primarily to intrinsic manifold constraints, but may be less straightforward to deploy in general-purpose applications. In robotics, these ideas underpin recent constrained trajectory samplers. CSVTO [ 11 ] extends O-SVGD to multiple equality and inequality constraints with a tangent-space resampling step, but handles inequalities through squared slack variables, which, as that work notes, introduce many spurious local optima and distort the empirical distribution near active boundaries. Safe particle flow [ 13 ], [ 14 ] instead enforces linearized inequali-ties via a control-barrier quadratic program, and augmented-Lagrangian formulations of constrained SVGD handle arbitrary constraints at the cost of penalty tuning [ 12 ]. What remains open is a method that treats nonlinear inequalities directly, without slack variables or fixed penalties, while retaining a globalized, curvature-aware Stein flow that parallelizes across particles. SteinSQP targets exactly this gap: each Stein proposal is embedded in an SQP subproblem solved in kernel space and globalized by an exact-penalty line search, with the inner saddle-point problem handled by a matrix-free primal–dual scheme that maps well onto GPU hardware. III. P ROBLEM DEFINITION 
+
+A Boltzmann distribution formulation casts optimization-based robot motion optimization as probabilistic inference. Let x denote a finite-dimensional motion variable, which may represent robot configuration parameters or a trajectory in generalized coordinates. Given a prior distribution p0(x),the likelihood takes the form l(x) ∝ exp( −V (x)/T ), where 
+
+V (x) denotes the motion-level cost and T > 0 controls the temperature. This formulation yields the posterior distribution 
+
+p(x) ∝ p0(x) exp( −V (x)/T ). As T → 0, the posterior concentrates on the minimum-cost motions within the support of p0(x), recovering deterministic motion optimization in the zero-temperature limit. We consider a general constrained nonlinear program with a nonlinear least-squares objective V (x) = 12 ∥r(x)∥2, where 
+
+r : Rd → Rmr is a smooth residual map. The feasible set is defined as F .
+
+= {x | h(x) = 0, g(x) ≤ 0}, where 
+
+h : Rd → Rmh and g : Rd → Rmg denote equality and inequality constraint functions, respectively, with the inequality applied elementwise. This formulation covers a wide range of robotics motion planning tasks, such as motion planning with obstacle avoidance. Moreover, even when contact dynamics are involved, they can be handled via relaxation and smoothing techniques to enable a nonlinear programming formulation, further broadening the applicability of this formulation. To incorporate feasibility, we introduce the extended-value indicator ιF (x), where ιF (x) = 0 if x ∈ F and ιF (x) = + ∞
+
+otherwise. The constrained Boltzmann likelihood induced by 
+
+V (x) + ιF (x) is equivalent to exp( −V (x)/T ) 1F (x), where 
+
+1F (x) is the binary feasibility indicator. The target posterior is therefore given by 
+
+π(x) ∝ p0(x) exp  −V (x)/T  1F (x), (1) which assigns zero density to infeasible motions. Our goal is to draw samples from this constrained posterior, where each sample represents a feasible robot motion and differ-ent modes correspond to distinct local optima. This perspective positions sampling not only as a means of approximating the posterior, but also as a mechanism for uncovering multiple high-quality local modes. We therefore seek a method that achieves a favorable trade-off among sampling efficiency, sample diversity, and fidelity to the constrained target distribution. In the context of Stein variational inference, this objective requires a Stein operator that respects the constrained motion domain. We introduce the necessary preliminaries in the next section. IV. P RELIMINARIES 
+
+This section introduces notation and recalls the three ingredients our method builds on: reproducing-kernel function spaces, Stein variational inference viewed as optimization over a particle ensemble, and the enforcement of equality constraints as a tangency condition on the ensemble’s transport field. 
+
+A. Kernel Spaces and Transport Maps 
+
+Let k : Rd × Rd → R be a positive-definite kernel and Hk its scalar reproducing-kernel Hilbert space (RKHS); 
+
+H .
+
+= Hdk denotes the corresponding space of vector fields 
+
+δ : Rd → Rd with componentwise inner product. Two properties matter here. First, the reproducing property : for any δ ∈ H , ⟨δ, k (x, ·)v⟩H = δ(x)⊤v, so function evaluations are inner products and first-order calculus in H has closed form. Second, given particles X = {xi}Ni=1 , the finite-dimensional span 
+
+δ(·) = 
+
+> N
+
+X
+
+> j=1
+
+k(·, x j ) cj , cj ∈ Rd, (2) is the natural search space for ensemble updates: by the repre-senter argument, the optimizer of any regularized functional that touches the particles only through {δ(xi)} lies in this span. Writing K ∈ RN ×N , with Kij = k(xi, x j ) for the Gram matrix and stacking coefficients row-wise into C ∈ RN ×d, the field values at the particles are D = KC and the RKHS norm is ∥δ∥2 
+
+> H
+
+= tr( C⊤KC ).A vector field δ induces the transport map Tε(x) = x+ε δ (x),which carries an ensemble with density ρ to a new density 
+
+ρε. For small ε, where Tε is invertible, the transported density satisfies 
+
+log ρε
+
+ Tε(x) = log ρ(x) − log det  I + ε ∇δ(x) , (3) so the log-determinant of the transport Jacobian measures the local change in ensemble volume, and hence in entropy. This term reappears twice in our method: implicitly, in the repulsion force of the Stein update, and explicitly, in the merit function of our ensemble line search (Section V-D). 4
+
+B. Stein Variational Inference as Ensemble Optimization 
+
+Let π be a target density on Rd. Sampling from π can be phrased as minimizing the KL divergence KL( ρ ∥ π) over the ensemble density ρ. SVGD performs this minimization by steepest descent restricted to H: among all function perturbations Tε = id + εδ with ∥δ∥H ≤ 1, the one that instantaneously decreases the KL fastest is 
+
+δ⋆ρ (·) ∝ Ex∼ρ
+
+ k(x, ·) ∇x log π(x) + ∇xk(x, ·) , (4) the kernelized Stein operator applied to ρ. Instantiating this at the N particles gives the practical update: for each particle xi,
+
+ϕ(xi) = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+k(xj , x i) ∇ log π(xj )
+
+| {z }
+
+> driving
+
++ 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+∇xj k(xj , x i)
+
+| {z }
+
+> repulsion
+
+,
+
+(5) where the first term transports probability mass toward high-density regions and the second, the derivative of the volume term in (3) through the kernel, pushes particles apart and is what prevents the ensemble from collapsing onto a single mode. Two refinements are standard. Second-order (Stein–Newton) methods 
+
+precondition the field with a curvature model of − log π, either by a global Newton system in the span (2) or by cheaper block-diagonal approximations. Matrix-valued kernels replace k(x, y )
+
+by K(x, y ) ∈ Rd×d, which allows the geometry of the target to enter the function space itself; we use this device for equality constraints below. Finally, the balance between driving and repulsion in (5) is exactly a temperature: annealing it trades exploration against exploitation. The abstraction to retain is this: an SVGD-type algorithm is an optimization method whose iterate is the whole ensemble, whose search direction is a vector field in H sampled at the particles, and whose objective couples an averaged cost to an entropy regularizer, 
+
+E(ρ) = Ex∼ρ
+
+V (x) − γ H (ρ), (6) where H(ρ) = −Eρ[log ρ] is the ensemble entropy and the temperature γ > 0 sets their trade-off: the driving term reduces the average cost Eρ[V ], while the repulsion increases the entropy H and keeps the particles spread out. Every globalization decision in Section V (what the line search measures, what “convergence” means for an ensemble that never stops jittering) is made against this ensemble objective, not against any single particle’s cost. 
+
+C. Equality Constraints as Tangency Conditions 
+
+Constraining a sampler is not the same as constraining an optimizer: what must respect F is the entire ensemble, and it must do so along the whole flow, not only at the solution. For the equality part M = {x : h(x) = 0 } of the feasible set, keeping every particle on M at all times is equivalent to requiring the transport field to be tangent : Jh(x) δ(x) = 0 on 
+
+M, where Jh = ∂h/∂x . Prior work realizes this in one of three ways: reparameterizing the domain through a mirror map; splitting the field into tangential and normal components and using the normal one only to decay the constraint residual; or ignoring tangency during the Stein step and projecting particles back afterwards. The device we adopt is the projected matrix-valued kernel (the orthogonal kernel of [ 10 ]), later used for trajectory optimization (TO) in [11]. Let 
+
+P (x) = I − Jh(x)⊤ Jh(x)Jh(x)⊤ + ϵI −1Jh(x) (7) be the (regularized) orthogonal projector onto the tangent space of M at x. Then 
+
+KP (x, y ) = P (x) k(x, y ) P (y) (8) is a positive-semidefinite matrix-valued kernel whose RKHS contains only fields that are pointwise tangent at the particles. Substituting KP for k in (4) projects the score and the repulsion of each source particle by its own P (xj ) before the kernel average, and the assembled field at each target by P (xi) after it: the two projections do not commute with the sum and both are required. As is conventional in constrained SVGD, the curvature term 
+
+∇· P of the manifold is dropped [ 11 ]. The result is a diversity flow that slides along the equality manifold: it never spends its budget fighting the constraints, and it never undoes the feasibility that the optimization layer (Section V) establishes in the normal directions. Inequality constraints receive no such reparameterization; their handling is precisely where our method departs from prior work, through the SQP subproblem of Section V-B rather than the squared slack variables of [ 11 ], which introduce spurious local optima near active boundaries. V. M ETHOD : S TEIN SQP Handling nonlinear constraints in constrained SVGD via sequential quadratic programming was first introduced in [ 13 ]and later analyzed in detail from the perspective of safe particle flows in [ 14 ]. It keeps the two useful ingredients of SVGD, descent toward low-cost motions and repulsion between particles, but does not rely on an exact constrained Stein operator. Instead, every Stein-like proposal is made safe by an SQP subproblem and by a line search that re-evaluates the nonlinear constraints before accepting the step. Let X = {xi}Ni=1 be the current ensemble, with xi ∈ Rd.The objective is V (x) = 12 ∥r(x)∥2, the score direction is 
+
+si = −∇ V (xi), and the Gauss–Newton curvature is Gi =
+
+Jr (xi)⊤Jr (xi). Equality and inequality constraints are written as h(x) = 0 and g(x) ≤ 0, with Jacobians Jhi and Jgi at particle 
+
+i. One SteinSQP iteration has four steps: build a kernelized Stein descent model, solve a constrained quadratic subproblem in kernel space, globalize the resulting ensemble transport, and restart particles that remain in infeasible basins. 
+
+A. A Stein-Like Descent Model 1) Particle field: For a scalar kernel k with Gram matrix 
+
+Kij = k(xi, x j ), the practical SVGD field at particle i is split into a driving term and a repulsion term, 
+
+bi = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+Kji sj ,ρi = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+∇xj k(xj , x i). (9) 5
+
+The direction used by SteinSQP is 
+
+ui = bi + γρ i, (10) where the temperature parameter γ controls the strength of diversity. The first term pulls the ensemble toward lower objective values; the second prevents collapse to a single local solution. We use this field as a computational descent direction for particles, not as an exact constrained sampling operator. For equality constraints, an optional local tangent projection can be applied: the projector Pi = P (xi) of (7) replaces sj and 
+
+∇xj k in (9) by their projected versions and projects the final field, recovering the orthogonal SVGD of [ 11 ] (Section IV-C ). This is only a local safeguard that biases the flow along the equality tangent space; nonlinear feasibility is still enforced by the SQP and line-search layers below. 
+
+2) Curvature model: Following the Stein Variational Newton (SVN) method [ 25 ], the Stein-like field is preconditioned by a curvature model of − log π; we use its cheaper block-Jacobi approximation. For each particle, 
+
+Hi = 1
+
+N
+
+> N
+
+X
+
+> j=1
+
+K2
+
+> ji
+
+Gj
+
++ γN
+
+> N
+
+X
+
+> j=1
+
+∇xj k(xj , x i)∇xj k(xj , x i)⊤ + λI. (11) If tangent projection is used, the Gauss–Newton blocks and kernel gradients are projected before entering (11) . The damping λI keeps the proximal systems positive definite. This approximation keeps only per-particle blocks, so the method avoids a coupled N d × N d Newton system while still coupling particles through K.
+
+3) Trajectory kernels: For low-dimensional problems we use an RBF kernel. For trajectory variables, we use an RBF under a fixed acceleration metric, 
+
+k(x, y ) = exp 
+
+
+
+− (x − y)⊤M (x − y)2ℏ
+
+
+
+,M = αI + βD ⊤ 
+
+> 2
+
+D2, (12) where D2 is the second-difference operator over trajectory knots and ℏ > 0 is the kernel bandwidth. This kernel measures similarity between whole trajectories under an acceleration metric rather than the Euclidean distance between stacked coordinates: through D⊤ 
+
+> 2
+
+D2, it compares neighboring knots and so penalizes differences in curvature, treating two motions as similar when they bend alike rather than merely passing through nearby points. The identity term is important: without it, offsets and ramps lie in the null space of D⊤ 
+
+> 2
+
+D2 and the kernel becomes insensitive to some motion modes. 
+
+B. Constrained Kernel-Space Step 
+
+SteinSQP searches for an update field in the kernel span. Let C = ( c1, . . . , c N )⊤ ∈ RN ×d be the coefficients and define the particle update direction 
+
+di = ( KC)i =
+
+> N
+
+X
+
+> j=1
+
+Kij cj , (13) with the projected-kernel version used when equality projec-tion is enabled. The coefficients C are chosen by the SQP subproblem 
+
+min 
+
+> CN
+
+X
+
+> i=1
+
+  12 c⊤ 
+
+> i
+
+Hici − u⊤ 
+
+> i
+
+ci
+
+
+
+s.t. hi + εJ hi di = 0 ,gi + εJ gi di ≤ 0, i = 1 , . . . , N. 
+
+(14) The constraints are imposed on the particle displacement 
+
+di, not on the coefficient ci. This matters because particles interact through the kernel: the same coupling that spreads the ensemble also appears in the linearized constraints. Equalities and inequalities are kept separate. Writing an equality as two inequalities would create linearly dependent active rows at every feasible point and unstable penalty multipliers. 
+
+C. Inner Solve without Forming the KKT System 
+
+At each outer iteration the SteinSQP direction is the minimizer of the quadratic subproblem (14) , posed not in the particle positions but in the RKHS coefficients C = ( c1, . . . , c N )
+
+that generate the transport field ϕ(xi) = P 
+
+> j
+
+k(xi, x j ) cj : the joint displacement of all particles is ε KC, where K is the kernel Gram operator, ci ∈ Rd the coefficient block of particle i, and 
+
+ε the SQP step scale. The subproblem minimizes the block-separable model P
+
+> i
+
+  12 c⊤ 
+
+> i
+
+Hici −u⊤ 
+
+> i
+
+ci
+
+, in which ui is the Stein variational gradient of particle i (its downhill score-driving pull plus the inter-particle repulsion) and Hi ≻ 0 the corresponding block-Jacobi curvature model of (11) , subject to the constraints 
+
+linearized about the current particles, h + BhC = 0 and 
+
+g + Bg C ≤ 0. Here h, g are the equality/inequality residuals, 
+
+Jh, J g their Jacobians, and 
+
+BhC = εJ hKC, Bg C = εJ g KC (15) push a coefficient perturbation through the kernel into constraint space; we stack them as B =  Bh
+
+> Bg
+
+.Because the kernel couples all N particles, forming and factorizing the dense KKT system of this QP is prohibitive on a GPU. Even with a block-diagonal approximation, the Gram matrix still couples the per-particle constraints, preventing the subproblem from decomposing into independent particle-wise solves. We therefore dualize the constraints and solve the resulting convex–concave saddle problem with the primal–dual scheme of Chambolle and Pock [ 15 ], [ 16 ], which needs only 
+
+applications of B and B⊤ and leaves the primal step separable. Introducing an equality dual λ and a nonnegative inequality dual μ ≥ 0 (its sign enforces the KKT condition of g ≤ 0), an extrapolated coefficient ¯C, and primal and dual step sizes 
+
+τ, σ > 0, one inner iteration is 
+
+λ+ = λ + σ(Bh ¯C + h), (16a) 
+
+μ+ = μ + σ(Bg ¯C + g)
+
+> +
+
+, (16b) 
+
+˜C = C − τ B ⊤
+
+λ+
+
+μ+
+
+
+
+, (16c) 
+
+c+ 
+
+> i
+
+= ( I + τ H i)−1(˜ ci + τ u i), (16d) 
+
+¯C+ = C+ + θ(C+ − C). (16e) 6
+
+Steps (16a) –(16b) take a gradient ascent of the duals toward feasibility of the linearized constraints, with σ the dual step; the clamp [ · ]+ is the proximal operator of the constraint μ ≥ 0,i.e. a projection onto the nonnegative orthant. Steps (16c) –(16d) form the primal gradient step ˜C (with primal step τ )and apply the proximal operator of the objective quadratic; since H = diag( Hi) is block diagonal, this prox decouples 
+
+into N independent d × d SPD solves, one per particle, done in parallel. Because Hi and τ are fixed across the inner loop, each (I + τ H i)−1 is factorized once and reused for every inner iteration, so the prox is cheap. Step (16e) is the over-relaxation that gives the scheme its accelerated, provably convergent rate. The step sizes must satisfy the PDHG stability bound 
+
+τ σ ∥B∥2 ≤ 1: we fix τ from a bound on ∥H∥ (so each prox is well conditioned) and take σ to saturate the bound up to a safety factor, estimating the coupling norm ∥B∥ by a few power-iteration sweeps of B⊤B, never assembling B, only applying K, J h, J g and their adjoints. Thus no KKT matrix is ever formed or factorized: each of the fixed number of inner iterations costs a handful of matrix-free operator applications plus N tiny per-particle solves, giving O(N d ) memory and an inner solve that parallelizes across particles. This is the root reason SteinSQP is efficient on a GPU: PDHG needs only dense kernel and Jacobian products and per-particle solves, exactly the regular, batched operations GPUs are built for. We did explore exploiting the sparsity of the constraint Jacobians instead, but found it does not pay off: in our tests a sparse QP solver ran at least an order of magnitude or more slower on GPU, as sparse factorization maps poorly onto the hardware and its irregular structure outweighs the benefit of the reduced flop count. A dense matrix-free PDHG sweep, by contrast, keeps every operation regular and fully parallel, so we use it rather than a sparse QP solver for this subproblem. 
+
+D. Globalization 
+
+The SQP subproblem only sees a linearized model. A step is accepted only after testing the nonlinear objective and constraints. Let ∆i = εd i and let Φi = ∂∆i/∂x i be the Jacobian of the particle transport. For a candidate step length 
+
+α, the line search evaluates 
+
+yi(α) = xi + α∆i + si(α), (17) where si(α) is a second-order correction defined below. The accepted step is selected by the ensemble merit 
+
+M (α) = 1
+
+N
+
+X
+
+> i
+
+V (yi(α)) − γ 1
+
+N
+
+X
+
+> i
+
+log det( I + αΦi)+ ν 1
+
+N
+
+X
+
+> i
+
+ ∥h(yi(α)) ∥1 + g+(yi(α)) 1
+
+ . (18) The log-determinant term is the same local volume effect that produces Stein repulsion. Including it prevents the line search from always preferring collapse toward the lowest-cost particle. The line search globalizes on this nonsmooth ℓ1 exact-penalty merit, whose constraint term, the mean per-particle violation, enters weighted by the penalty parameter ν. Exact-penalty theory fixes what this weight must be: the SQP step is a descent direction for the merit, and a constrained minimizer is one of its stationary points, precisely when ν dominates the optimal multipliers, ν > ∥(λ⋆, μ ⋆)∥∞, with the ℓ∞ norm dual to the ℓ1 violation measure [ 31 ]. A single hand-tuned 
+
+ν cannot meet this robustly: too small and the penalty loses exactness, so the search stalls at infeasible points; too large and the merit is swamped by feasibility, forcing vanishing steps and ill-conditioning. We instead read the multiplier estimates straight off the inner solve, since the PDHG duals λ, μ are exactly the current estimates of λ⋆, μ ⋆, and set 
+
+ν = max  νmin , ρ ν max  ∥λ∥∞ , ∥μ∥∞
+
+ , (19) with a safety factor ρν > 1 that keeps ν strictly above the live multipliers and a floor νmin that guards the fully feasible case 
+
+λ, μ → 0. The weight is thus just large enough to stay exact but no larger, and it tracks the multipliers automatically, rising as they grow near strongly active constraints and relaxing as they settle toward the solution, so feasibility is never balanced by a manually fixed penalty scale. 
+
+1) Second-order correction (SOC): To reduce the gap between the linearized constraints and the true nonlinear constraints, every line-search candidate is retracted once by 
+
+si(α) = −  ¯J⊤ 
+
+> i
+
+¯Ji + ηiI−1 ¯J⊤ 
+
+> i
+
+¯ci(xi + α∆i). (20) Here ¯ci stacks the equality residuals and the currently violated inequality rows, and ¯Ji is the corresponding block of the current constraint Jacobian. The correction is computed at the candidate point rather than only at the full step, because backtracking can change which inequalities are violated. This is a standard SQP trick to overcome the Maratos effect [ 31 ]. In our experiments, without SOC SteinSQP diverges on difficult NLP problems. 
+
+2) Line search: The step length is shared by the whole ensemble. SteinSQP evaluates a fixed geometric ladder of candidates in parallel and accepts the largest one that satisfies an Armijo decrease test on (18) . If no candidate passes, a filter rule may accept a step that strictly reduces constraint violation without increasing the transport objective too much. Candidates with non-invertible transport, detected by the log-determinant term, are rejected. 
+
+E. Escaping Infeasible Basins 
+
+Nonconvex inequalities can trap a particle in an infeasible homotopy class. At a fixed period, particles that still fail the task feasibility test are restarted from feasible particles in the same ensemble: 
+
+xi ← xj(i) + Pj(i)ξi,j(i) ∼ Unif {j : xj feasible }, ξi ∼ N (0 , σ 2 
+
+> r
+
+I). (21) The projection is used when a tangent projector is available; otherwise the restart is an ordinary local perturbation. This mechanism is not meant to replace constraint handling. It only gives particles that are locally stuck another feasible basin from which the Stein repulsion can again diversify them. 
+
+F. Stopping and Computation 
+
+The solver stops when all particles are feasible and the ensemble merit level has plateaued over a resampling period. 7
+
+Algorithm 1 SteinSQP 
+
+Require: initial ensemble X0, kernel k, step size ε 
+
+> 1:
+
+for r = 0 , . . . , r max − 1 do  
+
+> 2:
+
+evaluate V, h, g, J h, J g at the current ensemble  
+
+> 3:
+
+build the Stein-like model ui, H i ▷ (10), (11)  
+
+> 4:
+
+solve the constrained kernel-space QP (14) by PDHG (16)  
+
+> 5:
+
+set the exact-penalty weight ν from the QP duals ▷
+
+(19)  
+
+> 6:
+
+accept a corrected ensemble step by the merit (18)  
+
+> 7:
+
+if a resampling period is reached then  
+
+> 8:
+
+restart particles that remain infeasible ▷ (21)  
+
+> 9:
+
+stop if all particles are feasible and the merit has plateaued  
+
+> 10:
+
+end if  
+
+> 11:
+
+end for Ensure: feasible, diverse particle ensemble We do not stop on small particle motion, because repulsion can keep a well-converged ensemble moving slightly. All loops have fixed shapes: PDHG uses a fixed iteration count, the line search uses a fixed candidate ladder, and resampling is implemented by masked updates. The dense backend costs O(N 2d) for kernel contractions, O(N d 3) for the batched proximal solves, and O(L(N 2d + N (mh + mg )d)) for L PDHG iterations. For trajectory kernels, multiplication by M in (12) uses block-banded storage, while the ensemble coupling remains a dense 
+
+N × N particle operation. The full SteinSQP algorithm is given in Algorithm 1. VI. E XPERIMENTS 
+
+The experiments are organized around three questions. First, does SteinSQP return a feasible ensemble , not only a feasible best particle? Second, does the globalized Stein–Newton flow reach that ensemble faster than first-order constrained Stein optimization and than serial multistart nonlinear programming? Third, when a task admits several solutions, does the ensemble retain them instead of collapsing onto a single mode? All experiments are conducted on a desktop workstation with an AMD Ryzen 9 7950X3D CPU and an NVIDIA GeForce RTX 4080 GPU (16 GB): the JAX-based SteinSQP and CSVTO run on the GPU, while IPOPT runs on the CPU. 
+
+A. Benchmarks, Baselines, and Protocol 
+
+Tasks. We evaluate on five tasks ordered from diagnostic to robot-scale, with the ensemble size N fixed per task. Annulus 
+
+(N =88 ): sampling a 2-D Gaussian restricted to the band 2.5 ≤∥x∥ ≤ 3; the target density is known in closed form, so distributional behavior can be judged against ground truth. 
+
+Trajectory (N =16 ): planar spline trajectory optimization (33 control points) through scattered circular obstacles treated as nonlinear collision inequalities. Surface (N =32 ): traversing a curved terrain while avoiding holes; keeping the path on the terrain contributes a large system of equality constraints on top of the clearance inequalities. Panda throw (N =16 ): a 7-DoF manipulator throws a ball into a basket, under joint limits, arm and ball collision clearance, a pinned start pose, and a ballistic landing constraint (Figure 1). Push-box (N =16 ): a pusher must bring a box to a goal pose through a smoothed single-shooting contact rollout; distinct contact faces and rotation directions make the task multimodal by construction. We defer the detailed NLP problem definitions to Section B. 
+
+Baselines. The baselines separate the two roles of the method. CSVTO, a first-order constrained Stein trajectory optimizer sharing our kernels, tests whether the second-order Stein geom-etry and the ensemble globalization are necessary. Multistart IPOPT, launched once from every particle of the same initial ensemble, tests whether independent deterministic solves can replace a coupled particle flow. SteinSQP and CSVTO run as batched float32 ensemble solvers on the GPU; IPOPT solves each start serially in float64 (its Python interface does not support float32), with exact sparse Lagrangian Hessians on the three low-dimensional tasks and L-BFGS on panda and push-box. 
+
+Protocol. All results aggregate 10 seeds per (task, method) pair. For seed s all three methods receive the identical initial ensemble, so IPOPT’s starts are bit-identical to the particle methods’ particles. Each method keeps its hand-tuned per-task configuration and runs under a shared stopping rule: a run ends as soon as all particles are feasible at the task tolerance and the ensemble merit has plateaued, with a hard cap of 2000 iterations. CSVTO has no globalization and never reaches this test, so it consumes the full budget on every task. IPOPT runs at KKT tolerance 10 −4, with its constraint-violation tolerance pinned to the same task feasibility tolerance the particle methods must reach. Every final ensemble is scored by one scorer: the same per-particle objective, the same L∞ violation, and the same feasibility predicate at the true task tolerance. All timings are 
+
+warm : an untimed pass first triggers XLA compilation (and compiles IPOPT’s autodiff callbacks), so the reported times measure the solve, not compilation. 
+
+B. Metrics 
+
+The first primary metric is particle-wise feasibility : the fraction of all returned particles, across all seeds, that satisfy the task constraints. This is the success criterion appropriate for a sampler, since a method that returns one feasible trajectory and many unusable particles has not solved the ensemble problem. The second primary metric is warm time-to-solution :for SteinSQP and CSVTO the wall time of the single batched ensemble solve, for IPOPT the sum of its N serial multistart solves. Since the Python wrapper adds callback overhead to IPOPT, we also report its callback-free internal time (wall time minus bracketed callback time) as a lower bound on a native implementation. Secondary metrics describe sampling quality. On the annulus we report the unbiased squared maximum mean discrepancy (MMD 2) between the final ensemble and 4000 rejection samples of the true truncated Gaussian, using an RBF kernel with a fixed bandwidth of 0.5 set from the band geometry (a data-adaptive bandwidth would differ per ensemble and make the scores incomparable across methods). On push-box we report mode coverage , the number of distinct (rotation sign, 8SteinSQP                             
+
+> 100% feasible
+> CSVTO
+> 100% feasible
+> IPOPT
+> 100% feasible
+> 10 −11
+> 10 −9
+> 10 −7
+> 10 −5
+> constraint violation  (L ∞) tol=0.0001
+> Constraint satisfaction
+> best particle
+> worst particle
+> SteinSQP CSVTO IPOPT
+> 10 −3
+> 10 −2
+> 10 −1
+> objective of best feasible particle  Best particle
+> 0250 500 750 1000 1250 1500 1750 2000
+> iteration
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> ensemble-mean objective
+> Objective descent
+> SteinSQP
+> CSVTO
+> IPOPT
+> SteinSQP CSVTO IPOPT
+> 0
+> 100
+> 200
+> 300
+> 400
+> 500
+> 600
+> 700
+> iterations to settle at final objective
+> Descent speed (settling time; lower = faster)
+> trajectory: SteinSQP vs CSVTO vs IPOPT (10 seeds) SteinSQP
+> 100% feasible
+> CSVTO
+> 45% feasible
+> IPOPT
+> 99% feasible
+> 10 −8
+> 10 −7
+> 10 −6
+> 10 −5
+> 10 −4
+> 10 −3
+> 10 −2
+> 10 −1
+> constraint violation  (L ∞)
+> tol=0.001
+> Constraint satisfaction
+> best particle
+> worst particle
+> SteinSQP CSVTO IPOPT
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> objective of best feasible particle  Best particle
+> 0250 500 750 1000 1250 1500 1750 2000
+> iteration
+> 10 −11
+> 10 −8
+> 10 −5
+> 10 −2
+> 10 1
+> ensemble-mean objective
+> Objective descent
+> SteinSQP
+> CSVTO
+> IPOPT
+> SteinSQP CSVTO IPOPT
+> 0
+> 500
+> 1000
+> 1500
+> 2000
+> iterations to settle at final objective
+> Descent speed (settling time; lower = faster)
+> panda: SteinSQP vs CSVTO vs IPOPT (10 seeds)
+
+Fig. 2. Convergence diagnostics on trajectory (left) and panda (right); all statistics are medians with IQR over 10 seeds. Per task: best- and worst-particle L∞
+
+violation against the task tolerance with the feasible fraction, best feasible objective, ensemble-mean objective per iteration, and the settling time, the iteration after which the mean objective stays within a 10% band of its final plateau, so oscillation counts in full. 
+
+contact face) labels among feasible particles, and the feasible spread , the mean pairwise distance between feasible particles. We also track the best feasible objective, the median over seeds of the lowest cost among feasible particles, as a diagnostic rather than a claim: IPOPT is expected to be strong at single-solution local optimization, while SteinSQP targets feasible, diverse ensembles. 
+
+C. Main Results 
+
+Table I gives the headline results. SteinSQP is the only method that returns a fully feasible ensemble on every task: 
+
+1680 /1680 particles over all seeds, against 1504 /1680 for CSVTO and 1599 /1680 for IPOPT. Every method finds at least one feasible particle in every seed; the gap opens at the ensemble level, which is exactly where a sampler is judged. SteinSQP also triggers the shared stopping test on every task (median 238 –1080 of the 2000 allotted iterations), so its times reflect convergence, not budget exhaustion. 
+
+Against first-order Stein (CSVTO). On the three geometric tasks CSVTO also reaches full feasibility, but because it never satisfies the stopping test it pays the full budget, ending up 
+
+30 × (trajectory) and 7× (surface) slower than SteinSQP; only on the 2-D annulus, where a first-order update is nearly free, is it faster ( 0.19 s vs. 0.34 s). On the two robot-scale tasks its lack of globalization becomes a correctness failure, not merely a speed one: it loses more than half the ensemble ( 45% feasible on both panda and push-box), and the cost of its surviving particles degrades by up to four orders of magnitude (Table II). The second-order geometry and the ensemble line search are therefore not refinements; they are what makes the constrained Stein flow dependable. 
+
+Against multistart IPOPT. IPOPT matches feasibility on the smooth tasks and nearly so on panda ( 99% ), but as a serial multistart it is 4.6–23 × slower than the batched ensemble solve there, and 108 × slower on panda ( 282 .6 s vs. 2.6 s). This is not an artifact of wrapper overhead: even its callback-free internal lower bound ( 244 .9 s on panda, 12 .6 s on push-box) exceeds SteinSQP’s total wall time on every task. On the contact-rich push-box rollout, interior-point iterations frequently stall, and only 51% of starts end feasible. A set of independent deterministic solves thus reproduces neither the reliability nor the cost profile of the coupled flow. 
+
+Ensemble-level convergence. Figure 2 compares conver-gence from the particle-ensemble perspective. On both tra-jectory and panda, SteinSQP decreases the ensemble-mean objective more rapidly and reaches its final plateau earlier than the baselines, while also driving the worst-particle constraint violation below the task tolerance. This is the iteration-level convergence advantage reported in our results: the Stein– Newton flow makes faster progress per ensemble update, rather than merely obtaining a lower wall-clock time from batching. CSVTO, without globalization, exhibits larger oscillations and settles last or not within the iteration budget. IPOPT can reduce the objective quickly within individual local solves, but its progress is distributed across independent serial starts rather than a coupled ensemble update. 
+
+D. Sampling Quality and Diversity 
+
+Distributional accuracy (annulus). The annulus is the one task with an exact target density, and it cleanly separates the three methods (Table III, Figure 3). SteinSQP attains an MMD 2
+
+of 2.52 × 10 −3, 39 × lower than CSVTO and 271 × lower than IPOPT. Figure 3 shows why: all 88 IPOPT starts contract onto the single constrained optimum (spread 0.00 ), so a multistart optimizer is not a sampler even when every start succeeds, while CSVTO keeps particles spread but transports them so slowly along the heavily constrained band that its ensemble never matches the target’s radial and angular profile within the budget. SteinSQP reproduces both marginals while keeping every particle in the band. 
+
+Multimodal coverage (push-box). Push-box is multimodal by construction, and here coverage must be read jointly with feasibility (Table III, Figure 4). SteinSQP discovers as many feasible contact modes as multistart IPOPT ( 2.0) while returning 100% of its particles feasible against IPOPT’s 51% ,9Ground truth 
+
+(truncated Gaussian) 
+
+SteinSQP 
+
+MMD 2=0.00252 
+
+> initial
+> final
+
+CSVTO 
+
+MMD 2=0.0979 
+
+> initial
+> final
+
+IPOPT 
+
+MMD 2=0.684 
+
+> initial
+> final
+
+Annulus: particle motion to the feasible band vs the true density (seed 0; hollow = start, filled = final; MMD 2 = median over seeds) 
+
+Fig. 3. Annulus particle motion vs. the known target. Left: 4000 ground-truth samples of the Gaussian truncated to the feasible band. Right: per-method motion of the shared seed-0 ensemble from initialization (hollow) to the final particles (filled); the Stein methods show per-iteration trails, while IPOPT, which exposes no per-iterate ensemble, is drawn as straight initial-to-final segments. Panel titles report the median MMD 2 over 10 seeds. TABLE I PRIMARY RESULTS , MEDIAN OVER 10 SEEDS PER TASK . Success :
+
+PARTICLE -WISE FEASIBILITY (FEASIBLE / RETURNED PARTICLES ). Wall time : WARM TIME -TO -SOLUTION , ONE BATCHED SOLVE FOR STEIN SQP AND 
+
+CSVTO, THE SERIAL SUM OVER N MULTISTART SOLVES FOR IPOPT. Iters. :
+
+ITERATIONS AT TERMINATION (CAP 2000 ). † CSVTO NEVER REACHES THE STOPPING TEST AND EXHAUSTS THE BUDGET . ‡ INTERIOR -POINT ITERATIONS PER START , NOT COST -COMPARABLE PER ITERATION .Task Method Success Wall time (s) Iters. Annulus (N =88 )SteinSQP 100% (880/880) 0.344 238 CSVTO 100% (880/880) 0.192 2000 †
+
+IPOPT 100% (880/880) 1.247 9‡
+
+Trajectory (N =16 )SteinSQP 100% (160/160) 0.554 462 CSVTO 100% (160/160) 16.791 2000 †
+
+IPOPT 100% (160/160) 12.679 146 ‡
+
+Surface (N =32 )SteinSQP 100% (320/320) 0.962 1080 CSVTO 100% (320/320) 7.018 2000 †
+
+IPOPT 100% (320/320) 4.411 34 ‡
+
+Panda (N =16 )SteinSQP 100% (160/160) 2.613 488 CSVTO 45% (72/160) 52.789 2000 †
+
+IPOPT 99% (158/160) 282.625 895 ‡
+
+Push-box (N =16 )SteinSQP 100% (160/160) 1.917 562 CSVTO 45% (72/160) 3.385 2000 †
+
+IPOPT 51% (81/160) 53.763 312 ‡
+
+TABLE II BEST FEASIBLE OBJECTIVE : MEDIAN OVER SEEDS OF THE LOWEST COST AMONG FEASIBLE PARTICLES . A DIAGNOSTIC , NOT THE HEADLINE : IPOPT 
+
+IS AN EXACT FLOAT 64 LOCAL OPTIMIZER AND SHOULD WIN IT WHEREVER IT CONVERGES (ON PUSH -BOX , AMONG THE 51% OF STARTS THAT DO ). Task SteinSQP CSVTO IPOPT Annulus 0.500 0.530 0.500 
+
+Trajectory 9.46 × 10 −3 1.04 × 10 −1 8.33 × 10 −4
+
+Surface 325 .9 473 .5 310 .6
+
+Panda 7.53 × 10 −3 2.39 × 10 2 4.06 × 10 −3
+
+Push-box 6.07 × 10 −2 1.50 × 10 −1 1.23 × 10 −7SteinSQP CSVTO IPOPT   
+
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> distinct modes among feasible particles
+> Mode coverage per method
+> ↓ CW
+> ← no spin
+> ↙ no spin
+> ← CCW
+> push mode (arrow = box face the pusher presses; CW / CCW = box spin)
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> mean feasible particles / seed  Which modes each method covers
+> SteinSQP
+> CSVTO
+> IPOPT
+> Push-box: multimodal contact coverage
+
+Fig. 4. Push-box mode coverage. Left: distinct contact modes among feasible particles per seed (median, IQR). Right: per-mode occupancy, the mean feasible particles per seed landing in each observed (spin, contact-face) mode. 
+
+and its feasible plans are the most mutually distinct (spread 
+
+3.36 vs. 2.37 and 1.50 ). CSVTO’s nominally highest coverage (2.3) is obtained only after discarding 55% of its ensemble. Figure 5 renders the qualitatively different feasible pushes, opposite rotation directions and contact faces, returned by a single SteinSQP solve. 
+
+Where multistart keeps diversity. On trajectory, surface, and panda, IPOPT’s independent starts do end at distinct local optima, inheriting the spread of the shared initialization (Figures 6 and 7); on such tasks the advantage of the coupled flow is not diversity but cost, one batched solve versus a serial sum (Table I). The ensemble-level advantages of the flow appear precisely where the paper claims them: where the task is distributional (annulus) or contact-rich (push-box). 
+
+Best feasible cost. Table II follows the expected pattern. 
+
+TABLE III SAMPLING DIAGNOSTICS , MEDIAN OVER SEEDS . MMD 2 : UNBIASED RBF MMD ( FIXED BANDWIDTH 0.5) BETWEEN THE FINAL ENSEMBLE AND 4000 
+
+GROUND -TRUTH SAMPLES . S PREAD : MEAN PAIRWISE DISTANCE AMONG 
+
+feasible PARTICLES ; ON THE ANNULUS IT DIAGNOSES COLLAPSE , ON PUSH -BOX LARGER MEANS MORE DISTINCT FEASIBLE ALTERNATIVES .MODES : DISTINCT (ROTATION SIGN , CONTACT FACE ) LABELS AMONG FEASIBLE PARTICLES .Metric SteinSQP CSVTO IPOPT Annulus: MMD 2 ↓ 2.52 × 10 −3 9.79 × 10 −2 6.84 × 10 −1
+
+Annulus: spread 1.32 3.48 0.00 
+
+Push-box: feasible modes ↑ 2.0 2.3 2.0
+
+Push-box: feasible spread ↑ 3.36 2.37 1.50 10 ← face Δθ=+0° ↙ face Δθ=+0° ← face Δθ=+90°  
+
+> push_box: SteinSQP's diverse contact modes (later poses darker)
+
+Fig. 5. Distinct feasible contact modes from a single SteinSQP solve, one panel per mode: box poses are ghosted along the box’s path (later poses darker), the pusher path is dashed; the modes differ in contact face and net rotation direction. SteinSQP  
+
+> 16/16 feasible
+> CSVTO
+> 16/16 feasible
+> IPOPT
+> 16/16 feasible
+> trajectory: final ensemble trajectories (seed 0; feasible = method colour, infeasible = grey)
+
+Fig. 6. Final ensembles on the trajectory task for one shared seed: all methods start from the identical ensemble; feasible plans are drawn in the method color, infeasible plans in grey (counts in the panel titles). 
+
+IPOPT, an exact float64 local optimizer, attains the lowest best-particle cost wherever it converges; SteinSQP stays close on the robot-scale tasks (within 5% on surface, the same order of magnitude on panda) while returning the entire ensemble feasible, and CSVTO’s best particle degrades by one to four orders of magnitude on the hard tasks. This is the trade the method is designed to make: a margin of best-particle optimality in exchange for a fully usable, diverse set of plans. 
+
+E. Takeaway 
+
+The SQP layer and the ensemble-level globalization are what make the Stein flow usable under nonlinear constraints. SteinSQP is the only method that turns the whole ensemble into feasible motion output ( 1680 /1680 particles), and it reaches that ensemble at the lowest warm time-to-solution on every task but the 2-D diagnostic, up to 108 × faster than serial multistart IPOPT, whose internal solver time alone exceeds SteinSQP’s total on all five tasks. At the same time it preserves the reason to use a Stein method at all: a close match to the target distribution where one exists ( 39 –271 × lower MMD 2)and several qualitatively distinct feasible modes in a single solve. The two baselines exhibit exactly the failure modes the method is built to remove: the first-order flow returns diverse but partially infeasible ensembles on hard constraints, and multistart nonlinear programming pays a serial cost and collapses distributionally where the task is sampling. VII. C ONCLUSION 
+
+We presented SteinSQP, a constrained Stein variational inference method for sampling diverse feasible robot mo-tions. Rather than relaxing nonlinear constraints through slack variables, penalties, or post-hoc projection, SteinSQP embeds linearized equality and inequality constraints directly into the kernel-coupled ensemble displacement, yielding an SQP-like SteinSQP  
+
+> 32/32 feasible
+> CSVTO
+> 32/32 feasible
+> IPOPT
+> 32/32 feasible
+> surface: final ensemble trajectories (seed 0; feasible = method colour, infeasible = grey)
+
+Fig. 7. Final ensembles on the surface task for one shared seed: all methods start from the identical ensemble; feasible plans are drawn in the method color, infeasible plans in grey (counts in the panel titles). 
+
+constrained Stein–Newton update. A matrix-free PDHG solver makes the resulting dense kernel-space subproblem practical on GPU hardware, while an ensemble-level exact-penalty merit function globalizes the step by jointly accounting for objective decrease, nonlinear feasibility, and particle diversity. Across five constrained motion-planning benchmarks, Stein-SQP consistently produced fully feasible ensembles while retaining the diversity benefits of particle-based inference. The experiments show that this combination of curvature, direct inequality handling, and ensemble globalization is essential: first-order constrained Stein updates can remain diverse but lose feasibility on difficult robot-scale tasks, whereas independent multistart nonlinear programming can find good single solutions but pays a serial cost and may collapse distributionally. SteinSQP therefore provides a practical middle ground between constrained optimization and constrained sampling, returning a set of feasible, low-cost, and qualitatively distinct motions in a single batched solve. Looking ahead, we aim to extend SteinSQP toward sampling-based model predictive control under strict feasibility require-ments. A key direction is to study ensemble warm starts, where the feasible particle set from the previous MPC cycle is shifted forward and refined under updated state, environment, and contact constraints, potentially reusing kernel structure and SQP dual information to support real-time constrained control. ACKNOWLEDGMENTS 
+
+This work was supported by the DFG Emmy Noether Programme (CH 2676/1-1), the EU Horizon Europe projects MANiBOT (101120823) and ARISE (101135959), the BMFTR project RIG (16ME1001), and the ERC project SIREN (101163933). We also acknowledge support from the hessian.AI Service Center (BMFTR, 16IS22091), the hessian.AI Innova-tion Lab (S-DIW04/0013/003), TAM, RAI, Google, and the Alfried Krupp Foundation. APPENDIX 
+
+A. Solver Hyperparameters 
+
+Defaults shared across all experiments unless stated: damping 
+
+λ = 10 −4 (10 −3 on panda); ensemble line search K = 6 , βls =0.5, c1 = 10 −4, bold-driver growth 1.2; exact-penalty floor 
+
+νmin = 0 .1–10 (per example), safety ρν = 2 ; SOC damping (relative) 10 −3; PDHG L = 24 –80 inner iterations, θ = 1 ,11          
+
+> TABLE IV BENCHMARK PROBLEM SIZES .N:ENSEMBLE PARTICLES ;n:
+> DECISION -VECTOR DIMENSION ;mh/mg:NUMBER OF SCALAR EQUALITY /
+> INEQUALITY CONSTRAINTS .
+
+Task N n mh mg
+
+Annulus 88 2 0 2Trajectory 16 66 4 1180 Surface 32 48 4 550 Panda 16 128 16 1970 Push-box 16 32 3 0
+
+safety 0.75 –0.95 , four power-iteration sweeps for the operator norm; basin-escape resampling every Tr = 25 –40 iterations with noise σr = 0 .1–0.2; constraint tolerance 10 −4 (5 × 10 −4
+
+on surface; task-scale feasibility predicates on panda and push-box). The diversity temperature is the fixed γ = 1 in every experiment; the online annealing schedule ( r0 = 1 , rmin =0.05 , βr = 0 .9) is implemented but disabled throughout—an ablation across the examples found it is never a net win and destabilizes the stiff contact rollout. The code will be released upon official acceptance of this work. 
+
+B. Benchmark Problem Definitions 
+
+Every task is an instance of the constrained least-squares NLP of Section III, solved jointly by an ensemble of N
+
+particles: 
+
+min  
+
+> x∈Rn
+
+V (x) = 12 ∥r(x)∥2,
+
+s.t. h(x) = 0 , g(x) ≤ 0.
+
+(22) Here a single decision vector x encodes one candidate motion. Table IV lists the problem sizes. The per-task residuals, equalities, and inequalities are given below. For the spline tasks, the decision vector is the flattened control polygon x = vec( C),with C ∈ RM ×d, and the sampled path is the deterministic image of x under a fixed clamped cubic B-spline operator. We write 
+
+∆2Ci = Ci+2 − 2Ci+1 + Ci (23) for the second difference of the control polygon. 
+
+a) Annulus ( n=2 , N =88 ).: A diagnostic sampler: each particle is a point x ∈ R2, and the objective is the negative log-density of N (μ, σ 2I), with μ = (5 , 0) and σ = 2 . The feasible set is the annulus 2.5 ≤ ∥ x∥ ≤ 3:
+
+r(x) = x − μσ ,g1(x) = r2in − ∥ x∥2,g2(x) = ∥x∥2 − r2out ,
+
+(24) with rin = 2 .5 and rout = 3 . There are no equality constraints. The mean lies outside the band, so the unconstrained optimum is infeasible and the target is the truncated Gaussian. 
+
+b) Trajectory ( n=66 , N =16 ).: M = 33 planar control points define a cubic B-spline sampled at S = 120 points 
+
+ps. The objective penalizes control-polygon acceleration, the endpoints are pinned, and each interior sample must clear 
+
+O = 10 disc obstacles: 
+
+V (x) = wsm 
+
+2 
+
+> M−3
+
+X
+
+> i=0
+
+∥∆2Ci∥2,h(x) =  C0 − xs, C M −1 − xg
+
+.
+
+(25) Here wsm = 1 , xs = ( −5, 0) , and xg = (5 , 0) . The collision inequalities are 
+
+gsj (x) = ( ρj + δ)2 − ∥ ps − oj ∥2 ≤ 0, (26) for s = 1 , . . . , S − 2 and j = 1 , . . . , O , with margin δ = 0 .01 .The two endpoint samples coincide with the pinned control points and are dropped, leaving mg = 118 × 10 inequalities. 
+
+c) Surface ( n=48 , N =32 ).: M = 24 planar control points define a path lifted onto a smooth RBF terrain z =
+
+f (x, y ), with P (t) = ( p(t), f (p(t))) . The objective integrates control-polygon acceleration and lifted 3-D path length by Gauss–Legendre quadrature: 
+
+V (x) = 12
+
+Z  wsm ∥C′′ (t)∥2 + wℓ∥P ′(t)∥2 dt. (27) We use wsm = 1 and wℓ = 4 . The endpoints are pinned by 
+
+h(x) =  C0 − xs, C M −1 − xg
+
+, (28) with xs = ( −4.5, 0) and xg = (4 .5, 0) . The path avoids H = 5 
+
+spherical holes through 
+
+gsj (x) = ( rj + δ)2 − ∥ Ps − bj ∥2 ≤ 0, (29) for s = 1 , . . . , S and j = 1 , . . . , H , with margin δ = 0 .05 .This gives mg = 110 × 5 inequalities. 
+
+d) Panda throw ( n=128 , N =16 ).: A T = 16 -knot joint trajectory with 7 arm joints per knot is stored in an 8-wide block, giving x ∈ R128 with 112 active variables. Let qk ∈ R7
+
+be the knot configuration and pk the forward-kinematic TCP position. The ball is released at the last knot with 
+
+r = pT −1, v = pT −1 − pT −2
+
+∆t , (30) and the flight time tf is eliminated analytically, assuming release above the basket. The objective smooths joint accelera-tion: 
+
+V (x) = 12 
+
+> T−3
+
+X
+
+> k=0
+
+∥qk+2 − 2qk+1 + qk∥2. (31) The equality constraints enforce the start pose, zero initial velocity, and ballistic landing at the basket: 
+
+h1(x) = q0 − qstart ,h2(x) = q1 − q0,h3(x) = rxy + tf vxy − basket xy .
+
+(32) Together these give mh = 16 scalar equalities. The inequali-ties consist of joint limits, flight-time bounds, arm–obstacle clearance, and thrown-ball clearance. Specifically, they include 
+
+2×7×16 = 224 joint-limit constraints, two flight-time bounds, 
+
+16 × 13 × 8 = 1664 arm–obstacle clearance constraints, and 
+
+10 × 8 = 80 thrown-ball clearance constraints, for a total of 
+
+mg = 1970 . All clearance constraints use margin m = 0 .03 m ;the optimizer adds a 0.02 m slack. 12 
+
+e) Push-box ( n=32 , N =16 ).: M = 16 pusher control points define a smooth pusher path over T = 48 rollout steps. The box pose box k ∈ SE (2) is not a decision variable; it is obtained by the smoothed quasi-static contact rollout 
+
+box k+1 = box k + h twist(box k, P k), h = 0 .1, (33) with box 0 = q0 = (0 , 0, 0) . The objective smooths the pusher control polygon: 
+
+V (x) = wsm 
+
+2 
+
+> M−3
+
+X
+
+> i=0
+
+∥∆2Ci∥2, wsm = 1 . (34) The terminal box pose is pinned by 
+
+h(x) =  box xy T − goal , sin  2( θT − θgoal ) , (35) where goal = (1 .4, 0.6) and θgoal = 0 . There are no inequality constraints. The heading residual is 90 ◦-symmetric because the rounded box is invariant under quarter turns, which admits the distinct {0, ±90 ◦} rotation modes observed in Section VI-D .REFERENCES [1] N. Ratliff, M. Zucker, J. A. Bagnell, and S. Srinivasa, “CHOMP: Gradient optimization techniques for efficient motion planning,” in 2009 IEEE international conference on robotics and automation . IEEE, 2009, pp. 489–494. [2] J. Schulman, Y. Duan, J. Ho, A. Lee, I. Awwal, H. Bradlow, J. Pan, S. Patil, K. Goldberg, and P. Abbeel, “Motion planning with sequential convex optimization and convex collision checking,” The International Journal of Robotics Research , vol. 33, no. 9, pp. 1251–1270, 2014. [3] M. Toussaint, “Robot trajectory optimization using approximate infer-ence,” in Proceedings of the 26th annual international conference on machine learning , 2009, pp. 1049–1056. [4] M. Mukadam, J. Dong, X. Yan, F. Dellaert, and B. Boots, “Continuous-time Gaussian process motion planning via probabilistic inference,” The International Journal of Robotics Research , vol. 37, no. 11, pp. 1319– 1340, 2018. [5] M. Brubaker, M. Salzmann, and R. Urtasun, “A family of MCMC methods on implicitly defined manifolds,” in Artificial intelligence and statistics . PMLR, 2012, pp. 161–172. [6] D. Berenson, S. S. Srinivasa, D. Ferguson, and J. J. Kuffner, “Manip-ulation planning on constraint manifolds,” in 2009 IEEE international conference on robotics and automation . IEEE, 2009, pp. 625–632. [7] C. Suh, T. T. Um, B. Kim, H. Noh, M. Kim, and F. C. Park, “Tangent space RRT: A randomized planning algorithm on constraint manifolds,” in 2011 IEEE International Conference on Robotics and Automation .IEEE, 2011, pp. 4968–4973. [8] Q. Liu and D. Wang, “Stein variational gradient descent: A general purpose bayesian inference algorithm,” Advances in neural information processing systems , vol. 29, 2016. [9] J. Shi, C. Liu, and L. Mackey, “Sampling with mirrored stein operators,” 
+
+arXiv preprint arXiv:2106.12506 , 2021. [10] R. Zhang, Q. Liu, and X. Tong, “Sampling in constrained domains with orthogonal-space variational gradient descent,” Advances in Neural Information Processing Systems , vol. 35, pp. 37 108–37 120, 2022. [11] T. Power and D. Berenson, “Constrained stein variational trajectory optimization,” IEEE Transactions on Robotics , vol. 40, pp. 3602–3619, 2024. [12] G. Tabor and T. Hermans, “Constrained stein variational gradient descent for robot perception, planning, and identification,” arXiv preprint arXiv:2506.00589 , 2025. [13] J. Li, K. Pompetzki, A. T. Le, H. Tong, J. Peters, and G. Chalvatzaki, “Constrained gaussian process motion planning via stein variational newton inference,” arXiv preprint arXiv:2504.04936 , 2025. [14] Y. Yi, J. Cortés, and N. Atanasov, “Constrained variational inference via safe particle flow,” IEEE Control Systems Letters , vol. 9, pp. 2579–2584, 2025. [15] A. Chambolle and T. Pock, “A first-order primal-dual algorithm for convex problems with applications to imaging,” Journal of mathematical imaging and vision , vol. 40, no. 1, pp. 120–145, 2011. [16] T. Goldstein, M. Li, X. Yuan, E. Esser, and R. Baraniuk, “Adaptive primal-dual hybrid gradient methods for saddle-point problems,” arXiv preprint arXiv:1305.0546 , 2013. [17] B. Kim, T. T. Um, C. Suh, and F. C. Park, “Tangent bundle RRT: A randomized algorithm for constrained motion planning,” Robotica ,vol. 34, no. 1, pp. 202–225, 2016. [18] T. Lelièvre, M. Rousset, and G. Stoltz, “Hybrid monte carlo methods for sampling probability measures on submanifolds,” arXiv preprint arXiv:1807.02356 , 2018. [19] M. Girolami and B. Calderhead, “Riemann manifold langevin and hamiltonian monte carlo methods,” Journal of the Royal Statistical Society Series B: Statistical Methodology , vol. 73, no. 2, pp. 123–214, 2011. [20] S. Byrne and M. Girolami, “Geodesic monte carlo on embedded manifolds,” Scandinavian Journal of Statistics , vol. 40, no. 4, pp. 825– 845, 2013. [21] M. Toussaint, C. V. Braun, and J. Ortiz-Haro, “Nlp sampling: Combining mcmc and nlp methods for diverse constrained sampling,” arXiv preprint arXiv:2407.03035 , 2024. [22] J. Ortiz-Haro, J.-S. Ha, D. Driess, and M. Toussaint, “Structured deep generative models for sampling on constraint manifolds in sequential manipulation,” in Conference on Robot Learning . PMLR, 2022, pp. 213–223. [23] Q. Liu, L. Mackey, and C. Oates, “Probabilistic inference and learning with stein’s method,” arXiv preprint arXiv:2603.07467 , 2026. [24] Q. Liu, “Stein variational gradient descent as gradient flow,” Advances in neural information processing systems , vol. 30, 2017. [25] G. Detommaso, T. Cui, Y. Marzouk, A. Spantini, and R. Scheichl, “A stein variational newton method,” Advances in Neural Information Processing Systems , vol. 31, 2018. [26] Y. Aoyama, P. Lehmann, and E. A. Theodorou, “Second-order stein variational dynamic optimization,” in 2025 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2025, pp. 7209–7216. [27] X. Liu, X. Tong, and Q. Liu, “Sampling with trusthworthy constraints: A variational gradient framework,” Advances in neural information processing systems , vol. 34, pp. 23 557–23 568, 2021. [28] S. Zhang, L. Yu, Z. Cheng, and C. Zhang, “Functional gradient flows for constrained sampling,” Advances in Neural Information Processing Systems , vol. 37, pp. 112 356–112 385, 2024. [29] C. Liu and J. Zhu, “Riemannian stein variational gradient descent for Bayesian inference,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 32, no. 1, 2018. [30] J. Li, Y. Jin, S. Teng, D. Gong, and G. Chalvatzaki, “Stein variational ergodic surface coverage with se (3) constraints,” arXiv preprint arXiv:2603.09458 , 2026. [31] J. Nocedal and S. J. Wright, Numerical optimization . Springer, 2006.

@@ -1,0 +1,368 @@
+Title: Parse, Search, and Confirmation: Training-Free Aerial Vision-and-Dialog Navigation with Chain-of-Thought Reasoning and Structured Spatial Memory
+
+URL Source: https://arxiv.org/pdf/2607.11529v1
+
+Published Time: Tue, 14 Jul 2026 03:15:20 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Parse, Search, and Confirmation: Training-Free Aerial Vision-and-Dialog Navigation with Chain-of-Thought Reasoning and Structured Spatial Memory 
+
+## Yu Qi 1 Hongyu Li 4 Shaofei Huang 5 Tianrui Hui 1,2,3*
+
+## Yaxiong Wang 1 Lechao Cheng 1 Zhun Zhong 1* Si Liu 4 Meng Wang 11School of Computer Science and Information Engineering, Hefei University of Technology 
+
+2Jianghuai Advance Technology Center 3Anhui Provincial Key Laboratory of Humanoid Robots 
+
+4School of Artificial Intelligence, Beihang University 5University of Macau 
+
+## Abstract 
+
+In this paper, we tackle the Aerial Vision-and-Dialog Navi-gation (AVDN) task in the training-free setting for resource-efficient high-altitude UAV navigation.Naively applying MLLMs leads to unreliable navigation due to weak direc-tional grounding and the lack of explicit spatial memory. To address these issues, we propose PSC-AVDN, a training-free framework that tightly couples a three-stage Parsing-Search-Confirmation reasoning pipeline with a Structured Spatial Memory (SSM). The parsing stage uses an LLM to convert ambiguous dialogue instructions into stable geo-metric directional and destination cues. A Search Chain-of-Thought (S-CoT) then performs stepwise target explo-ration under high-altitude observations, and a Confirma-tion Chain-of-Thought (C-CoT) conducts fine-grained ver-ification around candidate regions to resolve visual am-biguity. Meanwhile, SSM integrates three complementary sources of spatial cues, including multi-scale visual ob-servation, spatial visual memory, and structured geometric memory to provide global spatial context and long-horizon consistency. Extensive experiments on ANDH and ANDH-Full show that PSC-AVDN establishes new state-of-the-art performance in the training-free setting, matching or sur-passing several finetuned methods.Code will be publicly available at: https://github.com/QY6616/PSC-AVDN 
+
+## 1. Introduction 
+
+Aerial Vision-and-Dialogue Navigation (AVDN) [7] en-ables UAVs to follow language instructions while resolv-ing ambiguities through questions and interpreting contex-tual cues along their flight trajectory. AVDN adopts a high-altitude, top-down perspective similar to remote sensing im-agery. Compared with low-altitude urban settings [14, 19, 
+
+> *
+
+Corresponding authors. MLLM     
+
+> MLLM
+> MLLM
+> No detection
+> Confirm
+> SGM
+> (a)
+> (b)
+> Search Parsing
+> Analyze the destination
+> description
+> ......
+> S-CoT
+> You are an expert in
+> command analysis
+> ......
+> LLM
+> Found
+> No detection No detection
+> Heading:237 °
+> Destination:
+> lighter grey
+> oval shape...
+> Search
+> Search
+> Confirm
+> MLLM
+> Generate an explicit
+> reasoning chain
+> ......
+> SGM
+> MLLM
+> Confirmation
+> Head into your 10
+> o'clock your
+> destination is a lighter
+> grey oval shape...
+> C-CoT
+> Head into your 10
+> o'clock your
+> destination is a lighter
+> grey oval shape...
+
+Figure 1. Motivation of our method. (a) The MLLM baseline suffers from ambiguous directional descriptions and the domain gap between high-altitude imagery and ground-level training data, leading to inaccurate localization. (b) Our PSC-AVDN eliminates directional ambiguity through instruction parsing, performs struc-tured search via chain-of-thought reasoning, and conducts fine-grained confirmation around the candidate region to achieve more reliable navigation. In addition, a structured spatial memory is in-troduced to provide clearer spatial context for reasoning. 
+
+37, 40, 45], this high-altitude setting covers a broader visual scope where landmarks are small in scale and can be either densely clustered or sparsely distributed, making it chal-lenging to localize and track fine-grained landmarks during navigation. These characteristics make AVDN well-suited for applications requiring large-scale environmental under-standing, such as disaster rescue, environmental monitor-ing, and geospatial mapping [18, 29, 31, 38], where opera-tors must reason over wide areas relying on visually subtle landmarks. In practice, however, AVDN methods rely on super-vised finetuning [7, 35, 36], which entails high compu-tational costs, heavy annotation efforts, and repeated re-arXiv:2607.11529v1 [cs.CV] 13 Jul 2026 annotation and re-training when adapting to new environ-ments. To overcome these issues, we explore a training-free AVDN framework that enables resource-efficient UAV navigation from high-altitude perspectives, which is par-ticularly difficult without task-specific training. Thanks to recent advances in Multimodal Large Language Models (MLLMs) [2, 11, 21, 26, 47], we construct a baseline that feeds the UAV’s current view and dialogue instruction into an MLLM and uses task-specific prompts to drive step-by-step target searching until success or timeout. However, due to the intrinsic mismatch between cur-rent MLLMs and the AVDN task requirements, this naive iterative search scheme often yields unreliable navigation. First, MLLMs lack robust spatial grounding and scene un-derstanding under high-altitude perspectives, as their train-ing is dominated by short-range human-view interactions and ground-level imagery, creating a gap between learned visual-linguistic priors and the geometric reasoning needed for aerial navigation. Consequently, MLLMs cannot trans-late seemingly simple yet abstract expressions, such as 
+
+“turn a little to the right” or “head toward your 10 o’clock” 
+
+(see Figure 1), into meaningful geometric cues reflecting the UAV’s spatial layout, leading to early navigation fail-ures. They also struggle to interpret tiny, texture-sparse top-down landmarks in high-altitude scenes, hindering align-ment between visual observations and textual instructions and causing the UAV to stop at incorrect locations or miss the target. Second, MLLMs lack global spatial understand-ing and temporal state tracking, while effective AVDN re-quires maintaining awareness of visited regions and up-dating environmental belief over multiple steps. The au-toregressive, language-driven inference paradigm offers no structured mechanism for map building or long-range spa-tial consistency, forcing the model to interpret each view in isolation and resulting in unreliable navigation in complex aerial environments. To tackle the first limitation, we propose a three-stage 
+
+Parsing-Search-Confirmation framework for training-free AVDN, termed PSC-AVDN, illustrated in Figure 1(b). The key idea is to decouple directional understanding from high-altitude target localization to make up for MLLM’s defect. The Parsing stage converts ambiguous dialogue instruc-tions into reliable directional and destination cues. The 
+
+Search stage conducts structured target exploration un-der high-altitude observations. The Confirmation stage performs fine-grained disambiguation around candidate re-gions to ensure accurate localization. Concretely, in the 
+
+parsing stage, we employ a general-purpose LLM [23] to extract directional and destination cues from the dialogue instruction and translate multiple directional formats into a consistent angular representation. A Heading Resolu-tion (HR) module is designed to produce a stable and ex-ecutable direction signal for subsequent navigation. For example, in Figure 1(b), the abstract ‘10 o’clock’ orien-tation is converted into an absolute ‘237 ◦’ in the parsing stage. In the search stage, we design a Search Chain-of-Thought (S-CoT) mechanism that decomposes target search into a sequence of interpretable reasoning steps. This struc-tured reasoning progressively narrows down candidate re-gions. However, in high-altitude scenarios, the target re-mains small and often ambiguous even near the correct re-gion. To resolve visual ambiguity, we introduce the fi-nal confirmation stage, where a Confirmation Chain-of-Thought (C-CoT) performs fine-grained verification around the candidate region identified by the search stage. By checking spatial and relational constraints against the desti-nation description, C-CoT disambiguates tiny and texture-sparse aerial targets and confirms the unique location that satisfies all instruction-derived conditions. To tackle the second limitation, we introduce a Struc-tured Spatial Memory (SSM) module to provide global spa-tial context and history information that MLLMs lack to en-hance the search-confirmation process. SSM supplies spa-tial cues. (i) Multi-scale visual observation, obtained from global, local, and main-view crops to form a hierarchical perception of large-scale scene layout and fine-grained ge-ometric details. (ii) Spatial visual memory, constructed by fusing historical crops with the current view to form a per-sistent trajectory representation that maintains awareness of visited regions and reduces long-horizon drift. (iii) Struc-tured geometric memory, built by an updated reference grid map whose cells store semantic categories inferred over time, providing a structured prior that stabilizes multi-step spatial reasoning. Leveraging these cues, SSM improves navigation stability in large-scale aerial environments. The main contributions of this work are summarized as follows: (1) We propose PSC-AVDN, the first training-free framework for Aerial Vision-and-Dialog Navigation task that designs structured reasoning strategies for instruction Parsing, hierarchical target Search, and fine-grained Confir-mation to achieve accurate navigation under complex high-altitude scenarios. (2) We propose a Structured Spatial Memory (SSM) module that explicitly provides global spa-tial context and history information to enhance the search-confirmation process. (3) Extensive experimental results demonstrate that our method achieves state-of-the-art per-formance under the training-free setting on both ANDH and ANDH-Full datasets, comparable to or even surpassing sev-eral finetuning-based methods. 
+
+## 2. Related Work 
+
+2.1. Vision-and-Language Navigation 
+
+Vision-and-Language Navigation (VLN) [1, 15–17, 27] trains an agent to follow natural language instructions to reach a target in indoor panoramic environments, driving advances in modality alignment and policy learning. VLN-CE [16] increases task complexity by requiring continuous-space navigation using low-level actions without prior maps or localization. To overcome limited data and domain shift, later works employ large-scale pretraining. For ex-ample, Lin et al. [22] use YouTube house tour videos to build path-instruction pairs that greatly enhance naviga-tion performance. More recent studies explore training-free paradigms. DiscussNav-GPT4 [25] coordinates mul-tiple expert models in a multi-agent discussion framework, while Open-Nav [30] introduces a spatiotemporal chain-of-thought reasoning process comprising instruction compre-hension, progress estimation, and action execution, improv-ing LLM-based perception and reasoning in navigation. 
+
+2.2. Aerial Vision-and-Language Navigation 
+
+Aerial VLN [8, 22, 39] (AVLN) extends the VLN paradigm to aerial environments, enabling UAVs to navigate complex landscapes via natural language instructions and real-time visual inputs. OpenUAV [39] provides a realistic UAV sim-ulator with 12,000 trajectories and the “UAV-Need-Help” benchmark, while CityNav [19] offers a large-scale urban dataset spanning 4.65 km 2 with 32,637 human trajecto-ries. Building on these resources, NavAgent [24] and Open-Fly [9] enhance language grounding and multimodal per-ception through multi-scale fusion, graph encoding, and keyframe-aware policies. Unlike prior AVLN studies focus-ing on city-scale environments and egocentric views, high-altitude UAV navigation remains underexplored. AVDN [7] addresses this setting, where observations cover vast ar-eas with small, weak landmarks. However, existing AVDN methods [35, 36] rely on supervised training, incurring high annotation costs and limited cross-domain generalization. To our knowledge, we are the first to investigate a training-free AVDN framework based on three-stage structured rea-soning. 
+
+2.3. Spatial Reasoning with MLLMs 
+
+Recent studies [4, 5, 12, 13, 34, 43] indicate that the reason-ing paradigm of MLLMs is shifting from purely language-based chain-of-thought reasoning to approaches incorpo-rating visual thinking and spatial memory. MVoT [20] introduces visualized reasoning trajectories that alternate with text, reducing information loss in dynamic and com-plex scenes. VSI-Bench [42] evaluates visual-spatial intel-ligence from videos, showing that language-centric heuris-tics contribute little to spatial tasks, while cognitive map construction improves distance estimation and layout un-derstanding. TopV-Nav [46] and MapNav [44] further en-hance spatial memory by integrating annotated textual cues into semantic map representations. In the domain of UAV navigation, GeoNav [41] adopts a cognitive map paradigm based on manual annotations. However, its construction of cognitive maps relies on external models such as Grounded SAM [32] and OpenGIS priors, which increases deploy-ment complexity and cost. In contrast, our approach is en-tirely built upon the native visual understanding capabilities of MLLMs [3, 6]. We prompt the model within the reason-ing chain to generate a reference grid map and incorporate both historical trajectories and multi-scale views, thereby providing enriched structured spatial memory without any external dependencies. 
+
+## 3. Method 
+
+3.1. Overview 
+
+As shown in Figure 2, our PSC-AVDN framework per-forms navigation through a three-stage parsing-search-confirmation (PSC) reasoning pipeline enhanced by a Struc-tured Spatial Memory (SSM) to provide historical-aware clues. The AVDN task consists of L dialogue rounds, where in each round l, our PSC-AVDN framework receives an text instruction Ul and executes a complete PSC cycle to localize and move to the corresponding target Bl, which is denoted as a bounding box Bl = ( x1 
+
+> l
+
+, y 1 
+
+> l
+
+, x 2 
+
+> l
+
+, y 2 
+
+> l
+
+). The last bounding box BL is regarded as the final target of the navigation pro-cess. We formalize each round as a cross-modal mapping: 
+
+F : ( Ul, {V t}tel
+
+> t=tsl
+
+, Mtel , Rtel ) → B l, (1) where Vt, Mt, and Rt denote the multi-scale visual ob-servation, spatial visual memory and structured geometric memory at step t generated by our SSM module. tsl and tel
+
+represent the start and end time steps in the l-th round. For the l-th round of dialogue with l ∈ [1 , L ], PSC-AVDN first parses the instruction Ul into an explicit des-tination cues and an absolute angle indicating the flying di-rection of UAV in the parsing stage. These initial cues guide a unified CoT-driven reasoning process, where Vt, Mt, Rt
+
+jointly support coarse localization in the search stage and the subsequent semantic disambiguation in the confirmation stage, yielding the predicted target region Bl. After each step of the above process, the spatial memories are updated in the SSM module as: 
+
+Mt+1 , Rt+1 = SSM( Mt, Rt). (2) For clarity of exposition, the subsequent method description focuses on a single dialogue round, with the index l omitted when no ambiguity arises. 
+
+3.2. Parsing-Search-Confirmation Reasoning 
+
+3.2.1. Parsing Stage 
+
+We first employ a general-purpose LLM to structure and decompose the dialogue instructions U, during which the movement direction phrase sdir and the destination descrip-tion sdes are extracted. Since sdir may appear in various tex-tual forms ( e.g. , “ 3 o’clock”, “ 120 ◦”, or “north-east”), we I don't see four gray buildings.     
+
+> Am i near the destination?
+> what is destination's color and shape?
+> head towards your 4 o'clock till you reach a large
+> warehouse with a red building in the left side.
+> Parsing
+> Next movement direction: 4 o'clock.
+> Destination description: large warehouse with a
+> red building on the left side
+> Heading:190 °
+
+HR            
+
+> lGenerate an explicit reasoning chain...
+> lBounding box output...
+> lGenerate reference grid map on Image 1
+> lFor each sub-step, progressively narrow
+> the candidate area on Image 1...
+> ...The surrounding context from
+> Image 2 confirms the adjacency
+> and relative positioning.
+> Confirmtaion
+> MVO
+> SVM
+> SGM
+> C-CoT
+> lAnalyze the <destination description>...
+> lScene understanding...
+> lTarget localization on image 1 only.. .
+> lGenerate reference grid map on Image 1
+> The large warehouse is
+> the central gray-roofed
+> structure...
+> MVO
+> SVM
+> SGM
+> Search
+> S-CoT
+> Search
+> Search
+> Confirm
+
+Figure 2. The overall architecture of our proposed Parsing-Search-Confirmation framework for Aerial Vision-and-Dialog Navigation (PSC-AVDN). (a) The three-stage reasoning process first parses the destination and direction, followed by navigation through the step-wise reasoning chain (S-CoT and C-CoT), gradually searching and confirming the target location. (b) The Structured Spatial Memory (SSM) module provides multi-scale visual observation (MVO), spatial visual memory (SVM), and structured geometric memory (SGM) to enhance the search-confirmation process. 
+
+design a Heading Resolution (HR) module to convert these heterogeneous expressions into a canonical angular repre-sentation. Formally, HR maps the textual direction sdir to an absolute angle α through a rule-based parser that trans-forms clock-based expressions, degree-marked notations, and compass directions into angles within [0 , 2π). Based on the UAV’s current azimuth ϕ, HR further computes the relative heading: 
+
+δ = wrap( α − ϕ) , (3) where wrap( ·) denotes normalizing the angle to the stan-dard range [0 , 2π). Through the above process, the resulting relative heading δ is then combined with the destination de-scription sdes and fed into the subsequent reasoning stages. 
+
+3.2.2. Search Stage 
+
+In this stage, we design a Search Chain-of-Thought (S-CoT) to guide the MLLM through step-wise reasoning that pro-gressively identifies candidate regions. S-CoT divides this process into four sequential sub-reasoning steps: • Destination analysis, where the MLLM performs seman-tic analysis of the destination description sdes to form a task-relevant prior for subsequent reasoning. Using the instruction “large warehouse with a red building on the left side” in Figure 2 as an example, the model extracts core attributes relevant to visual localization, including the target category ( “warehouse” ), salient reference cues (“red building” ), and the spatial relation ( “on the left side” ). These attributes jointly constitute a structured de-scription of the target’s visual characteristics and geomet-ric relations as explicit constraints. • Scene understanding, where the MLLM is commanded to construct a holistic understanding of the current view using multi-scale visual observation Vt and spatial visual memory Mt at step t generated by our SSM module. (corresponding to MVO and SVM in Figure 2). • Reference grid map generation, where the MLLM is prompted to divide the main view into a N × N grid and assign labels from a predefined set of categories to each grid cell, generating the structured geometric mem-ory Rt. The generation process of Rt can aid the model to comprehend the visual scene more structurally. • Target localization, where the model identifies candidate target regions in the main view based on visual features and destination information. Once a candidate region is successfully located, our pipeline proceeds to the final confirmation stage. Through this explicit step-by-step reasoning mechanism, S-CoT progressively narrows down the candidate areas, en-hancing the stability and interpretability of the MLLM in the complex aerial target search task. 
+
+3.2.3. Confirmation Stage 
+
+After the search stage, the UAV can reach the vicinity of the target area. However, in the AVDN task, the high-altitude viewpoint results in small target sizes, large scale variations, weak landmark distinctiveness, and complex spatial-semantic correlations with the surrounding environ-ment. These task-specific challenges make it difficult for the model to achieve precise localization relying solely on S-CoT. Therefore, we introduce the Confirmation Chain-of-Thought (C-CoT) to address this issue. The core idea of C-CoT is to refine and disambiguate candidate regions through interpretable reasoning chains. First, the model is forced to generate verifiable step-by-step reasoning based on the des-tination description. It then verifies spatial and relational constraints using multiple-scale views, gradually excluding incorrect candidates based on finer local structures, direc-tions, and adjacency relationships. Ultimately, the model confirms the unique target location and outputs the confi-dence level along with a brief visual evidence explanation. For instance, when the instruction is “large warehouse with a red building on the left side” , the model first identifies the large warehouse, then checks whether a red building exists on its left side, and finally verifies the spatial adjacency rela-tionship between the two. Finally, the model determines the unique target region and outputs the bounding box for cur-rent round B. It is important to note that in C-CoT, we also prompt the model to generate a reference grid map to assist spatial perception, which is elaborated in the next section. 
+
+3.3. Structured Spatial Memory 
+
+To address the limitation caused by relying solely on single-frame main-view images, we introduce the Structured Spa-tial Memory (SSM) module (Figure 3). This module ex-plicitly supplements multi-level spatial and historical in-formation during reasoning, compensating for the inher-ent spatiotemporal shortcomings of MLLMs and enhancing the stability and reliability of the search and confirmation process. The SSM consists of three core components that progressively operate within the reasoning chain, providing complementary spatial cues for the model. 
+
+Multi-scale visual observation. Multi-scale visual ob-servation provides image slices captured at different percep-tual scales , enabling the model to build a hierarchical under-standing of both large scale scene layouts and fine grained geometric details from global to local views. For each scale 
+
+i at the t-th step, the image crop Vit represents the visual information of the corresponding scale: 
+
+Vit = Resample( I, s i). (4) Here, I denotes the global remote sensing imagery, and si
+
+is the scaling factor corresponding to the perceptual scale. S-CoT             
+
+> S-CoT C-CoT
+> MVO
+> vehicle road rail container
+> yard building runway forest water field parking roof shadow
+> SGM
+> Generate reference grid map on Image 1...
+> Merge
+> TT-1 T-2
+> SVM
+
+Figure 3. SSM Module diagram. A concrete case is presented to demonstrate how the SSM module operates within the CoT pro-cess. The module consists of three main parts: (a) Multi-scale Visual Observation (MVO): Visual inputs at different scales help the model acquire various levels of visual information. (b) Spatial Visual Memory (SVM): Historical information is fused with the current CoT to ensure temporal and spatial continuity and consis-tency in the reasoning process. (c) Structured Geometric Memory (SGM): The model is guided to generate a reference grid map to assist in spatial perception and reasoning. 
+
+The final multi-scale visual observation is obtained by com-bining image crops of all scales: 
+
+Vt = V1 
+
+> t
+
+, V2 
+
+> t
+
+, . . . , VMt
+
+ , (5) where M denotes the number of total perceptual scales. 
+
+Spatial visual memory. Spatial visual memory fuses the main view from previous steps together with the UAV’s trajectory and orientation information, constructing a coher-ent and consistent spatial visual memory map. A fixed-size memory canvas is first initialized in a global map coordinate system. At each time step t, the spatial visual memory map 
+
+Mt is updated by concatenating the previous time step’s memory map Mt−1 with the middle scale of Vt of cur-rent view, which is denoted as Vmt .The concatenated map are then projected onto the memory canvas, where a unified spatial mask is generated via a convex hull operation to rep-resent the accumulated coverage. In addition, to enhance the stability of spatial memory and ensure spatiotemporal consistency, historical orientation θt and trajectory informa-ANDH ANDH-Full Method Seen Val. Unseen Val. Unseen Test Seen Val. Unseen Val. Unseen Test 
+
+SPL SR GP SPL SR GP SPL SR GP SPL SR GP SPL SR GP SPL SR GP Supervised Finetuning Methods 
+
+E.T. [28] 12.1 14.1 50.1 14.3 16.6 51.9 11.3 13.3 51.7 2.2 3.1 51.3 2.5 3.7 48.9 1.9 2.8 60.7 HAA-T [7] 14.7 17.3 56.3 16.5 20.4 55.2 12.9 15.7 53.7 3.7 5.1 54.6 3.2 4.7 50.9 4.1 6.3 63.2 LSTM [10] 9.0 10.3 31.9 13.3 14.1 35.9 9.7 10.8 40.4 1.0 1.0 43.8 3.2 3.7 48.7 1.8 1.9 56.4 HAA-LSTM [7] 11.6 13.0 50.3 18.3 20.0 54.4 12.6 14.1 54.6 3.8 4.1 52.2 3.4 3.7 56.1 1.9 2.6 66.5 TA-GAT [35] 12.9 16.0 56.9 18.8 23.3 54.3 15.1 18.7 56.5 — — — — — — — — —TA-GAT w/ at [35] 14.8 18.2 58.8 17.8 21.1 61.7 15.9 19.7 56.3 — — — — — — — — —FELA [36] 15.1 18.8 60.8 17.2 20.6 63.0 16.4 20.3 56.7 — — — — — — — — —FELA w/ at [36] 15.3 18.8 60.7 19.2 23.9 64.1 17.6 21.9 61.4 — — — — — — — — —OpenFly [9] 14.1 21.9 44.5 16.4 20.1 47.2 16.2 15.2 52.2 14.0 10.1 61.0 12.4 15.0 59.0 8.3 13.3 54.3 
+
+Training-Free Methods 
+
+GPT-4o [33] 2.6 2.7 -9.5 3.4 3.9 -11.8 2.6 2.9 -15.5 2.5 2.5 -5.7 2.8 3.3 -15.0 1.8 1.9 -10.2 Qwen-VL-Max [2] 8.5 8.6 3.6 8.7 9.2 5.5 5.7 6.2 6.7 9.3 9.6 5.2 6.8 7.0 9.1 6.4 6.9 1.6 
+
+PSC-AVDN (Ours) 16.3 18.6 37.4 17.8 22.6 39.2 13.5 16.4 28.2 19.1 22.3 75.1 12.4 15.4 62.3 12.1 14.4 54.5  
+
+> Table 1. Comparison results on the ANDH and ANDH-Full datasets. Higher values indicate better performance. Underline and bold
+> indicate the best results among supervised finetuning and training-free methods, respectively. Our PSC-AVDN achieves state-of-the-art performance in the training-free setting, comparable to or even surpassing several supervised finetuning methods.
+
+tion Tt are also fused with the concatenated memory map as: 
+
+Mt = ( Mt−1 ⊕ V t) ⊕ (Tt ⊕ θt) (6) where ⊕ denotes the concatenation operation. Spatial vi-sual memory fuses historical crops with the current view to construct a continuous and robust trajectory representa-tion, thereby maintaining awareness of previously explored regions and effectively suppressing long-range drift. 
+
+Structured geometric memory. Structured geometric memory is implemented by prompting the model to gener-ate a reference grid map. The reference grid map divides the main view into discrete grid cells, assigning semantic labels to each cell to provide a structured representation of spatial locations. We statistically derive 12 high-frequency semantic categories from the dataset dialogue prompt to cover most scenarios Given the middle scale of the current view Vmt , we partition it into an N × N grids equally along height and width dimensions, and assign a semantic label 
+
+cj ∈ C , j ∈ [1 , N 2] to the j-th grid, where C is the set of all possible semantic labels. The reference grid map for the current step is obtained as: 
+
+¯Rt = [ r1, r 2, . . . , r N 2 ] , where rj = ( pj , c j ) . (7) where pj denotes the spatial coordinate of grid j and cj
+
+denotes its semantic label. Then the structured geometric memory for time step t is updated as: 
+
+Rt = Update( Rt−1, ¯Rt). (8) Structured geometric memory provides stable support for multi-step spatial reasoning by continuously updating the semantic information within grid cells. 
+
+## 4. Experiments 
+
+4.1. Datasets and Evaluation Metrics 
+
+We conduct experiments on two datasets, namely ANDH [7] and ANDH-Full [7]. The ANDH dataset con-tains 370 sub-trajectories in the seen validation set, 411 
+
+sub-trajectories in the unseen validation set, and 897 sub-trajectories in the unseen test set. In contrast, the ANDH-Full dataset comprises 197 full trajectories in the seen vali-dation set, 214 full trajectories in the unseen validation set, and 432 full trajectories in the unseen test set. Following prior works [7, 35, 36], we adopt three evaluation metrics, including Success Rate (SR), Success weighted by Path Length (SPL), and Goal Progress (GP). SR measures whether the agent reaches the goal region. SR measures the proportion of successful trajectories. SPL evaluates path efficiency by weighting success with trajec-tory length. GP quantifies how much progress the agent makes toward the goal by comparing the distance traveled with the remaining distance to the goal. 
+
+4.2. Implementation Details 
+
+For the parsing stage, we adopt the DeepSeek-V3 [23] model to interpret natural language instructions. Then, the Qwen-VL-Max [2] model is employed to perform a Search and Confirmation CoT reasoning process, with the maxi-mum execution steps set to 3. A 5 × 5 reference grid is maintained, and historical trajectories are projected onto the base map with a north-up absolute orientation to ensure spa-tial alignment across steps. Our method performs reason-ing under multiple visual scales, using scale factors of 3,
+
+5, and 7. All visual patches are generated by applying a homography that warps the real-world quadrilateral field-of-view into a canonical 768 × 768 pixel frame, preserving a consistent mapping between pixel coordinates and geo-graphic locations. Specifically, we first compute the pixel positions of the four FOV corners on the basemap accord-ing to their latitude and longitude, and then estimate the per-spective transformation matrix between these points and a standard square, enabling the inverse mapping of any patch pixel back to its corresponding geographic coordinates. 
+
+4.3. Comparison with State-of-the-Art Methods 
+
+Table 1 presents the quantitative comparison results be-tween our method and previous state-of-the-art approaches on the ANDH and ANDH-Full datasets. On the ANDH dataset, our proposed training-free PSC-AVDN method achieves performance comparable to or even surpassing several supervised finetuning methods on the three evalu-ation metrics, yielding the best results in the training-free setting as well. On the ANDH-Full dataset with longer trajectories, our method also attains overall state-of-the-art performance. These results show that by designing effec-tive chain-of-thought reasoning and providing structured spatiotemporal memories, we can fully unleash the visual perception and reasoning capabilities of MLLMs, enabling an effective training-free pipeline for the AVDN task. Our method consistently improves performance across different MLLMs (see Appendix 5).                  
+
+> Parsing Search Confirmation SPL SR GP
+> 8.7 9.2 5.5
+> ✓13.5 14.6 26.2
+> ✓✓15.6 17.5 25.8
+> ✓✓✓16.3 19.3 35.7
+> Table 2. Ablation results of our three-stage reasoning framework.
+
+4.4. Ablation Studies 
+
+We conduct ablation studies on the Unseen Val. set of the ANDH dataset to evaluate the effectiveness of different components in our method. 
+
+Three-stage reasoning. Table 2 shows the ablation re-sults of our three-stage reasoning framework. The first row denotes the baseline method using Qwen-VL-Max, which takes simple instruction prompts and current visual obser-vations as input, and performs multi-step iterative searches to locate the target region. The second row incorporates the Parsing Stage, enabling the model to explicitly extract two types of key information, namely direction and destination description. This structured extraction provides semantic priors that significantly improve navigation performance. Building on this, adding the Search Stage further improves performance. This verifies that the S-CoT design enhances the MLLM’s spatial awareness and temporal-spatial reason-ing. Finally, the Confirmation Stage enables fine-grained verification and disambiguation of target-adjacent regions through interpretable reasoning chains. Overall, the results indicate that each stage progressively improves model per-formance, confirming the effectiveness of our three-stage reasoning framework and chain-of-thought design. 
+
+SSM. As shown in Table 3, we also perform ablation studies on the components of the SSM module. After incor-porating SVM, all three performance metrics improve no-ticeably. This suggests that historical memory integration enhances spatiotemporal consistency, enabling the model to navigate more stably and accurately over extended se-quences. Subsequently, incorporating MVO leads to fur-                           
+
+> SVM MVO SGM SPL SR GP
+> 16.3 19.3 35.7
+> ✓16.5 20.4 36.6
+> ✓✓16.6 21.1 38.3
+> ✓✓16.7 21.2 37.0
+> ✓✓16.6 20.4 37.5
+> ✓✓✓17.8 22.6 39.2
+> Table 3. Ablation results of SVM (Spatial Visual Memory), MVO (Multi-scale Visual Observation), and SGM (Structured Geomet-ric Memory) components in our SSM module.
+
+ther performance gains, indicating that multi-scale visual inputs improve the model’s ability to perceive both local and global visual cues. Finally, the addition of SGM results in the best overall performance. This shows that generating a reference grid map enhances spatial reasoning and con-tributes to improved navigation accuracy. Additional abla-tion studies on SVM+SGM and MVO+SGM combinations further validate the individual effectiveness of each module.                        
+
+> Grid size SPL SR GP
+> 3×316.6 20.7 35.0
+> 5×517.8 22.6 39.2
+> 7×717.0 20.9 38.9
+> 10 ×10 16.0 20.0 38.3 Table 4. Ablation results of different grid sizes in the Reference Grid Map of our SSM module.
+
+Gird size for reference map. We further evaluate the effects of different grid sizes in the Reference Grid Map in [INS] follow ahead on the direction you     
+
+> already are, and stop in the big building
+> close to two green boats
+> 12
+> 3
+> 4
+> how to go to destinaton?
+> what is destination's color
+> and shape?
+> start
+> move towards 9 o'clock
+> direction, white colored
+> place is your destination.
+> destination is a twin-
+> plated silver roof to the
+> two o'clock direction.
+> 13
+> (a) (b) Figure 4. Visualization of navigation trajectories from our PSC-AVDN. (a) represents a two-round dialogue case, and (b) represents a single-round instruction case. The yellow dashed line indicates the navigation trajectory, while the red rectangle denotes the target area.
+
+Table 4). The results indicate that a 5 × 5 grid achieves the best performance, while both larger and smaller grids lead to clear degradation. Small grids make it difficult to dis-tinguish fine-grained targets accurately, whereas large grids produce sparse cell-level semantics, which introduces noise and increases the burden of CoT reasoning.             
+
+> Scaling factor SPL SR GP
+> (2, 4, 6) 17.5 21.4 37.9 (3, 5, 7) 17.8 22.6 39.2
+> (4, 6, 8) 16.0 19.7 36.7 Table 5. Ablation results across different scaling factor combina-tions in the Multi-Scale Crop of our SSM module.
+
+Scaling factor. To investigate the effect of different scal-ing factor combinations in Multi-Scale Crop, we conduct an ablation study by varying the set of scales used for image re-sampling. As shown in Table 5, the combination of ( 3, 5,
+
+7) achieves the best performance across all metrics. We at-tribute this improvement to a balanced integration of global and local visual cues, where moderate scale diversity en-ables the model to capture overall scene structures while still preserving fine-grained details. In contrast, smaller scales ( 2, 4, 6) focus excessively on local patterns and lose global context, whereas larger scales ( 4, 6, 8) reduce inter-scale diversity and introduce redundant visual information, leading to performance degradation. These results confirm that choosing appropriate scaling factors is critical for ob-taining more effective multi-scale visual information. 
+
+4.5. Visualization Results 
+
+We selected two representative cases to visualize navigation trajectories. Fig. 4(a) illustrates a two-round dialogue sce-nario, while (b) shows a single-round instruction scenario. In the multi-round case, the UAV starts from the initial po-sition and receives the instruction. When it reaches position 
+
+3, it enters the second dialogue round to clarify the target area, and finally arrives at position 4. In the single-round instruction case, the UAV adjusts its flight path based on the instruction and reaches the target area. More visualizations and failure cases are provided in Appendices 8 and 9. 
+
+## 5. Conclusion 
+
+In this paper, we present PSC-AVDN, a training-free frame-work for Aerial Vision-and-Dialog Navigation that inte-grates a three-stage Parsing-Search-Confirmation reasoning pipeline with a Structured Spatial Memory (SSM) mod-ule. The parsing stage converts ambiguous instructions into stable geometric cues, Search-CoT conducts stepwise high-altitude target exploration, and Confirmation-CoT per-forms fine-grained verification to resolve visual ambigu-ity and confirm the final target. Meanwhile, SSM inte-grates multi-scale visual observation, spatial visual mem-ory, and structured geometric memory to provide global spatial context and long-horizon consistency. Extensive ex-periments show that PSC-AVDN sets new state-of-the-art performance in the training-free setting, matching or sur-passing several finetuned methods. We believe this frame-work offers a principled way to combine explicit CoT-style reasoning with structured spatial memory for scalable and generalizable aerial embodied navigation in the future. 6. Acknowledgments 
+
+This research was supported in part by the Na-tional Natural Science Foundation of China (Grant No. 62502142, 62572166, 62302140, 62472139, 62461160308, U23B2010), the Natural Science Foundation of Anhui Province (Grant No. 2508085QF226), the Fundamental Research Funds for the Central Universities (Grant No. JZ2025HGTA0161), the National Key R&D Program of China (2022ZD0115502), the Ningbo Science and Tech-nology Innovation 2025 Major Project (2025Z034), and the “Pioneer” and “Leading Goose” R&D Program of Zhejiang (2024C01161). The computation is completed on the HPC Platform of Hefei University of Technol-ogy. 
+
+## References 
+
+[1] P. Anderson, Q. Wu, D. Teney, J. Bruce, M. Johnson, N. S¨ underhauf, I. Reid, S. Gould, and A. van den Hen-gel. Vision-and-language navigation: Interpreting visually-grounded navigation instructions in real environments. In 
+
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , 2018. 2 [2] S. Bai, K. Chen, X. Liu, et al. Qwen2.5-vl technical report. 
+
+arXiv preprint arXiv:2502.13923 , 2025. 2, 6 [3] L. M. Schulze Buschoff et al. Visual cognition in multimodal large language models. Nature Machine Intelligence , 7(1), 2025. 3 [4] B. Chen, Z. Xu, S. Kirmani, et al. Spatialvlm: Endowing vision-language models with spatial reasoning capabilities. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. 3 [5] A. C. Cheng, H. Yin, Y. Fu, et al. Spatialrgpt: Grounded spatial reasoning in vision-language models. Advances in Neural Information Processing Systems (NeurIPS) , 37, 2024. 3[6] Y. Dong et al. Insight-v: Exploring long-chain visual reason-ing with multimodal large language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-tern Recognition (CVPR) , 2025. 3 [7] Y. Fan, W. Chen, T. Jiang, and et al. Aerial vision-and-dialog navigation. In Findings of the Association for Computational Linguistics (ACL Findings) , 2023. 1, 3, 6 [8] Y. Gao, Z. Wang, P. Han, et al. Exploring spatial representa-tion to enhance llm reasoning in aerial vision-language nav-igation. arXiv preprint arXiv:2410.08500 , 2024. 3 [9] Y. Gao, C. Li, Z. You, et al. Openfly: A comprehensive plat-form for aerial vision-language navigation. arXiv preprint arXiv:2502.18041 , 2025. 3, 6 [10] K. Greff, R. K. Srivastava, J. Koutn´ ık, B. R. Steunebrink, and J. Schmidhuber. Lstm: A search space odyssey. IEEE Transactions on Neural Networks and Learning Systems , 28 (10), 2016. 6 [11] J. Han, K. Gong, Y. Zhang, et al. Onellm: One framework to align all modalities with language. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. 2 [12] Y. Hu, W. Shi, X. Fu, et al. Visual sketchpad: Sketching as a visual chain of thought for multimodal language models. Ad-vances in Neural Information Processing Systems(NeurIPS) ,37, 2024. 3 [13] S. Huang, R. Ling, H. Li, et al. Unleashing the temporal-spatial reasoning capacity of gpt for training-free audio and language referenced video object segmentation. In Pro-ceedings of the AAAI Conference on Artificial Intelligence (AAAI) , 2025. 3 [14] H. Ju, S. Huang, S. Liu, et al. Video2bev: Transforming drone videos to bevs for video-based geo-localization. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision(ICCV) , 2025. 1 [15] H. Ju, S. Huang, H. Li, et al. From instruction to event: Sound-triggered mobile manipulation. arXiv preprint arXiv:2601.21667 , 2026. 2 [16] J. Krantz, E. Wang, Q. Wu, A. Clegg, N. Snavely, D. Batra, P. Anderson, and S. Lee. Beyond the nav-graph: Vision-and-language navigation in continuous environments. In Pro-ceedings of the European Conference on Computer Vision (ECCV) , 2020. 3 [17] A. Ku, P. Anderson, R. Patel, E. Ie, and J. Baldridge. Room-across-room: Multilingual vision-and-language navigation with dense spatiotemporal grounding. In Proceedings of the 2020 Conference on Empirical Methods in Natural Lan-guage Processing (EMNLP) , 2020. 2 [18] M. Kucharczyk and C. H. Hugenholtz. Remote sensing of natural hazard-related disasters with small drones: Global trends, biases, and research opportunities. Remote Sensing of Environment , 264, 2021. 1 [19] J. Lee, T. Miyanishi, S. Kurita, K. Sakamoto, D. Azuma, Y. Matsuo, and N. Inoue. Citynav: A large-scale dataset for real-world aerial navigation. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , 2025. 1, 3 [20] C. Li, W. Wu, H. Zhang, et al. Imagine while reasoning in space: Multimodal visualization-of-thought. arXiv preprint arXiv:2501.07542 , 2025. 3 [21] H. Li, J. Chen, Z. Wei, et al. Llava-st: A multimodal large language model for fine-grained spatial-temporal un-derstanding. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 2[22] K. Lin, X. E. Wang, L. Zhou, Z. Yu, Z. Wang, Y. Chen, and J. Gao. Learning vision-and-language navigation from youtube videos. In Proceedings of the IEEE/CVF International Con-ference on Computer Vision (ICCV) , 2023. 3 [23] A. Liu, B. Feng, B. Xue, et al. Deepseek-v3 technical report. 
+
+arXiv preprint arXiv:2412.19437 , 2024. 2, 6 [24] Y. Liu, F. Yao, Y. Yue, G. Xu, X. Sun, and K. Fu. Navagent: Multi-scale urban street view fusion for uav embodied vision-and-language navigation. arXiv preprint arXiv:2411.08579 , 2024. 3 [25] Y. Long, X. Li, W. Cai, et al. Discuss before moving: Visual language navigation via multi-expert discussions. In Pro-ceedings of the IEEE International Conference on Robotics and Automation (ICRA) , 2024. 3 [26] G. Luo, X. Yang, W. Dou, et al. Mono-internvl: Pushing the boundaries of monolithic multimodal large language mod-els with endogenous visual pre-training. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 2 [27] A. Moudgil, A. Majumdar, K. Krishna, S. Lee, P. Anderson, and D. Batra. Soat: A scene- and object-aware transformer for vision-and-language navigation. In Advances in Neural Information Processing Systems (NeurIPS) , 2021. 2 [28] A. Pashevich, C. Schmid, and C. Sun. Episodic transformer for vision-and-language navigation. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , 2021. 6 [29] Y. Ping et al. Multimodal large language models-enabled uav swarm: Towards efficient and intelligent autonomous aerial systems. arXiv preprint arXiv:2506.12710 , 2025. 1 [30] Y. Qiao, W. Lyu, H. Wang, et al. Open-nav: Exploring zero-shot vision-and-language navigation in continuous environ-ment with open-source llms. In Proceedings of the IEEE In-ternational Conference on Robotics and Automation (ICRA) ,2025. 3 [31] G. Raja, A. Manoharan, and H. Siljak. Ugen: Uav and gan-aided ensemble network for post-disaster survivor detection through oran. IEEE Transactions on Vehicular Technology ,73(7), 2024. 1 [32] T. Ren, S. Liu, A. Zeng, and et al. Grounded sam: As-sembling open-world models for diverse visual tasks. arXiv preprint arXiv:2401.14159 , 2024. 3 [33] S. Shahriar, B. Lund, N. R. Mannuru, M. Arshad, K. Hayawi, R. Varma Kumar Bevara, A. Mannuru, and L. Batool. Putting gpt-4o to the sword: A comprehensive evaluation of lan-guage, vision, speech, and multimodal proficiency. arXiv preprint arXiv:2407.09519 , 2024. 6 [34] H. Shao, S. Qian, H. Xiao, et al. Visual cot: Advancing multi-modal language models with a comprehensive dataset and benchmark for chain-of-thought reasoning. Advances in Neural Information Processing Systems(NeurIPS) , 37, 2024. 3[35] Y. Su, D. An, Y. Xu, et al. Target-grounded graph-aware transformer for aerial vision-and-dialog navigation. arXiv preprint arXiv:2308.11561 , 2023. 1, 3, 6 [36] Y. Su, D. An, K. Chen, W. Yu, B. Ning, Y. Ling, Y. Huang, and L. Wang. Learning fine-grained alignment for aerial vision-dialog navigation. In Proceedings of the AAAI Con-ference on Artificial Intelligence (AAAI 2025) , 2025. 1, 3, 6[37] Y. Tian, F. Lin, Y. Li, et al. Uavs meet llms: Overviews and perspectives towards agentic low-altitude mobility. Informa-tion Fusion , 122, 2025. 1 [38] T. Wang, Y. Shi, F. Deuser, et al. The 3rd workshop on uavs in multimedia: Capturing the world from a new perspective. In Proceedings of the 3rd International Workshop on UAVs in Multimedia: Capturing the World from a New Perspective ,2025. 1 [39] X. Wang, D. Yang, Z. Wang, H. Kwan, J. Chen, W. Wu, H. Li, Y. Liao, and S. Liu. Towards realistic uav vision-language navigation: Platform, benchmark, and methodology. In Pro-ceedings of the International Conference on Learning Rep-resentations (ICLR) , 2025. 3 [40] J. Xiao, Y. Sun, Y. Shao, et al. Uav-on: A benchmark for open-world object goal navigation with aerial agents. In Pro-ceedings of the 33rd ACM International Conference on Mul-timedia (ACM MM) , 2025. 1 [41] H. Xu, Y. Hu, C. Gao, et al. Geonav: Empowering mllms with explicit geospatial reasoning abilities for language-goal aerial navigation. arXiv preprint arXiv:2504.09587 , 2025. 3 [42] J. Yang, S. Yang, A. W. Gupta, et al. Thinking in space: How multimodal large language models see, remember, and recall spaces. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025. 3[43] F. Yu, Q. Deng, S. Tang, Y. Li, and L. Cheng. Open-world 3d scene graph generation for retrieval-augmented reason-ing. In Proceedings of the AAAI Conference on Artificial Intelligence (AAAI) , 2026. 3 [44] H. Zhang, Y. Yu, L. Wang, et al. Advancing audio-visual navigation through multi-agent collaboration in 3d environ-ments. arXiv preprint arXiv:2509.22698 , 2025. 3 [45] B. Zhao, J. Fang, Z. Dai, et al. Urbanvideo-bench: Benchmarking vision-language models on embodied intel-ligence with video data in urban spaces. arXiv preprint arXiv:2503.06157 , 2025. 1 [46] L. Zhong, C. Gao, Z. Ding, et al. Topv-nav: Unlocking the top-view spatial reasoning potential of mllm for zero-shot object navigation. arXiv preprint arXiv:2411.16425 , 2024. 3[47] D. Zhu, J. Chen, X. Shen, et al. Minigpt-4: Enhancing vision-language understanding with advanced large language models. arXiv preprint arXiv:2304.10592 , 2023. 2

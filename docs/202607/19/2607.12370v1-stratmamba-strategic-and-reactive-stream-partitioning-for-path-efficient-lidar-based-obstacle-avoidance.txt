@@ -1,0 +1,530 @@
+Title: StratMamba: Strategic and Reactive Stream Partitioning for Path-Efficient LiDAR-Based Obstacle Avoidance
+
+URL Source: https://arxiv.org/pdf/2607.12370v1
+
+Published Time: Wed, 15 Jul 2026 11:59:41 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# StratMamba: Strategic and Reactive Stream Partitioning for Path-Efficient LiDAR-Based Obstacle Avoidance 
+
+Hung-Chieh Wu 1,2, Xiaopan Zhang 2,3, Kasra Sinaei 1,2, Ryan Abnavi 2,Kasun Weerakoon 2, Christopher Bradley 2,4, Seyed Fakoorian 2, Jiachen Li 3, and Donald Ebeigbe 1
+
+Abstract — This paper proposes StratMamba, a dual-stream Mamba-based temporal modeling architecture, to more effi-ciently capture long-horizon temporal dependencies required for robot navigation in complex and obstacle-rich environments. StratMamba leverages a combination of fast-decay and slow-decay memory architectures, where the fast-decay component processes high-frequency LiDAR data for reactive obstacle avoidance, while the slow-decay component maintains longer-horizon goal information for strategic planning. We perform extensive evaluations of different obstacle avoidance scenarios in IsaacLab and Gazebo, while also validating successful sim-to-real deployment on a Unitree Go1 quadruped robot navigating in the presence of static/dynamic obstacles. Comparisons with other temporal RL baselines, such as LSTM, Transformer, and Vanilla-Mamba, show that our StratMamba achieves excep-tional temporal reasoning efficiency with a lower timeout rate, while maintaining the fastest navigation speed (576 median steps, 5.0% better than Vanilla-Mamba). It also achieves the highest path optimality (0.915 path efficiency) across all base-lines. Real-world evaluation reveals that StratMamba maintains more robust performance across extended LiDAR ranges com-pared to vanilla Mamba and the Transformer, demonstrating that dual-stream partitioning effectively balances reactive safety with strategic navigation under challenging sensing conditions. 
+
+I. I NTRODUCTION 
+
+Mobile robots are increasingly deployed in both indoor and outdoor environments for applications ranging from logistics and delivery to inspection and exploration [1], [2], [3]. A fundamental capability enabling autonomy in these scenarios is reliable obstacle avoidance, which en-sures safety while maintaining efficient navigation toward goals. Numerous approaches have been developed to address this challenge, broadly categorized into classical methods and learning-based methods. Despite significant progress, enabling robots to exploit temporal coherence in their per-ception and control remains a major challenge, particularly in complex and cluttered environments. Classical methods such as Model Predictive Control (MPC) [4], [5] and Optimal Reciprocal Collision Avoidance (ORCA) [6] show success in structured settings, leveraging optimization and geometric reasoning to compute collision-free trajectories. These approaches benefit from well-defined formulations and interpretability but often struggle when faced with high-dimensional sensor data (e.g., raw LiDAR 
+
+> 1The Pennsylvania State University, USA.
+> 2AlphaZ, Inc., USA.
+> 3Georgia Institute of Technology, USA.
+> 4CSAIL, Massachusetts Institute of Technology, USA. This work was conducted during the authors’ internship at AlphaZ, Inc. in collaboration with the AlphaZ, Inc. research team.
+
+Fig. 1: StratMamba demonstrates robust navigation across diverse scenarios: obstacle-rich environments in IsaacLab (top-left) and Gazebo (top-right), IsaacLab dynamic obstacle avoidance (bottom-left), and Real-World deployment (bottom-right). StratMamba suc-cessfully avoids collisions with diverse obstacles, validating Strat-Mamba’s generalization and effective sim-to-real transfer. 
+
+scans [7]) or dynamic obstacles. Their reliance on precise modeling also limits scalability to diverse real-world sce-narios, where uncertainties, sensor noise, and unmodeled dynamics are prevalent. Consequently, there has been a shift toward learning-based approaches that can directly leverage sensor data and adapt to complex environments. Reinforcement learning (RL) has emerged as a promising alternative by learning obstacle avoidance policies through interaction with environments [8], [9], [10], [11], [12]. RL agents can generalize from raw sensor observations, en-abling direct mapping from LiDAR or vision data to control commands without explicit modeling [13], [14]. However, conventional RL policies often assume independent obser-vations at each time step, which can lead to suboptimal or unsafe behavior when the temporal context is ignored. Methods such as Long Short-Term Memory (LSTM) net-works [15] and Transformers [16] have been introduced to capture temporal dependencies, but they introduce significant computational overhead, limiting deployment in real-time, resource-constrained robotic platforms. In this work, we address these challenges by introducing StratMamba, a dual-rate state partitioning architecture that extends Vanilla-Mamba’s single state-space modeling for robotic navigation. Navigation tasks inherently operate at two temporal scales: reactive obstacle avoidance requires high-frequency responses to LiDAR, while goal-directed plan-ning demands persistent long-horizon reasoning. StratMamba 
+
+> © 2026 IEEE. Personal use of this material is permitted. Permission from IEEE must be obtained for all other uses, in any current or future media, including reprinting/republishing this material for advertising or promotional purposes, creating new collective works, for resale or redistribution to servers or lists, or reuse of any copyrighted component of this work in other works. arXiv:2607.12370v1 [cs.RO] 14 Jul 2026
+
+structures this asymmetry by partitioning Mamba’s internal state into specialized streams with complementary input rout-ing: proximity streams process reactive information, while goal streams maintain strategic goal representations. To isolate the contribution of the temporal encoder, we evaluate LSTM, Transformer, Mamba, and StratMamba un-der a common PPO framework, varying only the tempo-ral encoder design. StratMamba achieves superior training efficiency, computational performance, and navigation ro-bustness while retaining Mamba’s linear O(L) complexity advantage over Transformer’s quadratic O(L²) attention cost. The main contributions of our work include:  
+
+> •
+
+We propose StratMamba, a Mamba-based RL archi-tecture for LiDAR-based obstacle avoidance. Building on Mamba, we introduce a dual-rate state-partitioning structure that separates reactive obstacle avoidance from strategic, goal-directed planning. This design enables StratMamba to converge up to 1.5 × faster than LSTM and Transformer across all sequence lengths.  
+
+> •
+
+We demonstrate substantial performance improvements over state-of-the-art baselines: StratMamba achieves outstanding lower timeout rates (0.4%) compared to LSTM (34.0%), up to 13.4% higher path efficiency, and superior trajectory smoothness with Spectral Arc Length (SPARC ↑) scores of -3.550 versus -3.624 for LSTM and -3.594 for Transformer. These improvements vali-date both navigation reliability and execution quality.  
+
+> •
+
+We demonstrate robust cross-platform generalization from IsaacLab simulation to Gazebo sim-to-sim transfer and real-world Go1 deployment. Notably, StratMamba maintains high success rates across extended LiDAR ranges where vanilla Mamba and Transformer fail catas-trophically, validating superior robustness to increased sensing complexity. II. R ELATED WORK 
+
+In this section, we discuss the existing literature on ob-stacle avoidance for mobile robots and temporal sequence modeling techniques used in robot navigation. 
+
+A. Obstacle Avoidance Methods 
+
+Classical approaches to obstacle avoidance have provided a strong foundation for robotic navigation. Methods such as MPC optimize a sequence of control actions over a finite horizon, allowing the agent to anticipate and react to future states using a predictive model [4], [5]. Geometric tech-niques like ORCA enable multi-agent collision avoidance by cooperatively selecting optimal velocities in a decentralized manner [17], [18], [19]. However, these methods often rely on simplified world models and predefined dynamics, lim-iting their applicability. They typically struggle with high-dimensional, unstructured sensor data, such as raw LiDAR or camera inputs, and may fail in complex, cluttered real-world environments with unforeseen dynamics [7], [20], [21]. To overcome these limitations, RL has emerged as a powerful, data-driven alternative. By framing navigation as a sequential decision-making problem, RL enables the de-velopment of control policies that map raw sensory input directly to actions through end-to-end learning [8], [9], [10], [11], [13]. An agent learns optimal behavior through trial and error, guided by a reward signal, without requiring an explicit model of the world’s physics. This paradigm shift allows policies to learn complex, non-linear relationships and adapt to the nuances of real-world sensor data. Our work builds upon this RL framework, specifically investigating the architectural improvements required to make RL policies not only effective, but also computationally efficient at execution time and capable of coherent, long-horizon reasoning. 
+
+B. Temporal Sequence Modeling in Navigation 
+
+Effective navigation in dynamic environments is funda-mentally a problem of temporal reasoning. An agent must not only perceive its immediate surroundings but also con-textualize this information within a history of observations to infer the velocity of moving objects, anticipate trajectories, and remember the layout of areas that are temporarily occluded. Standard architectures, such as Multi-Layer Per-ceptrons (MLPs), lack the capacity for such reasoning. Early work addressed this by incorporating recurrent ar-chitectures, such as LSTMs, which maintain a hidden state updated at each time step, allowing integration of information over time [15], [22], [23]. More recently, Transformers have gained prominence due to their self-attention mechanism, which allows every point in an observation history to attend to every other point [24]. This facilitates the capture of complex, long-range temporal dependencies often missed by recurrent models. However, this core mechanism is also a key limitation in real-time robotics: computational and memory costs scale quadratically with sequence length (O(L2)), creating a significant bottleneck in low-latency applications. To address this efficiency challenge, recent research has turned to State Space Models (SSMs). Architectures such as Mamba build upon SSMs by incorporating a selection mechanism that allows the model to selectively focus on the most relevant information, achieving performance com-petitive with Transformers while maintaining linear time complexity ( O(L)) [25]. By efficiently compressing long historical sequences into a compact latent state, these models enable long-horizon reasoning without incurring prohibitive computational overhead, thereby making them well-suited for real-time decision-making and control tasks in robotics. 
+
+C. Mamba-based Methods 
+
+Following the introduction of the selective state-space model [25], Mamba-based architectures have rapidly emerged as efficient alternatives to Transformers across diverse application domains. In computer vision, Vision Mamba [26] demonstrated that bidirectional SSM can achieve competitive performance in object detection and semantic segmentation while offering significantly improved computational efficiency—up to 2.8 × faster than Transform-ers. This success has inspired numerous domain-specific adaptations, including Spatial-Mamba [27], PixMamba [28], and PyramidMamba [29] for different application domains. Beyond single-modality applications, researchers have de-veloped specialized multi-stream architectures to handle het-erogeneous data. Fusion-Mamba [30] proposed dual-stream Goal Info                      
+
+> Temporal Pooling
+> Mamba Temporal Encoder
+> Output Projection
+> Lidar Scans
+> Robot Status
+> Observation
+> Sequences
+> Goal Information
+> All
+> Proximity Gated Mamba Temporal Encoder
+> Proximity Correction SSM
+> Proximity Gate MLP
+> Low -Dimensional
+> High -Dimensional
+> Sensor Data
+> Hprox
+> Hgoal
+> Inject PPO
+> Actor
+> 𝜋 (𝑎 𝑡 |ℎ𝑡 )
+> Critic
+> 𝑉 (ℎ𝑡 )
+> Feature Fusion
+> ℎ𝑡
+> Mamba Layer
+> Conv
+> SSM
+> Gated MLP
+> Residual Conn Layer
+> Normalization
+> Proximity Gate
+
+Fig. 2: Overview of StratMamba. Observation sequences are partitioned into a Proximity stream for reactive obstacle avoidance and a Goal stream for strategic navigation. Their encoded representations, Hprox and Hgoal , are fused into ht and fed to PPO’s actor-critic networks for action generation and value estimation. This dual-rate design enforces temporal specialization, enabling coordinated fast-reactive and slow-strategic reasoning. 
+
+feature extraction with gated attention-based fusion for RGB-infrared object detection. The multi-stream architectures re-veal a key insight: while vanilla Mamba excels at temporal sequence modeling, complex tasks often benefit from ar-chitectural specialization, with different processing streams handling distinct types of information. In robotics, Mamba-based approaches remain largely unexplored for robot navi-gation tasks, where real-time sensor processing and obstacle avoidance are critical. Moreover, existing robotic applications primarily employ single-stream Mamba encoders that process all input modal-ities uniformly, without explicit architectural mechanisms to separate fast-changing reactive information from slow-changing strategic information. As dual-stream mamba has demonstrated effectiveness in vision and multimodal do-mains, it is rarely implemented in real-world robotic systems, particularly for online navigation tasks that require coordi-nated reactive and deliberative reasoning. Motivated by these gaps and the success of specialized multi-stream architec-tures, we propose StratMamba, which extends Mamba to robot navigation through Dual-Rate State Partitioning. III. B ACKGROUND : M AMBA -B ASED NETWORK 
+
+In this section, we review the standard single-stream Mamba architecture; Section IV-B presents our dual-stream extension that enables specialized processing of reactive and strategic information. Mamba [25] uses a state-space model (SSM) architecture designed for efficient sequence modeling. Unlike recurrent networks such as LSTMs or attention-based models like Transformers, Mamba leverages linear state-space dynamics augmented with input-dependent gating to capture long-term temporal dependencies while maintaining linear computational complexity in sequence length. Its core is a continuous-time linear SSM: 
+
+ddt x(t) = Ax (t) + Bu (t), y(t) = Cx (t), (1) where x(t) ∈ Rd denotes the hidden state, u(t) the input, and 
+
+y(t) the output. The matrices A, B, C parameterize the sys-tem, capturing the dynamics, input, and output relationships. Discretizing this system with a step size ∆ yields 
+
+xk = ¯Ax k−1 + ¯Bu k, yk = Cx k, (2) where the discrete-time transition and input matrices are ¯A =exp( A∆) and ¯B = (exp( A∆) − I)A−1B, and xk, u k, y k
+
+denote the state, input, and output at step k.A key innovation in Mamba is the introduction of input-dependent gating within the state-space layer. Each observa-tion ok is first embedded as zk = E(ok) ∈ Rdmodel , and the Mamba layer updates the hidden state according to, 
+
+xk = ¯A(zk)xk−1 + ¯B(zk)zk, hk = C(zk)xk, (3) where ¯A(·), ¯B(·), C (·) are input-dependent transformations, often implemented as linear projections modulated by gating functions. The output at step k is hk. Multiple Mamba layers are stacked, with the final hidden state used for downstream policy learning. For temporal modeling, the embedding sequence is denoted by Z = [ zt−nseq +1 , . . . , z t].For comparison, standard Transformers operate based on the self-attention mechanism: 
+
+Attn( Q, K, V ) = softmax 
+
+ QK ⊤
+
+√dk
+
+
+
+V, (4) where Q, K, V are the query, key, and value matrices, and 
+
+dk is the dimension of the key vectors. This operation scales quadratically with sequence length due to pairwise interactions, making it computationally expensive for long sequences such as LiDAR scan histories. In contrast, Mamba processes sequences with O(n) complexity, thanks to the recurrence in its state-space formulation. In summary, given the embedding sequence Z, stacked Mamba layers apply the recurrence above across time steps to capture long-range temporal dependencies. Compared to LSTMs, Mamba retains memory over longer horizons more effectively, and compared to Transformers, it is significantly more efficient in time and memory, making it well-suited for real-time robotic control. IV. STRAT MAMBA : S TRATEGIC AND REACTIVE STREAM 
+
+MAMBA POLICY OPTIMIZATION 
+
+In this section, we outline the methodology of Strat-Mamba, illustrated in Fig. 2. The proposed framework consists of five key components: observation space design, policy network architecture, action distribution, reward for-mulation, and policy training. The action distribution governs TABLE I: Observation Space Components 
+
+Component Dim. Definition 
+
+LiDAR Scan R360 lt = [˜ r(1)  
+
+> t
+
+, . . . , ˜r(360)  
+
+> t
+
+] where 
+
+˜r(i) 
+
+> t
+
+= min( r(i) 
+
+> t
+
+, r max )/r max 
+
+Goal Position R2 gt = (xgt , y gt ) in robot’s local body frame Distance to Goal R dt = ∥gt∥2/ max( ∥pwg −
+
+pw 
+
+> 0
+
+∥2, ϵ ) where ϵ = 10 −5
+
+Base Velocity R3 ˜vbt = vbt /v max ∈ [−1, 1] 3
+
+Whole Observation: ot = [˜ vbt , g t, d t, l t] ∈ R366 
+
+how actions are sampled and executed, while the reward formulation encodes the learning objectives into quantitative feedback. Finally, the policy training procedure is used to obtain the learned navigation policy. Each component is described in detail below. 
+
+A. Observation Space 
+
+At each discrete time step t, the agent receives an ob-servation vector ot ∈ Rd encoding geometric and dynamic information. The observation includes raw LiDAR ranges 
+
+r(i) 
+
+> t
+
+normalized by maximum sensor range rmax , goal posi-tion relative to the robot’s body frame, normalized distance to goal (where pwg and pw 
+
+> 0
+
+denote goal and initial positions in world frame), and base velocity normalized by platform-specific limit vmax . Table I summarizes these components, processed as a temporal sequence Ot = [ ot−nseq +1 , . . . , o t].
+
+B. Dual-Stream Policy Architecture 
+
+Robotic navigation involves observations with fundamen-tally different temporal characteristics. High-dimensional Li-DAR scans ( lt ∈ R360 ) change rapidly at each timestep, requiring reactive processing for obstacle avoidance, while low-dimensional goal information ( [gt, d t] ∈ R3) remains relatively stable, guiding strategic planning over longer hori-zons. Standard temporal encoders process all components uniformly, failing to exploit this inherent structure. We introduce StratMamba, as shown in Figure 2, which organizes the observation vector ot = [˜ vbt , g t, d t, l t] into two complementary streams with asymmetric input routing:  
+
+> •
+
+Proximity stream (reactive): oprox  
+
+> t
+
+= [˜ vbt , g t, d t, l t] ∈
+
+R366 processes all observations through a Mamba en-coder where obstacle proximity adaptively modulates SSM temporal processing.  
+
+> •
+
+Goal stream (strategic): ogoal  
+
+> t
+
+= [ gt, d t] ∈ R3 processes only goal information for long-horizon planning. Each stream processes its observation history through an independent Mamba-based SSM. For the proximity stream: 
+
+Zprox = [ zprox 
+
+> t−nseq +1
+
+, . . . , z prox  
+
+> t
+
+], zprox  
+
+> i
+
+= Eprox (oprox  
+
+> i
+
+) ∈ Rdmodel 
+
+(5) where Eprox : R366 → R256 is a learned linear embed-ding. To enable obstacle-aware modulation, we first compute proximity gate signals Γ = [ γt−nseq +1 , . . . , γ t], where γi =
+
+MLP gate (li) ∈ Rdstate maps each LiDAR scan li ∈ R360 to a gating signal via a compact 2-layer MLP (360 → 128 
+
+→ dstate ). During SSM processing in each Mamba layer, the gate signal γi modulates the hidden state at timestep i:
+
+x(i) 
+
+> ssm
+
+← x(i) 
+
+> ssm
+
++Wgate tanh( γi), where Wgate is zero-initialized to ensure StratMamba equals vanilla Mamba at initialization. The gated sequence is processed by K = 2 stacked Mamba layers: 
+
+Hprox = Mamba prox  
+
+> K
+
+(· · · Mamba prox  
+
+> 1
+
+(Zprox ; Γ)) (6) When obstacles are close, the learned gate adds corrective signals for reactive processing; in open space, corrections remain near zero, preserving standard SSM behavior. The goal stream follows an analogous formulation with independent parameters: 
+
+Zgoal = [ Egoal (ogoal  
+
+> i
+
+)] ti=t−nseq +1 , Egoal : R3 → R64 (7) 
+
+Hgoal = Mamba goal  
+
+> K
+
+(· · · Mamba goal  
+
+> 1
+
+(Zgoal )) (8) Each Mamba layer integrates causal convolution for short-term context, compact SSM for long-term memory, gated MLP for nonlinearity, and residual connections for stable training, as illustrated in Figure 2. The streams are fused additively with a zero-initialized projection: ht = hprox  
+
+> t
+
++ Wfuse hgoal  
+
+> t
+
+∈ Rdmodel (9) where hprox  
+
+> t
+
+= Hprox [−1] , hgoal  
+
+> t
+
+= Hgoal [−1] , and Wfuse is zero-initialized. This representation ht then feeds into the actor and critic networks for action generation and value estimation, maintaining compatibility with PPO training. 
+
+C. Action Distribution 
+
+The policy head maps the hidden state ht into the param-eters of a Gaussian distribution over continuous actions: 
+
+at = ( vt, ω t) ∼ πθ (at | Ot) = N μθ (ht), Σθ (ht) (10) where μθ (ht) ∈ R2 represents the mean linear velocity vt
+
+and angular velocity ωt, while Σθ (ht) = diag( σ2 
+
+> θ
+
+(ht)) is the diagonal covariance matrix. 
+
+D. Reward Functions 
+
+The training process uses continuous rewards for step-wise guidance and terminal rewards for episode outcomes. Contin-uous rewards include position tracking (encouraging progress toward goal gt), obstacle avoidance penalty (based on closest LiDAR distance d(i) 
+
+> t
+
+), and heading alignment (measuring angular deviation θt from goal direction). Terminal rewards provide sparse signals for goal reaching (threshold δg ), colli-sion detection, and premature stopping. Table II summarizes these components, combined as: rt = wpos rpos  
+
+> t
+
++ wobs robs  
+
+> t
+
++
+
+whead rhead  
+
+> t
+
++ wgoal rgoal + wcoll rcoll + wstop rstop 
+
+E. Training Details 
+
+For large-scale policy training, we utilize the IsaacLab simulator, which generates procedurally obstacle-rich envi-ronments. Each environment spans a 20 × 20 m workspace populated with discrete, box-shaped obstacles whose sizes and placements are randomized to ensure diversity across training runs. We train a total of 256 simulated Unitree Go2 robots in parallel, facilitating rapid data collection and stable policy optimization. All training is conducted on NVIDIA Fig. 3: Normalized training reward of LSTM, Transformer, Mamba, and StratMamba across sequence lengths L ∈ {3, 5, 8, 12 }.StratMamba consistently achieves the fastest convergence and reaches near-optimal performance across horizons. 
+
+TABLE II: Reward Function Components 
+
+Component Formula 
+
+Continuous Rewards (at each timestep) 
+
+Position Tracking rpos  
+
+> t
+
+= 1 −tanh( ∥gt∥2/σ ) where σ = 1 .0
+
+Obstacle Penalty robs  
+
+> t
+
+= − max i 1max( d(i)  
+
+> t,ϵ )
+
+where ϵ = 0 .1
+
+Heading Penalty rhead  
+
+> t
+
+= − tanh( |θt|/σ θ )
+
+where θt = arctan 2( ygt , x gt ), σθ = 0 .5
+
+Terminal Rewards (at episode end) 
+
+Goal Reached rgoal = 1{∥ gt∥2 < δ g } where δg = 0 .5
+
+Collision rcoll = 1{base contact }
+
+Stop Early (Stuck) rstop = 1{stopped before goal }
+
+GPUs, with a navigation control frequency of 5 Hz and a locomotion control frequency of 50 Hz. 
+
+F. Backbone Architecture Comparison 
+
+To isolate the contribution of temporal modeling, we replace only the temporal sequence encoder within an oth-erwise identical PPO framework, comparing LSTM, Trans-former, Mamba, and our proposed StratMamba. Figure 3 reports normalized training reward across sequence lengths 
+
+L ∈ {3, 5, 8, 12 }. StratMamba generally achieves faster convergence, particularly at shorter horizons. These results highlight the importance of structured tem-poral modeling. Increasing the observation horizon enriches state information by capturing obstacle approach dynamics, motion trends, and corridor geometry in partially observable settings. However, effectively exploiting this richer context requires stable long-range credit assignment. Standard re-currence degrades gradually with increasing horizon, and attention-based models become harder to optimize as se-quence length grows. In contrast, the structured SSM formu-lation of Mamba enables linear O(L) temporal processing, while the proposed dual-rate decomposition in StratMamba further separates reactive and strategic dynamics. V. S IMULATION RESULTS AND ANALYSIS 
+
+A. Simulation Environments 
+
+To evaluate the navigation performance of trained policies, we deploy the policies in distinct simulators: 
+
+Fig. 4: IsaacLab evaluation with Unitree Go2 in dynamic obstacle environments. The two scenarios illustrate environments with vary-ing dynamic obstacle densities. 
+
+Fig. 5: Gazebo evaluation with the Clearpath Husky Wheeled Platform in different obstacle layouts. 
+
+1) IsaacLab: All trained policies are evaluated in IsaacLab under a systematic set of dynamic obstacle scenarios, as shown in Figure 4. Each episode places the robot at the origin (0 , 0) with a fixed goal at (8 , 8) in the local frame, requiring the robot to navigate an 8 m displacement in both axes. Each episode is limited to 15 seconds of completion time; episodes exceeding this budget are recorded as timeouts. 2) Gazebo: To further evaluate cross-domain generaliza-tion, we deploy the trained policies in the Gazebo simulator via a Clearpath Husky wheeled robot. The test environments feature irregular layouts and obstacle fields distinct from the IsaacLab training maps. As shown in Figure 5, the Husky successfully navigates through different obstacle-rich layouts, demonstrating the policies’ adaptability beyond their training domain. 
+
+B. Evaluation Metrics 
+
+To quantify the performance, several evaluation metrics are defined and organized into three perspectives: 1) Basic Competence evaluates fundamental navigation re-liability:  
+
+> •
+
+Success Rate (↑): Fraction of episodes reaching the goal within the time budget without collision.  
+
+> •
+
+Timeout Rate (↓): Fraction of episodes exceeding the time budget, indicating failure to find feasible paths within temporal constraints. 2) Navigation Quality assesses path efficiency for success-ful episodes:  
+
+> •
+
+Median Steps to Goal (↓): Representative time re-quired to reach the goal.  
+
+> •
+
+Path Efficiency (↑): Ratio of the straight-line distance from start to goal over the actual path length traveled, evaluated on successful episodes only: PE i = ∥pgoal − pstart ∥2
+
+Pi
+
+(11) where Pi is the total path length executed by the robot in episode i.3) Trajectory Smoothness quantifies motion quality via velocity and jerk metrics. Let v(t) ∈ R2 denote planar velocity, x(t) position, and P = R T 
+
+> 0
+
+∥v(t)∥ dt the total path length.  
+
+> •
+
+LDLJ (↑): Log-Dimensionless Jerk quantifies acceler-ation smoothness through jerk j(t) = d3x(t)/dt 3 in a scale-invariant form: 
+
+LDLJ = − log 10 
+
+T 5
+
+P 2
+
+Z T
+
+> 0
+
+∥j(t)∥22 dt 
+
+!
+
+(12) Less negative values indicate smoother motion with reduced acceleration changes.  
+
+> •
+
+SPARC (↑): Spectral Arc Length [31] measures ve-locity smoothness in the frequency domain. Given normalized speed ˜s(t) = s(t)/ max t s(t) where s(t) = 
+
+∥v(t)∥, and spectrum magnitude M (ω) normalized to 
+
+Ω, M ∈ [0 , 1] with cutoff Ωc where M (Ω c) = τ :
+
+SPARC = −
+
+Z Ωc
+
+> 0
+
+s
+
+1 + 
+
+ dM dΩ
+
+2
+
+dΩ (13) Values closer to zero indicate smoother trajectories with less high-frequency content. 
+
+C. Evaluation Result 
+
+Basic Competence: As shown in Table III, StratMamba achieves the lowest timeout rate (0.4%) while maintaining competitive success across sequence lengths, with Mamba-based methods substantially outperforming LSTM (67.3% vs. 39.1% average success). On the other hand, the timeout metric indicates navigation reliability: StratMamba’s con-sistently low rates suggest effective long-horizon planning, whereas LSTM’s 34.0% timeout reveals difficulty maintain-ing coherent strategies over extended temporal horizons. 
+
+Navigation Quality: With respect to path quality, Strat-Mamba achieves the fastest navigation, requiring 576 me-dian steps, and the highest path efficiency of 0.915, as shown in Table IV. Compared with Mamba, this represents 5.0% fewer steps and 5.8% higher path efficiency, with TABLE III: Basic navigation competence evaluation across se-quence lengths. Success Rate ↑ measures overall goal-reaching performance. Timeout Rate ↓ indicates failure to find feasible paths within the episode budget. Best in bold , second-best underlined.                                                   
+
+> Method Success Rate (%) (↑)Timeout Rate (%) (↓)
+> L=3 L=5 L=8 L=12 Avg L=3 L=5 L=8 L=12 Avg
+> LSTM 0.0 25.3 65.5 65.5 39.1 —48.2 0.7 1.7 34.0 Transformer 60.3 63.1 58.9 63.0 61.3 1.4 1.0 1.0 0.9 1.1 Mamba 70.8 69.6 72.2 75.9 72.1 0.4 0.7 0.5 1.5 0.8
+> StratMamba 67.6 69.9 68.9 62.9 67.3 0.3 0.2 0.7 0.2 0.4
+
+TABLE IV: Navigation efficiency evaluation on successful episodes across sequence lengths. Median Steps to Goal ↓ mea-sures the time to reach the goal. Path Efficiency ↑ quantifies how direct successful trajectories are relative to the straight-line distance. Best in bold , second-best underlined.                                        
+
+> Method Median Steps to Goal (↓)Path Efficiency (↑)
+> L=3 L=5 L=8 L=12 Avg L=3 L=5 L=8 L=12 Avg
+> LSTM —861 578 612 684 —0.666 0.905 0.852 0.807 Transformer 636 644 607 595 621 0.835 0.822 0.866 0.881 0.851 Mamba 587 592 605 640 606 0.895 0.886 0.866 0.812 0.865
+> StratMamba 578 570 588 567 576 0.915 0.918 0.896 0.932 0.915
+
+TABLE V: Trajectory smoothness evaluation on successful episodes. SPARC ↑ measures velocity smoothness [31]. LDLJ ↑
+
+quantifies jerk-based smoothness [32]. Best in bold , second-best underlined.                        
+
+> Method SPARC (↑)LDLJ (↑)
+> L=3 L=5 L=8 L=12 Avg L=3 L=5 L=8 L=12 Avg
+> LSTM —-3.734 -3.555 -3.583 -3.624 —-8.970 -8.169 -8.299 -8.479 Transformer -3.603 -3.615 -3.586 -3.571 -3.594 -8.365 -8.399 -8.293 -8.241 -8.325 Mamba -3.564 -3.562 -3.576 -3.611 -3.578 -8.234 -8.243 -8.342 -8.493 -8.328
+> StratMamba -3.553 -3.553 -3.552 -3.543 -3.550 -8.185 -8.159 -8.228 -8.150 -8.180
+
+larger gains over Transformer and LSTM. At the longest horizon L=12 , StratMamba reaches 0.932 path efficiency, approaching theoretical optimality. These results demonstrate that StratMamba’s dual-stream architecture excels at long-horizon trajectory optimization, producing not only faster but also more direct paths that reduce mission time in deployment scenarios. 
+
+Trajectory Smoothness: Lastly, Table V quantifies mo-tion quality through SPARC and LDLJ metrics. StratMamba achieves the best SPARC ( −3.550 ) and LDLJ ( −8.180 ), outperforming Mamba by 1.0% and 1.8% respectively, with consistent best-in-class performance across all sequence lengths. Smoother trajectories reduce energy consumption by minimizing acceleration changes and improving actuator per-formance. StratMamba simultaneously achieves both fastest navigation and smoothest trajectories, indicating superior trajectory optimization rather than aggressive path-taking. VI. R EAL -W ORLD DEPLOYMENT AND VALIDATION 
+
+Beyond simulation, we demonstrate sim-to-real transfer by deploying the trained policy on a Unitree Go1 robot. 
+
+A. Hardware and Deployment Setup 
+
+The real-world deployment uses a Unitree Go1 quadruped equipped with an RSLidar-16 sensor. All sensor data streams Fig. 6: Indoor real-world evaluation with the Unitree Go1 quadruped robot. Left: Static obstacle-rich environment. Right: 
+
+> Moving pedestrian approaching the robot.
+
+are processed on an offboard laptop (Intel i7-12700H, NVIDIA RTX 3050-Ti) running a ROS2 package that as-sembles the concatenated policy observation at each control step. Specifically, the raw 3D point cloud from the RSLidar-16 is projected onto a horizontal plane to produce 360° scans consistent with the 2D scan representation used dur-ing IsaacLab training. Robot localization is provided by a VICON motion capture system, supplying global position estimates that are transformed into the robot body frame at each step, while base linear velocity is estimated directly via the Unitree SDK. All observations are transmitted wirelessly to the offboard compute unit, where the trained policy runs at 5 Hz, and issues velocity commands back to the Go1’s onboard high-level controller through the Unitree SDK. Experiments are conducted in an indoor room of ap-proximately 8 × 6 m; however, the effective VICON tracking volume covers approximately a central 6 × 4.5 m region, within which all trials are constrained. Goal positions are defined in the VICON world frame, with its origin at the center of the capture volume. Each trial commands the robot from a start position at (−1.5, −2) m to a goal at (1 .5, 2) m, spanning 5 m of lateral travel within the effective tracking range. As illustrated in Figure 6, we evaluate two obsta-cle scenarios: (1) static obstacles , where the environment contains several fixed obstacles that block the robot’s path, and (2) dynamic obstacle , where a pedestrian walks from the origin toward the robot at approximately 0.15–0.2 m/s within a constrained 3 m-wide corridor, requiring reactive collision avoidance. For each scenario, we test under two LiDAR scan range configurations: 1.5 m (short-range) and 3.0 m (medium-range), yielding four evaluation conditions in total. A trial is considered successful if the robot reaches the goal within a radius of 0.4 m without direct collision or leaving the VICON tracking volume. 
+
+B. Tuning Process 
+
+Prior to evaluation, we clip the linear velocity to ±0.3 m/s and the angular velocity to ±0.6 rad/s to account for the con-strained indoor environment, and we observe that clipping yields better behavioral consistency than action scaling. 
+
+C. Evaluation Metrics 
+
+We report Path Efficiency (Eq. 11) for successful trials. We also evaluate overall navigation performance using Success-weighted Path Length (SPL) [33], which jointly captures task success and path efficiency. TABLE VI: Real-world navigation on Unitree Go1 with RSLidar-16 ( L=12 , 20 trials each). Best in bold .Scenario Method Success Path Eff. SPL Static Obstacles (LiDAR scan: 1.5 m) LSTM 6/20 0.919 0.276 Transformer 12/20 0.807 0.484 Mamba 17/20 0.892 0.758                                        
+
+> StratMamba 19/20 0.879 0.835
+> Static Obstacles (LiDAR scan: 3.0 m) LSTM 6/20 0.748 0.224 Transformer 0/20 ——Mamba 0/20 ——
+> StratMamba 18/20 0.895 0.805
+> Moving Pedestrian (LiDAR scan: 1.5 m) LSTM 4/20 0.933 0.187 Transformer 11/20 0.952 0.524 Mamba 17/20 0.964 0.819
+> StratMamba 19/20 0.967 0.919
+> Moving Pedestrian (LiDAR scan: 3.0 m) LSTM 10/20 0.926 0.463 Transformer 0/20 ——Mamba 6/20 0.927 0.278
+> StratMamba 17/20 0.932 0.792
+
+SPL i = Si · L∗
+
+> i
+
+max( L∗ 
+
+> i
+
+, P i) , SPL = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+SPL i (14) where Si ∈ { 0, 1} indicates success, L∗ 
+
+> i
+
+is the obstacle-free shortest path length, and N is the total number of trials. 
+
+D. Quantitative Results 
+
+As shown in Table VI, we evaluate each method across 20 trials per configuration. At short LiDAR range (1.5 m), all methods achieve reasonable performance. StratMamba reaches 95% success in both static and dynamic scenarios with best-in-class SPL, while vanilla Mamba achieves 85% success and Transformer 55–60%. However, extending the scan range to 3.0 m reveals substantial performance degra-dation: Transformer and vanilla Mamba fail catastrophically in static environments (no success), and Mamba degrades severely in dynamic scenarios. In contrast, StratMamba maintains robust performance across both ranges, achieving the best success rate and SPL in all configurations. This performance gap may stem from the way each architecture handles the increased spatial complexity across different LiDAR ranges. At 3.0 m, scans capture not only nearby obstacles but also distant walls, room boundaries, and the full spatial layout, requiring the network to rea-son over substantially more environmental context than under the 1.5 m configuration, which primarily observes local obstacles. We hypothesize that integrating more dis-tant and less immediately relevant measurements leads to progressive hidden-state corruption, manifesting as overly cautious obstacle avoidance without reliable goal recov-ery. Both methods detect obstacles effectively but fail to maintain goal-directed navigation when processing the full-room context. The proximity-gated stream in StratMamba continuously injects corrective LiDAR signals directly into each SSM layer, providing a dedicated pathway that filters and prioritizes obstacle-relevant information while mitigating error accumulation from distant readings. The superior SPL scores across all configurations indicate that StratMamba not only succeeds more reliably but also navigates more efficiently, demonstrating that the explicit dual-stream design effectively balances reactive safety with strategic navigation under challenging real-world sensing conditions. VII. C ONCLUSIONS 
+
+We introduced StratMamba, a dual-stream state-space architecture for LiDAR-based obstacle avoidance that par-titions Mamba’s temporal encoding into specialized prox-imity and goal streams. Through controlled comparisons, StratMamba demonstrates advantages: the lowest timeout rate (0.4%), the fastest navigation (576 median steps), the highest path optimality (0.915 path efficiency), and 1.5× faster training convergence across all sequence lengths. Be-yond simulation, StratMamba successfully transfers across platforms—from quadrupedal Go2 in IsaacLab to wheeled Husky in Gazebo, and to real-world Go1 deployment with various layout setups. Real-world evaluation shows that StratMamba maintains robust performance across LiDAR scan ranges, whereas vanilla Mamba and Transformer exhibit severe performance degradation, which we hypothesize is associated with hidden-state corruption. The dual-stream design introduces a principled inductive bias for multi-rate temporal tasks: complementary specialization through asymmetric input routing yields measurable optimization and performance advantages over single-stream encoders. REFERENCES [1] H. Wang, C. Zhang, Y. Song, B. Pang, and G. Zhang, “Three-dimensional reconstruction based on visual slam of mobile robot in search and rescue disaster scenarios,” Robotica , 2020. [2] S. Karma, E. Zorba, G. Pallis, G. Statheropoulos, I. Balta, K. Mikedi, J. Vamvakari, A. Pappa, M. Chalaris, G. Xanthopoulos, et al. , “Use of unmanned vehicles in search and rescue operations in forest fires: Advantages and limitations observed in a field trial,” International journal of disaster risk reduction , vol. 13, pp. 307–312, 2015. [3] S. Li, C. Feng, Y. Niu, L. Shi, Z. Wu, and H. Song, “A fire recon-naissance robot based on slam position, thermal imaging technologies, and ar display,” Sensors , vol. 19, no. 22, p. 5036, 2019. [4] J. J. Park, C. Johnson, and B. Kuipers, “Robot navigation with model predictive equilibrium point control,” in 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems . IEEE, 2012. [5] S. H. Arul, J. J. Park, V. Prem, Y. Zhang, and D. Manocha, “Unconstrained model predictive control for robot navigation under uncertainty,” in 2024 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2024, pp. 9321–9327. [6] J. Van den Berg, M. Lin, and D. Manocha, “Reciprocal velocity obsta-cles for real-time multi-agent navigation,” in 2008 IEEE international conference on robotics and automation . Ieee, 2008, pp. 1928–1935. [7] A. N. Catapang and M. Ramos, “Obstacle detection using a 2d lidar system for an autonomous vehicle,” in 2016 6th IEEE International Conference on Control System, Computing and Engineering (ICC-SCE) . IEEE, 2016, pp. 441–445. [8] T. Zhang and H. Mo, “Reinforcement learning for robot research: A comprehensive review and open issues,” International Journal of Advanced Robotic Systems , vol. 18, no. 3, p. 17298814211007305, 2021. [9] A. Faust, K. Oslund, O. Ramirez, A. Francis, L. Tapia, M. Fiser, and J. Davidson, “Prm-rl: Long-range robotic navigation tasks by combining reinforcement learning and sampling-based planning,” in 
+
+2018 IEEE international conference on robotics and automation (ICRA) . IEEE, 2018, pp. 5113–5120. [10] U. Patel, N. K. S. Kumar, A. J. Sathyamoorthy, and D. Manocha, “Dwa-rl: Dynamically feasible deep reinforcement learning policy for robot navigation among mobile obstacles,” in 2021 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2021. [11] K. Weerakoon, A. J. Sathyamoorthy, U. Patel, and D. Manocha, “Terp: Reliable planning in uneven outdoor environments using deep reinforcement learning,” in 2022 International Conference on Robotics and Automation (ICRA) . IEEE, 2022, pp. 9447–9453. [12] J. Yao, X. Zhang, Y. Xia, Z. Wang, A. K. Roy-Chowdhury, and J. Li, “Towards generalizable safety in crowd navigation via conformal uncertainty handling,” in Proceedings of the Conference on Robot Learning (CoRL) , 2025. [13] G. Kahn, P. Abbeel, and S. Levine, “Badgr: An autonomous self-supervised learning-based navigation system,” IEEE Robotics and Automation Letters , 2021. [14] D. Dugas, J. Nieto, R. Siegwart, and J. J. Chung, “Navrep: Unsuper-vised representations for reinforcement learning of robot navigation in dynamic human environments,” in 2021 IEEE International Confer-ence on Robotics and Automation (ICRA) . IEEE, 2021. [15] S. Hochreiter and J. Schmidhuber, “Long short-term memory,” Neural computation , vol. 9, no. 8, pp. 1735–1780, 1997. [16] T. Wolf, L. Debut, V. Sanh, J. Chaumond, C. Delangue, A. Moi, P. Cistac, T. Rault, R. Louf, M. Funtowicz, et al. , “Transformers: State-of-the-art natural language processing,” in Proceedings of the 2020 conference on empirical methods in natural language processing: system demonstrations , 2020, pp. 38–45. [17] J. Van Den Berg, S. J. Guy, M. Lin, and D. Manocha, “Reciprocal n-body collision avoidance,” in Robotics Research: The 14th Interna-tional Symposium ISRR . Springer, 2011, pp. 3–19. [18] J. Alonso-Mora, A. Breitenmoser, M. Rufli, P. Beardsley, and R. Sieg-wart, “Optimal reciprocal collision avoidance for multiple non-holonomic robots,” in Distributed autonomous robotic systems: The 10th international symposium . Springer, 2013, pp. 203–216. [19] K. Guo, D. Wang, T. Fan, and J. Pan, “Vr-orca: Variable responsibility optimal reciprocal collision avoidance,” IEEE Robotics and Automa-tion Letters , vol. 6, no. 3, pp. 4520–4527, 2021. [20] J. Iqbal, R. Xu, S. Sun, and C. Li, “Simulation of an autonomous mobile robot for lidar-based in-field phenotyping and navigation,” 
+
+Robotics , vol. 9, no. 2, p. 46, 2020. [21] M. Bijelic, T. Gruber, F. Mannan, F. Kraus, W. Ritter, K. Dietmayer, and F. Heide, “Seeing through fog without seeing fog: Deep multi-modal sensor fusion in unseen adverse weather,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition ,2020, pp. 11 682–11 692. [22] L. Song, P. Xu, X. He, Y. Li, J. Hou, and H. Feng, “Improved lstm neural network-assisted combined vehicle-mounted gnss/sins naviga-tion and positioning algorithm,” Electronics , 2023. [23] Z. Wang, X. Shen, J. Li, J. Li, X. Wu, and Y. Yang, “Enhancing integrated navigation with a self-attention lstm hybrid network for uavs in gnss-denied environments,” Drones , vol. 9, no. 4, p. 279, 2025. [24] L. Chen, K. Lu, A. Rajeswaran, K. Lee, A. Grover, M. Laskin, P. Abbeel, A. Srinivas, and I. Mordatch, “Decision transformer: Reinforcement learning via sequence modeling,” Advances in neural information processing systems , vol. 34, pp. 15 084–15 097, 2021. [25] A. Gu and T. Dao, “Mamba: Linear-time sequence modeling with selective state spaces,” arXiv preprint arXiv:2312.00752 , 2023. [26] L. Zhu, B. Liao, Q. Zhang, X. Wang, W. Liu, and X. Wang, “Vision mamba: Efficient visual representation learning with bidirectional state space model,” arXiv preprint arXiv:2401.09417 , 2024. [27] C. Xiao, M. Li, Z. Zhang, D. Meng, and L. Zhang, “Spatial-mamba: Effective visual state space models via structure-aware state fusion,” 
+
+arXiv preprint arXiv:2410.15091 , 2024. [28] W.-T. Lin, Y.-X. Lin, J.-W. Chen, and K.-L. Hua, “Pixmamba: Lever-aging state space models in a dual-level architecture for underwater image enhancement,” in Proceedings of the Asian Conference on Computer Vision , 2024, pp. 3622–3637. [29] L. Wang, D. Li, S. Dong, X. Meng, X. Zhang, and D. Hong, “Pyramidmamba: Rethinking pyramid feature fusion with selective space state model for semantic segmentation of remote sensing imagery,” International Journal of Applied Earth Observation and Geoinformation , vol. 144, p. 104884, 2025. [30] X. Xie, Y. Cui, T. Tan, X. Zheng, and Z. Yu, “Fusionmamba: Dynamic feature enhancement for multimodal image fusion with mamba,” 
+
+Visual Intelligence , vol. 2, no. 1, p. 37, 2024. [31] Y. Beck, T. Herman, M. Brozgol, N. Giladi, A. Mirelman, and J. M. Hausdorff, “Sparc: a new approach to quantifying gait smoothness in patients with parkinson’s disease,” Journal of neuroengineering and rehabilitation , vol. 15, no. 1, p. 49, 2018. [32] P. Gulde and J. Hermsd¨ orfer, “Smoothness metrics in complex move-ment tasks,” Frontiers in neurology , vol. 9, p. 615, 2018. [33] P. Anderson, A. Chang, D. S. Chaplot, A. Dosovitskiy, S. Gupta, V. Koltun, J. Kosecka, J. Malik, R. Mottaghi, M. Savva, et al. ,“On evaluation of embodied navigation agents,” arXiv preprint arXiv:1807.06757 , 2018.

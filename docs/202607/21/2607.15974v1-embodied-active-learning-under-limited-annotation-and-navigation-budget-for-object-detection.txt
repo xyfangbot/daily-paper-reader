@@ -1,0 +1,360 @@
+Title: Embodied Active Learning under Limited Annotation and Navigation Budget for Object Detection
+
+URL Source: https://arxiv.org/pdf/2607.15974v1
+
+Published Time: Mon, 20 Jul 2026 01:21:40 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Embodied Active Learning under Limited Annotation and Navigation Budget for Object Detection 
+
+Hadrien Crassous 1,∗, Mohamed Yassine Kabouri 2,∗, Minahil Raza 3,∗, Joni Pajarinen 3, Riad Akrour 1
+
+Abstract — This paper studies how to adapt a computer vision object detector to an unknown environment under both a robot navigation time and annotation budget constraint. Our approach selects informative robot trajectories and image samples to retrain the detector, explicitly targeting its failure cases. Formally, the approach is an embodied variant of batch active learning, where at each round an agent has a limited navigation budget to collect candidate samples and a limited annotation budget for the most relevant images. We leverage spatial consistency to identify images with inconsistent labels, which are likely to provide the greatest improvement to the vision model. We evaluate the approach using different active learning objectives on large scenes from the AI2-THOR simulator and on a real-world setup using a Boston Dynam-ics Spot robot with the real-time object detector YOLOv5. Through comparison against several baselines, our experimen-tal results show that spatial inconsistency helps guide the agent and select relevant images without external supervision, achieving the highest detection accuracy at the end of the adaptation process under the same budget. The open-source project can be found at: https://mkabouri.github.io/ embodied-active-learning-od/ 
+
+I. I NTRODUCTION 
+
+Robust object detection (OD) [1] is fundamental for mo-bile robots performing downstream tasks such as Object Search [2], [3], Embodied Question Answering [4], [5] and Instruction Following [6], [7]. Embodied AIs generally rely on real-time detectors [8], [9], [10], [11], [12], [13], typically pretrained on standard datasets like COCO [14] or VOC2017 [15] and fine-tuned on a fixed set of labeled examples representing the task domain. Finetuning object detectors is an expensive process due to human annotation availability. Recent vision foundation models trained on internet-scale data [16], [17], [18] are computationally expensive and are rarely deployed on robot hardware for real-time use. While these models can serve as powerful oracles for generating large-scale pseudo-labels, they are not perfect—especially on small, rare, or domain-specific objects that are less common in their training data. In our physical robot experiments, we leverage foundation models to bootstrap the labeling process by automatically 
+
+> ∗
+
+Equal contribution.  
+
+> 1
+
+Hadrien Crassous and Riad Akrour are with Inria Scool, the Universit´ ede Lille and also with the Centre de Recherche en Informatique, Signal et Automatique de Lille (CRIStAL) (e-mail: hadrien.crassous@inria.fr and riad.akrour@inria.fr)  
+
+> 2
+
+Mohamed Yassine Kabouri is with LAAS-CNRS, Universite de Toulouse, CNRS, Toulouse, France (email: mykabouri@laas.fr)  
+
+> 3
+
+Minahil Raza and Joni Pajarinen are with the Department of Electrical Engineering and Automation at Aalto University (e-mail: mi-nahil.raza@aalto.fi and joni.pajarinen@aalto.fi) Correspondence to: Hadrien Crassous (hadrien.crassous@inria.fr) Consistent Inconsistent book book book laptop book book Agent Object Detector 
+
+> (1) Collect Images & Predict Objects Repeat for R rounds (3) Select Inconsistent Predictions (4) Provide annotations for retraining Feedback (2) Estimate Spatial Consistency Environment
+
+Oracle 
+
+Fig. 1: Method overview: (1) An agent explores the environ-ment via planning, capturing images and detector predictions at each step; the detector’s feedback encourages exploring error-prone states in future trajectories. (2) We estimate the spatial consistency of consecutive predictions and select a diverse set of inconsistent samples (3), which are annotated by an oracle (4) to improve the detector. The process repeats iteratively. annotating data, and then we selectively correct their errors through human intervention. Although many models score well on benchmarks, real-world object detection remains difficult. Object detectors often generalize poorly and suffer from domain shift [19], [20]. Errors in object detection is a prevalent failure mode in instruction-following and object search tasks [7], [10], [3]. Models also struggle with underrepresented classes and environmental variations such as lighting changes, texture differences, and novel spatial layouts. Developing systems that autonomously adapt through interactions when deployed in new environments is therefore an important research problem [21], [22], [23], [24]. We focus on bridging the gap between non-interactive active learning and embodied active learning, where robots actively explore and collect informative training samples. This paper investigates autonomous data collection and selection methods to adapt robotic vision models to a novel, previously unseen environment, with the help of an oracle annotator. We aim to address the following questions:  
+
+> •
+
+How can a robot agent adapt its vision model to a new environment under limited navigation and annotation budgets?  
+
+> •
+
+What scoring method should the agent use to determine which images are most informative to annotate, without arXiv:2607.15974v1 [cs.RO] 17 Jul 2026 relying on external supervision?  
+
+> •
+
+What type of navigation strategy enables the agent to locate the hardest-to-detect objects in a scene? In this work, our main contributions are as follows:  
+
+> •
+
+We formulate the problem of vision model adaptation as an embodied version of batch active learning, with limited budget for both navigation and annotation.  
+
+> •
+
+We introduce a Prediction Discrepancy score that mea-sures the disagreement between consecutive predictions, and use this score to guide both the navigation policy and the image sampling strategy to informative samples.  
+
+> •
+
+We evaluate and compare our method using house layouts from the ProcTHOR dataset [25], [26].  
+
+> •
+
+We further validate our approach in a real-world setup, where a robot autonomously collects images to improve its object detector using a semi-automatic process uti-lizing foundation models as an oracle. II. R ELATED WORK 
+
+Object detection is a classic and widely studied problem in computer vision [1]. Two-stage methods [27], [28] first generate region proposals, then refine and classify those regions, which tends to improve accuracy at the cost of speed. One-stage methods [29], [11], [30], [12] skip the proposal step and directly predict object classes and bounding boxes in a single pass, enabling real-time performance and making them widely used in robotics applications. More recent transformer-based approaches like DETR [31] introduce an end-to-end set prediction paradigm that avoids both region proposals and anchor-based predictions entirely. In this work, we propose a method that is agnostic to the detector architec-ture, illustrated on the YOLO family of real-time detectors. 
+
+Active learning for object detection. Active learning techniques aim to minimize the annotation cost by selecting the most relevant samples to annotate given the model current capabilities. They typically combine difficulty estimation with diversity estimation to construct a set of diverse, in-formative samples for annotation. Instance difficulty can be estimated using prediction entropy [32], [33], posterior probabilities [34], or learned loss prediction [35]. Yang et al. [36] proposed a simple two-stage method, where the first stage selects difficult samples and the second stage performs diversity-based sampling. In this work, we adopt a similar two-stage strategy with the same diversity criterion, but introduce custom difficulty estimators tailored to our low-data setting with an embodied agent. 
+
+Spatial consistency as a supervision signal. Prediction consistency across multiple viewpoints of the same object, has proven to be an effective supervision signal for training vision models. Yu et al. [37] use prediction inconsistency over multiple image augmentations to estimate instance difficulty in active learning for object detection. Chaplot et al. [22] use spatial inconsistency as a reward signal for a navigation agent in an embodied active learning setting; however, their approach assumes that full agent trajectories are annotated by the oracle and therefore does not address restricted annotation budget. Chaplot et al. [38] aggregate multiple views collected by an agent to disambiguate object categories and generate stronger pseudo-labels, which are then propagated to all views to retrain an object detector. In contrast, we exploit spatio-temporal inconsistency primarily as an uncertainty signal to guide navigation and annotation under strict annotation constraints. 
+
+Curiosity for efficient environment exploration. In em-bodied active learning, candidate samples are collected by an autonomous agent whose navigation is not guided by task-specific extrinsic rewards. A classical exploration algorithm is Frontier-Based Exploration (FBE) [39], which consists of sampling next destinations on the frontier between explored and unexplored regions. Inspired by reinforcement learning [40] and curiosity [41] theory, researchers have introduced intrinsic reward signals to encourage agent exploration by rewarding model disagreement [42] or model prediction error [43]. Marza et al. [44] implement an adaptive curious agent for mapping previously unknown scenes under a fixed time budget by training a PPO [45] policy to select waypoints. The collected images are then used for mesh reconstruction with a NeRF. Chaplot et al. [22] similarly use spatial inconsistency as an intrinsic reward to train a PPO policy across many scenes. In this work, we leverage spatial inconsistency as an artificial curiosity signal for pure exploration, using it to steer the agent toward images that offer the highest potential for improving object detector performance. III. METHOD 
+
+A. Task Definition 
+
+We formulate visual model adaptation as an embodied variant of batch active learning, where a mobile robot has limited resources for both navigation (to collect candidate samples) and annotation (to label the most informative ones). We follow the environment specification of [10]. An agent state s is defined by a 2D coordinate (x, z ) in a discrete grid, discrete pitch and yaw angles ( v, w). At each time step, the agent can move forward, backward, left, or right by 25 cm; rotate left or right by 45°; look up or down by 30°. At each timestep, the agent observes an RGB frame Is, and the object detector Mθ predicts all objects o in the frame. Each prediction consists of a class c in a fixed set of classes 
+
+C and a bounding box (x, y, w, h ). We denote by Oθs =
+
+{oθs,i } the set of predicted objects and by Ys = {ys,i } the ground-truth objects for frame Is.
+
+Data Collection Protocol. We divide our adaptation method into rounds, each round consisting of a collection phase, selection phase, retraining phase, and an optional evaluation phase. In the collection phase, the agent has T timesteps to collect candidate samples, storing visited frames and predictions in a collection buffer Bc = {(Is, O θs )}, accumulated from round 
+
+0 up to round r.In the selection phase, the agent selects a fixed number 
+
+A < T of the most relevant samples from Bc and requests annotations from the oracle. These samples are moved from 
+
+Bc to the annotation buffer Ba = {(Is, Y s)}.{Mug }{Apple} {Apple, Pot } {Book }
+
+Δ = 1 Rotate LookDown 
+
+Δ = 2 Fig. 2: Examples of Prediction Discrepancy ( ∆) for two pairs of successive frames. The red area denotes the overlapping region R between the two successive frames. We match predicted objects of the same class across frames and count unmatched objects. (Left) Apple is matched but Pot is unmatched: ∆ = 1 . (Right) Both Mug and Book are unmatched: 
+
+∆ = 2 . The Prediction Discrepancy allows the agent to estimate model prediction errors without external supervision. In the retraining phase, the agent retrains the object detector on Ba, obtaining retrained model Mθ′ , and updates predictions in Bc to Oθ′ 
+
+> s
+
+. In the evaluation phase, Mθ′ is evaluated on a held-out set of positions and labels {(Is, Y s)}
+
+from the same scene. 
+
+B. Prediction Discrepancy 
+
+We define Prediction Discrepancy , a heuristic to rank can-didate samples (Is, O θs ) based on the disagreement between model predictions in consecutive states. Formally, suppose the agent is at state s, performs action 
+
+a, and reaches state s′. Let R(a) be the overlapping region between frames Is and Is′ , and Cθs|R (a) the list of classes of objects from Oθs restricted to R(a). The prediction discrep-ancy is the size of the symmetric difference between Cθs|R (a)
+
+and Cθs′|R (a):
+
+∆( θ, I s, I s′ , a ) = |Cθs|R (a) ∪ Cθs′|R (a)|−| Cθs|R (a) ∩ Cθs′|R (a)| (1) treating both lists as multisets (duplicate classes are counted); in practice, we match elements of identical class across the two lists and count the remainder as unmatched. R(a) is estimated heuristically from the action alone, without image or depth information. We exclude unmatched elements from the computation if they are too small or near its border. 
+
+∆ = 0 indicates no disagreement between the two frames, while ∆ > 0 means some objects are detected in one frame but missed or labeled differently in the other, revealing prediction errors without requiring external supervision. Note that this measure does not account for localization errors: two bounding boxes from different images may be matched but not necessarily geometrically align. Enforcing such localization alignment would require estimating objects position relative to the agent across the two frames, and thus a depth estimation module. The discrepancy for a single frame Is is obtained by averaging over the pairs of visited neighbors, so a frame scores high if the model is likely to change its prediction upon taking an action from that position. 
+
+C. Adaptive Navigation Agent 
+
+We propose an online optimization algorithm for a curious agent operating under a limited navigation budget. To guide exploration, we use a path-aware Bayesian optimization (BO) strategy that balances optimistic exploration with maximiza-tion of the Prediction Discrepancy. The approach relies on a path-aware BO framework [46], [47], using a Random Forest regressor [48] as a surrogate model to estimate s 7 → ∆( θ, I s) from the visited states in the collection buffer Bc = {(Is, O θ s)}. Optimistic value estimates are obtained via an Upper Confidence Bound (UCB) [49], defined as μUCB (s) = μ(s) + 3 σ(s), where μ(s)
+
+and σ(s) denote the predictive mean and variance estimated by the forest. Let sstart be the starting position, and let π(sstart , s dest )
+
+denote the shortest path between sstart and destination sdest .We define the acquisition function as an optimistic estimate of the average Prediction Discrepancy along this path: 
+
+α(sdest ) = 1
+
+|π(sstart , s dest )|
+
+X
+
+> s′∈π(sstart ,s dest )
+
+μUCB (s′). (2) The next destination is the candidate position that max-imizes α(sdest ) among 50 randomly sampled positions; the agent follows the trajectory to the target before repeating the process. The shortest paths π(sstart , s dest ) are computed by weighted A*. The graph edge weights—a cost in [0 , 1] to be mini-mized along the planned path—are designed to encourage movement toward positions with high optimistic estimates 
+
+μUCB (s) while discouraging revisiting locations: 
+
+w(s) = 
+
+( 1−¯μUCB (s)2 if s / ∈ V ,
+
+1 otherwise , (3) where ¯μUCB denotes μUCB normalized to [0 , 1] , and V rep-resents the set of previously visited positions. This weight-ing guides the agent toward positions that are considered promising based on its current model, while avoiding re-visiting already explored areas. Before each acquisition, the surrogate model is recomputed. After each model retraining, the predictions from the collection buffer are updated and the surrogate model is recomputed. D. Data Selection 
+
+At each round, the agent selects a diverse subset of A
+
+samples from Bc that is most informative for training, from samples collected since the start of the run. We follow the two-stage active learning approach proposed by PPAL [36] to combine difficulty-sampling and diversity-sampling. In the first stage, we select the 3×A samples with the highest Prediction Discrepancy ∆( θ, I s). In the second stage, we cluster them into A groups and select each cluster centroid for annotation. To estimate image distances for the clustering algorithm, PPAL introduces Class Conditioned Matching Similarity (CCMS): two frames Is and Is′ are similar if they contain objects Oθs and Oθs′ of the same classes with aligned features. We keep CCMS unchanged, but use features from a frozen ResNet encoder instead of the YOLO object detector Mθ for simplicity. We modify the second stage of PPAL to ensure sampled images differ from the annotated set Ba. We combine the n annotated samples with the 3×A candidates before clustering, fit A+n
+
+clusters, and discard clusters corresponding to annotated frames, effectively removing candidates too close to previous annotations. The selected data is annotated by the oracle, and it is used to retrain the object detector. We accumulate the annotated data from all previous rounds and load the initial weights before each retraining. Algorithm 1 provides an overview of how planning, data selection and model updating interact with each other. 
+
+Algorithm 1 Embodied Active Learning under limited an-notation and navigation budget                                                                
+
+> Require: Number of rounds R, number of annotations per round A, number of timesteps per round T, initial model weights θ0
+> Initialize collection buffer Bc, annotation buffer Ba
+> Initialize object detector Mθ
+> Initialize current trajectory π=∅
+> for round r = 1 to R do for t = 1 to T do if π=∅then
+> Select a destination sdest using BO (See III-C) Set πto the shortest path to sdest
+> end if
+> Execute next action afrom πand remove it from π
+> Observe frame Isand predict objects Oθs← M θ(Is)
+> Add sample to buffer Bc← B c∪ { (Is, O θs)}
+> Update the agent’s surrogate model (See III-C)
+> end for
+> Select A samples {(Isi, O θsi)}from Bcusing the scoring method ∆( θ, I s)(See III-D) Query oracle for annotations {(Isi, Y si)}
+> Add annotations to buffer Ba← B a∪ { (Isi, Y si)}
+> θ′←RETRAIN (θ0,Ba)
+> Update model Mθ← M θ′
+> Update samples (Is, O θs)from Bcwith new predictions Oθ′
+> s
+> Optional: Evaluate model on an evaluation set {(Is, Y s)}
+> end for
+
+IV. S IMULATION EXPERIMENTS 
+
+In this section, we describe our experiments in the simu-lated environment. We propose to compare different scoring methods (serves to rank images and guide agents) and different navigation agents (strategies to explore the scene). 
+
+A. Implementation Details 
+
+Environment. We run our experiments using 90 house layouts from the ProcTHOR [26] dataset. We filter out object classes which are not pickable and those that are present in less than 20 scenes. Each scene has at least 2 rooms and between 12 and 40 object classes represented. We use a 640 ×
+
+640 image size, and we filter out objects that occupy less than 24 × 24 pixels of the images. The image annotations are provided by the simulator API. The relative performance of the methods is consistent across model sizes. 
+
+Object Detector. We run our experiments with the single-stage object detector YOLOv5 [12], and experiment with three model sizes S, M, and L, from smallest to largest. This model has open code, data and weights, with the original weights trained on the COCO dataset. We pretrain the model using 100 images randomly collected in each of the first 64 house scenes, and we run the model adaptation separately and independently on the 10 last scenes. We keep original hyperparameters, except for the adaptation learning rate, set to 0.02 , the pretraining learning rate, set to 0.002 and the epochs set to 50 for both pretraining and adaptation. Original hyperparameters include data augmentations (mosaic, flip, and scale). During the collection phase, the object detector uses a confidence threshold set to 0.2.
+
+Budget. We run our collection method for R = 10 rounds, each round with T = 400 navigation steps and A = 20 
+
+annotated samples. 
+
+B. Baselines 
+
+Baseline Scoring Methods. We investigate alternatives to the Prediction Discrepancy. 
+
+Count estimates the image difficulty by counting the number of predicted objects: Count (θ, I s) = |Oθs |.
+
+Entropy estimates the image difficulty by summing the class-wise prediction entropy over all the predicted objects. This is a very common choice in active learning methods [32], [36] and hard-image retrieval [33]: 
+
+H(θ, I s) = − X
+
+> o∈Oθs
+
+X
+
+> c∈C
+
+pθ (c(o) = c)log (pθ (c(o) = c)) (4) where pθ (c(o) = c) refers to the probability that the predicted object o belongs to class c. 
+
+Oracle uses the ground-truth labels Ys to estimate the difficulty of the image based on the sum of the model accuracy gap on the corresponding classes: 
+
+Ω( θ, I s, Y s) = X
+
+> o∈Ys
+
+[1 − AP θ (c(o))] (5) where AP θ (c(o)) refers to the Average Precision on the class of the object o. Oracle is a strong scoring method because it has an important sampling preference for the objects that currently have low performance. However, the Oracle scoring method requires to have access to the ground-truth objects 0 50 100 150 200         
+
+> #Images
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> mAP50
+> YOLOv5s
+> Random
+> Count
+> Entropy
+> Discrepancy (ours)
+> Oracle (*)
+> 050 100 150 200
+> #Images
+> 0.6
+> 0.7
+> 0.8
+> mAP50
+> YOLOv5m
+> 050 100 150 200
+> #Images
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> mAP50
+> YOLOv5l
+
+Fig. 3: Aggregate Performance of different scoring methods, across different model sizes (left: small, middle: medium, right: large). Each method is evaluated with the same annotation and navigation budget, and use the Adaptive navigation agent. (*): the Oracle scoring method uses ground-truth labels to select images containing classes with low accuracy. The relative performance of the scoring methods is consistent across model sizes. 
+
+Ys which is not available in practice. All of these criterion can be implemented as a feedback signal for the Adaptive navigation agent. We compare their performance in Figure 3. 
+
+Baseline Agents. We compare the Adaptive navigation agent against three baseline agents. These three navigation strategies do not attempt to maximize the Prediction Dis-crepancy. We use Frontier-Based Exploration [39] because it is commonly used as a baseline in the robotics literature [44], and we use a cone-of-vision with 90° angle and 1m depth. We modify the navigation strategy proposed for the pretraining in [10], by defining the Sweep agent to be an agent that randomly samples a destination, walks to reach it, and sweeps all the possible angles. We also implement a sim-ple Random walk policy. Because of the limited navigation budget, we do not propose an end-to-end RL baseline. 
+
+C. Evaluation set and Metrics 
+
+We use a static evaluation set independent of the tested method. Each set contains 1,000 annotated images generated from random starting positions to locations where a queried object is visible. Every object class is queried at least once, ensuring full class coverage within the scene. Performance is evaluated on the same scene used for adaptation. We evaluate the object detector using mean Average Preci-sion (mAP50), a commonly used metric in object detection. It is defined as the mean over classes of the area under the Precision–Recall curve, computed at an IoU threshold of 0.5.
+
+D. Results 
+
+Each experiment is repeated independently on 10 scenes, each evaluated with 10 different random seeds. We follow the recommendations from Agarwal et al. [50] to aggregate metrics over all seeds and scenes using bootstrap confidence intervals and Interquartile Mean (IQM). 
+
+Comparison of the scoring methods. Figure 3 presents a comparison of the performance in the simulated environ-ment obtained with Prediction Discrepancy and the baseline scoring strategies: Entropy, Count, Random, and Oracle. The results show that Prediction Discrepancy consistently outperforms the standard baselines (Entropy, Count, and Random), highlighting its ability to identify more informative samples for training. Discrepancy Round 1 Round 2 Round 3 Round 4 Count Random 
+
+Fig. 4: Collected data across 3 scoring methods. We visualize the first sample selected in each of the first four rounds for 3 different scoring methods. Count focuses only on cluttered images, Discrepancy adapts to the model’s weaknesses, and Random selection often yields irrelevant samples. In contrast, the Oracle scoring method achieves the highest performance. This is expected, as it relies on ground-truth annotations to deliberately select samples containing difficult classes. While this method is not applicable in practice, it confirms that the model progress is driven by improvement on the most difficult classes. 
+
+Annotated Data Characteristics for different scoring methods. We introduce three additional metrics to charac-terize the samples selected by each scoring method:  
+
+> •
+
+Object Annotations: average number of ground-truth objects in the samples annotated by the oracle per round.  
+
+> •
+
+Class Distribution Entropy: the entropy of the class distribution of the annotation buffer at the end of the experiment. Higher entropy means that the samples cover more evenly the classes.  
+
+> •
+
+F 1annot : current model F 1 score on the annotated sam-ples. Lower F1 means that the selected samples are more challenging for the model. Table I shows that different scoring methods yield different values for these metrics. Prediction Discrepancy and Oracle TABLE I: Annotated Data Characteristics for different scoring methods in AI2-THOR and Real-world environments. Object Annotations is the average number of ground-truth objects in the samples annotated by the oracle. Class Distribution Entropy is the entropy of the class distribution of the annotation buffer at the end of the experiment. F 1annot is the model F 1 score on annotated samples, averaged over the first 3 rounds. (*): the Oracle scoring method uses ground-truth labels to select images containing classes with low accuracy. 
+
+AI2-THOR Real-World 
+
+Scoring Method #Object Annot. Cls. Entropy (↑) F 1annot (↓) #Object Annot. Cls. Entropy (↑) F 1annot (↓)
+
+Random 14 .33 ± 0.84 3.78 ± 0.08 77 .78 ± 1.87 63 .47 ± 8.47 2.33 ± 0.12 46 .08 ± 4.60 
+
+Count 103 .26 ± 4.50 3.38 ± 0.15 83 .29 ± 2.01 184 .07 ± 4.22 2.08 ± 0.05 47 .11 ± 1.21 
+
+Entropy 85 .57 ± 2.39 3.68 ± 0.10 74 .41 ± 2.08 163 .93 ± 7.76 2.14 ± 0.05 44 .62 ± 0.83 
+
+Discrepancy (ours) 52 .56 ± 1.51 3.96 ± 0.05 67 .26 ± 1.66 75 .56 ± 6.11 2.28 ± 0.07 39 .63 ± 1.99 
+
+Oracle (∗) 76 .22 ± 2.75 3.97 ± 0.07 68 .36 ± 1.90 — — —0.60 0.65 0.70 0.75     
+
+> Adaptive
+> FBE
+> Sweep
+> Random
+> IQM
+> mAP50 050 100 150 200
+> #Images
+> 0.55
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> mAP50
+> IQM
+> Adaptive
+> FBE
+> Sweep
+> Random
+
+Fig. 5: Aggregate Performance of different navigation meth-ods. Each method is evaluated with the same annotation and navigation budget, and use the Discrepancy scoring method. give the most difficult samples according to the average F1, while the other methods sample easier data. These two methods also achieve the highest Class Distribution Entropies, indicating more balanced and diverse class sam-pling, consistent with their stronger overall performance. Prediction Discrepancy also results in a lower number of Object Annotations. Examples of samples collected with the different scoring methods are illustrated in Figure 4. 
+
+Comparison of the navigation methods. In Figure 5, we compare our Adaptive navigation agent with the baseline agents in the simulated environment. On the long run, the Adaptive navigation agent yields a better learning progress compared to the Frontier-Based Exploration (FBE), Sweep, and Random walk baselines. This proves that guiding the agent with the Prediction Discrepancy is an important com-ponent of our approach. V. R EAL -W ORLD EXPERIMENTS 
+
+We demonstrate our approach in a real-world scene with Boston Dynamics Spot ® [51] as the embodied agent. We begin by describing our environment, data collection process and budget, the trajectory selection approach, followed by the data labeling method. Finally, we describe our results. 
+
+A. Implementation Details 
+
+Environment. Our environment consists of an indoor scene as shown in Figure 6, with objects from eight cate-gories and 2–5 physical variations per class (Figure 7). The robot state s is represented by its planar position 
+
+(x, y ), yaw angle, and body height. We discretize the state space using step sizes of 0.15 meters for position, 10 ◦ for 
+
+Fig. 6: Indoor experiment environment. yaw, and three discrete bins for body height. The robot can execute the following actions: forward, backward, left, right, rotate clockwise, rotate counterclockwise, sit, stand, and crouch. We use a 640 × 640 image size. 
+
+Fig. 7: Objects used for real robot experiments: bottle, box, can, chair, cup, plant, table, and trashcan. 
+
+Data Collection. We first collect a pretraining dataset of 100 images in the scene with objects arranged in different configurations. After modifying the scene, we store explo-ration trajectories by navigating the robot between predefined waypoints. To increase viewpoint diversity, we inject random rotations, crouching, and sitting actions along the planned routes. The recorded data are downsampled to 3 Hz to ensure moderate overlap between successive frames. We store 50 trajectories of T = 200 navigation steps each. Additionally, we store a held-out set of 200 images and labels {(Is, Y s)}for quantitative comparison of the scoring methods. We run our collection method for R = 5 rounds, each round with 10 trajectories of T = 200 navigation steps and A = 20 
+
+annotated samples. We reuse the Adaptive navigation agent (Section III-C), assigning each stored trajectory a score based on the sum of the acquisition values along its path. The highest-scoring trajectory is then selected and appended to the collection buffer Bc for the next stage. 
+
+Object Detector. We use YOLOv5 with M and L model sizes. We keep the same hyperparameters as simulation experiments, except for the pretraining learning rate, set to 
+
+0.05 and the epochs set to 100 for pretraining. 
+
+Overlapping region. Unlike the heuristic computation used in the simulated environment to estimate the overlap-ping region between two frames, we use a homography-based method for the real-world environment. We detect fea-ture correspondences between successive frames and apply RANSAC to robustly compute the homography matrix, from which the overlapping rectangle is derived. 
+
+Vision Foundation Model as Oracle: Manually annotat-ing real-world images is time-consuming, so we explore a semi-automated labeling pipeline using foundation models. We use OWLv2 [52], an open-vocabulary vision–language detector that localizes objects from arbitrary text queries. We manually define the object classes and provide them as input queries to OWLv2. Labeling a single image takes 
+
+∼4.5 seconds on an RTX 5090 GPU — a bottleneck that further motivates lightweight detectors at collection time. The generated labels are then corrected by a human. 
+
+B. Results 
+
+Each experiment is repeated for 15 seeds. Results are aggregated over all seeds using bootstrap confidence intervals and Interquartile Mean (IQM). 
+
+Comparison of the scoring methods. Figure 8 compares the performance achieved by Prediction Discrepancy against the baseline scoring strategies: Entropy, Count, and Random. We exclude the Oracle method from this evaluation because access to ground-truth labels is unrealistic in real-world deployments. The results demonstrate that Prediction Dis-crepancy consistently outperforms the baselines, confirming its effectiveness in selecting more informative samples. The performance gap between Random and Prediction Discrepancy is smaller than in simulation. We attribute this to the simplified single-room experimental setup and smaller budget, which limits environmental variability. Nevertheless, even in smaller and less complex environments, Prediction Discrepancy maintains an advantage. Table I shows the quantitative comparison between differ-ent scoring methods for the real-world scene. Consistent with the simulated environment, Prediction Discrepancy priori-tizes difficult samples while using fewer object annotations than Count and Entropy-based scoring methods. VI. C ONCLUSION 
+
+We presented an embodied active learning approach that adapts object detectors to new environments under both 
+
+Fig. 8: Aggregate Performance of different scoring methods across different model sizes (left: medium, right: large). Each method is evaluated with the same collection and budget. navigation and annotation budget constraints, improving downstream performance while reducing annotation cost. For future work, enabling the agent to explicitly estimate class difficulty and learning progress could help prioritize difficult or underrepresented classes and yield further gains. Additionally, we plan to explore models without domain-specific pretraining, investigate region-level annotation and self-supervised adaptation methods to reduce reliance on an oracle annotator. AUTHORS CONTRIBUTIONS 
+
+This work started during Mohamed Yassine Kabouri’s internship at Inria, where he conducted initial research on Prediction Discrepancy optimization for image collection. Hadrien Crassous continued the work, transitioning it to an active learning formulation, developed the image sampling method and the Adaptive navigation agent, and conducted the simulation experiments. Minahil Raza designed and conducted all the real-world experiments. Joni Pajarinen and Riad Akrour advised the work. ACKNOWLEDGEMENTS 
+
+This research was supported by Inria via AEx AuDaCiTi and by the European Union’s Horizon Europe research and innovation program under grant agreement No 101189836 (XSCAVE). Experiments presented in this paper were carried out using the Grid’5000 testbed, supported by a scientific in-terest group hosted by Inria and including CNRS, RENATER and several Universities as well as other organizations. The authors acknowledge the use of the MIDAS infrastructure of the Aalto School of Electrical Engineering for the robot experiments. REFERENCES [1] Z.-Q. Zhao, P. Zheng, S.-T. Xu, and X. Wu, “Object Detection With Deep Learning: A Review,” IEEE Transactions on Neural Networks and Learning Systems , vol. 30, pp. 3212–3232, Nov. 2019. [2] K. Zheng, A. Paul, and S. Tellex, “A System for Generalized 3D Multi-Object Search,” in ICRA , 2023. [3] K. Zheng, “Generalized Object Search,” 2023. arXiv:2301.10121 [cs]. [4] D. Gordon, A. Kembhavi, M. Rastegari, J. Redmon, D. Fox, and A. Farhadi, “Iqa: Visual question answering in interactive environ-ments,” in CVPR , 2018. [5] A. Majumdar, A. Ajay, X. Zhang, P. Putta, S. Yenamandra, M. Henaff, S. Silwal, P. Mcvay, O. Maksymets, S. Arnaud, K. Yadav, Q. Li, B. Newman, M. Sharma, V. Berges, S. Zhang, P. Agrawal, Y. Bisk, D. Batra, M. Kalakrishnan, F. Meier, C. Paxton, A. Sax, and A. Ra-jeswaran, “Openeqa: Embodied question answering in the era of foundation models,” in CVPR , 2024. [6] C. Li, R. Zhang, J. Wong, C. Gokmen, S. Srivastava, R. Mart´ ın-Mart´ ın, C. Wang, G. Levine, W. Ai, B. Martinez, H. Yin, M. Lingelbach, M. Hwang, A. Hiranaka, S. Garlanka, A. Aydin, S. Lee, J. Sun, M. Anvari, M. Sharma, D. Bansal, S. Hunter, K.-Y. Kim, A. Lou, C. R. Matthews, I. Villa-Renteria, J. H. Tang, C. Tang, F. Xia, Y. Li, S. Savarese, H. Gweon, C. K. Liu, J. Wu, and L. Fei-Fei, “Behavior-1k: A human-centered, embodied ai benchmark with 1,000 everyday activities and realistic simulation,” 2024. [7] Z. Wu, Z. Wang, X. Xu, H. Yin, Y. Liang, A. Ma, J. Lu, and H. Yan, “Embodied Instruction Following in Unknown Environments,” in IROS , 2025. ISSN: 2153-0866. [8] K. Mu˜ noz, M. Chavarria, L. Ortiz, S. Suter, K. Sch¨ onenberger, and B. Bacca-Cortes, “Embedded solution to detect and classify head level objects using stereo vision for visually impaired people with audio feedback,” Scientific Reports , no. 1, 2025. [9] Q. Hong, H. Dong, W. Deng, and Y. Ping, “Education robot object detection with a brain-inspired approach integrating Faster R-CNN, YOLOv3, and semi-supervised learning,” Frontiers in Neurorobotics ,2024. [10] K. Zheng, R. Chitnis, Y. Sung, G. Konidaris, and S. Tellex, “Towards Optimal Correlational Object Search,” in ICRA , 2022. [11] J. Redmon, S. Divvala, R. Girshick, and A. Farhadi, “You only look once: Unified, real-time object detection,” in CVPR , 2016. [12] G. Jocher, A. Chaurasia, A. Stoken, J. Borovec, NanoCode012, Y. Kwon, K. Michael, TaoXie, J. Fang, imyhxy, Lorna, Z. Yifu, C. Wong, A. V, D. Montes, Z. Wang, C. Fati, J. Nadar, Laughing, UnglvKitDe, V. Sonck, tkianai, yxNONG, P. Skalski, A. Hogan, D. Nair, M. Strobel, and M. Jain, “ultralytics/yolov5: v7.0 - YOLOv5 SOTA Realtime Instance Segmentation,” 2022. [13] Y. Zhao, W. Lv, S. Xu, J. Wei, G. Wang, Q. Dang, Y. Liu, and J. Chen, “DETRs Beat YOLOs on Real-time Object Detection,” 2024. arXiv:2304.08069 [cs]. [14] T.-Y. Lin, M. Maire, S. Belongie, J. Hays, P. Perona, D. Ramanan, P. Doll´ ar, and C. L. Zitnick, “Microsoft COCO: Common Objects in Context,” in ECCV , 2014. [15] M. Everingham, L. Van Gool, C. K. I. Williams, J. Winn, and A. Zisserman, “The Pascal Visual Object Classes (VOC) Challenge,” 
+
+International Journal of Computer Vision , vol. 88, pp. 303–338, June 2010. [16] X. Zhou, R. Girdhar, A. Joulin, P. Kr¨ ahenb¨ uhl, and I. Misra, “Detecting Twenty-Thousand Classes Using Image-Level Supervision,” in ECCV ,Springer Nature Switzerland, 2022. [17] S. Liu, Z. Zeng, T. Ren, F. Li, H. Zhang, J. Yang, Q. Jiang, C. Li, J. Yang, H. Su, J. Zhu, and L. Zhang, “Grounding DINO: Marrying DINO with Grounded Pre-training for Open-Set Object Detection,” in 
+
+ECCV , 2025. [18] X. Zhai, A. Kolesnikov, N. Houlsby, and L. Beyer, “Scaling vision transformers,” in CVPR , 2022. [19] M. Khodabandeh, A. Vahdat, M. Ranjbar, and W. G. Macready, “A robust learning approach to domain adaptive object detection,” in 
+
+ICCV , 2019. [20] Y. Chen, W. Li, C. Sakaridis, D. Dai, and L. Van Gool, “Domain adaptive faster r-cnn for object detection in the wild,” in CVPR , 2018. [21] E. Maiettini, G. Pasquale, L. Rosasco, and L. Natale, “Interactive data collection for deep learning object detectors on humanoid robots,” in 
+
+2017 IEEE-RAS 17th International Conference on Humanoid Robotics (Humanoids) , 2017. ISSN: 2164-0580. [22] D. S. Chaplot, H. Jiang, S. Gupta, and A. Gupta, “Semantic Curiosity for Active Visual Learning: 16th European Conference on Computer Vision, ECCV 2020,” Computer Vision - ECCV 2020 - 16th European Conference, 2020, Proceedings , pp. 309–326, 2020. [23] S. Mirchandani, S. Belkhale, J. Hejna, E. Choi, M. S. Islam, and D. Sadigh, “So you think you can scale up autonomous robot data collection?,” in Conference on Robot Learning (CoRL) , Proceedings of Machine Learning Research, PMLR, 2025. [24] X. Shi, Y. Qiao, L. Liu, and F. Dayoub, “Embodied Domain Adapta-tion for Object Detection,” in IROS , 2025. ISSN: 2153-0866. [25] E. Kolve, R. Mottaghi, W. Han, E. VanderBilt, L. Weihs, A. Herrasti, M. Deitke, K. Ehsani, D. Gordon, Y. Zhu, A. Kembhavi, A. Gupta, and A. Farhadi, “AI2-THOR: An Interactive 3D Environment for Visual AI,” 2022. arXiv:1712.05474 [cs]. [26] M. Deitke, E. VanderBilt, A. Herrasti, L. Weihs, J. Salvador, K. Ehsani, W. Han, E. Kolve, A. Farhadi, A. Kembhavi, and R. Mottaghi, “ProcTHOR: Large-Scale Embodied AI Using Procedural Generation,” 2022. arXiv:2206.06994 [cs]. [27] R. Girshick, J. Donahue, T. Darrell, and J. Malik, “Rich feature hierarchies for accurate object detection and semantic segmentation,” in CVPR , 2014. [28] S. Ren, K. He, R. Girshick, and J. Sun, “Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks,” in Advances in Neural Information Processing Systems , Curran Associates, Inc., 2015. [29] W. Liu, D. Anguelov, D. Erhan, C. Szegedy, S. Reed, C.-Y. Fu, and A. C. Berg, “SSD: Single Shot MultiBox Detector,” in ECCV , 2016. [30] J. Redmon and A. Farhadi, “YOLOv3: An Incremental Improvement,” 2018. arXiv:1804.02767 [cs]. [31] N. Carion, F. Massa, G. Synnaeve, N. Usunier, A. Kirillov, and S. Zagoruyko, “End-to-End Object Detection with Transformers,” in 
+
+ECCV , Springer International Publishing, 2020. [32] A. J. Joshi, F. Porikli, and N. Papanikolopoulos, “Multi-class active learning for image classification,” in CVPR , 2009. ISSN: 1063-6919. [33] E. Ayers, J. Sadeghi, J. Redford, R. Mueller, and P. K. Dokania, “Query-Based Hard-Image Retrieval for Object Detection at Test Time,” AAAI , no. 12, 2023. [34] D. D. Lewis and J. Catlett, “Heterogeneous Uncertainty Sampling for Supervised Learning,” in Machine Learning Proceedings 1994 ,Elsevier, 1994. [35] D. Yoo and I. S. Kweon, “Learning loss for active learning,” in CVPR ,2019. [36] C. Yang, L. Huang, and E. J. Crowley, “Plug and play active learning for object detection,” in CVPR , 2024. [37] W. Yu, S. Zhu, T. Yang, and C. Chen, “Consistency-based active learning for object detection,” in CVPR Workshops , 2022. [38] D. S. Chaplot, M. Dalal, S. Gupta, J. Malik, and R. R. Salakhutdinov, “SEAL: Self-supervised Embodied Active Learning using Exploration and 3D Consistency,” in Advances in Neural Information Processing Systems , Curran Associates, Inc., 2021. [39] B. Yamauchi, “A frontier-based approach for autonomous exploration,” in Proceedings 1997 IEEE International Symposium on Computational Intelligence in Robotics and Automation CIRA’97. ’Towards New Computational Principles for Robotics and Automation’ , 1997. [40] R. S. Sutton and A. G. Barto, Reinforcement Learning: An Introduc-tion . The MIT Press, second ed., 2018. [41] P.-Y. Oudeyer and F. Kaplan, “What is intrinsic motivation? A typol-ogy of computational approaches,” Frontiers in Neurorobotics , vol. 1, Nov. 2007. [42] D. Pathak, P. Agrawal, A. A. Efros, and T. Darrell, “Curiosity-driven Exploration by Self-supervised Prediction,” in Proceedings of the 34th International Conference on Machine Learning , pp. 2778–2787, PMLR, July 2017. [43] Y. Burda, H. Edwards, A. Storkey, and O. Klimov, “Exploration by Random Network Distillation,” Oct. 2018. arXiv:1810.12894 [cs]. [44] P. Marza, L. Matignon, O. Simonin, D. Batra, C. Wolf, and D. S. Chaplot, “AutoNeRF: Training Implicit Scene Representations with Autonomous Agents,” in IROS , 2024. ISSN: 2153-0866. [45] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov, “Proximal Policy Optimization Algorithms,” 2017. arXiv:1707.06347 [cs]. [46] T. Sˆ antejudean and L. Bus ¸oniu, “Path-aware optimistic optimization for a mobile robot,” in 2021 60th IEEE Conference on Decision and Control (CDC) , 2021. ISSN: 2576-2370. [47] P. I. Frazier, “A Tutorial on Bayesian Optimization,” 2018. arXiv:1807.02811 [stat]. [48] L. Breiman, “Random Forests,” Machine Learning , vol. 45, pp. 5–32, Oct. 2001. [49] P. Auer, N. Cesa-Bianchi, and P. Fischer, “Finite-time analysis of the multiarmed bandit problem,” Mach. Learn. , vol. 47, p. 235–256, May 2002. [50] R. Agarwal, M. Schwarzer, P. S. Castro, A. C. Courville, and M. Bellemare, “Deep reinforcement learning at the edge of the statis-tical precipice,” Advances in Neural Information Processing Systems ,vol. 34, 2021. [51] Boston Dynamics, “Spot® — Boston Dynamics,” 2024. [Online]. [52] M. Minderer, A. Gritsenko, and N. Houlsby, “Scaling Open-Vocabulary Object Detection,” Advances in Neural Information Pro-cessing Systems , vol. 36, pp. 72983–73007, Dec. 2023.

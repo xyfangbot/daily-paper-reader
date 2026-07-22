@@ -1,0 +1,2706 @@
+Title: Multi-Objective Kinodynamic Motion Planning with Asymptotic Pareto Optimality
+
+URL Source: https://arxiv.org/pdf/2607.15508v1
+
+Published Time: Mon, 20 Jul 2026 00:25:52 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+> 1
+
+# Multi-Objective Kinodynamic Motion Planning with Asymptotic Pareto Optimality 
+
+Yusif Razzaq, Anne Theurkauf, Nisar Ahmed, and Morteza Lahijanian 
+
+Abstract —In this paper, we address the challenge of multi-objective motion planning for systems under kinodynamic con-straints. We consider three problem classes: (i) lexicographic optimization, in which objectives are minimized according to a strict priority ordering, (ii) constrained optimization, in which a primary objective is minimized subject to bounds on the remaining costs, and (iii) Pareto front optimization, in which the goal is to approximate the full set of optimal trade-offs among competing objectives. We first show that established cost scalarization methods for multi-objective problems cannot 
+
+be extended to continuous-domain systems with correctness guarantees. Then, we propose a unified algorithmic framework built upon the Stable Sparse-RRT (SST) algorithm, in which the single representative maintained at each witness neighborhood is replaced by a representative set of locally Pareto-optimal nodes. This structure gives rise to three distinct algorithms: LEX SST for lexicographic minimization, CO SST for constrained optimiza-tion, and PO SST for Pareto-front approximation. We provide theoretical guarantees for the completeness and optimality of our algorithms and demonstrate their effectiveness through extensive empirical evaluations. 
+
+Index Terms —Kinodynamic motion planning, multi-objective optimization, sampling-based motion and path planning. 
+
+I. I NTRODUCTION 
+
+# MOTION planning is a core capability for intelligent autonomous systems, governing how dynamic agents move safely and efficiently through their environments. Be-yond collision avoidance, effective motion planning requires a notion of trajectory quality , which is classically captured by a single cost metric, e.g., path length. In practice, however, objectives are rarely singular: an autonomous vehicle must balance passenger comfort against travel time, and a mobile manipulator must trade off workspace clearance against task completion speed. When multiple competing objectives are present, no single trajectory is universally optimal. Rather, the space of high-quality solutions becomes a rich, multidi-mensional landscape of trade-offs, where the goal shifts to identifying Pareto-optimal solutions, i.e., those that cannot be improved in one objective without sacrificing another. This introduces several computational challenges, especially under kinodynamic constraints. In this work, we address these challenges and develop a foundational framework for multi-objective kinodynamic motion planning that enables efficient exploration, approximation, and reasoning over this landscape. Graph-based algorithms provide the earliest foundations for optimal path planning, with A ∗ [1] and its variants guaran-teeing shortest paths over edge traversal costs. MOA ∗ [2] 
+
+Authors are with the University of Colorado Boulder, CO, USA. 
+
+{firstname.lastname }@colorado.edu Initial State Obstacles Goal Region SST 
+
+> LEX SST
+> CO SST
+
+(a) Solution paths in workspace. 90 92 94 96 98 100    
+
+> MAX MIN CLEARANCE
+> 50
+> 55
+> 60
+> 65
+> PATH LENGTH
+> SST
+> LEX SST
+> CO SST True Pareto Front
+> c1(π∗
+> lex ) + 
+> ¯c1= 94
+
+(b) Solutions in objective space. 
+
+Fig. 1: Two-objective motion planning with obstacle clearance (c1) and path length ( c2) objectives. (a) Workspace showing obstacles (light blue), goal region (green), theoretical Pareto-optimal trajectories (lines in purple-green color scale), and three planner solutions (thick lines). (b) The bi-objective space with color-coded solution costs and the true Pareto front. and NAMOA ∗ [3], [4] generalize this optimality to multi-objective problems, returning the full set of Pareto-optimal paths. More recent work has dramatically improved efficiency with BOA ∗ [5] for bi-objective problems, EMOA ∗ [6] for arbitrarily many objectives, A ∗pex [7] for improved pruning of the Pareto front, and multi-objective search under linear temporal logic tasks [8]. However, all of these methods require a finite graph representation, whereas real robotic platforms operate in continuous state spaces with complex dynamics. For continuous systems, constraint-based trajectory optimization methods have been introduced, including CHOMP [9], [10], TrajOpt [11], and STOMP [12]. However, these methods are designed for a single cost function and do not natively support multiple objectives (beyond scalarization). Further, they typically struggle with non-convex problems, which are common in practice. An alternative and more practical paradigm for planning in continuous domains is sampling-based algorithms [13]– [16], which have been extended to kinodynamic systems via tree structures in which nodes (states) are expanded by sampling a control and propagating it through the dynamics. Notably, the Stable Sparse-RRT (SST) planner [17], [18] established that asymptotic near-optimality can be achieved by maintaining a sparse set of locally optimal nodes within witness neighborhoods, and subsequent work [19], [20] further improved efficiency through dominance-informed pruning and sparse roadmaps. However, these planners remain limited to single-objective optimization. To extend an existing single-cost planner to multiple ob-jectives, the prevailing approach is to scalarize the costs arXiv:2607.15508v1 [cs.RO] 16 Jul 2026 2
+
+into a single objective, then apply a standard cost-aware planner. Weighted-sum (WS) scalarization is the most common choice [21]–[23], but it is structurally limited to recovering solutions on the convex hull of the Pareto front [24], missing solutions in non-convex regions. Weighted-maximum (WM) scalarization [25], [26] addresses this limitation and can, in principle, reach any Pareto-optimal point. However, the map-ping from weights to the resulting trade-off remains opaque, making it impractical to target a specific trade-off, especially in kinodynamic settings. Recent work [27] proposes principled weight-sampling strategies for Pareto-front approximation via scalarization, but each weight vector still requires a separate planning run. To our knowledge, no scalarization approach guarantees asymptotic optimality or completeness for multi-objective planning in continuous domains. In this work, we address the gap above by introducing a unified framework for multi-objective sampling-based kinody-namic motion planning that is applicable to general dynamical systems and arbitrary smooth cost functions. We specifically consider three common problems in multi-objective opti-mization: (i) lexicographic optimization, in which objectives are minimized according to a strict priority ordering, (ii) constrained optimization, in which a primary objective is minimized subject to bounds on the remaining costs, and (iii) Pareto front optimization, in which the goal is to approximate the full set of optimal trade-offs among competing objectives. We first show that cost-scalarization methods cannot solve these problems with correctness and completeness guarantees. Our key insight is that to approach Pareto optimality, a 
+
+representative set of locally Pareto-optimal nodes must be maintained in the motion tree. This enables the simultane-ous tracking and refinement of non-dominated subtrajecto-ries within a single search tree. We then build upon SST and, by incorporating this idea, propose three algorithms: 
+
+> LEX
+
+SST, CO SST, and PO SST, each tailored to one of the aforementioned problems. We prove that these algorithms are probabilistically δ-robustly complete and asymptotically near-optimal. We illustrate their power through eight case studies, comparing them against scalarization-based baselines. In short, our contributions are sixfold:  
+
+> •
+
+We prove that no scalar utility function can cor-rectly represent lexicographic dominance over continuous cost spaces, establishing a fundamental limitation of scalarization-based approaches.  
+
+> •
+
+We introduce the notion of ϵ-equivalence, which relaxes the strict equality required by lexicographic dominance to a user-defined tolerance, enabling objective refinement in continuous settings.  
+
+> •
+
+We propose LEX SST, the first probabilistically δ-robustly complete and asymptotically near-optimal motion planner for lexicographic minimization of continuous dynamic systems with bi-objective costs.  
+
+> •
+
+We propose CO SST, the first probabilistically δ-robustly complete and asymptotically near-optimal motion planner for constrained optimization of continuous dynamic sys-tems, resolving the structural incompleteness of single-representative planners for this problem class.  
+
+> •
+
+We propose PO SST, the first probabilistically δ-robustly Pareto-complete and asymptotically near-Pareto-optimal motion planner for approximating the full Pareto front of kinodynamic systems with multiple objectives.  
+
+> •
+
+We validate these theoretical properties through extensive empirical evaluations, demonstrating the effectiveness and computational efficiency of our methods against scalarization-based baselines. II. P ROBLEM FORMULATION 
+
+We consider a robot with motion dynamics given by: 
+
+˙x(t) = f (x(t), u (t)) , (1) where x ∈ X ⊆ Rd is the state, u ∈ U ⊂ Rm is the control input, and f : X × U → Rd is the vector field. We assume that the dynamics satisfy standard smoothness and regularity conditions. Specifically, the second derivative of x is uniformly bounded, i.e., ∥¨x∥ ≤ M for some constant M ∈ R≥0, and f
+
+is Lipschitz continuous in both x and u, i.e., for all x, x ′ ∈ X
+
+and u, u ′ ∈ U, there exist Kx, K u ≥ 0 such that 
+
+∥f (x, u ) − f (x′, u ′)∥ ≤ Kx∥x − x′∥ + Ku∥u − u′∥.
+
+The robot operates in a bounded workspace containing static obstacles and is subject to state constraints, such as velocity limits. We collectively represent these constraints as the obstacle set XO ⊂ X in the state space. The collision-free portion of the state space is then defined as Xf = X \ XO . In the classical kinodynamic motion planning problem, the aim is to find a robot trajectory from an initial state x0 to a given goal region XG ⊆ Xf such that every state along the trajectory remains within Xf .
+
+Definition 1 (Trajectory) . Given an initial state x0 ∈ X
+
+and control signal U : [0 , T ] → U, a robot trajectory 
+
+π : [0 , T ] → X is a continuous function such that π(t) = 
+
+x0 + R T 
+
+> 0
+
+f (π(τ ), U (τ )) dτ . A trajectory π is valid if it remains entirely within the collision-free set, i.e., π(t) ∈ Xf for all 
+
+t ∈ [0 , T ]. The set of all valid trajectories is denoted by Π.
+
+Definition 2 (Motion Plan) . A valid trajectory π ∈ Π is called a motion plan if it begins at x0 and reaches a given goal region 
+
+XG, i.e., π(t) ∈ XG for some t ∈ [0 , T ]. The set of all motion plans is denoted by Πsol .
+
+In this work, we consider settings in which the robot is subject to multiple motion-cost criteria. That is, each trajectory 
+
+π is evaluated using multiple cost functions, each capturing a different aspect of the trajectory’s quality. 
+
+Definition 3 (Cost Function) . A cost function c : Π → R≥0
+
+maps a trajectory π to a non-negative scalar cost c(π) ∈ R≥0.
+
+As in [17], we assume each cost function is smooth, monotonic, and non-degenerate as formalized below. 
+
+Assumption 1 ([17]) . The cost function c is Lipschitz contin-uous , i.e, there exists constant Kc > 0 such that 
+
+|c(π) − c(π′)| ≤ Kc sup  
+
+> t∈[0 ,T ]
+
+∥π(t) − π′(t)∥3
+
+for all π, π ′ ∈ Π with the same start state, i.e., π(0) = π′(0) .Furthermore, consider a trajectory π ∈ Π with duration T > 
+
+0, and for t ∈ [0 , T ], define πt and πt as its prefix up to time t
+
+and suffix from time t, respectively, so that their concatenation 
+
+πt · πt = π. Then, it holds that, for all t ∈ [0 , T ]:Additivity: c(π) = c(πt) + c(πt),
+
+Monotonicity: c(πt) ≤ c(π),
+
+Non-degeneracy: ∃K′ 
+
+> c
+
+> 0, T − t ≤ K′ 
+
+> c
+
+|c(π) − c(πt)|.
+
+Given N ∈ N≥2 scalar cost functions c1, . . . , c N that satisfy Assumption 1, we aggregate them into a cost vector 
+
+C(π) = ( c1(π), . . . , c N (π)) ∈ RN
+
+> ≥0
+
+.
+
+We are interested in high-quality motion plans that account for all pertinent cost metrics. This naturally motivates a multi-objective framework, in which we specifically focus on three problem classes: lexicographic-optimal , constrained-optimal ,and Pareto-optimal planning. 
+
+A. Lexicographic-Optimal Motion Planning 
+
+Here, we assume that the ordering of a cost vector C reflects the user-defined priorities among its components. Specifically, 
+
+c1 is prioritized over c2, c2 over c3, and so on. We formalize this prioritization using the notion of lexicographic dominance. 
+
+Definition 4 (Lexicographic dominance) . Given valid trajec-tories π, π ′ ∈ Π with associated cost vectors C(π), C (π′) ∈
+
+RN
+
+> ≥0
+
+, then π lexicographically dominates π′, denoted π ≻lex 
+
+π′, if there exists index i ∈ { 1, . . . , N } such that ci(π) <ci(π′) and for all j < i , cj (π) = cj (π′).
+
+Definition 5 (Lexicographic optimal plan) . A motion plan 
+
+π∗ 
+
+> lex
+
+∈ Πsol is lexicographically optimal if it is not lexicograph-ically dominated by any other motion plan, i.e., ∄π′ ∈ Πsol 
+
+such that π′ ≻lex π.
+
+Intuitively, π∗ 
+
+> lex
+
+is a motion plan that minimizes c1 and, among those that do, minimizes c2, and so on. In Fig. 1a, 
+
+π∗
+
+> lex
+
+—which maximizes clearance (c1), then path length (c2)—is shown in light green, with its cost vector C(π∗
+
+> lex
+
+)
+
+marked as a red-outlined diamond in Fig. 1b. Note that the blue trajectory (SST) minimizes c1 but fails to refine c2; as a result, it is lexicographically dominated by π∗ 
+
+> lex
+
+(i.e., π∗ 
+
+> lex
+
+≻lex πSST ). This motivates our first problem formulation. 
+
+Problem 1 (Lexicographic-optimal motion planning) . Con-sider a robot with dynamics described by (1) , obstacle set 
+
+XO ⊂ X, an initial state x0 ∈ Xf = X \ XO , and a goal region XG ⊆ Xf . Given a prioritized vector of cost functions 
+
+C = ( c1, . . . , c N ), each satisfying Assumption 1, compute a lexicographic-optimal motion plan π∗ 
+
+> lex
+
+∈ Πsol .B. Constrained-Optimal Motion Planning 
+
+In the second setting, we consider a constrained optimiza-tion problem. That is, we assume user-defined upper bounds on N − 1 costs, and our goal is to minimize the last one. 
+
+Problem 2 (Constrained-Optimal Motion Planning) . Consider the setting described in Problem 1. Given N cost functions 
+
+c1, . . . , c N , each satisfying Assumption 1, and N − 1 cost upper-bounds ¯c1, . . . , ¯cN −1 ∈ RN −1 
+
+> ≥0
+
+, compute an optimal motion plan π∗ 
+
+> co
+
+= arg min π∈Πsol cN (π) subject to ci(π∗) ≤ ¯ci
+
+for all i ∈ { 1, . . . , N − 1}.
+
+In the bi-objective setting shown in Fig. 1, an upper bound 
+
+¯c1 = 94 is imposed. The solution to Problem 2 is then the trajectory whose cost lies at the intersection of the constraint boundary ¯c1 = 94 (red) and the true Pareto front (black). 
+
+C. Pareto-Optimal Motion Planning 
+
+Lastly, we consider the setting in which no prioritization or constraints are imposed. Instead, the goal is to find a set 
+
+of motion plans that simultaneously optimize all objectives. Since costs are often competing — e.g., minimizing path length may reduce obstacle clearance — no single trajectory can, in general, optimize every objective. The goal, then, is to characterize the trade-offs among objectives by identifying the set of Pareto-optimal solutions. We formalize this using the notion of dominance. 
+
+Definition 6 (Trajectory dominance) . A valid trajectory π ∈ Π
+
+is said to dominate another trajectory π′ ∈ Π, denoted π ≻ π′,iff, for every i ∈ { 1, . . . , N }, it holds that ci(π) < c i(π′).
+
+We extend the notion of dominance to cost vectors by: 
+
+C(π) ≻ C(π′) ⇐⇒ π ≻ π′.
+
+Definition 7 (Pareto optimal & Pareto front) . A motion plan 
+
+π∗ ∈ Πsol is called Pareto optimal if it is not dominated by any other motion plan, i.e., ∄π′ ∈ Πsol s.t. π′ ≻ π∗. The set of all Pareto optimal motion plans is denoted by Π∗ 
+
+> sol
+
+⊆ Πsol .The set of cost vectors corresponding to all Pareto-optimal solutions C∗ is called the Pareto front , i.e., 
+
+C∗ = {C(π∗) ∈ RN 
+
+> ≥0
+
+| π∗ ∈ Π∗
+
+> sol
+
+}.
+
+In Fig. 1a, samples of Pareto-optimal trajectories are shown using a purple-green color scale. Their corresponding cost vectors, C(π∗) ∈ C ∗, are shown as diamonds in Fig. 1b. A Pareto front captures all possible optimal trade-offs among the cost objectives. For a designer, it is valuable to understand the range of optimal choices and the motion plans that realize them. We formalize the problem as follows. 
+
+Problem 3 (Pareto-Optimal Motion Planning) . Consider the setting in Problem 1. Compute the Pareto front C∗ and the corresponding set of Pareto-optimal motion plans Π∗
+
+> sol
+
+.Approach Overview: Problems 1-3 are multi-objective op-timization problems subject to nonlinear kinodynamic con-straints; hence, they are nonconvex and difficult to solve. Even in the single-objective setting, kinodynamic motion planning is challenging as it requires searching both the state space for feasible trajectories and the objective space for cost improve-ments. In particular, computing a truly optimal motion plan is intractable, since even small perturbations to a candidate trajectory can yield strict improvements. State-of-the-art planners (e.g., [17], [28]) mitigate this by introducing sparsity into the search, retaining only trajectories that differ sufficiently in cost or state, while relying on 4
+
+sampling and forward propagation to handle kinodynamic constraints. This relaxes the problem to finding near-optimal solutions with suboptimality bounded by a user-defined spar-sity metric. We extend these ideas to the multi-objective cases for Problems 1-3, by guaranteeing that near-optimal solutions are found with respect to the Pareto-point(s) of interest. For Problem 3, we approximate the entire Pareto front with arbitrarily tight bounds, enabling accurate representation of any desired trade-off among objectives. III. P RELIMINARIES 
+
+We begin by reviewing the Stable Sparse-RRT (SST) [17] algorithm, which forms the foundation for our proposed al-gorithms. We then highlight the fundamental limitations of reducing multi-objective optimization to a single-objective problem through cost scalarization, as commonly adopted in the literature. 
+
+A. Stable Sparse RRT (SST) 
+
+SST [17] is a sampling-based kinodynamic planner that achieves asymptotic near-optimality for a single objective (cost) by growing a sparse motion tree in the state space 
+
+X with cost-informed selection and pruning. Like RRT-based planners, it iteratively selects a node, propagates it forward under randomized controls, and adds a new state if feasible. To guide the search, SST samples a random state in X and selects the best-cost node (state) within a radius of δBN > 0
+
+for extension. In addition, SST employs witness nodes: each defining a neighborhood (hyper-ball) of radius δs > 0 centered at x ∈ X (denoted by Bδs (x) = {x′ ∈ X | ∥ x′ −x∥ ≤ δs}), and represented by the lowest-cost node within that ball. A new state becomes a representative if it improves upon the cost of an existing representative, or if it lies outside all existing neighborhoods and creates a new one. This process ensures sparsity while monotonically improving trajectories toward low-cost solutions. Due to the sparsity of the search tree, SST can only probabilistically guarantee the generation of a motion plan that is δ-similar to an optimal solution π∗.
+
+Definition 8 (δ-Similar trajectories) . Two trajectories π, π ′ ∈
+
+Π with time durations Tπ and Tπ′ , respectively, are δ-similar if, for a continuous, non-decreasing scaling function 
+
+σ : [0 , T π ] → [0 , T π′ ], it is true that π′(σ(t)) ∈ B δ (π(t)) .
+
+The obstacle clearance of a valid trajectory π ∈ Π is the minimum distance from π to the obstacle set XO . The dynamic clearance of π is the maximum distance δd that the start and end points of π can be displaced such that a new, δd-similar trajectory is feasible according to the dynamics in (1) (see Definition 4 and Lemma 6 in [17] for details). A trajectory is called δ-robust if both its obstacle and dynamic clearances exceed δ.Consequently, SST ensures the approximation of δ-robust solutions and is therefore probabilistically δ-robustly complete and asymptotically δ-robustly near-optimal, as defined below. 
+
+Definition 9 (Probabilistic δ-Robust Completeness) . Let ΠALG 
+
+> n
+
+denote the set of trajectories discovered by an algorithm ALG 
+
+at iteration n. Algorithm ALG is probabilistically δ-robustly complete if, for every motion planning problem where there exists at least one δ-robust solution trajectory, the following holds for all independent runs: 
+
+lim inf  
+
+> n→∞
+
+P (∃π ∈ ΠALG  
+
+> n
+
+s.t. π ∈ Πsol ) = 1 .
+
+Definition 10 (Asymptotic δ-robust Near-Optimality) . Con-sider a motion planning problem with a single cost and assume there exists at least one δ-robust motion plan. Denote by c∗ 
+
+> δ
+
+the minimum achievable cost over all δ-robust solution trajecto-ries, and let Y ALG  
+
+> n
+
+denote a random variable representing the minimum cost among all trajectories returned by algorithm  
+
+> ALG
+
+after iteration n. The algorithm ALG is asymptotically 
+
+δ-robustly near-optimal if for all independent runs: 
+
+P
+
+
+
+lim sup 
+
+> n→∞
+
+Y ALG  
+
+> n
+
+≤ h(c∗ 
+
+> δ
+
+, δ )
+
+
+
+= 1 ,
+
+where h : R≥0 × R≥0 → R≥0 is a function of the optimum cost c∗ 
+
+> δ
+
+and the δ clearance such that h(c∗ 
+
+> δ
+
+, δ ) ≥ c∗ 
+
+> δ
+
+.
+
+The probabilistic completeness and near-optimality analyses of our algorithms build on these properties of SST, extending them to the multi-cost setting. In Section VII, we show that our approach maintains the ability to find δ-similar trajectories to any δ-robust solution of interest, which, most generally, includes all non-dominated (Pareto-optimal) solutions. 
+
+B. Scalarized Cost Function 
+
+A common approach to multi-objective optimization is to aggregate multiple costs into a single scalar objective, thereby enabling the use of standard cost-aware planners (e.g., SST). In this subsection, we briefly review two common scalarization methods, namely, weighted sum (WS) and weighted maximum 
+
+(WM), and explain why they fail to address Problems 2 and 3. Further, in Section IV-A, we show that no scalarization method can recover the lexicographic minimum in continuous domains, making them unsuitable for Problem 1. 
+
+1) Weighted-Sum (WS) Scalarization: The most common scalarization is the weighted sum, where the quality of a trajectory π is described by a scalar cost 
+
+cws (π) = 
+
+> N
+
+X
+
+> i=1
+
+wici(π), wi ∈ R≥0, (2) where weights wi encode the relative importance of objectives. Minimizing cws produces a single Pareto-optimal trade-off, 
+
+π∗ = arg min π∈Πsol cws (π). However, because this scalariza-tion is a linear combination of objectives, it can only recover Pareto points lying on the convex hull of the Pareto front. Consequently, WS minimization cannot capture non-convex Pareto points [24] and is thus incomplete for Problems 2 and 3. 
+
+2) Weighted-Maximum (WM) Scalarization: An alternative approach is the WM scalarization [26], which substitutes the summation of WS with a maximization operator, 
+
+cwm (π) = max   
+
+> i∈{ 1,...,N }
+
+wici(π). (3) 5
+
+While WM avoids the convexity limitations of weighted sums, it still yields only a single Pareto point for each weight selection. For Problem 2, although suitable weights may exist to target a particular Pareto point (i.e., π∗
+
+> co
+
+), determining them a priori is generally not possible. For Problem 3, computing the full Pareto set would require repeatedly reinitializing a planner with different weights and then solving multiple independent planning problems. In contrast, our approach maintains and refines non-dominated trajectories within a single search tree, enabling simultaneous approximation of the entire Pareto set. IV. L EXICOGRAPHIC -O PTIMAL MOTION PLANNING 
+
+In this section, we present our approach to Problem 1. We first show that a lexicographic ordering relation cannot be captured by any cost scalarization, then introduce a method to approximate the lexicographic-optimal solution with bounded error in bi-objective settings. In Section VI, we extend this approach to address N -dimensional cost spaces. 
+
+A. Limitations of Extending Lexicographic Ordering to Con-tinuous Domains 
+
+When costs are limited to integers , i.e., vector C(π) ∈ NN ,lexicographic ordering can be neatly captured by a utility function that assigns a unique scalar value to each cost vector according to a fixed priority among dimensions. Specifically, for a set of cost vectors C = {C1, C 2, . . . , C N } with each 
+
+Ci ∈ NN , a lexicographic dominance relation ≻lex can be encoded using a utility function u : NN → R that respects the ordering, i.e., C ≻lex C′ ⇐⇒ u(C) < u (C′).A simple construction can exploit the discreteness of the domain (i.e., N) of each cost component by assigning strictly decreasing scaling coefficients, so that any unit improve-ment in a higher-priority dimension outweighs the maximum possible variation across all lower-priority dimensions. Thus, the first component determines the primary ordering, the second breaks ties, and so on. For example, for a weight 
+
+M ≥ max π∈Πsol ∥C(π)∥∞, the utility function 
+
+u(C(π)) = 
+
+> N
+
+X
+
+> i=1
+
+(M + 1) N −ici(π). (4) ensures lexicographic ordering. However, when costs are de-fined in continuous domains , i.e., C(π) ∈ RN , which is the case in this work, lexicographic ordering ≻lex can not 
+
+be represented by any utility function u : RN → R. The following theorem formalizes this limitation: 
+
+Theorem 1. There does not exist a utility function u : RN 
+
+> ≥0
+
+→
+
+R that represents the lexicographic dominance ≻lex , i.e., ∄u
+
+s.t., for every C, C ′ ∈ RN
+
+> ≥0
+
+, C ≻lex C′ ⇐⇒ u(C) > u (C′).
+
+The proof is provided in Appendix A. Intuitively, it relies on the fact that a real-valued utility function has insufficient “bandwidth” to encode any more than one continuous cost component. To faithfully capture lexicographic ordering, the utility must dedicate every element of its range to resolving differences in the first cost (i.e., c1); then, no values would be available to encode secondary considerations in c2, and so on. 
+
+Corollary 1. There do not exist weights w1, . . . , w N ∈ R≥0
+
+such that the minimization of the weighted-sum cost cws 
+
+in (2) or the weighted-max cost cwm in (3) guarantees the lexicographically optimal solution π∗
+
+> lex
+
+.
+
+This result implies that Problem 1 cannot be solved by any scalarization method (e.g., WS and WM). Additionally, algo-rithmic approaches that rely on scalar cost metrics (e.g., SST) or optimization methods that use smooth or continuous utility functions cannot properly model lexicographic objectives. Our proposed solution, detailed below, retains information about the entire cost vector and can therefore explicitly handle the desired preference structure. 
+
+B. ϵ-Equivalence for Lexicographic Minimization in RN
+
+Before presenting our approach, we first argue that, given the nature of sampling-based methods, a strict notion of lexicographic dominance is unsuitable; instead, we introduce a notion of ϵ-equivalence, formalized below. When sampling from a continuous control space and inte-grating the dynamics in (1), the likelihood of obtaining two trajectories π and π′ that yield identical costs ci(π) = ci(π′)
+
+is vanishingly small. Consequently, lexicographic dominance effectively reduces to a scalar comparison on the highest-priority cost c1, precluding meaningful consideration of lower-priority costs. To overcome this, we introduce the notion of ϵ-equivalence, wherein cost components that differ by less than an ϵ > 0 tol-erance are treated as “equivalent”. Specifically, let Πϵ 
+
+> 0
+
+⊆ Πsol 
+
+be a set of non-dominated trajectories, and let the minimum primary cost in this set be denoted by ˆc∗ 
+
+> 1
+
+= min π∈Πϵ 
+
+> 0
+
+c1(π).We first construct a set of ϵ-equivalent trajectories in c1 as 
+
+Πϵ 
+
+> 1
+
+= {π ∈ Πϵ 
+
+> 0
+
+| c1(π) ≤ ˆc∗ 
+
+> 1
+
++ ϵ1}.
+
+Then, we can approximate π∗ 
+
+> lex
+
+by finding the minimum secondary cost within this set, i.e., πϵ 
+
+> lex
+
+= min π∈Πϵ 
+
+> 1
+
+c2(π).This procedure can be recursively applied for N > 2
+
+objectives such that Πϵi = {π ∈ Πϵi−1 | ci(π) ≤ ˆc∗ 
+
+> i
+
++ ϵi},and the lexicographic ϵ-optimal trajectory computed by 
+
+πϵ 
+
+> lex
+
+= arg min  
+
+> π∈ΠϵN−1
+
+cN (π).
+
+We refer to ΠϵN −1 as the ϵ-minimal set .We now examine the properties of using ϵ-equivalence in bi-objective settings and its limitations for systems with N > 2
+
+objectives. 
+
+Fig. 2: Approximating π∗
+
+> lex
+
+using ϵ-equivalence when 
+
+N = 2 .
+
+1) Case of N = 2 : Con-sider a 2D Pareto front as il-lustrated in Fig. 2. Let point 
+
+A represent the cost of asolution trajectory πA whose first cost component c1(πA)
+
+achieves the global minimum 
+
+c∗
+
+> 1
+
+, but whose secondary cost 
+
+c2(πA) is significantly subop-timal. Let point L denote the cost of the lexicographic opti-mum πL = π∗
+
+> lex
+
+.6
+
+(a)  (b)  (c) 
+
+Fig. 3: Example in which ϵ-equivalence fails to capture a bound on the true lexicographic optimum (point L). (a) Pareto front for three cost objectives. Half-space partitions represent-ing filtering at Πϵ 
+
+> 1
+
+(orange) and Πϵ 
+
+> 2
+
+(green). (b) Projection onto the c1-c2 plane. (c) Projection onto the c2-c3 plane. Assume a motion planner finds solutions ˆπA and ˆπL that approximate πA and πL arbitrarily closely. Then, ˆπL may not strictly dominate ˆπA, but rather satisfy c1(ˆ πL) ∈ [c∗
+
+> 1
+
+, c ∗ 
+
+> 1
+
++ ϵ1].Consequently, ˆπL is guaranteed to be included in the (first-stage) ϵ-equivalent set Πϵ
+
+> 1
+
+, and minimizing c2 over Πϵ 
+
+> 1
+
+will ensure a trajectory πϵ 
+
+> lex
+
+that lies in the green region (Fig. 2). Therefore, for a algorithm that can approximate a solution trajectory π ∈ Πsol with bounded (cost) error ⃗e ALG = ( |c1(π) − c1(ˆ π)|, |c2(π) − c2(ˆ π)|) ∈ R2
+
+> ≥0
+
+,
+
+this approach yields a solution with error ⃗e lex =⃗e ALG + ( ϵ1, 0) 
+
+from the true lexicographic optimal. Clearly, as ϵ1 → 0,⃗e lex →⃗e ALG monotonically. 
+
+2) Case of N > 2: Now consider a 3D Pareto front, as shown in Fig. 3, where each point on the surface corresponds to a cost vector of a Pareto-optimal trajectory. Using the same procedure, we construct Πϵ 
+
+> 1
+
+by including all solutions with 
+
+c1 < c ∗ 
+
+> 1
+
++ϵ1, visualized as a half-space bounded by the orange plane in Fig. 3a. Within this set, we compute ˆc∗
+
+> 2
+
+, the best observed secondary cost (located at point B), and form Πϵ 
+
+> 2
+
+by retaining only those elements with c2 < ˆc∗ 
+
+> 2
+
++ ϵ2, represented by the green plane. Crucially, because ˆc∗ 
+
+> 2
+
+may be less than c2(π∗
+
+> lex
+
+) (i.e., point 
+
+c2(B) < c 2(L)), the second filtering step may discard the true lexicographic optimal point altogether (Fig. 3b). Consequently, the final set used to minimize c3 may not include π∗
+
+> lex
+
+, and the resulting solution πϵ 
+
+> lex
+
+may have an arbitrarily poor c3 cost (point D, Fig. 3c). That is, |c3(πϵ
+
+> lex
+
+) − c3(π∗
+
+> lex
+
+)| ∈ [0 , ∞).
+
+The source of this failure lies in the compounded filtering: once π∗ 
+
+> lex
+
+is excluded at any intermediate step i, it can no longer influence the minimization of subsequent cost compo-nents ci+1 , . . . , c N . Thus, while ϵ-equivalence offers a practi-cal heuristic, it fails to guarantee bounded approximation error for problems with more than two objectives. Nevertheless, our approach for approximating the full Pareto set Π∗ 
+
+> sol
+
+(detailed in Section VI) can recover a near-optimal solution with respect to the true lexicographic optimal, since, by definition, it is a Pareto-optimal solution (i.e., π∗ 
+
+> lex
+
+∈ Π∗
+
+> sol
+
+). 
+
+C. LEX SST Having clarified these nuances of lexicographic optimization in continuous cost spaces, we now introduce our approach to 
+
+Algorithm 1: LEX SST 
+
+Input: X, U, x0, Σ, Tprop , N , δBN , δs,⃗ϵ
+
+Output: πϵ 
+
+> lex
+> 1
+
+ΠALG  
+
+> sol
+
+← ∅ ; 
+
+> 2
+
+G = {V ← { x0}, E ← ∅} ; 
+
+> 3
+
+s0 ← x0, s 0.R = {x0}, S ← s0; 
+
+> 4
+
+for N iterations do  
+
+> 5
+
+xselected ← PARETO SELECT (X, V, δ PS ); 
+
+> 6
+
+xnew ← MONTE CARLO PROP (xselected , U, T prop ); 
+
+> 7
+
+if COLLISION FREE (xselected → xnew ) then  
+
+> 8
+
+s ← NEAREST WITNESS (xnew , S, δ s) ; 
+
+> 9
+
+if s̸ = ∅ then  
+
+> 10
+
+s.R ← PRUNE LEX SET (s.R ∪ { xnew }); 
+
+> 11
+
+s.R ← PRUNE DOMINATED (s.R ); 
+
+> 12
+
+if xnew ∈ s.R then  
+
+> 13
+
+ADD NEW NODE (xnew , x selected , G, ΠALG  
+
+> sol
+
+) 
+
+> 14
+
+else  
+
+> 15
+
+snew ← xnew , s new .R = {xnew }; 
+
+> 16
+
+S ← S ∪ { snew }; 
+
+> 17
+
+ADD NEW NODE (xnew , G, ΠALG  
+
+> sol
+
+) 
+
+> 18
+
+πϵ 
+
+> lex
+
+← arg min π∈ΠALG  
+
+> sol
+
+cN (π); 
+
+> 19
+
+return πϵ
+
+> lex
+
+;Problem 1, lexicographic SST ( LEX SST). 
+
+> LEX
+
+SST is an adaptation of SST, in that the algorithm iteratively grows a search tree G = ( V, E ) and uses a set of witness nodes S ⊆ V to define local neighborhoods Bδs (s)
+
+about every s ∈ S (refer to Section III-A). However, instead of each witness maintaining a single representative (lowest cost) node, LEX SST maintains a representative set Rs of viable candidates in Bδs (s). Our main contribution is the extension from a single representative in the single-cost case to a representative set in the multi-objective setting. All our proposed algorithms — LEX SST, CO SST, and PO SST — leverage this structure to solve their respective problems and differ only in their definitions of Rs.In each case, the representative set begins by considering non-dominated nodes at witness s. We define the local Pareto set of nodes within neighborhood Bδs (s) as, 
+
+V PO  
+
+> Bs
+
+:= {x ∈ V ∩ B δs (s) | ∄ x′ ∈ V ∩ B δs (s) s.t. x′ ≻ x} .
+
+For LEX SST, we define the representative set as Rlex  
+
+> s
+
+:= 
+
+Lϵ(V PO  
+
+> Bs
+
+), where Lϵ(·) returns the ϵ-minimal set of nodes according to the procedure described in Section IV-B. We detail LEX SST in Algorithm 1, where x → x′ denotes the tree branch (trajectory) that connects node (state) x to x′.The algorithm begins by initializing the vertex V , edge E,witness S, and solution ΠALG  
+
+> sol
+
+sets. At each iteration, a node is selected for extension using the P ARETO SELECT routine (Algorithm 2), which uniformly samples a non-dominated node within a ball of radius δPS centered at a randomly selected state xrand returned by R ANDOM SAMPLE .Once a node is selected, it is extended using M ONTE CAR -
+
+> LO
+
+PROP (Algorithm 3), which samples a random control and duration to propagate xselected according to (1), yielding a new candidate state xnew . The nearest witness snear is then identified 7
+
+Algorithm 2: PARETO SELECT 
+
+Input: X, V , δPS  
+
+> 1
+
+xrand ← RANDOM SAMPLE (X) ; 
+
+> 2
+
+Xnear ← NEAR (xrand , V, δ PS ); 
+
+> 3
+
+Xpareto ← PRUNE DOMINATED (Xnear ) ; 
+
+> 4
+
+xselected ← RANDOM SAMPLE (Xpareto ) ; 
+
+> 5
+
+return xselected 
+
+Algorithm 3: MONTE CARLO PROP 
+
+Input: xselected , U, Tprop  
+
+> 1
+
+tprop ← SAMPLE ([0 , T prop ]); u ← SAMPLE (U); 
+
+> 2
+
+return xnew ← xselected + R tprop  
+
+> 0
+
+f (x(t), u )dt ;via N EAREST WITNESS : if snear lies farther than δs from xnew ,a new witness is created and associated with xnew ; otherwise, 
+
+xnew is evaluated against the current representative set of snear .If xnew is not pruned by either P RUNE LEX SET or P RUNE -DOMINATED (Algorithms 4 and 5, respectively), then it is added to Rlex  
+
+> snear
+
+and the motion tree. As well, the new node may result in the pruning of existing nodes. Nodes entering the goal region are added to the solution set ΠALG  
+
+> sol
+
+(Algorithm 6). Since the number of non-dominated nodes, and thus active representatives, can grow without bound, we introduce a cost-space sparsity metric ⃗ε. This metric ensures that each set R s
+
+retains only nodes that are sufficiently different in cost, i.e., 
+
+Rεs = {x ∈ Rs | ∀ x′ ∈ Rs, ∃i s.t. |ci(x) − ci(x′)| > ε i}.
+
+As the algorithm progresses, the state-space sparsity metric 
+
+δs (inherited from SST) ensures a finite number of neighbor-hoods Bδs (s) are reached, while ⃗ε ensures a finite number of representatives within each neighborhood. In Section VII, we show that ⃗ε directly affects the near-optimality of our proposed algorithms, and in Sec. VIII, we empirically demonstrate the trade-off between sparsity and solution quality by varying ⃗ε.The algorithm continues for a fixed time budget, incre-mentally growing the motion tree G and maintaining a set of candidate solution trajectories ΠALG  
+
+> sol
+
+. Upon termination, it returns the solution that minimizes the final cost component 
+
+πϵ 
+
+> lex
+
+= arg min π∈ΠALG  
+
+> sol
+
+cN (π).V. C ONSTRAINED -O PTIMAL MOTION PLANNING 
+
+Here, we introduce our proposed algorithm, constrained-optimal SST ( CO SST), for solving Problem 2, with the goal of 
+
+Algorithm 4: PRUNE LEX SET 
+
+Input: R,⃗ϵ 
+
+> 1
+
+for i = 1 to N − 1 do  
+
+> 2
+
+Cmin ← { C(x) ∀x ∈ R} ; 
+
+> 3
+
+ˆc∗ 
+
+> i
+
+← min( ci ∈ C min ); 
+
+> 4
+
+foreach x ∈ R do  
+
+> 5
+
+if ci(x) > ˆc∗ 
+
+> i
+
++ ϵi then  
+
+> 6
+
+Remove x from R and V ; 
+
+> 7
+
+return R
+
+Algorithm 5: PRUNE DOMINATED 
+
+Input: R,⃗ε 
+
+> 1
+
+V PO  
+
+> Bs
+
+← ∅ ; Rε ← ∅ ; 
+
+> 2
+
+foreach x ∈ R do  
+
+> 3
+
+if not ∃ x′ ∈ R such that C(x′) ≻ C(x) then  
+
+> 4
+
+Add x to V PO  
+
+> Bs
+
+; 
+
+> 5
+
+foreach x ∈ V PO  
+
+> Bs
+
+do  
+
+> 6
+
+if not ∃ x′ ∈ V PO  
+
+> Bs
+
+s.t. |ci(x′) − ci(x)| < ε i ∀i then  
+
+> 7
+
+Add x to Rε; 
+
+> 8
+
+G.V ← G.V \ (R \ Rε); 
+
+> 9
+
+return Rε
+
+Algorithm 6: ADD NEW NODE 
+
+Input: xnew , xselected , G, ΠALG  
+
+> sol
+> 1
+
+G.V ← G.V ∪ { xnew }; 
+
+> 2
+
+G.E ← G.E ∪ { xselected , x new }; 
+
+> 3
+
+if xnew ∈ XG then  
+
+> 4
+
+ΠALG  
+
+> sol
+
+← PRUNE LEX SET (Π ALG  
+
+> sol
+
+∪ { xnew }); 
+
+> 5
+
+ΠALG  
+
+> sol
+
+← PRUNE DOMINATED (Π ALG  
+
+> sol
+
+);returning the trajectory that minimizes cost cN subject to N −1
+
+constraints. Similar to LEX SST, we define a representative set 
+
+Rco  
+
+> s
+
+for each witness, but use a different pruning procedure to ensure efficient exploration while respecting the user-defined constraints ¯ci.Effectively, this replaces the shifting window of LEX SST, retaining nodes with ci < ˆc∗ 
+
+> i
+
++ϵi, with a static window keeping nodes with ci < ¯ci + ¯ ϵi. The buffer term ¯ϵi is introduced to ensure that a δ-similar trajectory to the true solution π∗ 
+
+> co
+
+is not pruned prematurely, as discussed in Section VII-C. Formally, we define the representative set as 
+
+Rco  
+
+> s
+
+= {x ∈ V PO  
+
+> Bs
+
+| ci(x) ≤ ¯ci + ¯ ϵi ∀i ∈ { 1, . . . , N − 1}} .
+
+As with LEX SST, Rco  
+
+> s
+
+only contains non-dominated nodes. Intuitively, each witness neighborhood maintains a slice of its local Pareto front, defined by the intersection of half-spaces 
+
+ci ≤ ¯ci + ¯ ϵi for cost dimensions i ∈ { 1, . . . , N − 1}. As the algorithm progresses, nodes are selected from Rco  
+
+> s
+
+for exten-sion, ensuring all viable subtrajectories are maintained. Since costs are monotonic, we can safely prune nodes that exceed this threshold and focus our search on more promising ones. Further, if an admissible cost-to-go heuristic g : X×2X → R≥0
+
+is available, this pruning can be made more aggressive by retaining nodes that satisfy ci(x) ≤ ¯ci + ¯ ϵi − g(x, XG).The algorithm for CON SST follows that of Algorithm 1, except that we replace PRUNE LEX SET in Line 10 with PRUNE CON SET (Algorithm 7). Upon termination, CO SST returns the solution that minimizes the unconstrained cost, i.e., 
+
+πco = arg min π∈ΠALG  
+
+> sol
+
+cN (π).
+
+A. Limitations of SST for Constrained Optimization 
+
+The solution to Problem 2 involves minimizing a single cost while satisfying the remaining N − 1 constraints, yielding an optimal trajectory π∗
+
+> co
+
+. Unlike lexicographic optimization, no 
+
+ϵ-equivalence is required for tie-breaking, which might suggest 8
+
+Algorithm 7: PRUNE CON SET 
+
+Input: R, {¯ci}N −1 
+
+> i=0
+> 1
+
+for i = 1 to N − 1 do  
+
+> 2
+
+foreach x ∈ R do  
+
+> 3
+
+if ci(x) > ¯ci + ¯ ϵi then  
+
+> 4
+
+Remove x from R; 
+
+> 5
+
+return R
+
+Fig. 4: Flytrap example showing the limitation of SST in min-imizing P ATH LENGTH given a constraint on G AUSSIAN COST .that vanilla SST is sufficient. However, we show that because SST maintains only a single representative per witness, it cannot account for downstream constraint satisfaction and is therefore incomplete for Problem 2. Consider the flytrap example in Fig. 4, where the agent must navigate from the start (yellow star) to the goal (red region) via a narrow passage. The goal is to minimize path length while satisfying a constraint on the line integral over a cost function shown in greyscale, i.e., c1(π) = R 
+
+> π
+
+N (y)dy , where N (y) is a Gaussian function evaluated at state y, and c2(π) = R 
+
+> π
+
+dy .The narrow passage can only accommodate a single witness, thus forcing all candidate solutions through it. Now, consider three subtrajectories πa, π b, and πc that arrive at witness s.Naively applying SST to optimize for path length ( c2) while pruning c1 ≤ ¯c1 would select xb as the representative of 
+
+s, even if it nearly exceeds ¯c1. Then, nodes xa and xc are pruned since they do not improve upon c2. However, the minimum cost-to-go from xb may exceed the cost threshold (i.e., c1(πB ) > ¯c1), rendering SST incomplete for Problem 2. In Section VIII-C, we demonstrate this limitation empirically. In contrast, CON SST maintains all nodes that respect the cost constraints in each neighborhood. Therefore, xa, x b, and 
+
+xc are maintained in Rco  
+
+> s
+
+, allowing the algorithm to select and extend each node with positive probability until a near-optimal motion plan is found (i.e., trajectory π∗ 
+
+> C
+
+). In Section VII, we prove that CON SST is asymptotically near-optimal. VI. P ARETO -O PTIMAL MOTION PLANNING 
+
+Lastly, we present Pareto-optimal SST ( PO SST), a kin-odynamic sampling-based motion planner that approximates the entire Pareto front of solution trajectories with arbitrarily tight error bounds, thereby solving Problem 3. This algorithm closely mirrors the structure of LEX SST and CO SST but employs fewer pruning operations, thereby exploring a broader set of cost trade-offs. Specifically, PO SST retains Pareto-optimal candidates per neighborhood (every node when ⃗ε = 0 , otherwise a sparse subset). This can be interpreted as initializing CO SST with constraints ¯ci = ∞ for all i, allowing the algorithm to explore the full extent of the Pareto front. Consequently, the representative set for PO SST is simply RPO  
+
+> s
+
+:= V PO  
+
+> Bs
+
+, as no additional filters are applied. Upon termination, PO SST returns a set of trajectories ΠALG  
+
+> sol
+
+rather than a single solution. Due to this broader search scope, PO SST converges more slowly than LEX SST and CO SST, especially in high-dimensional cost spaces. However, it guarantees that all trade-offs among objectives are represented in the output, making it suitable for applications where post-hoc preference elicitation is necessary. VII. A NALYSIS 
+
+Here, we analyze the theoretical properties of our pro-posed algorithms, focusing on probabilistic completeness and near-optimality guarantees. For clarity, we first prove these properties for PO SST, then show how the additional pruning procedures employed by LEX SST and CO SST preserve them within their respective problem classes. All the proofs are provided in the appendix. We first extend the notions of probabilistic δ-robust com-pleteness (Def. 9) and asymptotic δ-robust near-optimality (Def. 10) from [17] to the multi-objective setting. When targeting a single solution, as in LEX SST and CO SST, Defs. 9-10 apply with slight alterations. For PO SST, which must approximate the entire Pareto front, we introduce analogous definitions that generalize these requirements to hold simulta-neously across all Pareto-optimal solutions. 
+
+Definition 11 (Probabilistic δ-Robust Pareto-Completeness) .
+
+Let ΠALG  
+
+> sol
+
+denote the set of trajectories computed by algorithm  
+
+> ALG
+
+at iteration n. Algorithm ALG is probabilistically δ-robustly Pareto-complete if, for every motion planning problem admitting a non-empty set of δ-robust Pareto-optimal solutions 
+
+Π∗
+
+> δ, sol
+
+, the following holds for each independent run: 
+
+lim inf  
+
+> n→∞
+
+P ∀π∗ ∈ Π∗
+
+> δ, sol
+
+, ∃π ∈ ΠALG 
+
+> sol
+
+s.t. π and π∗ are δ-similar ) = 1 .
+
+Given an algorithm with this property and the Lipschitz conti-nuity of the cost functions (Assumption 1), we can ensure that any Pareto-optimal trajectory in Π∗ 
+
+> δ, sol
+
+can be approximated, yielding the following notion of near-optimality. 
+
+Definition 12 (Asymptotic δ-Robust Near-Pareto-Optimality) .
+
+Consider a motion-planning problem that admits at least one 
+
+δ-robust motion plan. Let C∗ 
+
+> δ
+
+= {C(π∗) | π∗ ∈ Π∗
+
+> δ, sol
+
+}
+
+denote the set of cost vectors of all δ-robust Pareto-optimal trajectories, and let YALG  
+
+> n
+
+denote a random variable repre-senting the set of cost vectors C = {C(π) | π ∈ ΠALG  
+
+> sol
+
+}
+
+returned by algorithm ALG after iteration n. Algorithm ALG 
+
+is asymptotically δ-robustly near-Pareto-optimal if for each independent run: 
+
+P  lim sup 
+
+> n→∞
+
+∀C∗ ∈ C ∗ 
+
+> δ
+
+, ∃Y ∈ Y ALG 
+
+> n
+
+s.t. Y ⪯ H(C∗,⃗ ε, δ )  = 1 ,9
+
+where H : Rn 
+
+> ≥0
+
+× Rn 
+
+> ≥0
+
+× R≥0 → Rn 
+
+> ≥0
+
+bounds the sub-optimality of ALG as a function of an optimum cost C∗ and the user-defined sparsity parameters. Note that H(C∗,⃗ ε, δ ) → C ∗
+
+as δ → 0 and ⃗ε → 0.A. Analysis of PO SST Here, we show that the pruning and selection procedures of 
+
+> PO
+
+SST preserve the ability to generate a δ-similar trajectory to any δ-robust, Pareto-optimal solution π∗ ∈ Π∗
+
+> δ, sol
+
+, from which completeness and near-optimality follow. We begin by recalling three results from [17]. First, we relate the user-defined parameters δPS and δs to the dynamic clearance δ.
+
+Proposition 1 ( [17, Prop. 13]) . The parameters δPS and δs
+
+must satisfy the following relationship with δ for a δ-robust feasible motion planning problem to be solved: 
+
+δPS + 2 δs < δ. 
+
+Next, we characterize δ-similarity by defining a covering ball sequence , adapted from [17], over each π∗ ∈ Π∗
+
+> δ, sol
+
+.
+
+Definition 13 (Covering Balls) . Given a trajectory π∗, a dynamic clearance δ > 0, and a cost increment ∆c1 ∈ R>0,the covering ball sequence B(π∗, δ, ∆c1) is a set of M + 1 
+
+hyper-balls 
+
+{B δ (x∗
+
+> 0
+
+), Bδ (x∗
+
+> 1
+
+), . . . , Bδ (x∗ 
+
+> M
+
+)},
+
+where each x∗ 
+
+> i
+
+lies along π∗ and satisfies ∆c1 =
+
+c1(x∗ 
+
+> j
+
+→ x∗
+
+> j+1
+
+) for all j ∈ { 0, 1, . . . , M − 1}.
+
+Without loss of generality, we partition a reference trajectory 
+
+π∗ according to its primary cost c1, resulting in k = c1(π∗)∆c1
+
+segments. A trajectory is δ-similar to π∗ if and only if it remains entirely within this sequence. Lastly, because M ONTE CARLO PROP (Algorithm 3) samples controls with full support over U, it can produce a control arbitrarily close to that of π∗, ensuring a positive probability of transitioning from one ball to the next [17, Theorem 17]. Since 
+
+> PO
+
+SST is initialized at x0 = π∗(0) ∈ B δ (x∗
+
+> 0
+
+) for all π∗ ∈
+
+Π∗ 
+
+> δ, sol
+
+(i.e., all solutions begin at x0), a δ-similar trajectory to any Pareto-optimal reference can therefore be generated, provided that nodes within its covering ball sequence have a positive probability of selection at each iteration. It thus remains to show that the subroutines P ARETO SELECT and PRUNE DOMINATED preserve this selection property. 
+
+1) Properties of PARETO SELECT : We first analyze P ARE -
+
+> TO
+
+SELECT (Algorithm 2), which biases node selection toward locally non-dominated solutions, thereby accelerating conver-gence relative to simple nearest-neighbor selection. At each iteration, a random state xrand ∼ U (X) is sampled from a uniform distribution over X. Then, all active nodes within a ball BδPS (xrand ) are retrieved. The subset of these nodes that are not dominated by any other node in the set (with respect to all cost objectives) forms a local Pareto front. Finally, a random node xselected is chosen uniformly from this set for propagation. 
+
+Lemma 1. Assume xrand ∼ U(X). If there exists a node 
+
+x ∈ B δPS (x∗ 
+
+> i
+
+) at some iteration n, where x∗ 
+
+> i
+
+corresponds to a state along a δ-robust reference trajectory π∗, then the probability that PARETO SELECT chooses a node x′ ∈ B δ (x∗ 
+
+> i
+
+)
+
+for propagation is lower bounded by a positive constant γ > 0
+
+for all iterations n′ > n .
+
+The proof for Lemma 1 can be found in Appendix B. While P ARETO SELECT ensures that locally non-dominated nodes are considered for propagation with positive probability, this alone does not guarantee efficient exploration of the Pareto-optimal set. The local Pareto front may be arbitrar-ily dense, and uniform sampling from it may not promote diversity among the generated trajectories. We address this redundancy by actively managing the search tree using the pruning procedure discussed next. 
+
+2) Properties of PRUNE DOMINATED : The P RUNE DOMI - 
+
+> NATED
+
+procedure (Algorithm 5) is used by PO SST to retain only non-dominated candidate nodes at every witness neigh-borhood. Further, this procedure involves a sparsity parameter ⃗ε that ensures only one node is retained within a region of the objective space. Then, we bound the worst-case deviation from a reference trajectory π∗ that can result from applying PRUNE DOMINATED .
+
+Lemma 2. Let δc = δPS − 2δs. If a state x ∈ V is generated at iteration n such that x ∈ B δc (x∗ 
+
+> i
+
+), then for every iteration 
+
+n′ > n , there exists a state x′ ∈ V such that x′ ∈ B δ−δPS (x∗ 
+
+> i
+
+)
+
+and C(x′) ⪰ C(x) + ⃗ε.
+
+Lemma 3. Assuming uniform sampling of the state space in PARETO SELECT , if there exists a node x ∈ V such that 
+
+x ∈ B δc (x∗ 
+
+> i
+
+) at iteration n, then the probability that PARE -
+
+> TO
+
+SELECT chooses a node x′ ∈ B δ (x∗ 
+
+> i
+
+) is lower bounded by a positive constant γPS > 0 for all iterations n′ > n .
+
+Proofs are included in Appendices C and D. From this result, the following is immediate. 
+
+Theorem 2 (Completeness of PO SST) . PO SST is probabilis-tically δ-robustly Pareto-complete. 3) Near-optimality of PO SST : We now derive a formal bound on the worst-case performance of PO SST in approx-imating any Pareto-optimal trajectory. Building on the result that PO SST can generate a δ-similar trajectory to any reference trajectory π∗ ∈ Π∗
+
+> δ, sol
+
+, we analyze how this deviation in the state space translates into sub-optimality in the multi-objective cost space. Let Kc = ( Kc, 1, . . . , K c,N ) ∈ RN 
+
+> ≥0
+
+denote the Lipschitz constants of the N cost components. Intuitively, for any δ-similar subtrajectories π, π ∗, the cost deviation is bounded component-wise by |ci(π∗) − ci(π)| ≤ δ · Kc,i for all i. We formalize this in the following theorem. 
+
+Theorem 3 (Asymptotic near-optimality of PO SST) . PO SST 
+
+is asymptotically δ-robustly near-Pareto-optimal. 
+
+The proof, included in Appendix F, also provides an upper bound on the near-optimality of PO SST, reproduced below: 
+
+ci(π) ≤
+
+
+
+1 + δ · Kc,i + εi
+
+∆ci
+
+
+
+· ci(π∗) ∀i. (5) where ∆ci = min j∈{ 0,...,M −1} ci(x∗ 
+
+> j
+
+→ x∗
+
+> j+1
+
+).10 
+
+Fig. 5: Upper bound on approximation error of the Pareto-front returned by PO SST as n → ∞ . Worst-case, near-optimal solutions of LEX SST ( πϵ
+
+> lex
+
+, green) and CO SST ( πco , yellow) shown relative to true minimums π∗ 
+
+> lex
+
+and π∗
+
+> co
+
+, respectively. Figure 5 illustrates this upper bound in a 2D objective space. Finally, since the probability of generating a δ-similar trajectory segment is strictly positive, PO SST almost surely generates a δ-similar motion plan to any point along the true Pareto front. Thus, in the worst case, it returns a solution within this upper bound as the approximate Pareto front, i.e., for every π∗ ∈ Π∗
+
+> δ, sol
+
+, ∃π ∈ ΠALG  
+
+> sol
+
+s.t. (5) holds. 
+
+B. Analysis of LEX SST We now analyze the impact of PRUNE LEX SET on the 
+
+> PO
+
+SST framework, arguing that its integration preserves the ability to generate a δ-similar trajectory to the lexicographical minimum π∗ 
+
+> lex
+
+∈ Π∗ 
+
+> δ, sol
+
+for bi-objective problems. Recall that rather than exploring the entire Pareto front, LEX SST restricts the search to nodes within an ϵ-tolerance of the current best-known primary cost, effectively considering a slice of width ϵ
+
+near the lexicographical optimum (shown in blue in Fig. 5). We first show that P RUNE LEX SET does not remove nodes along a δ-similar trajectory to π∗
+
+> lex
+
+.
+
+Lemma 4. Let ϵ ≥ δ·Kc1 +ε1 
+
+> ∆c1
+
+· c1(π∗
+
+> lex
+
+), and let Rlex  
+
+> s
+
+be the representative set of a witness centered at s ∈ B δc+δs (x∗ 
+
+> lex ,j
+
+).If a state x ∈ Rlex  
+
+> s
+
+is generated at iteration n such that x ∈Bδc (x∗ 
+
+> lex ,j
+
+) and 
+
+c1(x0 → x) ≤ δ · Kc1 + ε1
+
+∆c1
+
+· c1(π∗
+
+> lex
+
+),
+
+then for every iteration n′ > n , there exists a state x′ ∈ Rlex 
+
+> s
+
+such that x′ ∈ B δ−δPS (x∗ 
+
+> lex ,j
+
+) and C(x′) ⪰ C(x).
+
+Theorem 4 (Completeness of LEX SST) . LEX SST is proba-bilistically δ-robustly complete for Problem 1 with bi-objective requirements. 
+
+Theorem 5 (Asymptotic near-optimality of LEX SST) .
+
+> LEX
+
+SST is asymptotically δ-robustly near-optimal for Prob-lem 1 with bi-objective requirements. 
+
+Proofs are included in Appendices G, H, and I, respectively. In practice, c1(π∗
+
+> lex
+
+) is unknown a priori, so a sufficiently large, fixed ϵ cannot be set to satisfy the condition in Lemma 4. However, a surrogate ˜ϵ can be computed dynamically from the current best solution: 
+
+˜ϵ = δ · Kc1 + ε1
+
+∆c1
+
+· c1(ˆ π∗), where ˆπ∗ = arg min 
+
+> π∈πALG
+> n
+
+c1(π).
+
+Since c1(ˆ π∗) ≥ c1(π∗
+
+> lex
+
+), we maintain a conservative tolerance satisfying Lemma 4. As the algorithm progresses, c1(ˆ π∗)
+
+decreases monotonically, ˜ϵ shrinks accordingly, and 
+
+lim  
+
+> n→∞
+
+c1(ˆ π∗) → c1(π∗
+
+> lex
+
+), lim  
+
+> n→∞
+
+˜ϵ → δ · Kc1 + ε1
+
+∆c1
+
+·c1(π∗
+
+> lex
+
+).
+
+Since δ, δs, and ⃗ε are user-defined, the sub-optimality bound can be driven to zero, and by Eq. (8) in the proof: 
+
+C(πϵ
+
+> lex
+
+) → C(π∗
+
+> lex
+
+) as δPS , δ s → 0 and ⃗ε → 0.
+
+An asymptotically optimal variant LEX SST ∗ can be ob-tained by applying a shrinking schedule to δPS , δs, and ⃗ε,analogous to that of SST ∗ [17], thereby progressively densi-fying the search tree in both the state and objective spaces. 
+
+C. Analysis of CO SST The analysis of CO SST mirrors that of LEX SST, with the key difference that PRUNE CON SET enforces a fixed con-straint window ¯ci + ¯ ϵi rather than the shifting ϵ-window of P RUNE LEX SET . We show this substitution preserves the ability to generate a δ-similar trajectory to π∗
+
+> co
+
+, the motion plan minimizing cN subject to all N − 1 constraints. For compactness, we write i̸ = N to mean i ∈ { 1, . . . , N − 1}.
+
+Lemma 5. Let ¯ϵi ≥ δ·Kc,i +εi 
+
+> ∆ci
+
+· ci(π∗
+
+> co
+
+) for all i̸ = N , and let Rco  
+
+> s
+
+be the representative set of a witness centered at s ∈Bδc+δs (x∗ 
+
+> co ,j
+
+). If a state x ∈ Rco  
+
+> s
+
+is generated at iteration n
+
+such that x ∈ B δc (x∗ 
+
+> co ,j
+
+) and 
+
+ci(x0 → x) ≤ δ · Kc,i + εi
+
+∆ci
+
+· ci(π∗
+
+> co
+
+) ∀i̸ = N, 
+
+then for every iteration n′ > n , there exists a state x′ ∈ Rco 
+
+> s
+
+such that x′ ∈ B δ−δPS (x∗ 
+
+> co ,j
+
+) and C(x′) ⪰ C(x).
+
+Theorem 6 (Completeness of CO SST) . CO SST is probabilis-tically δ-robustly complete for Problem 2. 
+
+Theorem 7 (Asymptotic near-optimality of CO SST) . CO SST 
+
+is asymptotically δ-robustly near-optimal for Problem 2. 
+
+Proofs are included in Appendices J, K, and L, respectively. Since ci(π∗
+
+> co
+
+) is unknown a priori, ¯ϵi can be conservatively set using the user-defined bounds ¯ci:
+
+˜ϵi = δ · Kc,i + εi
+
+∆ci
+
+· ¯ci ∀i̸ = N, 
+
+which satisfies Lemma 5 since ci(π∗
+
+> co
+
+) ≤ ¯ci by the prob-lem statement. As with LEX SST, the sub-optimality bound decreases monotonically as δPS , δ s → 0 and ⃗ε → 0, and an asymptotically optimal variant, CO SST ∗, follows by applying a shrinking schedule analogous to that of SST ∗ [17]. 11 
+
+VIII. E VALUATIONS 
+
+We present a series of case studies designed to validate the theoretical contributions of this work and demonstrate the practical advantages of our proposed algorithms. We first in-troduce the experimental setup, then present our evaluations of 
+
+> LEX
+
+SST, CO SST, and PO SST in the subsequent subsections. 
+
+A. Overview Workspaces: Experiments are conducted across four workspaces shown in Fig. 6: a simple environment ( WS-1 ), a two-homotopy-class environment ( WS-2 ), a three-homotopy-class environment ( WS-3 ), and a cluttered environment with many homotopic solution classes ( WS-4 ). 
+
+Dynamics Models: We consider two dynamic models: (i) a 2D double integrator (I NTEGRATOR ) with state x =[px, p y , v x, v y ]⊤ comprising position and velocity, and control input u = [ ax, a y ]⊤ representing acceleration, and (ii) a 4D bicycle model (B ICYCLE ) with dynamics: 
+
+˙px = uv cos θ, ˙py = uv sin θ, ˙θ = uv
+
+L tan λ, ˙λ = u ˙λ,
+
+where (px, p y ) is the rear-axle position, θ is the heading angle, and λ is the steering angle. The control input consists of the longitudinal velocity uv and the steering rate u ˙λ.
+
+Objective functions: We consider three cost functions: PATH LENGTH : c(π) = 
+
+Z
+
+> π
+
+dy, 
+
+GAUSSIAN COST : c(π) = 
+
+Z
+
+> π
+
+N (y)dy, 
+
+MAX MIN CLEARANCE : c(π) = 100 − min 
+
+> x∈π
+
+ˇD(x, XO ),
+
+where ˇD(x, X) is the shortest distance from state x to the set 
+
+XO . Each experiment is given two of the above objectives, with the goal of minimizing the associated cost functions. For example, a subset of Pareto-optimal trajectories for objectives P ATH LENGTH and M AX MIN CLEARANCE is shown in Figs. 6a and 6b for workspaces WS-1 and WS-2 , respec-tively. Due to the simplicity of these environments and the interdependence of the objectives, the Pareto front can be computed analytically. 
+
+Setup: Results are reported across 100 independent runs and compared against weighted-sum SST ( WS -SST) as the primary baseline. Each case study is designed to isolate a specific aspect of the proposed approach, progressing from single-solution problems to full Pareto front approximation. All algorithms were implemented in C++ as extensions to the SST implementation provided by the Open Motion Plan-ning Library (OMPL) [29]. No parallelization was employed; all simulations were run sequentially on a machine equipped with an AMD Ryzen™ 5 8645HS processor (4.3 GHz base clock) and 16 GB of RAM. The implementation will be made publicly available upon the acceptance of the article. 
+
+B. Lexicographic Minimization Case Study 1 – LEX SST vs SST : We begin by validating 
+
+> LEX
+
+SST’s ability to approximate the true lexicographic min-imum, as established in Theorems 4 and 5. The experiment Initial Goal       
+
+> (a) WS-1 .(b) WS-2 .
+> (c) WS-3 .(d) WS-4 .
+
+Fig. 6: Considered workspaces. Shades of gray in (c) and (d) correspond to the values of G AUSSIAN COST .considers workspace WS-1 with the I NTEGRATOR model, where the optimization objective is lexicographic: minimize MAX MIN CLEARANCE first, then P ATH LENGTH . A 10-second planning budget was given per instance. Note that the primary optimum c1(π∗
+
+> lex
+
+) is achieved by infinitely many trajectories, since any path traversing the widest passage without approach-ing an obstacle attains the same optimal clearance. The results are shown in Fig. 7. As seen in Fig. 7a, SST (blue) reliably finds trajectories that maximize clearance but produces a wide spread of path lengths, since it lacks a mech-anism to refine secondary objectives. In contrast, LEX SST (orange) correctly prioritizes M AX MIN CLEARANCE and si-multaneously refines P ATH LENGTH , yielding a tight cluster of solutions near the true lexicographic minimum (red dashed line). This behavior is further evident in the objective space (Fig. 7b), where SST solutions are broadly dispersed along the P ATH LENGTH axis, while LEX SST solutions concentrate around the lexicographic minimum (red diamond). The time series in Figs. 7c–7d shows the convergence behavior of both planners. Both SST and LEX SST converge to c1(π∗
+
+> lex
+
+) at comparable rates, and LEX SST’s final solutions remain within the user-defined tolerance ϵ, consistent with Eq. (8). However, while SST exhibits a large spread in PATH LENGTH , LEX SST steadily converges toward c2(π∗
+
+> lex
+
+),demonstrating its ability to refine the secondary objective while respecting the tolerance on the primary one. 
+
+Case Study 2 – Robustness of LEX SST to Weight Selection: 
+
+Case Study 1 shows that SST produces wide variance in 
+
+c2 when optimizing c1 alone. A natural remedy is to add a small weight to c2, giving preference to solutions that also improve upon P ATH LENGTH . Here, we demonstrate the practical failure of this approach in a setting where weight 12 SST 
+
+> LEX SST
+> π∗
+> lex
+
+(a) Solution trajs. in WS-1 .90 92 94 96 98 100   
+
+> MAX MIN CLEARANCE
+> 60
+> 80
+> 100
+> 120
+> PATH LENGTH
+> C(π∗
+> lex )
+> c1(π∗
+> lex ) + 
+> True Pareto Front
+
+(b) Solutions in objective space. 0.01        
+
+> 0.021
+> 0.043
+> 0.089 0.18 0.38 0.78 1.6 3.4 7
+> Runtime [s]
+> 90
+> 92
+> 94
+> 96
+> 98
+> 100
+> MAX MIN CLEARANCE  c1(π∗
+> lex )
+> c1(π∗
+> lex ) + 
+
+(c) Time evolution of c1(πALG  
+
+> n
+
+).0.01       
+
+> 0.021
+> 0.043
+> 0.089 0.18 0.38 0.78 1.6 3.4 7
+> Runtime [s]
+> 60
+> 80
+> 100
+> 120
+> PATH LENGTH
+> c2(π∗
+> lex )
+
+(d) Time evolution of c2(πALG  
+
+> n
+
+).
+
+Fig. 7: Case Study 1 ( LEX SST vs. SST). Lexicographic objectives: M AX MIN CLEARANCE (1st) and P ATH LENGTH (2nd). WS -SST 0.01 
+
+> WS -SST 0.05
+> LEX SST
+> π∗
+> lex
+
+(a) Solution trajectories in WS-2 .95 96 97 98 99 100   
+
+> MAX MIN CLEARANCE
+> 40
+> 50
+> 60
+> 70
+> PATH LENGTH
+> C(π∗
+> lex )
+> c1(π∗
+> lex ) + 
+> True Pareto Front
+
+(b) Solutions in objective space. 0.01         
+
+> 0.023
+> 0.054 0.13 0.29 0.68 1.6 3.6 8.5 20
+> Runtime [s]
+> 95
+> 96
+> 97
+> 98
+> 99
+> 100
+> MAX MIN CLEARANCE  c1(π∗
+> lex )
+> c1(π∗
+> lex ) + 
+
+(c) Time evolution of c1(πALG  
+
+> n
+
+).0.01         
+
+> 0.023 0.054 0.13 0.29 0.68 1.6 3.6 8.5 20
+> Runtime [s]
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> PATH LENGTH
+> c2(π∗
+> lex )
+
+(d) Time evolution of c2(πALG  
+
+> n
+
+).
+
+Fig. 8: Case Study 2 ( LEX SST vs. WS -SST). Lexicographic objectives: M AX MIN CLEARANCE (1st) and P ATH LENGTH (2nd). selection is consequential. Workspace WS-2 contains two homotopy classes: an upper corridor with slightly greater clearance and a lower corridor with shorter path length. Using the same dynamics model and objectives as Case Study 1, we compare LEX SST against WS -SST with two weight vectors: 
+
+w1 = [1 , 0.01] (blue) and w2 = [1 , 0.05] (green), shown in Fig. 8. Here, a 30-second planning budget was used. Despite both weight vectors appearing to heavily prioritize 
+
+c1, their behavior differs. In Fig. 8a, w1 assigns insufficient weight to PATH LENGTH , resulting in solutions with high variance in c2, similar to vanilla SST. Conversely, w2 over-weights P ATH LENGTH , biasing the planner toward the lower corridor at the expense of c1-optimality. In contrast, LEX SST consistently selects the upper corridor, forming a tighter bundle around π∗
+
+> lex
+
+. Fig. 8b shows these results in the objective space: 
+
+WS -SST solutions exhibit either large c2 variance ( w1) or unbounded c1 suboptimality ( w2), while LEX SST clusters about π∗ 
+
+> lex
+
+within the user-defined tolerance ϵ.The time series in Figs. 8c–8d are consistent with Case Study 1: all planners converge in c1 at comparable rates, but only LEX SST steadily improves c2 toward c2(π∗
+
+> lex
+
+); whereas the variance under w1 persists throughout the planning hori-zon. This underscores a fundamental limitation of scalariza-tion: no fixed weight vector reliably guarantees near-optimality of the lexicographic solution, whereas LEX SST achieves this without any weight tuning. 
+
+C. Constrained Optimization 
+
+We now evaluate CO SST on Problem 2, examining its abil-ity to restrict the search tree to constraint-admissible regions and its completeness advantage over SST. In the following studies, we use the I NTEGRATOR model and a 10-second time budget per planning instance. 
+
+Case Study 3 – Constraint-Guided Search: We apply a con-straint ¯c1 = 91 to M AX MIN CLEARANCE in WS-1 , requiring all trajectories to maintain a clearance of at least 9 units from obstacles. Fig. 9 shows the resulting search trees after a 10-second planning window, with nodes in yellow and witness neighborhoods in blue. The tree is visibly confined to the admissible region, returning multiple non-dominated solutions (in green), with the one that minimizes P ATH LENGTH (in red). Two additional pruning mechanisms further focus the search. First, we utilize a solution-set dominance check to prune nodes that are strictly dominated by existing solutions in ΠALG  
+
+> n
+
+. Since costs increase monotonically, there is no risk of prematurely pruning such nodes. As shown in Fig. 9a, this prevents exploration of the upper-right and lower-right regions of the workspace, since shorter solutions already exist. Second, we leverage an admissible cost-to-go heuristic which inflates each candidate node’s P ATH LENGTH cost by the shortest remaining path to the goal. As shown in Fig. 9b, this disqualifies a substantially larger region, since reaching 
+
+(a) CO SST search tree with ΠALG 
+
+> n
+
+dominance pruning. 
+
+(b) Search tree with cost-to-go pruning for P ATH LENGTH .
+
+Fig. 9: Case Study 3 (Constraint-guided search via CO SST). Constrained search of π∗ 
+
+> co
+
+for objectives M AX MIN CLEAR -
+
+ANCE and P ATH LENGTH .13 SST 
+
+> CO SST 12 .5
+
+(a) Solution trajectories. SST CO SST 12 .50 
+
+> 20
+> 40
+> 60
+> 80
+> 100
+> Success Rate
+> 7/100 100/100
+
+(b) Success rate. (c) SST search tree. ΠALG  
+
+> N
+> πco
+
+(d) CO SST search tree. SST CO SST 12 .5 
+
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> |V |
+> 1e3
+
+(e) Tree size. 
+
+Fig. 10: Case Study 4 (incompleteness of SST for constrained optimization). SST fails to find feasible solutions in most runs, whereas CO SST maintains completeness by retaining multiple constraint-admissible subtrajectories for each witness. the goal within the remaining P ATH LENGTH budget becomes infeasible from those states. 
+
+Case Study 4 – Incompleteness of SST : We empirically confirm the incompleteness of SST for constrained optimiza-tion, as argued in Section V-A. The task is to minimize PATH LENGTH subject to a constraint on G AUSSIAN COST 
+
+in the narrow-passage environment in Fig. 10, with sparsity parameters chosen to guarantee the existence of a δ-robust solution. We conduct 100 independent runs per planner, each with a 30-second time budget, using the I NTEGRATOR model. As shown in Figs. 10a–10b, SST (blue) finds a valid motion plan in only a small fraction (0.07) of runs, whereas CO SST succeeds across all runs. This failure is structural, not a consequence of limited planning time. Figs. 10c–10d show the search trees after a 300-second budget to ensure conver-gence. Because SST greedily optimizes for P ATH LENGTH ,its single representative at each witness accumulates a high GAUSSIAN COST cost, leaving no feasible extensions through the narrow passage. In contrast, CO SST retains multiple constraint-admissible subtrajectories per witness, preserving the ability to extend through the passage. The cost of this completeness guarantee is a larger search tree, as shown in Fig. 10e, since multiple nodes are maintained per witness. 
+
+D. Pareto Front Coverage 
+
+Having validated the single-solution algorithms, we now evaluate PO SST on Problem 3. We first demonstrate PO SST’s Pareto-completeness and near-optimality, and then show its computational advantages relative to scalarization methods. 
+
+Case Study 5 – Convex Pareto Front: We again consider a INTEGRATOR model in WS-1 under the objectives M AX MIN -CLEARANCE and P ATH LENGTH , but without imposing any priority among the objectives, aiming to recover the entire Pareto front. Fig. 11a shows an example run as PO SST discovers a diverse set of non-dominated trajectories that span the full Pareto front. Fig. 11b shows how the approximate front computed by PO SST progressively approaches the theoretical optimum over time, with lighter hues indicating later times. Over 100 runs with a 60-second planning budget, PO SST identified, on average, 50 non-dominated solutions per run, providing broad coverage of the objective space as shown in Fig. 11c. To quantify approximation quality, we define a coverage metric according to the ratio of the region dominated by the approximate front to the area enclosed by the true PO SST 
+
+(a) Pareto-optimal trajectories. 90 92 94 96 98 100  
+
+> MAX MIN CLEARANCE
+> 50
+> 51
+> 52
+> 53
+> 54
+> PATH LENGTH
+
+(b) Evolution of Pareto front. 90 92 94 96 98 100 
+
+> MAX MIN CLEARANCE
+> 50 55 60 65 70 75
+> PATH LENGTH
+> PO SST True Pareto Front
+
+(c) Pareto fronts (all runs). 0.01        
+
+> 0.025
+> 0.062 0.16 0.39 0.97 2.4 6.1 15 38
+> Runtime [s]
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Dominated Area (%)
+
+(d) Coverage metric of ΠALG  
+
+> n
+
+.
+
+Fig. 11: Case Study 5 (efficacy of PO SST in approximat-ing Π∗ 
+
+> sol
+
+with objectives M AX MIN CLEARANCE and P ATH -LENGTH ). (a) and (b) show a single representative run. (c) and (d) aggregate over 100 runs. Pareto front and the axis-aligned boundary (red dashed lines in Fig. 11b). As shown in Fig. 11d, PO SST dominated, on average, roughly 80% of the reference area over the 60-second planning horizon, demonstrating its near-Pareto-optimality. 
+
+Case Study 6 – Non-Convex Pareto Fronts: A key moti-vation for this work is the structural inability of weighted-sum scalarization to recover non-convex Pareto fronts, as established in Section III. We evaluate PO SST with objectives GAUSSIAN COST and P ATH LENGTH across two environments: 
+
+WS-3 with three homotopic solution classes and a cluttered workspace, WS-4 . We compare PO SST against WS -SST ini-tialized with 101 different weight vectors, spanning a normal-ized sweep of unique ratios to promote diverse solutions: 
+
+wα = [ α, 1 − α] for all α ∈ { 0, 0.01 , 0.02 , . . . , 1}.
+
+Each instance of WS -SST is given a planning budget of 30-seconds (3030 seconds total), while PO SST is given a single 30-second planning instance. This comparison is intentionally demanding, as the baseline is allocated 101 × the computa-tional budget of PO SST. 14 WS -SST 
+
+> PO SST
+
+(a) WS-3 solution trajectories. WS -SST  
+
+> PO SST
+
+(b) WS-4 solution trajectories. 90 100 110 120 
+
+> PATH LENGTH
+> 0
+> 5
+> 10
+> 15
+> 20
+> COST FUNCTION
+> WS -SST
+> PO SST
+
+(c) WS-3 Pareto front. 100 120 140 160  
+
+> PATH LENGTH
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> 45
+> 50
+> COST FUNCTION
+> WS -SST
+> PO SST
+
+(d) WS-4 Pareto front. 
+
+Fig. 12: Case Study 6 ( PO SST vs. WS -SST on non-convex Pareto fronts). In WS-3 , WS -SST recovers only extreme solu-tions, while PO SST discovers trade-offs across all homotopic classes. In WS-4 , a single run of PO SST achieves better coverage than 101 scalarized planning instances combined. 
+
+Non-convex front recovery (Figs. 12a, 12c): Workspace 
+
+WS-3 , using the I NTEGRATOR model, isolates the structural limitation of WS scalarization ( WS -SST) on a highly non-convex Pareto front, where many optimal trade-offs do not lie on the convex hull. Across the 101 weight selections, WS -SST collapses to two solution clusters: one that prioritizes P ATH -LENGTH by passing through the gap, and one that prioritizes GAUSSIAN COST by traveling over the wall. The intermediate trade-offs that balance both objectives are missed entirely. 
+
+PO SST, by contrast, discovers a diverse set of solutions span-ning all three homotopic classes, empirically demonstrating the Pareto-completeness established in Theorem 2. 
+
+Computational efficiency (Figs. 12b, 12d): In WS-4 using the B ICYCLE model, PO SST recovers 124 unique Pareto-optimal solutions within a single 30-second planning instance, achieving better coverage than WS -SST across all 101 weight selections. As seen in Fig. 12d, the cluster of solutions near the P ATH LENGTH optimum reveals a key pitfall of WS scalar-ization: since P ATH LENGTH operates over a larger range than MAX MIN CLEARANCE , any weight ratio greater than about 0.5 collapses to the same solution, rendering most weight selections redundant. This imbalance is not known a priori, making it difficult to choose weights that yield a diverse spread. PO SST avoids this issue entirely, as its element-wise cost comparisons require no unified (scalar) cost metric across objectives. Further, this case study highlights that maintaining a single, non-dominated search tree is substantially more efficient than repeatedly scalarizing and re-planning to recover a diverse set of trade-offs. [0, 0] 
+
+> [0.05, 0.05]
+> [0.1, 0.1]
+> [0.3, 0.3]
+> [0.5, 0.5]
+> [0.7, 0.7]
+> [1.5, 1.5]
+> [2, 2]
+> [3, 3]
+> [5, 5]
+> ~ε
+> 10
+> 20
+> 30
+> 40
+> |V |
+> 1e3
+
+(a) Size of search tree. [0, 0]  
+
+> [0.05, 0.05]
+> [0.1, 0.1]
+> [0.3, 0.3]
+> [0.5, 0.5]
+> [0.7, 0.7]
+> [1.5, 1.5]
+> [2, 2]
+> [3, 3]
+> [5, 5]
+> ~ε
+> 8.2
+> 8.4
+> 8.6
+> 8.8
+> 9.0
+> |S|
+> 1e3
+
+(b) Number of witness nodes. [0, 0] 
+
+> [0.05, 0.05]
+> [0.1, 0.1]
+> [0.3, 0.3]
+> [0.5, 0.5]
+> [0.7, 0.7]
+> [1.5, 1.5]
+> [2, 2]
+> [3, 3]
+> [5, 5]
+> ~ε
+> 20
+> 30
+> 40
+> 50
+> 60
+> |ΠALG
+> sol  |
+
+(c) Size of solution set. 0.01  
+
+> 0.025
+> 0.062
+> 0.16
+> 0.39
+> 0.97
+> 2.4
+> 6.1
+> 15
+> 38
+> Runtime [s]
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Dominated Area (%)
+> 100% Coverage
+
+(d) Coverage metric of ΠALG  
+
+> n
+
+.
+
+Fig. 13: Case Study 7. Effect of ⃗ε on key metrics of PO SST with objectives M AX MIN CLEARANCE and P ATH LENGTH .
+
+Case Study 7 – Effect of ⃗ ε on Pareto Convergence: 
+
+Finally, we examine the effect of the objective-space sparsity parameter ⃗ε introduced in this work, which governs the trade-off between near-optimality and tree size (sparsity). Using workspace WS-1 and the I NTEGRATOR model, we sweep ⃗ε
+
+over a range of values and run 100 instances of PO SST for each configuration over a 300-second planning horizon. Fig. 13 presents results as box plots. As expected, larger ⃗ε
+
+values admit fewer nodes per witness neighborhood (Fig. 13a), reducing tree size but coarsening the approximation of the Pareto front (Fig. 13c). Conversely, smaller ⃗ε yields denser trees with tighter approximations at the cost of slower con-vergence rates (Fig. 13d). This experiment provides practical guidance for tuning ⃗ε: in time-constrained settings, a moderate ⃗ε efficiently achieves broad Pareto coverage, whereas ⃗ε → 0
+
+is appropriate when tight bounds are required. IX. C ONCLUSION 
+
+In this paper, we introduced a unified framework for multi-objective kinodynamic motion planning built on the Stable Sparse-RRT algorithm. Our key insight is the extension from a single representative per witness neighborhood to a rep-resentative set , enabling the simultaneous maintenance of locally Pareto-optimal subtrajectories within a single search tree. This structure underlies three algorithms: LEX SST for lexicographic minimization, CO SST for constrained optimiza-tion, and PO SST for Pareto-front approximation. For LEX SST, we proved that no scalar utility function can represent lexicographic dominance over continuous cost spaces, and, for CO SST, we showed that vanilla SST is structurally incomplete under cost constraints. Instead, our algorithms are probabilistically complete and asymptotically near-optimal for both problems. Finally, PO SST approximates the entire Pareto front in a single planning instance with 15 
+
+formal completeness and bounded sub-optimality guarantees, recovering diverse trade-offs at a fraction of the computation time of repeated scalarized re-planning. Several directions for future work remain. The ϵ-equivalence approach for lexicographic search does not extend beyond two objectives; hence, how to apply LEX SST with three or more cost functions remains an open question. Also, since the cost of maintaining representative sets grows with the number of non-dominated nodes per witness, leveraging GPU-accelerated [30], [31] and vectorized [32] sampling-based planning could bring these algorithms closer to real-time deployment. Adaptation of these algorithms and their formal analysis for multi-objective problems are left to future work. APPENDIX 
+
+A. Proof for Theorem 1 Proof. We prove the result by contradiction in the N = 2 
+
+case, and then argue that it extends to any N > 2.Assume that there exists a function u : R2 
+
+> ≥0
+
+→ R such that 
+
+C ≻lex C′ iff u(C) > u (C′). Fix any c1 ∈ R≥0, then by definition of lexicographic preference, we have: (c1, 0) ≻lex 
+
+(c1, 1) . So it must follow that: u(( c1, 0)) > u (( c1, 1)) , and an interval between c1-equivalent vectors can be defined: 
+
+I(c1) := [ u(( c1, 1)) , u (( c1, 0))] ⊂ R.
+
+We claim that for any two distinct c1, c ′ 
+
+> 1
+
+∈ R+, the intervals 
+
+I(c1) and I(c′
+
+> 1
+
+) are disjoint. W.L.O.G., assume c1 < c ′
+
+> 1
+
+. Then: 
+
+(c1, 1) ≻lex (c′
+
+> 1
+
+, 0) ⇒ u(( c1, 1)) > u (( c′
+
+> 1
+
+, 0)) .
+
+By the construction of each interval, we have: 
+
+u(( c′
+
+> 1
+
+, 1)) < u (( c′
+
+> 1
+
+, 0)) < u (( c1, 1)) < u (( c1, 0)) .
+
+Hence, I(c1) ∩ I(c′
+
+> 1
+
+) = ∅. Now define the mapping: 
+
+ϕ : R+ → I, ϕ(c1) = I(c1),
+
+where I is the collection of disjoint intervals in R. Since each 
+
+I(c1) is distinct and disjoint, ϕ is injective. Next, since the rationals Q are dense in R, each interval I(c1) contains at least one rational number. Thus, we can define: 
+
+τ : I → Q, τ (I(c1)) = rc1 ,
+
+where rc1 is any rational number contained in I(c1). Since each rc1 is drawn from a distinct and disjoint interval, they are unique. Thus, τ is injective and the composition τ ◦ ϕ :
+
+R≥0 → Q is likewise injective, implying: |R≥0| ≤ | Q|. This is a contradiction, since R≥0 is uncountable and Q is countable. Hence, the assumption is incorrect, and no such u exists. The contradiction above holds for vectors in R2
+
+> ≥0
+
+, and generalizes naturally to Rn 
+
+> ≥0
+
+for n > 2. Since lexicographic ordering compares objectives sequentially, the utility function will necessarily compare objectives ci and ci+1 , resulting in the same conclusion. 
+
+B. Proof for Lemma 1 Proof. Consider a node x ∈ BδPS (x∗ 
+
+> i
+
+) added to the tree at iteration n. Suppose a sample xrand is drawn such that 
+
+xrand ∈ BδPS (x) ∩ Bθ (x∗ 
+
+> i
+
+), where θ = δ − δPS > 0 by Proposition 1. In this case, node x lies within the region considered by P ARETO SELECT , and γx > 0 unless x is strictly dominated by another node x′ (i.e., C(x′) ≻ C(x)). In that case, x′ is the better representative of π∗. This leads to a positive lower bound on the probability of selecting a node within Bδ (x∗ 
+
+> i
+
+) that can generate a δ-similar trajectory to π∗:
+
+γ = μ(Bθ (x∗ 
+
+> i
+
+) ∩ B δPS (x)) 
+
+|B δPS (x)) | · μ(Xf ) > 0,
+
+where μ(·) denotes the Lebesgue measure and | · | denotes the cardinality of a set. 
+
+C. Proof for Lemma 2 Proof. Suppose a node x is generated by PO SST at iteration 
+
+n such that x ∈ B δc (x∗ 
+
+> i
+
+). Then, x is either used to establish a new witness set or is added to an existing witness located at most δs away. In the latter case, x can lie at most a distance 
+
+δc from x∗ 
+
+> i
+
+while being associated with a witness at a distance 
+
+δc + δs from x∗ 
+
+> i
+
+, as shown by the blue ball in Figure 14. A
+
+> True Local Pareto Front
+
+Fig. 14: The witness and selection radii used in PO SST. The PRUNE DOMINATED procedure ensures that a node 
+
+x ∈ Bδc (x∗ 
+
+> i
+
+) is pruned only if there exists another node 
+
+x′ ∈ B δc+2 δs (x∗ 
+
+> i
+
+) such that C(x′) ⪰ C(x) + ⃗ε. The presence of such a node x′ may lead to the pruning of any node it ε-dominates, as indicated by the gray region in Figure 14 (right). Consequently, for any reference trajectory π∗ ∈ Π∗
+
+> δ, sol
+
+, there always exists a node x′ ∈ V that deviates from x by at most 
+
+εi in some (but not all) cost components and remains within a distance of δ − δPS from x∗ 
+
+> i
+
+for all iterations n′ > n .
+
+D. Proof for Lemma 3 Proof. Refer to Fig. 14 for visualization. The P ARETO SELECT 
+
+procedure considers all non-dominated nodes in the neighbor-hood BδPS (xrand ). For the algorithm to consider only nodes within Bδ (x∗ 
+
+> i
+
+), the sampled state xrand must lie in Bδ−δPS (x∗ 
+
+> i
+
+).In the worst case, a node x ∈ B δc (x∗ 
+
+> i
+
+) is replaced by a node 
+
+x′ ∈ B δ−δPS (x∗ 
+
+> i
+
+), lying on the outer edge of that ball. For 
+
+x′ to be considered, the sample xrand must fall within the intersection of Bδ−δPS (x∗ 
+
+> i
+
+) and BδPS (x′). Once x′ is considered, then it will have a non-zero probability of selection unless it is strictly dominated by another node x′′ ∈ B δPS (x′), which, 16 
+
+in the worst case, lies on the outer edge of Bδ (x∗ 
+
+> i
+
+). Therefore, the probability of selecting such a node is lower-bounded by: 
+
+γPS = μ(Bδ−δPS (x∗  
+
+> i)∩B δPS (x′)
+
+)  
+
+> |B δPS (x′)|· μ(X)
+
+> 0.
+
+E. Proof for Theorem 2 Proof. Given that the initial state satisfies x0 = π∗(0) ∈Bδc (π∗(0)) for all π∗ ∈ Π∗, and that V is initialized as 
+
+{x0}, we can inductively establish the continued progress of PO SST in generating a δ-similar trajectory to any ref-erence trajectory π∗. At each iteration, the following two conditions are guaranteed: (1) with probability ρδ→δc > 0,the propagation procedure M ONTE CARLO PROP successfully transitions from Bδ (x∗ 
+
+> i
+
+) to the next ball Bδc (x∗
+
+> i+1
+
+) along the reference trajectory by [17, Theorem 17]; and (2) with probability γPS > 0, a node within Bδ (x∗ 
+
+> i
+
+) is selected for extension by Lemma 3. Together, these properties guarantee that at every iteration, PO SST maintains a non-zero probability of generating a node within each ball Bδc (x∗ 
+
+> i
+
+) and selecting a node in Bδ (x∗ 
+
+> i
+
+) for all i = 0 , 1, . . . , M − 1, thereby ensuring probabilistic visitation of every ball in a covering sequence about any reference path. 
+
+F. Proof for Theorem 3 Proof. Consider a δ-similar trajectory segment xj → xj+1 
+
+generated by PO SST, where xj ∈ Bδ (x∗ 
+
+> j
+
+) and xj+1 ∈Bδ (x∗
+
+> j+1
+
+) for some optimal trajectory π∗. Then, due to the Lipschitz continuity of the cost functions, each cost component 
+
+ci satisfies: ci(xj → xj+1 ) ≤ ci(x∗ 
+
+> j
+
+→ x∗
+
+> j+1
+
+) + δ · Kc,i .
+
+Furthermore, from Lemma 2, we know that if a node xj ∈Bδ−δPS (x∗ 
+
+> j
+
+) exists at iteration n, then there exists at least one node x′ 
+
+> j
+
+∈ V that is either ε-dominant or equal to xj in the same ball Bδ−δPS (x∗ 
+
+> j
+
+). Lemma 1 ensures that x′ 
+
+> j
+
+will be selected with probability at least γPS > 0, or else a dominant node x′′  
+
+> j
+
+∈ B δ (x∗ 
+
+> j
+
+) will be selected. Therefore, we have 
+
+C(x′′  
+
+> j
+
+) ⪰ C(x′ 
+
+> j
+
+) ⪰ C(xj ) + ⃗ε
+
+for all future iterations of the algorithm. Now, consider the first segment x0 → x1 of a trajectory generated by PO SST that approximates a Pareto-optimal tra-jectory π∗. Then, the cost of a representative segment at an iteration n′ > n can be bounded as: 
+
+C(x0 → x′
+
+> 1
+
+) ⪰ C(x0 → x1) ⪰ C(x0 → x∗
+
+> 1
+
+) + δ · Kc +⃗ε. 
+
+We can extend the bound to a k-segment trajectory from x0:
+
+C(x0 → x′
+
+> k
+
+) ⪰ C(x0 → xk) = 
+
+> k
+
+X
+
+> j=0
+
+C(xj → xj+1 )
+
+⪰
+
+> k
+
+X
+
+> j=0
+
+C(xj → x∗
+
+> j+1
+
+) + δ · Kc +⃗ε 
+
+= C(x0 → x∗
+
+> k
+
+) + k(δ · Kc +⃗ε) (6) Let ∆ci denote the minimum cost incurred in objective i
+
+among all segments of π∗ in B(π∗, δ, ∆c1). Then, the max-imum number of segments k is bounded by k ≤ ci(π∗)∆ci for each i, yielding the final sub-optimality bound: 
+
+ci(π) ≤
+
+
+
+1 + δ · Kc,i + εi
+
+∆ci
+
+
+
+· ci(π∗) ∀i. (7) 
+
+G. Proof for Lemma 4 Proof. By Theorems 2 and 3, the PARETO SELECT and PRUNE DOMINATED procedures do not hinder the generation of a δ-similar trajectory to any Pareto-optimal solution. Since 
+
+π∗ 
+
+> lex
+
+is Pareto-optimal by definition, a node xj ∈ B δ (x∗ 
+
+> lex ,j
+
+)
+
+that lies within the covering ball sequence of π∗ 
+
+> lex
+
+will have a primary cost that satisfies (5) after the j-th segment: c1(xj ) ≤
+
+c1(x∗ 
+
+> lex ,j
+
+) + j · (δ · Kc, 1 + ε1). PRUNE LEX SET removes all nodes exceeding ¯c∗ 
+
+> 1
+
++ ϵ, where ¯c∗ 
+
+> 1
+
+= min x∈Rlex  
+
+> s
+
+c1(x). Since 
+
+ϵ ≥ k(δ · Kc, 1 + ε1), ¯c∗ 
+
+> 1
+
+≥ c1(x∗ 
+
+> lex ,j
+
+), and k ≥ j, we get: 
+
+c1(xj ) ≤ c1(x∗ 
+
+> lex ,j
+
+) + j(δ · Kc, 1 + ε1) ≤ ¯c∗ 
+
+> 1
+
++ ϵ, 
+
+and xj remains in Rlex  
+
+> s
+
+.
+
+H. Proof for Theorem 4 Proof. The search tree is initialized with x0 ∈ B δc (π∗
+
+> lex
+
+(0)) .At every iteration: Lemma 1 guarantees a positive proba-bility of selecting a node in Bδ (x∗ 
+
+> lex ,j
+
+); Lemma 4 ensures PRUNE LEX SET retains at least one such node; and [17, The-orem 17] guarantees a positive probability of transitioning to 
+
+Bδc (x∗
+
+> lex ,j +1
+
+). Together, these ensure LEX SST makes progress toward a δ-similar trajectory to π∗ 
+
+> lex
+
+at every iteration. 
+
+I. Proof for Theorem 5 Proof. The proof follows that of Theorem 3, restricted to π∗
+
+> lex
+
+.Since LEX SST is guaranteed to find a δ-similar trajectory ˆπlex 
+
+to π∗
+
+> lex
+
+, the bound in (5) gives: 
+
+ci(ˆ πlex ) ≤
+
+
+
+1 + δ · Kc,i + εi
+
+∆ci
+
+
+
+· ci(π∗
+
+> lex
+
+) for i ∈ { 1, 2}.
+
+By Lemma 4, the solution set ΠALG  
+
+> sol
+
+always contains a trajec-tory ˆπ′ 
+
+> lex
+
+with C(ˆ π′
+
+> lex
+
+) ⪰ C(ˆ πlex ). The returned solution πϵ
+
+> lex
+
+incurs an additional ϵ-penalty on the primary cost bound due to the ϵ-window, yielding: 
+
+c1(πϵ
+
+> lex
+
+) ≤
+
+
+
+1 + δ · Kc, 1 + ε1
+
+∆c1
+
+
+
+· c1(π∗
+
+> lex
+
+) + ϵ. (8) 
+
+J. Proof for Lemma 5 Proof. The proof follows that of Lemma 4, replacing the ϵ-window on the primary cost with per-constraint buffers ¯ϵi.Since π∗ 
+
+> co
+
+minimizes cN and is thus Pareto-optimal, a node xj
+
+within the covering ball sequence of π∗ 
+
+> co
+
+satisfies (5): 
+
+ci(xj ) ≤ ci(x∗ 
+
+> co ,j
+
+) + j · (δ · Kc,i + εi) ∀i. 
+
+PRUNE CON SET removes nodes exceeding ¯ci + ¯ ϵi. Since ¯ϵi ≥
+
+k(δ · Kc,i + εi), ¯ci ≥ ci(x∗ 
+
+> co ,j
+
+), and k ≥ i, we get ci(xj ) ≤
+
+¯ci + ¯ ϵi and xj is retained in Rco  
+
+> s
+
+.
+
+K. Proof for Theorem 6 Proof. Follows the outline of Theorem 4, with Lemma 5 replacing Lemma 4 to guarantee that P RUNE CON SET retains at least one node in Bδ (x∗ 
+
+> co ,j
+
+) at every iteration. 17 
+
+L. Proof for Theorem 7 Proof. Follows directly from Theorem 3, restricted to π∗
+
+> co
+
+,which ensure a motion plan πco will be generated that satisfies: 
+
+ci(ˆ πcon ) ≤
+
+
+
+1 + δ · Kc,i + εi
+
+∆ci
+
+
+
+· ci(π∗
+
+> co
+
+) ∀i. 
+
+By Lemma 5, the solution set ΠALG  
+
+> sol
+
+will contain a trajectory 
+
+ˆπ′ 
+
+> con
+
+with C(ˆ π′
+
+> con
+
+) ⪰ C(ˆ πcon ) for iterations n′ > n . Then, the returned solution πco = arg min π∈ΠALG  
+
+> sol
+
+cN (π) satisfies: 
+
+ci(πco ) ≤
+
+
+
+1 + δ · Kc,i + εi
+
+∆ci
+
+
+
+· ci(π∗
+
+> co
+
+) + 1i̸=N · ¯ϵi, (9) where 1{·} is an indicator function applied to the buffer ¯ϵi
+
+which accounts for the fixed constraint window, analogous to the ϵ-penalty in Eq. (8). REFERENCES [1] Peter E. Hart, Nils J. Nilsson, and Bertram Raphael. A formal basis for the heuristic determination of minimum cost paths. IEEE Transactions on Systems Science and Cybernetics , 4(2):100–107, 1968. [2] Theodor J Stewart, Ron Janssen, and Marjan van Herwijnen. A genetic algorithm approach to multiobjective land use planning. Computers & Operations Research , 31(14):2293–2313, 2004. [3] Lawrence Mandow and Jos´ e-Luis P´ erez-de-la Cruz. A new approach to multiobjective a* search. In International Joint Conference on Artificial Intelligence (IJCAI) , pages 218–223, 01 2005. [4] Lawrence Mandow and Jos´ e. Luis P´ erez De La Cruz. Multiobjective a* search with consistent heuristics. Journal of the ACM (JACM) , 57(5), 2008. [5] Carlos Hern´ andez, William Yeoh, Jorge A. Baier, Han Zhang, Luis Suazo, Sven Koenig, and Oren Salzman. Simple and efficient bi-objective search algorithms via fast dominance checks. Artificial Intelligence , 314:103807, 2023. [6] Zhongqiang Ren, Carlos Hern´ andez, Maxim Likhachev, Ariel Felner, Sven Koenig, Oren Salzman, Sivakumar Rathinam, and Howie Choset. Emoa*: A framework for search-based multi-objective path planning. 
+
+Artificial Intelligence , 339:104260, 2025. [7] Han Zhang, Oren Salzman, T. Kumar, Ariel Felner, Carlos Ulloa, and Sven Koenig. A*pex: Efficient approximate multi-objective search on graphs. Proceedings of the International Conference on Automated Planning and Scheduling , 32:394–403, 06 2022. [8] Peter Amorese and Morteza Lahijanian. Optimal cost-preference trade-off planning with multiple temporal tasks. In 2023 IEEE/RSJ Inter-national Conference on Intelligent Robots and Systems (IROS) , pages 2071–2077, Detroit, MI, USA, October 2023. IEEE. [9] Nathan Ratliff, Matt Zucker, J. Andrew Bagnell, and Siddhartha Srini-vasa. Chomp: Gradient optimization techniques for efficient motion planning. In 2009 IEEE International Conference on Robotics and Automation , pages 489–494, 2009. [10] Matt Zucker, Nathan Ratliff, Anca D. Dragan, Mihail Pivtoraiko, Matthew Klingensmith, Christopher M. Dellin, J. Andrew Bagnell, and Siddhartha S. Srinivasa. Chomp: Covariant hamiltonian optimization for motion planning. The International Journal of Robotics Research ,32(9-10):1164–1193, 2013. [11] John Schulman, Yan Duan, Jonathan Ho, Alex Lee, Ibrahim Awwal, Henry Bradlow, Jia Pan, Sachin Patil, Ken Goldberg, and Pieter Abbeel. Motion planning with sequential convex optimization and convex col-lision checking. The International Journal of Robotics Research ,33(9):1251–1270, 2014. [12] Mrinal Kalakrishnan, Sachin Chitta, Evangelos Theodorou, Peter Pastor, and Stefan Schaal. Stomp: Stochastic trajectory optimization for motion planning. In 2011 IEEE International Conference on Robotics and Automation , pages 4569–4574, 2011. [13] L.E. Kavraki, P. Svestka, J.-C. Latombe, and M.H. Overmars. Prob-abilistic roadmaps for path planning in high-dimensional configuration spaces. IEEE Transactions on Robotics and Automation , 12(4):566–580, 1996. [14] Steven M. LaValle. Rapidly-exploring random trees: a new tool for path planning. The annual research report , 1998. [15] J.J. Kuffner and S.M. LaValle. Rrt-connect: An efficient approach to single-query path planning. In Proceedings 2000 ICRA. Millennium Conference. IEEE International Conference on Robotics and Automa-tion. Symposia Proceedings (Cat. No.00CH37065) , volume 2, pages 995–1001 vol.2, 2000. [16] Sertac Karaman and Emilio Frazzoli. Sampling-based algorithms for optimal motion planning. The international journal of robotics research ,30(7):846–894, 2011. [17] Yanbo Li, Zakary Littlefield, and Kostas E. Bekris. Asymptotically op-timal sampling-based kinodynamic planning. The International Journal of Robotics Research , 35(5):528–564, 2016. [18] Yanbo Li, Zakary Littlefield, and Kostas E. Bekris. Sparse Methods for Efficient Asymptotically Optimal Kinodynamic Planning , pages 263–282. Springer International Publishing, Cham, 2015. [19] Zakary Littlefield and Kostas E. Bekris. Efficient and asymptotically optimal kinodynamic motion planning via dominance-informed regions. In 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 1–9, 2018. [20] Andrew Dobson and Kostas Bekris. Sparse roadmap spanners for asymptotically near-optimal motion planning. International Journal of Robotics Research , 33:18–47, 01 2014. [21] Filippos Christianos, Peter Karkus, Boris Ivanovic, Stefano V. Albrecht, and Marco Pavone. Planning with occluded traffic agents using bi-level variational occlusion models. In 2023 IEEE International Conference on Robotics and Automation (ICRA) , pages 5558–5565, 2023. [22] Nils Wilde, Alexandru Blidaru, Stephen L Smith, and Dana Kuli´ c. Improving user specifications for robot behavior through active pref-erence learning: Framework and evaluation. The International Journal of Robotics Research , 39(6):651–667, 2020. [23] Zhouyu Lu, Zhichao Liu, Gustavo J. Correa, and Konstantinos Kary-dis. Motion planning for collision-resilient mobile robots in obstacle-cluttered unknown environments with risk reward trade-offs. In 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pages 7064–7070, 2020. [24] J¨ urgen Branke. Multiobjective optimization: Interactive and evolutionary approaches , volume 5252. Springer Science & Business Media, 2008. [25] Kristof Van Moffaert, Madalina M. Drugan, and Ann Now´ e. Scalarized multi-objective reinforcement learning: Novel design techniques. In 
+
+2013 IEEE Symposium on Adaptive Dynamic Programming and Re-inforcement Learning (ADPRL) , pages 191–199, 2013. [26] Nils Wilde, Stephen L. Smith, and Javier Alonso-Mora. Scalarizing multi-objective robot planning problems using weighted maximization. 
+
+IEEE Robotics and Automation Letters , 9(3):2503–2510, 2024. [27] Alexander Botros, Nils Wilde, Armin Sadeghi, Javier Alonso-Mora, and Stephen L. Smith. Regret-based sampling of pareto fronts for multiobjective robot planning problems. IEEE Transactions on Robotics ,40:3778–3794, 2024. [28] Andrew Dobson and Kostas E. Bekris. Sparse roadmap spanners for asymptotically near-optimal motion planning. The International Journal of Robotics Research , 33(1):18–47, 2014. [29] Ioan A. S ¸ ucan, Mark Moll, and Lydia E. Kavraki. The Open Motion Planning Library. IEEE Robotics & Automation Magazine , 19(4):72–82, December 2012. https://ompl.kavrakilab.org. [30] Nicolas Perrault, Qi Heng Ho, and Morteza Lahijanian. Kino-pax: Highly parallel kinodynamic sampling-based planner. IEEE Robotics and Automation Letters , 10(3):2430–2437, 2025. [31] Nicolas Perrault, Qi Ho, and Morteza Lahijanian. Kino-pax +: Near-optimal massively parallel kinodynamic sampling-based motion planner, 02 2026. [32] Wil Thomason, Zachary Kingston, and Lydia E. Kavraki. Motions in microseconds via vectorized sampling-based planning. In IEEE International Conference on Robotics and Automation (ICRA) , pages 8749–8756, 2024.

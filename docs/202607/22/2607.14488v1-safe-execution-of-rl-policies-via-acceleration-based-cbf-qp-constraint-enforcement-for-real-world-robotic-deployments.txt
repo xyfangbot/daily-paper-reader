@@ -1,0 +1,346 @@
+Title: Safe Execution of RL Policies Via Acceleration-Based CBF-QP Constraint Enforcement for Real-World Robotic Deployments
+
+URL Source: https://arxiv.org/pdf/2607.14488v1
+
+Published Time: Fri, 17 Jul 2026 00:41:51 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Safe Execution of RL Policies via Acceleration-based CBF-QP Constraint Enforcement for Real-World Robotic Deployments 
+
+Bastien Muraccioli ∗1, Alice Cariou ∗1, Pierre-Alexandre Leziart 1, Mathieu Celerier 1, Arnaud Demont 1,Gentiane Venture 1,2, and Mehdi Benallegue 1
+
+Abstract — Reinforcement Learning (RL) has demonstrated remarkable capabilities for solving complex robotic control problems, but its lack of safety guarantees severely limits deployment on hardware. In particular, as legged robots and manipulators often operate near safety-critical boundaries, out-of-distribution states can lead to failure upon deployment. To address this, we introduce Acc-CBF-QP, an acceleration-based Quadratic Program (QP) safety filter using Control Barrier Functions (CBFs) that constrains any RL policy onto a safe set at runtime without modifying training. The method applies to unconstrained and Safe-RL policies, and enforces joint position, velocity, torque, and collision constraints within a unified optimization framework. A key contribution is the formulation of RL+QP tasks that regulate deviation from the RL command when constraints would otherwise be violated. We introduce a TorqueTask , minimizing torque deviation, and a 
+
+Forward Dynamics Task , minimizing induced acceleration devia-tion, thus providing principled control over safety-performance trade-offs. Experiments on a 7-DoF Kinova Gen3 manipulator and a 19-DoF Unitree H1 humanoid, both in simulation and on hardware, highlight substantial reductions in constraint violations. On the real H1 hardware, a Safe-RL policy alone yielded 10.04 violations/s, which were reduced by 92% to 0.80 violations/s when augmented with Acc-CBF-QP. On the Kinova Gen3, Acc-CBF-QP fully eliminated violations. Nominal task performance of the RL objective is preserved in violation-free regimes. Under aggressive velocity commands on H1, Acc-CBF-QP improves execution by preventing constraint-induced shutdowns, yielding longer survival times. The full pipeline is open-source. 
+
+I. I NTRODUCTION 
+
+Reinforcement Learning (RL) has emerged as a power-ful tool for robotics, enabling the autonomous acquisition of complex skills such as agile locomotion and dexterous manipulation through trial-and-error interactions. Despite promising results, a persistent obstacle to deploying RL policies on hardware is the lack of safety guarantees . In this work, we define safe execution of policies as their ability to respect explicit constraints. Such constraints can be imposed for feasibility, for preventing hardware damage and adhering to the robot manufacturer’s specifications, and for human and environmental safety. Safe RL methods embed constraints during training [1], via constrained Markov Decision Processes [2], [3], Control          
+
+> ∗B. Muraccioli, A. Cariou share first authorship.
+> 1All authors are with the CNRS–AIST Joint Robotics Laboratory (JRL), IRL3218, AIST, Tsukuba, Japan,
+
+{bastien.muraccioli, alice.cariou, pa.leziart, mathieu.celerier, arnaud.demont, mehdi.benallegue }@aist.go.jp  
+
+> 2G. Venture is also with the Department of Mechanical Engineering, The University of Tokyo, Japan,
+
+venture@g.ecc.u-tokyo.ac.jp  
+
+> Fig. 1. Controller pipeline. The RL policy (purple) is filtered in real time by an Acc-CBF-QP (green) that enforces safety constraints using external disturbance estimates from observers (yellow). The resulting feasible com-mands are applied in torque control (red) or with a position reference for a Proportional-Derivative (PD) controller (blue) to the robot (gray).
+
+Barrier Functions [4], [5], or probabilistic safety filters [6]. While effective in simulation, these rely on statistical guaran-tees that degrade under distributional shift, require retraining when constraints change, and often fail to hold on Out-of-Distribution (OoD) states during deployment. Furthermore, enforcing strict safety constraints during training can be overly conservative, restricting exploration, slowing convergence [7], and limiting adaptability when new safety requirements emerge at deployment, such as collision avoidance based on online perception. In contrast, the robotics community has long relied on optimization-based controllers that enforce constraints for feasibility or safety in real time. In particular, Quadratic Pro-gram (QP) control in acceleration space is well established for whole-body control, enabling prioritized task execution under joint, torque, and contact constraints [8], and safety for Human-Robot Interaction (HRI) [9]. However, such approaches require model-based tasks and do not directly integrate with learned policies, limiting their adaptability. 
+
+Our approach bridges these two paradigms. Build-ing on the acceleration-based QP-CBF framework of [9], we extend it to accept RL-policy torques as the nominal reference and validate it as a post-processing safety filter around any pre-trained RL policy. Fig. 1 illustrates the overall controller pipeline. At each control step, the RL command is passed through the QP, which enforces constraint boundaries formulated as CBFs. The resulting optimization provides arXiv:2607.14488v1 [cs.RO] 16 Jul 2026 forward-invariance guarantees under feasibility and bounded-modeling-error assumptions, formalized in Sec. III-B.4. This formulation enables runtime constraint enforcement with-out requiring additional policy retraining. This is a critical advantage, as it avoids restricting exploration during train-ing and permits dynamic modification of safety constraints at deployment. The resulting constrained behavior can be optimized for different criteria, such as minimizing torque error or acceleration error, depending on the application, as detailed in Section III-D. 
+
+Contributions. The main contributions of this work are:  
+
+> •
+
+An open-source framework 1 for enforcing safety on robotics RL policies through an acceleration-based QP with CBF-based constraints (Acc-CBF-QP), featuring two task formulations (TorqueTask and FDTask) that control how the QP minimizes deviation from the RL objective when constraints are active. The pipeline in-tegrates state estimation and disturbance observers to recover external forces and mitigate modeling errors, essential for consistent CBF enforcement on torque-controlled and floating-base systems.  
+
+> •
+
+Experimental validation on two distinct robot platforms: the Kinova Gen3 manipulator and the Unitree H1 humanoid, across both simulation and real hardware. Results demonstrate substantial reductions in constraint violations and hardware-damaging failures, with quan-tified trade-offs between safety enforcement and task performance. On the humanoid, we compare against a CaT-based Safe RL baseline [10]. This work establishes a modular interface between learned control and acceleration-level safety filtering, constituting a practical step toward the reliable real-world deployment of learned robotic behaviors. II. R ELATED WORKS 
+
+Safety in robot learning spans both training-time ap-proaches , which attempt to embed safety into the policy learning process, and execution-time filters , which modify unsafe commands during deployment. Our work contributes to the latter category, building on optimization-based safety layers. 
+
+A. Safe Reinforcement Learning 
+
+Safe RL methods typically formulate safety as constraints in a CMDP and enforce them during learning, such as Constrained Policy Optimization (CPO), which applies a trust-region constrained update that provides per-iteration safety guarantees [11]. While these approaches incorporate constraints directly into policy optimization by adjusting their update rules to discourage violations, others include action-constrained methods that ensure feasibility through acceptance–rejection sampling and augmented Markov Deci-sion Processes [3], and optimization-based RL that leverages QP/MPC-style policy parameterizations to obtain formal guarantees during training [12], [13]. Recent work also 
+
+> 1https://safe-rl-qp.github.io/
+
+explores learning on constraint manifolds for improved safety in robotic systems [14]. Among training-time approaches, the Constraints as Terminations (CaT) framework [10] en-forces safety by introducing stochastic termination signals upon constraint violation, encouraging constraint satisfaction during learning. However, like other training-time methods, it provides distributional guarantees and does not ensure consistent per-state constraint satisfaction at inference. We adopt CaT as a Safe RL baseline to contrast training-time safety shaping with runtime formal filtering. While these methods provide guarantees in control-theoretic settings, they remain challenging to apply con-cretely in robotics due to unmodeled dynamics and their reliance on highly accurate system models. Our approach also relies on a system model, but to a lesser extent: model inaccuracies are mitigated through a disturbance observer (DOB), which estimates and compensates for unknown loads [15]. This allows the safety filter to remain effective even under imperfect modeling. 
+
+B. Safety Filters and Runtime Enforcement 
+
+To ensure constraint satisfaction during deployment, safety filters act as post-processing layers around RL policies. Notable examples include predictive safety filters [16] and CBF-CLF-QP-based safety layers [17], [18]. These methods provide varying levels of safety (hard, soft, or probabilistic). Yet, they were either tested in simulation only, or not tested with physical constraints such as joint limits or collisions on the learned policy output. 
+
+C. Positioning of This Work 
+
+Acc-CBF-QP acts as a runtime safety layer that com-poses a learned torque policy with acceleration-level CBF constraints through structured optimization. At each control step, the QP minimizes deviation from the RL objective while satisfying all CBF constraints. This mechanism can be interpreted as a state-dependent projection of the RL torque onto a CBF-defined admissible set (formalized in Sec. III-B.4). Unlike training-time Safe RL, which promotes constraint satisfaction in expectation, Acc-CBF-QP enforces it consistently under QP feasibility, without retraining. III. M ETHOD 
+
+A. Robot Dynamics and Notation 
+
+We consider an n-DoF multi-body rigid robot, whose configuration in space can be fully described by its general-ized coordinates denoted q ∈ Rn. Let na denote the number of actuated joints, with actuated coordinates qa ∈ Rna and controlled with a torque τa ∈ Rna . The dynamics under external generalized forces/torques τext ∈ Rn are 
+
+τ = M(q) ¨q + C(q, ˙q) ˙q + g(q) − τext , (1) and 
+
+τ = S⊤τa. (2) 
+
+M(q) ∈ Rn×n is the robot’s inertia matrix, C(q, ˙q) ∈ Rn×n
+
+is the Coriolis and centrifugal effects, and g(q) ∈ Rn is the gravitational torque vector. S ∈ Rna×n is the actuated joint selection matrix , such that ˙ qa = S ˙q [19], [20]. For a fixed-base, fully actuated robot, the generalized coordinates coincide with the joint coordinates, q = qa and 
+
+n = na, hence S is simply the n × n identity matrix. For a floating-base robot with fully actuated joints, which moves freely in space, the generalized coordinates also include the pose of the floating base in the world qfb ∈ SE (3),represented with any parameterization of size nfb :
+
+q =
+
+qfb 
+
+qa
+
+
+
+∈ Rnfb +na . (3) The external generalized forces/torques τext now include the external wrench applied on the floating base. For simplicity, following [20], we assume q, ˙ q, ¨ q all have dimension n,treating the floating-base velocity and acceleration as their SE(3) counterparts by standard abuse of notation. 
+
+B. Acceleration-Based CBF-QP Safety Layer 
+
+Formulating the control problem as a QP in accelerations enables the simultaneous satisfaction of dynamic and kine-matic constraints [21]. Many robotic constraints are second-order in nature (e.g., acceleration limits, torque limits, or contact force constraints). By choosing the accelerations as the decision variables, these constraints become linear or convex, allowing efficient QP solvers to find feasible solutions. This motivates the use of an acceleration-based QP to enforce model-based constraints while executing an RL policy. 
+
+1) Acceleration-based QP formulation: At each control step, the QP computes the generalized accelerations ¨ q⋆ ∈ Rn
+
+that satisfy all constraints while minimizing a quadratic cost written as a weighted sum of task errors: ¨q⋆ = arg min  
+
+> ¨q
+
+# ∑
+
+> k
+
+∥Wk(Ak ¨q − bk)∥2 (4) s.t. Ac ¨q ≤ bc,
+
+where (Ak, bk) encode the linearized tasks, (Ac, bc) encode the linearized constraints, and Wk ≻ 0 acts as a weight matrix on the corresponding task. This is standard in QP-based control. Although the formu-lation supports multiple simultaneous tasks, we deliberately evaluate one task (A, b) at a time to isolate its contribution without confounding effects from task prioritization or Wk
+
+tuning; combining tasks (e.g., locomotion with manipulation) is left for future work. 
+
+2) Constraint set: Safety is defined as the forward invari-ance of the closed set 
+
+C =
+
+> Nc\
+> i=1
+
+{(q, ˙q) | hi(q, ˙q) ≥ 0}, (5) where Nc is the number of safety constraints and each barrier function hi is continuously differentiable. For vector-valued bounds, inequalities are understood componentwise. Assuming perfect acceleration tracking, forward invariance is enforced via Control Barrier Function (CBF) conditions [22], [23]. Since the QP decision variable is ¨ q, all barrier condi-tions are expressed as affine inequalities in ¨ q and stacked into (Ac, bc).
+
+a) Torque limits: Actuator limits are enforced at the torque level as 
+
+τ− 
+
+> a
+
+≤ τQP ≤ τ+ 
+
+> a
+
+, (6) where τQP is obtained from ¨q⋆ via inverse dynamics (Eq. (16)). For floating-base robots, torques associated with the base are constrained to zero. 
+
+b) Joint velocity and position limits: Consider an upper velocity bound ˙q+, such that ˙q ≤ ˙q+. Define the barrier function 
+
+hvel ( ˙q) = ˙q+ − ˙q. (7) Since hvel has relative degree one with respect to ¨q,the standard CBF condition ˙ hvel + α(hvel ) ≥ 0 is imposed, where α is a class-K function. Choosing the linear function 
+
+α(hvel ) = λ hvel with λ > 0, as done by [9], yields ¨q ≤ − λ ( ˙q − ˙q+). (8) Lower velocity bounds are treated analogously. For an upper position limit q+, such that q ≤ q+, define 
+
+hpos (q) = q+ − q. (9) Since hpos has relative degree two with respect to the control input, we employ an exponential CBF (ECBF) [22], enforcing ¨hpos + α1 ˙hpos + α2hpos ≥ 0, (10) with α1, α2 > 0. Using ˙ hpos = − ˙q and ¨ hpos = − ¨q, this yields ¨q ≤ − (α1 + α2) ˙q + α1α2(q+ − q). (11) Following [9], we parametrize α1 + α2 = λ and α1α2 =
+
+λ 2/(4ζ 2) with ζ ≥ 1, yielding ¨q ≤ − λ ˙q + λ 2
+
+4ζ 2 (q+ − q), (12) where ζ = 1 gives critical damping and ζ > 1 overdamped behavior. Sharing λ across velocity and position limits enforces consistent convergence rates and simplifies tuning. Lower bounds are handled analogously. 
+
+c) Self-collision avoidance: For each monitored pair of bodies, let e(q) denote their minimum distance and define the barrier function 
+
+hcol (e) = e − ds, (13) where ds > 0 is a prescribed safety margin. Assuming continuous motion of the closest points, e(q) is differentiable locally everywhere and satisfies ˙e = Je(q) ˙q, ¨e = Je(q) ¨q + ˙Je(q, ˙q) ˙q, (14) where Je(q) = ∂ e  
+
+> ∂q
+
+denotes the distance Jacobian, obtained by projecting the geometric Jacobians of the closest points onto the inter-body normal direction, as done in [24], [25]. As hcol has relative degree two with respect to ¨q, we employ the same exponential CBF construction as for joint position limits, yielding 
+
+Je(q) ¨q ≥ − ˙Je(q, ˙q) ˙q − λ ˙e − λ 2
+
+4ζ 2 (e − ds), (15) which is affine in ¨ q. Collision-avoidance gains (λ , ζ ) are tuned independently from joint-limit gains. All actuator and barrier constraints are finally stacked into 
+
+(Ac, bc) and enforced within the QP at each control step. Feasibility of the QP is therefore a necessary condition for formal safety guarantees. CBF gains, safety margins, and observer gains were tuned empirically per platform, and representative values are given in the open-source implemen-tation 1.
+
+3) External disturbance estimation: To accurately pre-dict the dynamics of the robot (Eq. (1)), we estimate the external disturbance ˆ τext with a generalized-momentum observer (GMO) [26]. This estimate behaves as a first-order filtered signal of external torques (including contacts), torque tracking errors, and other dynamic modeling errors, combined into a single generalized torque vector. When available, force–torque sensors can improve high-frequency estimation [27]. Since GMO requires generalized velocity signals, which are not all measured on floating-base robots, we implement a base velocity estimator based on the Tilt Observer [28]. This complementary filter estimates the IMU tilt and linear velocity with proven global asymptotic convergence, align-ing with our safety-oriented objectives. The Tilt Observer requires gyrometer and accelerometer, together with a rough linear velocity, to prevent drift. As suggested in [28], for legged robots, this signal can be obtained from an anchor point , defined as a point attached to the robot with zero velocity in the world frame. In practice, assuming no contact slippage, the anchor point is computed from the average contact position, weighted to favor contacts better satisfying Coulomb friction assumptions. In our experiment, ground reaction force was not readily available, since the Unitree H1 is not equipped with force sensors. Thus, we used instead the estimated external torque at each knee, assuming it to be proportional to the vertical reaction force. Note that even if this scheme makes the Tilt Observer and GMO mutually dependent, it has the merit of providing an estimate ˆ τext of external disturbances and modeling errors on a floating-base robot using only IMU and joint encoder signals. As a first-order filter, the GMO trades estimation delay against noise rejection; the resulting phase lag during foot-ground impact likely contributes to the residual eτ (Sec. III-B.4) and the joint-velocity violations of Table II. Using this estimate, we can finally compute: 
+
+τQP = M(q) ¨q⋆ + C(q, ˙q) ˙q + g(q) − ˆτext , (16) which is the expression used for torque-limit constraints (Eq. (6)), and as the torque command. 
+
+4) Robustness analysis: Combining Eq. (16) with the true dynamics (1) gives ¨qreal = ¨q⋆ + M(q)−1eτ , eτ := τext − ˆτext . (17) If, for some known disturbance bound ¯δ ≥ 0, 
+
+∥M(q)−1eτ ∥∞ ≤ ¯δ , (18) propagating this disturbance through the relative-degree-one CBF condition of the joint velocity constraint (8) yields, via the comparison lemma, 
+
+hvel (t) ≥ hvel (0)e−λt − ( ¯δ /λ )( 1 − e−λt ). (19) This provides an input-to-state safety [29] guarantee: the velocity-constrained trajectory remains within an O( ¯δ /λ )
+
+neighborhood of the safe set, rather than strictly inside it. An analogous but distinct bound, with a margin scaling as ¯δ /(α1α2), holds for the relative-degree-two position and collision barriers. This is consistent with the nonzero hard-ware violations reported in Table II, compared with zero violations in simulation where eτ ≈ 0. If the QP becomes in-feasible, neither this robustness guarantee nor exact forward invariance applies, and safety instead relies on the fallback mechanisms described in Sec. V. 
+
+C. RL Control Law Principle 
+
+We consider the classical setup in which a reinforcement learning (RL) policy generates joint-space commands for a robot. Most RL policies output an action vector a ∈ Rna ,which is typically interpreted as a desired joint displacement relative to a reference configuration q0 ∈ Rna used during training: 
+
+qRL = q0 + a, (20) where qRL ∈ Rna denotes the commanded joint position. On real robots, position commands are handled by low-level motor controllers, which convert the desired positions into torque (and ultimately current) commands to drive the actuators. These inner loops typically run at a higher frequency than the outer policy. In simulation, this behav-ior is commonly emulated using a joint-level Proportional-Derivative (PD) controller: 
+
+τRL = Kp
+
+ qRL − qa
+
+ − Kd ˙qa. (21) where Kp, Kd ∈ Rna×na are diagonal gain matrices. As a result, the RL policy learns in closed-loop with this con-troller: the policy effectively observes the combined effect of its commands and the PD dynamics, and the two cannot be treated independently. Consequently, the torque actually realized on the robot, whether in simulation or on hardware, corresponds to τRL .
+
+D. Integration of RL with QP Tasks 
+
+As established in the previous subsection, the effective output of the RL policy is not the commanded joint position 
+
+qRL but τRL . Therefore, to reproduce the RL behavior within the QP framework, we must formulate linear acceleration tasks that depend on torque. In this work, we consider two alternatives: a Torque task (TorqueTask), which minimizes the error between the desired torque and the commanded one, and a Forward Dynamics Task (FDTask), which minimizes the difference between the QP-predicted acceleration and the one implied through forward dynamics from the desired torque. Other choices (e.g., force or momentum tasks) could be integrated in the same framework, but are left for future work. The derivation in Section III-C assumes a joint-space PD law, as this is a common formulation in RL training frameworks. However, the proposed integration only requires that the RL policy induce a joint-torque vector. For example, a Cartesian impedance law of the form τRL =
+
+J⊤  Kp(xre f − x) − Kd ˙x , with J the robot Jacobian and 
+
+(xre f , x, ˙x) the task-space position reference, real position and velocity, equally defines a torque command. Such torque-level parameterizations can be incorporated in the QP with-out modification. A comparative study of alternative torque-inducing control laws for RL policies is provided in [30]. 
+
+1) TorqueTask: The TorqueTask enforces the desired joint torques as a linear equality in the QP (Eq. (4)): 
+
+A = M(q), b = τd − D(q, ˙q), (22) where 
+
+D(q, ˙q) = C(q, ˙q) ˙q + g(q) − ˆτext , (23) and τd ∈ Rn is the desired torque (here τRL ). This formu-lation ensures that the QP accelerations ¨ q⋆ reproduce the desired torques via inverse dynamics. 
+
+2) Forward Dynamics Task (FDTask): An alternative is to convert the desired torque into a reference acceleration using forward dynamics: 
+
+A = I, b = M(q)−1 τd − D(q, ˙q), (24) with I the identity matrix. The QP then minimizes the deviation between ¨ q⋆ and this reference acceleration. While straightforward, this formulation requires inversion of M(q),making it more sensitive to modeling errors in the dynamics, as we include the model into the objective in b.IV. E XPERIMENTS 
+
+We evaluate our approach on two different robotic plat-forms. First, on a Kinova Gen3 7-DoF manipulator, we use an off-the-shelf RL policy trained without safety constraints to demonstrate plug-and-play compatibility with standard RL pipelines. On the Unitree H1 humanoid, we consider a locomotion policy trained with a Safe-RL method, enabling comparison between runtime formal filtering and training-time safety enforcement. All experiments are implemented within the control framework mc rtc 2, which serves as the primary interface for both robots. 
+
+A. Manipulator Experiments 
+
+We use the publicly available PPO policy from [31], trained for end-effector reaching on the Kinova Gen3 with-out safety constraints. Acc-CBF-QP enforces manufacturer-specified joint position, velocity, and torque limits, and self-collision avoidance. The policy runs at 100 Hz, generating    
+
+> 2https://jrl.cnrs.fr/mc rtc/ RL
+> Dyn
+> FDTask
+> Dyn
+> TorqueTask
+> Dyn
+> RL
+> QS
+> FDTask
+> QS
+> TorqueTask
+> QS
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> Cartesian deviation  ‖xcontroller  − xRL ‖ [mm]
+> Fig. 2. Behavior preservation under nominal conditions. Boxplots of Cartesian deviation relative to the mean RL trajectory, for RL (gray), FDTask (cyan), and TorqueTask (orange) during dynamic (Dyn) and quasi-static (QS) phases. Boxes show the median and interquartile range; whiskers extend to 1 .5×IQR.
+> Fig. 3. Joint 4 position during OoD execution. RL alone (gray) exceeds the hardware joint limit, triggering a shutdown. Both RL+QP tasks (cyan and orange) strictly respect the joint limit constraints.
+
+qRL commands. Our controller runs at 1 kHz to compute 
+
+τRL , and ensures constraints at the controller frequency. For precise torque tracking and external disturbance estimation, we follow the pipeline described in [9]. 
+
+1) Nominal conditions: The robot alternates between two end-effector targets separated by 200 mm over ten cycles, stopping 5 s at each target. To quantify RL nominal be-havior preservation, we compute the mean Cartesian trajec-tory of RL over all cycles xRL , and evaluate the deviation 
+
+∥xcontroller − xRL ∥ for RL (intrinsic repeatability), FDTask, and TorqueTask during dynamic and quasi-static phases. RL+QP deviations remain of the same order as intrinsic RL repeatability in both phases (Fig. 2). A paired Wilcoxon test on per-cycle RMS deviations detects no significant difference between RL and RL+QP in either phase ( p > 0.12). Non-inferiority tests with a 0.5 mm margin further confirm that RL+QP deviations are statistically bounded within this tol-erance for both tasks and phases, confirming no measurable degradation under nominal, violation-free conditions. 
+
+2) Out-of-distribution scenario: Replacing the training initial configuration q0 with the manufacturer default induces a joint limit violation between joints 3 and 4. The baseline RL policy exceeds joint limits and triggers a hardware safety shutdown, whereas both QP formulations enforce limits and prevent collision (Fig. 3). B. Humanoid Experiments 
+
+We evaluate our framework on a more challenging floating-base system, the 19-DoF Unitree H1 humanoid robot. Unlike the manipulation experiments, where the RL policy was trained without safety awareness, here the policy is trained using PPO with the CaT approach [10]. Therefore, this setting provides a comparison between Safe-RL ap-proaches through CaT and our Acc-CBF-QP runtime safety enforcement. This walking policy controls only the leg joints, while the arm and torso joints remain static. Its observations include the angular velocity and roll–pitch orientation from the IMU, the joint positions and velocities of the legs, the previous actions of the policy, the sine and cosine of a gait phase variable (encoding the walking frequency), and a commanded velocity in x, y, and yaw. The policy was trained to respect joint position and torque limits, as well as ankle collision avoidance. During the experiments, we kept these limits identical in the QP and added joint velocity limits and self-collisions between the other robot bodies. The policy runs at 40 Hz, while the controller runs at 400 Hz. Higher control frequencies than this lead to delays in the Unitree API. Unless otherwise specified, all experiments use a null velocity command. Under this command, the policy exhibits drifting locomotion rather than stationary walking. Performance is therefore assessed using the survival duration defined in Section IV-B.6, rather than velocity tracking accuracy. 
+
+1) Modeling challenges: We observed a mismatch of more than 8 kg between the official URDF file and the real robot mass (over 10% of the total body weight). We empirically improved the dynamic model by adding known masses and checking position tracking with low PD gains, yielding a closer but not perfect model identification. The same model was used for the training and for the QP-based controller. This imperfect model makes the humanoid a particularly challenging test case for RL+QP: model inac-curacies inevitably degrade the consistency of the dynamics. However, by employing the GMO as a disturbance observer to estimate external forces [26], we mitigate much of the effect of model error. 
+
+2) Control setup: The H1 API exposes only a PD in-terface, precluding direct torque commands as used for the Kinova. In RL-only mode, the position reference qRL 
+
+produced by the policy is sent directly to the interface. In RL+QP mode, τQP is converted into an equivalent position command by inverting the PD control law: 
+
+qcmd = qa + K−1 
+
+> p
+
+(τQP + Kd ˙qa), (25) which ensures that, when passed through the robot’s PD controller, the resulting motor torques are exactly τQP (since terms cancel out as in Eq. (21)). 
+
+3) Torque and acceleration error analysis: We run each mode (RL only, RL+QP with TorqueTask, and RL+QP with FDTask) for approximately one minute on both the real robot and in simulation, using the mc mujoco inter-face [32]. We measure the torque error ∥τQP − τRL ∥ and                                     
+
+> TABLE I TORQUE AND ACCELERATION TRACKING ERRORS (MEAN ±STD [MAX ]).
+> RL+QP Tasks ∥τQP −τRL ∥[Nm] ∥M−1(τQP −τRL )∥[rad/s 2]Torque (HW) 2.6±5.0 [39.4] 704 .9±1353 .9 [10381.4]
+> Torque (Sim) 2.1±4.2 [26.7] 546 .1±1094 .7 [6935.7]
+> FD (HW) 12 .4±24 .5 [273.1] 698 .7±1414 .4 [14717.7]
+> FD (Sim) 7.4±15 .2 [122.9] 468 .2±994 .4 [6703.3]
+
+the forward-dynamics acceleration discrepancy ∥M−1(τQP −
+
+τRL )∥, which quantify how strongly the QP modifies the RL command. Under perfect modeling and inactive constraints, TorqueTask should yield zero torque error and FDTask zero acceleration error. Results are summarized in Table I. Large magnitudes reflect the norm of all actuated joints and are dominated by transient spikes during foot-ground impact, where discretized accelerations are large by construc-tion. The results show systematic differences between the two formulations. For torque tracking, the TorqueTask reduces the mean error by 79.0% on hardware and 71.6% in simu-lation relative to the FDTask. Tracking statistics are com-parable between simulation and hardware, indicating lim-ited sensitivity to modeling discrepancies. For acceleration tracking, the FDTask achieves lower mean error in simu-lation (14.3% reduction relative to TorqueTask), consistent with its objective of minimizing forward-dynamics devia-tion. However, this advantage disappears on hardware (0.9% reduction), where model inaccuracies degrade consistency between predicted and realized accelerations. Overall, the TorqueTask exhibits greater robustness to modeling errors, while the FDTask better preserves acceleration consistency when the dynamics model is accurate. When constraints are inactive, both QP task formulations are identical. 
+
+4) Computational cost: On the H1 (19 DoF, 400 Hz, on Intel Core Ultra 7 155H), the full per-cycle pipeline aver-ages 0 .348 ± 0.119 ms (TorqueTask) and 0 .360 ± 0.121 ms (FDTask), both under 15% of the control period. 
+
+5) Constraint violation rates: Next, we evaluate con-straint satisfaction (Tab. II) by measuring the number of con-straint violations across all joints during each experiment. On the real robot, RL alone yields on average 10.04 violations/s, mostly due to torque limits. RL+QP with TorqueTask reduces this to 0.80 violations/s, while RL+QP with FDTask reduces it to 1.32 violations/s. In simulation, violations are already rare (3.14 torque limit violations/s for RL alone), but both QP tasks achieve 0 constraint violations. The only remaining violations on hardware are in joint velocities. 
+
+6) Quantifying Performance and Stability Interference: 
+
+We evaluate whether embedding the learned locomotion policy within the proposed Acc-CBF-QP degrades perfor-mance (Fig. 4). To evaluate walking performance, we use survival duration as a metric, defined as the time until episode termination. All controllers are tested over 200 paired sim-ulation trials with identical randomized initial conditions. Episodes terminate upon: (i) fall (floating-base height below TABLE II CONSTRAINT VIOLATION RATES (VIOLATIONS /S), REAL ROBOT AND 
+
+(SIMULATION ). 
+
+Lim. RL RL+QP (TorqueTask) RL+QP (FDTask) q 0.02 (0.00) 0.00 (0.00) 0.00 (0.00) ˙q 1.05 (0.00) 0.80 (0.00) 1.32 (0.00) 
+
+dcoll 0.00 (0.00) 0.00 (0.00) 0.00 (0.00) 
+
+τ 8.97 (3.14) 0.00 (0.00) 0.00 (0.00) 
+
+Tot. 10.04 (3.14) 0.80 (0.00) 1.32 (0.00) 2.6           
+
+> 2.7
+> 2.8
+> 2.9
+> 3.0
+> 3.1
+> Time to Termination [s]
+> (a) Aggressive Vel. Command
+> 0
+> 10
+> 20
+> 30
+> 40
+> (b) Uneven Terrain Robustness
+> RL-NST RL RL-Sat FD T
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Termination Cause [%]
+> RL-NST RL RL-Sat FD-D T-D FD-RB T-RB
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Controller Type
+> RL
+> RL+QP
+> (FDTask)
+> RL+QP
+> (TorqueTask)
+> Cause
+> Fall
+> Pos. Limit
+> Vel. Limit
+> Collision
+> T ≥ 60 s
+> QP Infeas.
+
+Fig. 4. Performance impact of the Acc-CBF-QP across 200 paired simulation trials per controller. Top: survival duration (time to termina-tion). Bottom: termination causes. Left: aggressive velocity command on flat terrain. Right: uneven terrain robustness. Boxplots show median and interquartile range (whiskers: 1 .5×IQR). Stacked bars report termination categories (fall, joint/velocity limits, collision, timeout); hatched segments indicate QP infeasibility rates for damping (D) and rollback (RB) variants. 
+
+threshold), (ii) 60 s timeout, or (iii) safety violation (self-collision e ≤ 1 mm, joint violation ≥ 1◦, velocity violation 
+
+≥ 5%). Due to hardware risk and sample complexity, all evaluations are conducted in simulation. 
+
+a) Aggressive Velocity Command: We first consider a flat-ground stress test using a policy trained with reduced ankle-ankle collision margins and commanded with high velocity. This regime stresses feasibility and OoD state rather than disturbance rejection. We compare: RL without safety termination (RL-NST), RL with safety checks, RL with torque saturation (RL-Sat), and the RL+QP variants (FDTask, TorqueTask). All the variants share the same learned policy and differ only in how constraints are handled. RL-NST pro-vides an upper-bound reference by terminating only upon fall or timeout, ignoring safety-related violations. RL activates safety termination conditions without modifying the torque output, isolating the effect of constraint monitoring alone. RL-Sat additionally enforces actuator torque limits via output saturation, representing the hardware-feasible deployment baseline. RL frequently violates joint limits (84%) and collision constraints (16%), yielding a median survival of 2.59 s. Torque saturation alone does not alter this behavior. Both QP variants eliminate constraint violations entirely and increase median survival to 2.96 s (FDTask) and 3.10 s (TorqueTask), corresponding to ∼20% improvement. Paired Wilcoxon tests confirm significant gains over RL-Sat ( p < 0.001). All termi-nations result from falls, indicating that the QP layer converts unsafe violations into physically admissible failures without degrading task execution. Notably, RL-NST achieves survival comparable to QP-based controllers while allowing unsafe constraint violations. In contrast, the QP layer restores com-parable survival while guaranteeing constraint satisfaction, demonstrating that safety can be enforced without sacrificing nominal task performance. 
+
+b) Uneven Terrain Robustness: We next evaluate the hardware-deployed walking policy on procedurally generated uneven terrain composed of randomly rotated embedded boxes. The policy was trained for rough terrain, but not this configuration. RL-Sat serves as a baseline to ensure identical torque limits. Unlike previous experiments, QP infeasibility occurred only in this non-planar environment, enabling a comparative evaluation of recovery strategies. Under severe perturbations, QP infeasibility may arise when multiple constraints are mutually conflicting. We evaluate two recovery strategies: (i) switching to damping mode ( τcmd = −Kd ˙qa) with saturated torque, until feasibility is restored (FD-D, T-D), and (ii) temporarily reverting to RL-Sat (rollback, FD-RB, T-RB). TorqueTask variants exhibit lower infeasibility rates ( ≈5%) than FDTask variants ( ≈11%). Rollback marginally increases empirical survival and is the only configuration reaching timeouts, but these differences remain small relative to overall survival times. Median survival times remain comparable across all con-trollers (10–11 s). The raw RL policy predominantly ter-minates due to joint violations (79%), whereas QP-based controllers substantially reduce constraint violations and shift failures toward physically plausible falls (42–53%). Across all paired comparisons between FD, Torque, damp-ing (-D), and rollback (-RB) variants, Wilcoxon signed-rank tests detect no statistically significant differences in survival duration in any comparison (all p > 0.08). Median paired differences remain below 0.35 s (less than 3% of nominal sur-vival), with negligible standardized effect sizes ( |dz| < 0.06). Moreover, 95% confidence intervals of the paired differences lie entirely within a conservative ±2 s tolerance band ( ≈
+
+20% of nominal survival), indicating absence of practically meaningful degradation. Thus, the choice of QP formulation or infeasibility handling strategy does not materially affect stability performance on this uneven terrain scenario. V. L IMITATIONS & F UTURE WORK 
+
+Despite its practical effectiveness, the proposed framework raises several directions for further investigation. First, we benchmark only against a CaT-based Safe-RL baseline; broader comparison with methods such as CPO, or integrating Acc-CBF-QP during training, would clarify training-time/runtime complementarity. However, embedding it early may overly restrict exploration, while embedding it late may have limited effect once CaT already suppresses most violations—left for future work. Second, Sec. III-B.4 bounds safety deviation under bounded disturbance but not closed-loop stability; we ob-serve no instability empirically, but a formal stability charac-terization of projected RL-controlled systems remains open. Finally, we handle QP infeasibility pragmatically (damp-ing or torque-saturated rollback), sacrificing formal for sta-tistical guarantees; slack variables, augmented Lagrangian methods, or hierarchical QP prioritizing critical constraints (position, collision) over secondary ones (torque, velocity) are more principled directions, left for future work. VI. C ONCLUSION 
+
+We introduced Acc-CBF-QP, an open-source runtime safety filter that wraps arbitrary RL policies and enforces position, velocity, torque, and collision constraints at every control cycle, without retraining, via two RL-compatible QP task formulations (TorqueTask, FDTask). Experiments on a 7-DoF manipulator and a 19-DoF humanoid show substantial reductions in constraint violations, no measurable degradation in nominal performance, and longer survival under aggressive commands than a torque-saturated RL base-line. Overall, Acc-CBF-QP provides a practical and scalable mechanism to bridge the flexibility of RL with the strict safety requirements of real-world robotic systems. ACKNOWLEDGMENTS 
+
+This paper is based on results obtained from the BRIDGE Program (R7-H05), implemented by the Cabinet Office, Government of Japan. REFERENCES [1] W. Zhao, T. He, R. Chen, T. Wei, and C. Liu, “State-wise safe reinforcement learning: a survey,” in Proceedings of the Thirty-Second International Joint Conf. on Artificial Intelligence , IJCAI ’23, 2023. [2] E. Altman, Constrained Markov decision processes . Routledge, 2021. [3] W. Hung, S.-H. Sun, and P.-C. Hsieh, “Efficient action-constrained re-inforcement learning via acceptance-rejection method and augmented MDPs,” in The Thirteenth International Conf. on Learning Represen-tations , 2025. [4] A. D. Ames, S. Coogan, M. Egerstedt, G. Notomista, K. Sreenath, and P. Tabuada, “Control barrier functions: Theory and applications,” in 2019 18th European Control Conf. (ECC) , pp. 3420–3431, 2019. [5] Y. Emam, G. Notomista, P. Glotfelter, Z. Kira, and M. Egerstedt, “Safe reinforcement learning using robust control barrier functions,” IEEE Robotics and Automation Letters , vol. 10, no. 3, pp. 2886–2893, 2025. [6] Z. Chen, Z. Zhao, T. He, B. Chen, X. Zhao, L. Gong, and C. Liu, “Safe reinforcement learning via hierarchical adaptive chance-constraint safeguards,” in 2024 IEEE/RSJ International Conf. on Intelligent Robots and Systems (IROS) , pp. 12378–12385, 2024. [7] J. Terven, “Deep reinforcement learning: A chronological overview and methods,” AI , vol. 6, no. 3, 2025. [8] M. Charbonneau, V. Modugno, F. Nori, G. Oriolo, D. Pucci, and S. Ivaldi, “Learning robust task priorities of qp-based whole-body torque-controllers,” in 2018 IEEE-RAS 18th International Conf. on Humanoid Robots (Humanoids) , pp. 1–9, 2018. [9] B. Muraccioli, M. Celerier, M. Benallegue, and G. Venture, “Demon-strating a Control Framework for Physical Human-Robot Interaction Toward Industrial Applications,” in Proceedings of Robotics: Science and Systems , (LosAngeles, CA, USA), June 2025. [10] E. Chane-Sane, P.-A. Leziart, T. Flayols, O. Stasse, P. Sou` eres, and N. Mansard, “Cat: Constraints as terminations for legged locomotion reinforcement learning,” in 2024 IEEE/RSJ International Conf. on Intelligent Robots and Systems (IROS) , pp. 13303–13310, IEEE, 2024. [11] J. Achiam, D. Held, A. Tamar, and P. Abbeel, “Constrained policy optimization,” in Proceedings of the 34th International Conf. on Machine Learning (D. Precup and Y. W. Teh, eds.), vol. 70 of 
+
+Proceedings of Machine Learning Research , pp. 22–31, PMLR, 06–11 Aug 2017. [12] M. Zanon and S. Gros, Reinforcement Learning with Guarantees ,pp. 191–224. Cham: Springer Nature Switzerland, 2025. [13] G. Torre, O. Y. Nieto, A. A. Simoes, J. I. Giribet, and L. J. Colombo, “Learning cost functions for reinforced learned controllers in a quadrupedal robot,” IFAC-PapersOnLine , vol. 58, no. 6, pp. 42–47, 2024. 8th IFAC Workshop on Lagrangian and Hamiltonian Methods for Nonlinear Control LHMNC 2024. [14] P. Liu, H. Bou Ammar, J. Peters, and D. Tateo, “Safe reinforcement learning on the constraint manifold: Theory and applications,” IEEE Transactions on Robotics , vol. PP, pp. 1–20, 01 2025. [15] K. Ohnishi, M. Shibata, and T. Murakami, “Motion control for advanced mechatronics,” IEEE/ASME Transactions on Mechatronics ,vol. 1, no. 1, pp. 56–67, 1996. [16] K. P. Wabersich and M. N. Zeilinger, “A predictive safety filter for learning-based control of constrained nonlinear dynamical systems,” 2021. [17] J. Choi, F. Casta˜ neda, C. J. Tomlin, and K. Sreenath, “Reinforcement learning for safety-critical control under model uncertainty, using con-trol lyapunov functions and control barrier functions,” in Proceedings of Robotics: Science and Systems (RSS) , 2020. [18] L. Yang, B. Werner, R. K. Cosner, D. Fridovich-Keil, P. Culbertson, and A. D. Ames, “Shield: Safety on humanoids via cbfs in expectation on learned dynamics,” in 2025 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) , pp. 203–210, 2025. [19] L. Sentis and O. Khatib, “Control of free-floating humanoid robots through task prioritization,” in Proceedings of the 2005 IEEE Inter-national Conf. on Robotics and Automation , pp. 1718–1723, IEEE, 2005. [20] K. Bouyarmane, K. Chappellet, J. Vaillant, and A. Kheddar, “Quadratic programming for multirobot and task-space force control,” IEEE Transactions on Robotics , vol. 35, no. 1, pp. 64–77, 2018. [21] R. Cisneros, M. Benallegue, A. Benallegue, M. Morisawa, H. Audren, P. Gergondet, A. Escande, A. Kheddar, and F. Kanehiro, “Robust humanoid control using a qp solver with integral gains,” in IEEE/RSJ IROS , IEEE, 2018. [22] Q. Nguyen and K. Sreenath, “Exponential control barrier functions for enforcing high relative-degree safety-critical constraints,” in 2016 American Control Conf. (ACC) , pp. 322–328, 2016. [23] R. Grandia, A. J. Taylor, A. D. Ames, and M. Hutter, “Multi-layered safety for legged robots via control barrier functions and model predictive control,” in 2021 IEEE International Conf. on Robotics and Automation (ICRA) , pp. 8352–8358, 2021. [24] F. Kanehiro, M. Morisawa, W. Suleiman, K. Kaneko, and E. Yoshida, “Integrating geometric constraints into reactive leg motion generation,” in 2010 IEEE/RSJ International Conf. on Intelligent Robots and Systems , pp. 4069–4076, 2010. [25] J. Vaillant, A. Kheddar, H. Audren, F. Keith, S. Brossette, A. Escande, K. Bouyarmane, K. Kaneko, M. Morisawa, P. Gergondet, et al. ,“Multi-contact vertical ladder climbing with an hrp-2 humanoid,” 
+
+Autonomous Robots , 2016. [26] A. De Luca, A. Albu-Schaffer, S. Haddadin, and G. Hirzinger, “Colli-sion detection and safe reaction with the dlr-iii lightweight manipulator arm,” in IEEE/RSJ IROS , IEEE, 2006. [27] M. Celerier, B. Muraccioli, M. Benallegue, Y. Hu, R. C. Lim´ on, H. Kaminaga, and G. Venture, “Explicit compliance and safety on torque controlled robots for physical interaction.”. [28] M. Benallegue, A. Benallegue, and Y. Chitour, “Tilt estimator for 3d non-rigid pendulum based on a tri-axial accelerometer and gyrometer,” in 2017 IEEE-RAS 17th International Conf. on Humanoid Robotics (Humanoids) , pp. 830–835, 2017. [29] S. Kolathaya and A. D. Ames, “Input-to-state safety with control barrier functions,” IEEE Control Systems Letters , vol. 3, no. 1, pp. 108–113, 2019. [30] Y. Narang, K. Storey, I. Akinola, M. Macklin, P. Reist, L. Wawrzyniak, Y. Guo, A. Moravanszky, G. State, M. Lu, A. Handa, and D. Fox, “Factory: Fast contact for robotic assembly,” 06 2022. [31] L. Le Lay, “Kinova gen3 rl & sim2real toolkit,” July 2025. [32] R. P. Singh, P. Gergondet, and F. Kanehiro, “Mc-mujoco: Simulating articulated robots with fsm controllers in mujoco,” in 2023 IEEE/SICE International Symposium on System Integration (SII) , pp. 1–5, 2023.

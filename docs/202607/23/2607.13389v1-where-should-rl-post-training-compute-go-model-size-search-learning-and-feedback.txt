@@ -1,0 +1,408 @@
+Title: Where Should RL Post-Training Compute Go? Model Size, Search, Learning, and Feedback
+
+URL Source: https://arxiv.org/pdf/2607.13389v1
+
+Published Time: Thu, 16 Jul 2026 00:39:49 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Where Should RL Post-Training Compute Go? Model Size, Search, Learning, and Feedback 
+
+Patrick Wilhelm 
+
+BIFOLD Technische Universit¨ at Berlin Germany 
+
+patrick.wilhelm@tu-berlin.de 
+
+Odej Kao 
+
+BIFOLD Technische Universit¨ at Berlin Germany 
+
+Abstract: Reinforcement Learning (RL) post-training is increasingly used to adapt foundation models for reasoning, planning, and feedback-driven robot-learning pipelines, but constrained post-training resources are often summarized by a single total FLOP budget. We study the fixed-budget decision problem behind this practice: under the same post-training budget, should one use a larger policy, train a smaller policy longer, generate more rollout search, or spend compute on stronger reward feedback? We introduce a FLOP-accounting framework for GRPO post-training that decomposes compute into rollout/search, policy-update/learning, and reward- or feedback-model evaluation. Across LoRA-adapted Qwen2.5 policies, we find conditional allocation frontiers: the best ob-served allocation changes with model size, compute budget, reward system, and evaluation target. Same-FLOP model-size comparisons show that model choice and training allocation are coupled because larger policies consume more per-token compute and therefore buy fewer updates or rollouts under the same bud-get. Reward systems also change the accounting: rule-based rewards spend nearly all non-update compute on policy rollouts, while PRM-style feedback allocates a visible part of the budget to reward-model inference. We present RACE as a di-agnostic pilot-grid protocol, not a guarantee of held-out improvement, for identi-fying allocation regimes before expensive validation runs; our results suggest that RL post-training papers should report total FLOPs together with how compute is divided among model size, search, learning, and feedback. 
+
+Keywords: reinforcement learning, compute allocation, foundation models 
+
+# 1 Introduction 
+
+Robot-learning systems increasingly use foundation models for language-conditioned planning, feedback generation, reward modeling, high-level reasoning, and vision-language-action policies [1, 2, 3, 4, 5, 6, 7]. Improving these components often requires reinforcement learning (RL) post-training, but current scaling analyses usually summarize its cost by total FLOPs. We study the compute-allocation problem behind RL post-training of reasoning and feedback modules for robot-learning systems. That problem asks a central systems question: under a fixed post-training budget, should compute be spent on a larger policy, a smaller policy trained longer, more rollout search, more policy updates, or more expensive reward feedback? This question is different from pretraining scaling. Pretraining primarily allocates compute between parameters and data [8, 9]; RL post-training also generates trajectories, scores them, and updates a policy. Two runs with the same total compute can therefore behave differently if one spends compute on diverse rollouts while another spends it on repeated updates from fewer trajectories. At the same time, larger policies consume more per-token compute, so the same FLOP budget buys fewer rollouts and fewer update steps. The issue becomes more pronounced when feedback comes arXiv:2607.13389v1 [cs.LG] 15 Jul 2026 from learned verifiers or process reward models, whose inference cost competes with policy rollout and update compute. This makes total-compute reporting under-specified. A run described only as spending X post-training FLOPs leaves three mechanistically different questions unanswered: how much of X gen-erated rollouts, how much updated the policy, and how much evaluated rewards or feedback models? These quantities are not bookkeeping details. Different reward systems can appear comparable un-der total compute while using different mechanisms; PRM-based training, for example, spends part of the budget on an additional model. If that cost is ignored, the apparent policy-update allocation can be misleading. We study this fixed-budget allocation problem in GRPO post-training of LoRA-adapted language-model policies on mathematical reasoning tasks. These are not embodied-control experiments; rather, they isolate a compute-allocation problem for foundation-model components increasingly used inside robot-learning pipelines. As robot-learning systems increasingly use foundation models for planning, feedback, and reward modeling, RL post-training compute must be allocated not only between rollouts and updates, but also across learned feedback mechanisms. The controlled set-ting lets us compare reward systems, model sizes, and downstream evaluation targets under explicit FLOP accounting. This positioning matters for robot learning because the cost of improving a reasoning or feedback module is often paid before deployment, while the resulting module may be reused across tasks, embodiments, or evaluation loops. Compute-constrained robot-learning settings often need to decide whether to use a larger model, a smaller model trained longer, more rollout search, or a stronger feedback model. A post-training recipe that spends most compute on reward-model inference can be preferable under one target and wasteful under another; likewise, a recipe that maximizes native training reward may not maximize final-answer transfer. We therefore treat allocation itself as the object of study, rather than treating RL post-training compute as an undifferentiated scalar. Our thesis is that fixed-budget RL post-training is a constrained resource-allocation problem over model size, rollout/search, policy updates, and reward/feedback evaluation. The resulting condi-tional allocation frontier depends on model size, compute budget, reward system, and evaluation target. We make exactly four contributions: • We define FLOP accounting for fixed-budget RL post-training across model size, roll-out/search, policy-update/learning, and reward-evaluation compute. • We provide same-FLOP model-size comparisons showing that model choice and training allocation are coupled. • We show reward and evaluation-target dependence: native reward, pass@1 symbolic accu-racy, and common-judge process scores can select different best observed allocations. • We introduce RACE, a diagnostic pilot-grid protocol for identifying allocation regimes before expensive validation runs. The empirical message is intentionally not that one recipe beats all baselines by a large downstream margin. Instead, we show that the answer to “where should compute go?” depends on what is being measured. Model size changes allocation behavior, reward design changes native-reward allocation, and evaluation targets can disagree about the selected frontier. 
+
+# 2 Related Work 
+
+Scaling laws established that model quality depends predictably on model size, data, and compute, and that compute-efficient training requires balancing scaling axes rather than maximizing one of them [8, 9]. Recent RL post-training scaling work extends this perspective to preference optimiza-tion and mathematical reasoning, showing that RL performance can improve systematically with additional compute [10, 11]. Our focus is orthogonal: instead of varying total RL compute, we hold compute approximately fixed and study where it should be spent. 2Test-time reasoning methods such as chain-of-thought prompting, self-consistency, and tree search show that additional inference compute can improve reasoning quality [12, 13, 14]. Related robotics work uses language models as planners, program generators, and embodied reasoning modules [15, 16, 2]. RL post-training couples this search process to policy learning: sampled rollouts explore candidate reasoning traces, and gradient updates convert feedback into parameter changes. This makes rollout count, rollout length, update steps, and trainable parameter count part of one allocation problem. Reward quality is also a scaling axis. Sparse outcome rewards are cheap but weak; dense rule-based rewards provide more frequent signal; process reward models and learned verifiers can score intermediate reasoning but add inference cost [17, 18, 19, 20]. Robot-learning pipelines face the same trade-off when learned critics, reward models, or evaluators are used to supervise foundation-model components. We explicitly account for this reward-evaluation compute and test whether reward systems shift the best observed allocation frontier. 
+
+# 3 Method: Conditional Compute Allocation 
+
+We model a post-training run as the sum of three compute terms: 
+
+Ctotal = Csearch + Clearning + Creward . (1) Here Csearch is autoregressive rollout generation, Clearning is policy optimization, and Creward is reward or verifier inference. We estimate these terms using parameter–token FLOP accounting and log the realized token counts for every run. For LoRA training, update compute uses an effective update fraction that accounts for both trainable adapter parameters and frozen-backbone forward/activation costs; details are in Appendix B. The decomposition is deliberately operational. Rollout FLOPs increase with the number and length of sampled completions; learning FLOPs increase with update steps, trainable rank, and the effective backward cost; reward FLOPs are negligible for rule-based rewards but substantial for PRM-based feedback. This makes two runs with comparable total FLOPs meaningfully different if they allocate those FLOPs to different channels. The accounting also exposes when comparisons are mechanistically unfair. A rule-based reward run spends almost all non-update compute on policy rollouts, whereas a learned-feedback run may spend a substantial fraction on reward-model inference. Both can have the same Ctotal , but one budget buys exploration and the other buys feedback. Our goal is to make this trade-off visible. Our main allocation variable is the total-budget update fraction 
+
+ρ = Clearning 
+
+Csearch + Clearning + Creward 
+
+. (2) Small ρ is search- or reward-heavy; large ρ is update-heavy. We use “best observed ρ” throughout because the experiments estimate conditional frontiers rather than proving globally best allocations. 
+
+RACE diagnostic. Reward-Aware Compute Allocation (RACE) is a diagnostic protocol for mea-suring this frontier under limited pilot budgets. For each model, reward system, and compute band, RACE runs a small IsoFLOP pilot grid, estimates the local reward–allocation response, and selects validation allocations near the best observed or fitted regime. If the fit is unstable or boundary-dominated, RACE falls back to pilot-best regime selection. We evaluate RACE as a diagnostic: it should recover useful allocation regimes and identify when pooled rules fail, but it is not claimed to guarantee held-out reward improvement. This distinction is important. RACE is not a search algorithm over all possible post-training recipes; it is a measurement protocol for asking whether a local compute band is search-heavy, update-heavy, or reward-compute-heavy. Its output is a regime hypothesis that can guide validation, not a proof that a selected run will dominate all alternatives. 34 Experimental Design 
+
+All experiments use GRPO with LoRA-adapted Qwen2.5 instruction-tuned policies on Polaris-53K mathematical reasoning. We fix K = 2 sampled completions and maximum completion length 
+
+L = 2048 unless stated otherwise, and vary update steps, LoRA rank, model size, and reward system to sweep ρ inside approximate IsoFLOP bands. 
+
+Stages. Stage A studies model-aware search–learning allocation across 1.5B, 3B, and 7B poli-cies. Stage B fixes the 3B policy and compares sparse, structured, dense, and proxy-PRM rewards. Stage D replaces proxy supervision with a real process reward model, Qwen2.5-Math-PRM-7B. Exploratory verifier-capacity runs are treated as secondary diagnostics and are not part of the main evidence. The reward systems are chosen to span a practical feedback spectrum. Sparse rewards score only final-answer correctness; structured rewards add formatting and answer-shape constraints; dense rewards add bounded partial credit; proxy PRM rewards approximate process supervision with an inexpensive proxy signal; real PRM rewards use a dedicated 7B process reward model. This ordering increases feedback richness but also changes reward-evaluation cost, which is why reward compute must enter the allocation denominator. 
+
+Metrics. We report native training reward, min–max normalized reward for cross-reward compar-isons, and common final-answer accuracy. For downstream validation, we evaluate saved adapters on GSM8K and MATH-500 using exact final-answer accuracy, symbolic equivalence accuracy, pass@1, and a smaller pass@3 setting when available. We use downstream metrics to test whether reward-conditioned frontiers transfer beyond the training reward. The downstream evaluation is intentionally separated from native reward selection. Native reward answers whether a reward system prefers a particular allocation under its own feedback signal. Downstream final-answer accuracy asks whether that preference transfers to held-out reasoning benchmarks. The common judge asks a third question: whether a shared process-quality evalua-tor prefers the same frontier. Disagreement across these targets is informative rather than a failure mode. 
+
+# 5 Results 
+
+RQ1: Does fixed-budget RL post-training have structured allocation behavior? Stage A shows a structured allocation plane under matched post-training budgets. Search-heavy settings un-deruse the available learning capacity, while update-heavy settings can become exploration-limited. The resulting frontier is visible only when rollout, update, and reward-evaluation FLOPs are sepa-rated rather than collapsed into one aggregate budget. Figure 1 visualizes this directly: runs with comparable total FLOPs occupy different locations in the search–learning plane, and their reward varies with that location. The important observation is not a single best point, but the existence of a measurable response surface. This is the allocation analogue of a scaling curve: the independent variable is not more compute, but how a fixed budget is divided. 
+
+RQ2: Are allocation frontiers model- and reward-conditioned? Pooling across model sizes obscures the allocation response: under the same FLOP budget, a larger policy consumes more compute per token, so the budget buys fewer rollouts and fewer update steps. Figure 2 makes this fixed-resource trade-off explicit: model choice and training allocation are coupled, rather than separable decisions. Reward design also shifts the frontier. In Stage B/D, sparse, structured, and dense rule-based rewards often select high-update regimes around ρ ≈ 0.72 , while proxy and real PRM objectives shift the native-reward frontier toward lower update fractions around ρ ≈ 0.44 –0.45 
+
+in the matched 3B setting once reward-model compute is counted. We do not interpret this as a fixed rule for PRMs; the PRM frontier is itself model-size and target dependent. 410 16 
+
+Rollout/search FLOPs    
+
+> 10 14
+> 10 15
+> 10 16
+> Policy-update/learning FLOPs
+> 2.6e+15 4.5e+15
+> 1.8e+16
+> Policy
+> 1.5B 3B 7B
+> 5.6
+> 5.8
+> 6.0
+> 6.2
+> 6.4
+> 6.6
+> 6.8
+> total reward mean
+
+Figure 1: Search–learning allocation plane. Under a fixed RL post-training budget, runs differ in how much compute is spent on rollout search, policy updates, and reward evaluation. The best observed allocation is a point on this conditional resource-allocation plane, not a function of total compute alone. This result is the main empirical reason to avoid pooled allocation prescriptions. A smaller policy trained longer, a larger policy trained for fewer steps, a cheap rule-based reward, and an expensive learned feedback model can all consume the same total budget while needing different trade-offs between search and learning. In this sense, model size and reward design are both part of the scaling problem: they change both the signal being optimized and the compute path used to obtain that signal. The PRM result should be read through this accounting lens. The lower native-reward update frac-tion is not evidence that PRMs intrinsically require less learning. It reflects that learned feedback consumes part of the fixed budget, so the same total-compute number corresponds to a different mixture of rollout, update, and reward-evaluation work. 
+
+RQ3: Do downstream evaluation targets select different allocations? We evaluate saved adapters on GSM8K and MATH-500 using 250 examples per dataset. Downstream pass@1 sym-bolic accuracy often favors the high-update a180 setting; the real-PRM a180 run has the best listed average pass@1 accuracy, approximately 0.714 across GSM8K and MATH-500. By contrast, the partial common-judge evaluation often favors the mid-update a100 setting. The preferred allocation therefore depends on the evaluation target: native reward, downstream final-answer accuracy, and process-quality scores can select different frontiers. Table 1 makes the target dependence explicit. Native reward separates rule-based and PRM-style feedback into different allocation regimes. Pass@1 accuracy, however, often favors the high-update a180 setting across reward systems. The common judge, where available, instead peaks at a100 for dense, proxy PRM, and real PRM. This does not make one metric more valid than the others; it shows that allocation decisions must name the target they are intended to optimize. 51.5 3.0 7.0 
+
+Policy size (B parameters) 
+
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> gsm8k accuracy
+
+Best observed downstream score   
+
+> Budget band
+> log10C=16.04
+> log10C=16.26
+> log10C=16.38
+> 1.5 3.0 7.0
+
+Policy size (B parameters) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> 140
+> Selected policy-update steps
+> ρ=0.21
+> ρ=0.18
+> ρ=0.08
+> ρ=0.05
+> ρ=0.10
+> ρ=0.11
+> ρ=0.09
+> ρ=0.01
+> ρ=0.08
+
+How much training the budget buys Figure 2: Same-FLOP model-size trade-off. Under matched pilot budgets, changing policy size changes how much training the budget buys. Larger policies consume more per-token compute, so the same FLOP budget can imply fewer rollout tokens and fewer update steps; the best observed downstream run therefore depends jointly on model size and allocation. Sparse 
+
+Structured 
+
+Dense 
+
+Proxy PRM 
+
+Real PRM 
+
+0.4 
+
+0.5 
+
+0.6 
+
+0.7 
+
+0.8 
+
+> Best observed native-reward  ρ
+
+high-update regime 
+
+lower-update PRM region 
+
+C1p1e16 
+
+C1p8e16 
+
+C2p4e16 
+
+Figure 3: Feedback cost changes allocation. For best observed native-reward runs in the matched 3B setting, rule-based rewards spend the budget on policy rollout and update, while PRM-style feedback allocates a visible fraction to reward-model evaluation. This is the mechanism hidden by reporting only total FLOPs. 6Table 1: Downstream target dependence under the matched 3B setting. Pass@1 is symbolic-equivalence accuracy averaged over GSM8K and MATH-500 with 250 examples per dataset. Com-mon judge is a shared process-quality score evaluated for dense and PRM-style rewards. Native ρ
+
+reports the best observed native-reward allocation in the matched Stage B/D grid. 
+
+Reward Native ρ Pass@1 best Judge a40 Judge a100 Judge a180 Sparse 0.719 a180: 0.708 – – –Structured 0.720 a40/a180: 0.698 – – –Dense 0.719 a180: 0.702 0.757 0.780 0.759 Proxy PRM 0.448–0.452 a180: 0.708 0.746 0.767 0.749 Real PRM 0.440–0.444 a180: 0.714 0.743 0.761 0.746 a40 a100 a180   
+
+> Allocation setting
+> 0.66
+> 0.67
+> 0.68
+> 0.69
+> 0.70
+> 0.71
+> 0.72
+> Accuracy
+> Pass@1 symbolic accuracy
+> Sparse
+> Structured
+> Dense
+> Proxy PRM
+> Real PRM
+> a40 a100 a180
+> Allocation setting
+> 0.73
+> 0.74
+> 0.75
+> 0.76
+> 0.77
+> 0.78
+> 0.79
+> Score
+> Common judge score
+> Dense
+> Proxy PRM
+> Real PRM
+
+Figure 4: Evaluation target changes allocation. Native reward, downstream pass@1 symbolic accuracy, and common process-quality scoring can select different allocation regimes. The answer to “where should compute go?” therefore depends on the target being measured. 
+
+RQ4: Can RACE diagnose allocation regimes from small pilot grids? RACE recovers the correct high- versus lower-update regime in inside-grid and leave-rank-out validation, with same-regime rates of 1.0 in both settings. However, reward regret is nonzero, and true held-out validation does not improve the global native-reward baseline. We therefore present RACE as a diagnostic protocol for selecting allocation regimes and prioritizing validation runs, not as a method that guar-antees held-out improvement. The mixed held-out behavior is useful for the paper’s claim. It suggests that small pilot grids can identify whether a setting belongs to a high-update or lower-update regime, but local curve fits are not sufficient to certify a globally better recipe. For practical RL post-training, this means RACE should be used to reduce the number of expensive validation runs and to expose conditional structure, while final claims should still be based on held-out downstream evaluation. 
+
+# 6 Conclusion 
+
+RL post-training under a fixed budget is not characterized by total compute alone. Across model sizes and reward systems, we observe conditional allocation frontiers: the best observed update/search/reward-compute balance depends on model size, reward design, and evaluation tar-get. This suggests that practical post-training recipes for foundation models, including components used in robot-learning pipelines, should report and tune compute allocation rather than only aggre-gate FLOPs. 7In practice, the framework helps decide whether limited post-training compute should be spent on a larger policy, more updates to a smaller policy, more rollout search, or more expensive feedback. This is the resource-allocation problem faced by RL post-training pipelines: the same FLOP budget can buy different mixtures of model capacity, sampled experience, gradient updates, and reward-model inference. For robot-learning systems that use foundation models as planners, feedback interpreters, reward models, or evaluators, this has a concrete implication: improving a module by RL post-training is itself a resource-allocation problem. Reporting the total post-training budget without its rollout, update, and feedback decomposition can hide why a recipe transfers, fails, or changes behavior under a different evaluation target. We therefore recommend reporting allocation-aware compute: total FLOPs together with rollout FLOPs, update FLOPs, reward-evaluation FLOPs, and the resulting update fraction ρ.
+
+# 7 Limitations 
+
+Our experiments use mathematical reasoning as a controlled proxy for foundation-model post-training rather than direct embodied robot tasks. The results should therefore be interpreted as evidence about RL post-training of reasoning and feedback components used in robot-learning pipelines, not as a claim about embodied policy learning. We use one model family, GRPO, LoRA adaptation, and limited seeds. FLOP estimates are designed for consistent relative comparisons and do not model all hardware effects. RACE is a regime-selection diagnostic: it identifies useful allocation regions but does not guarantee reward improvement in held-out runs. Exploratory judge-compute experiments are not part of the main evidence. We do not claim a fixed best ρ or a general post-training law across tasks, models, and feedback systems. 8References 
+
+[1] M. Ahn, A. Brohan, N. Brown, Y. Chebotar, O. Cortes, B. David, C. Finn, C. Fu, K. Gopalakr-ishnan, K. Hausman, et al. Do as i can, not as i say: Grounding language in robotic affordances. 
+
+arXiv preprint arXiv:2204.01691 , 2022. [2] W. Huang, F. Xia, T. Xiao, H. Chan, J. Liang, P. Florence, A. Zeng, J. Tompson, I. Mordatch, Y. Chebotar, et al. Inner monologue: Embodied reasoning through planning with language models. In Proceedings of The 6th Conference on Robot Learning , pages 1769–1782, 2023. [3] D. Driess, F. Xia, M. S. M. Sajjadi, C. Lynch, A. Chowdhery, B. Ichter, A. Wahid, J. Tompson, Q. Vuong, T. Yu, et al. Palm-e: An embodied multimodal language model. arXiv preprint arXiv:2303.03378 , 2023. [4] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Haus-man, A. Herzog, J. Hsu, et al. Rt-1: Robotics transformer for real-world control at scale. arXiv preprint arXiv:2212.06817 , 2022. [5] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, X. Chen, K. Choromanski, T. Ding, D. Driess, A. Dubey, C. Finn, et al. Rt-2: Vision-language-action models transfer web knowledge to robotic control. In Proceedings of The 7th Conference on Robot Learning , 2023. [6] Open X-Embodiment Collaboration. Open x-embodiment: Robotic learning datasets and rt-x models. In IEEE International Conference on Robotics and Automation , 2024. [7] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. Foster, G. Lam, P. Sanketi, et al. Openvla: An open-source vision-language-action model. arXiv preprint arXiv:2406.09246 , 2024. [8] J. Kaplan, S. McCandlish, T. Henighan, T. B. Brown, B. Chess, R. Child, S. Gray, A. Rad-ford, J. Wu, and D. Amodei. Scaling laws for neural language models. arXiv preprint arXiv:2001.08361 , 2020. [9] J. Hoffmann, S. Borgeaud, A. Mensch, E. Buchatskaya, T. Cai, E. Rutherford, D. d. L. Casas, L. A. Hendricks, J. Welbl, A. Clark, et al. Training compute-optimal large language models. 
+
+arXiv preprint arXiv:2203.15556 , 2022. [10] D. Khatri, L. Madaan, R. Tiwari, R. Bansal, S. S. Duvvuri, M. Zaheer, I. S. Dhillon, D. Brand-fonbrener, and R. Agarwal. The art of scaling reinforcement learning compute for llms. arXiv preprint arXiv:2510.13786 , 2025. [11] Z. Tan et al. Scaling behaviors of llm reinforcement learning post-training: An empirical study in mathematical reasoning. arXiv preprint arXiv:2509.25300 , 2025. [12] J. Wei, X. Wang, D. Schuurmans, M. Bosma, B. Ichter, F. Xia, E. Chi, Q. V. Le, and D. Zhou. Chain-of-thought prompting elicits reasoning in large language models. In Advances in Neural Information Processing Systems , 2022. [13] X. Wang, J. Wei, D. Schuurmans, Q. V. Le, E. H. Chi, and D. Zhou. Self-consistency improves chain of thought reasoning in language models. In International Conference on Learning Representations , 2023. [14] S. Yao, D. Yu, J. Zhao, I. Shafran, T. L. Griffiths, Y. Cao, and K. Narasimhan. Tree of thoughts: Deliberate problem solving with large language models. arXiv preprint arXiv:2305.10601 ,2023. [15] W. Huang, P. Abbeel, D. Pathak, and I. Mordatch. Language models as zero-shot planners: Extracting actionable knowledge for embodied agents. In Proceedings of the 39th International Conference on Machine Learning , pages 9118–9147, 2022. 9[16] J. Liang, W. Huang, F. Xia, P. Xu, K. Hausman, B. Ichter, P. Florence, and A. Zeng. Code as policies: Language model programs for embodied control. arXiv preprint arXiv:2209.07753 ,2023. [17] P. F. Christiano, J. Leike, T. B. Brown, M. Martic, S. Legg, and D. Amodei. Deep reinforcement learning from human preferences. In Advances in Neural Information Processing Systems ,2017. [18] L. Ouyang, J. Wu, X. Jiang, D. Almeida, C. Wainwright, P. Mishkin, C. Zhang, S. Agarwal, K. Slama, A. Ray, et al. Training language models to follow instructions with human feedback. In Advances in Neural Information Processing Systems , 2022. [19] Y. Bai, A. Jones, K. Ndousse, A. Askell, A. Chen, N. DasSarma, D. Drain, S. Fort, D. Ganguli, T. Henighan, et al. Training a helpful and harmless assistant with reinforcement learning from human feedback. arXiv preprint arXiv:2204.05862 , 2022. [20] A. Authors. Scaling laws for generative reward models. In OpenReview , 2025. 
+
+# A Experimental Details 
+
+A.1 Overview of Experimental Stages 
+
+We organize the experiments into three main empirical stages. Stage A studies the core search– learning allocation frontier under an IsoFLOP design. Stage B extends the same compute-allocation protocol to compare reward systems. Stage D replaces proxy reward supervision with a dedicated process reward model (PRM). Stage A uses the original IsoFLOP model-scaling design. It spans multiple model sizes, compute bands, and LoRA ranks. Stage B fixes the policy backbone and varies the reward system under matched compute. Stage D uses the same fixed policy backbone but replaces the proxy reward with a dedicated PRM-based reward model. 
+
+A.2 Stage A: Model-Aware IsoFLOP Design 
+
+Stage A uses instruction-tuned Qwen2.5 models with sizes 
+
+N ∈ { 1.5B , 3B , 7B }.
+
+For all Stage A runs, we use K = 2 sampled completions per prompt and a maximum completion length of L = 2048 . The initial LoRA ranks are 
+
+r ∈ { 8, 16 , 32 , 64 , 128 },
+
+with additional intermediate ranks 
+
+r ∈ { 12 , 24 , 48 , 96 }
+
+added to densify the IsoFLOP frontier. The three compute bands are denoted 
+
+C1p1e16 , C1p8e16 , C2p4e16 .
+
+For the 1.5B reference model, the base step schedules are: 
+
+C1p1e16 : r8 = 65 , r 16 = 62 , r 32 = 59 , r 64 = 53 , r 128 = 46 ,
+
+C1p8e16 : r8 = 105 , r 16 = 100 , r 32 = 95 , r 64 = 85 , r 128 = 74 ,
+
+C2p4e16 : r8 = 140 , r 16 = 133 , r 32 = 127 , r 64 = 113 , r 128 = 99 .
+
+Intermediate ranks are obtained by log-rank interpolation. For other model sizes, we scale the number of update steps as 
+
+S(N ) = round( S1.5B · 1.5/N B ),
+
+where NB is the model size in billions of parameters. 10 A.3 Stage B: Reward-Conditioned DOE 
+
+Stage B studies how reward systems change the allocation frontier. We fix the policy backbone to 
+
+Qwen/Qwen2.5-3B-Instruct 
+
+and use K = 2 , L = 2048 , and the same three compute bands as Stage A. The full Stage B design uses 
+
+r ∈ { 8, 12 , 16 , 24 , 32 , 48 , 64 , 96 , 128 }
+
+and compares four reward systems: 
+
+R ∈ { sparse , structured , dense , proxy PRM }.
+
+Thus the full Stage B design contains 
+
+3 compute bands × 9 ranks × 4 reward systems = 108 
+
+runs. The sparse reward uses binary final-answer correctness. The structured reward combines final-answer correctness with formatting and answer-shape terms. The dense reward provides bounded partial credit based on numerical closeness and format compliance. The proxy PRM reward com-bines outcome supervision with a process-style reward signal. 
+
+A.4 Stage D: Real PRM Validation 
+
+Stage D evaluates dedicated process reward modeling. We again fix the policy backbone to 
+
+Qwen/Qwen2.5-3B-Instruct ,
+
+use K = 2 , L = 2048 , and the same three compute bands and LoRA ranks as Stage B. The reward system is a real process reward model based on 
+
+Qwen/Qwen2.5-Math-PRM-7B .
+
+The full Stage D design contains 
+
+3 compute bands × 9 ranks = 27 
+
+runs. We refer to this experiment as real PRM validation rather than verifier-capacity scaling, since the PRM model size is fixed. 
+
+# B Compute Accounting 
+
+We decompose total post-training compute into rollout/search compute, policy update compute, and reward-model compute: 
+
+Ftotal = Frollout + Fupdate + Freward .
+
+Rollout compute is estimated as 
+
+Frollout = cfwd (N + R)Trollout ,
+
+where N is the policy backbone parameter count, R is the reward-model parameter count when a learned reward model is used, and Trollout is the number of rollout tokens. Update compute is estimated as 
+
+Fupdate = cbwd (N f eff )Tupdate ,
+
+where Tupdate is the number of tokens used for learning. For LoRA-based training, we define 
+
+fLoRA = NLoRA 
+
+N
+
+11 and use an effective update fraction 
+
+feff = a + (1 − a)fLoRA .
+
+The constant a accounts for update-side costs that depend on the frozen backbone, including forward passes, activations, and shared computation. Unless otherwise stated, we use a = 0 .85 .We summarize compute allocation using the update fraction 
+
+ρ = Fupdate 
+
+Ftotal 
+
+.
+
+Small ρ corresponds to search- or reward-heavy regimes, while large ρ corresponds to update-heavy regimes. 
+
+# C Metrics and Reward Comparability 
+
+Different reward systems use different native reward scales. Therefore, raw reward values are not directly comparable across sparse, structured, dense, proxy PRM, and real PRM conditions. We report three complementary metrics. First, we report the native reward 
+
+Rnative ,
+
+which is the scalar reward optimized by the training run. Second, for cross-reward comparisons, we compute normalized reward within each reward system and compute band: 
+
+Rnorm = R − min R,C R
+
+max R,C R − min R,C R .
+
+This preserves within-reward ordering while avoiding direct comparison of incompatible native re-ward scales. Third, we report a common accuracy metric when available. In our analysis code, this is stored as 
+
+accuracy main . When exact held-out validation accuracy is unavailable, this quantity should be interpreted as a common correctness proxy rather than a calibrated benchmark score. 
+
+# D Reward Definitions 
+
+The sparse reward is binary: 
+
+rsparse = ⊮[ˆ y = y⋆],
+
+where ˆy is the extracted model answer and y⋆ is the target answer after symbolic normalization. The structured reward combines final-answer correctness with formatting and answer-shape con-straints: 
+
+rstructured = ranswer + λfmt rformat + λshape rshape .
+
+The dense reward provides bounded partial credit: 
+
+rdense ∈ [−1, 1] ,
+
+combining symbolic correctness, numerical proximity, and output-format constraints. The proxy PRM reward combines process-style supervision and outcome correctness: 
+
+rproxy PRM = αr proc + (1 − α)rout ,
+
+where rproc is an intermediate process score and rout is final-answer correctness. The real PRM reward uses a dedicated process reward model to score intermediate reasoning steps. In Stage D, this model is 
+
+Qwen/Qwen2.5-Math-PRM-7B .
+
+12 E RACE: Reward-Aware Compute Allocation 
+
+RACE is a diagnostic protocol for selecting targeted post-training validation runs from an initial IsoFLOP pilot grid. Given a fixed model size N , reward system R, and compute band C, RACE fits a local response model 
+
+ˆRN, R,C (ρ)
+
+over the update fraction ρ. The default response model is a quadratic in log update fraction: 
+
+ˆR(ρ) = a(log ρ)2 + b log ρ + c. 
+
+RACE uses this fit only as a decision rule. If the fitted best-response point is stable and lies inside the observed range, RACE recommends validation runs near the predicted point. If the best-response point lies near a boundary, RACE recommends held-out runs beyond the corresponding boundary. If the fit is unstable, RACE falls back to conservative validation near the best observed pilot run. Importantly, RACE is applied conditionally. We do not fit one pooled curve across all model sizes and reward systems. Instead, the response is conditioned on model size, compute band, and reward system. We write this conditional regime estimate schematically as 
+
+ˆρRACE = ˆ ρRACE (N, C, R).
+
+# F RACE Validation Protocol 
+
+The Stage A RACE validation uses the compute band C1p8e16 . The initial grid contains ranks 
+
+r ∈ { 8, 12 , 16 , 24 , 32 , 48 , 64 , 96 , 128 }.
+
+Held-out validation uses ranks 
+
+r ∈ { 160 , 192 , 256 }.
+
+The validation grid includes model sizes 1.5B , 3B , and 7B , all with K = 2 and L = 2048 .The validation compares the best held-out configuration against the best in-grid configuration in the same compute band. In the current Stage A validation, the best held-out configuration improves some model-conditional subgroups and improves accuracy for the best 7B validation run, but it does not improve the primary native reward over the best global in-grid baseline. Therefore, we report RACE as a conservative diagnostic protocol rather than as a method that guarantees held-out improvement. 
+
+# G RACE Fit-Model Ablation 
+
+RACE uses a quadratic response model in log ρ as a transparent decision model for selecting held-out validation configurations. To test whether this choice is statistically preferred on the Stage A pilot grid, we ablate several low-capacity response families: a constant mean baseline, linear and quadratic models in ρ, linear and quadratic models in log ρ, and a cubic model in log ρ.Models are fit independently within each compute band and compared using leave-one-out cross-validation RMSE, mean absolute error, and BIC. On the current Stage A data, the constant baseline obtains the lowest average LOOCV RMSE, while the linear log-rho model is the best nontrivial allocation-dependent model. This indicates that the pooled Stage A response is noisy and partially confounded by model size and rank variation. We therefore do not interpret the quadratic log-rho fit as the statistically preferred response model. Instead, we use it as a transparent boundary diagnostic: it identifies whether the pilot grid suggests an interior best-response region, a boundary best-response region, or an unstable fit. When the fit is unstable or boundary-dominated, RACE falls back to conservative held-out validation rather than trusting an extrapolated point. This conservative behavior is central to the method. 13 H RACE Implementation Details 
+
+The initial Stage A grid uses LoRA ranks 
+
+r ∈ { 8, 12 , 16 , 24 , 32 , 48 , 64 , 96 , 128 }.
+
+Held-out RACE validation runs use ranks 
+
+r ∈ { 160 , 192 , 256 },
+
+which are excluded from the pilot fit. The initial compute bands are C1p1e16 , C1p8e16 , and 
+
+C2p4e16 . For the 1.5B reference model, the base step schedules are: 
+
+C1p1e16 : r8 = 65 , r 16 = 62 , r 32 = 59 , r 64 = 53 , r 128 = 46 ,
+
+C1p8e16 : r8 = 105 , r 16 = 100 , r 32 = 95 , r 64 = 85 , r 128 = 74 ,
+
+C2p4e16 : r8 = 140 , r 16 = 133 , r 32 = 127 , r 64 = 113 , r 128 = 99 .
+
+For other model sizes, steps are scaled as 
+
+S(N ) = round( S1.5B · 1.5/N B ),
+
+where NB is the model size in billions of parameters. Validation ranks are selected by log-rank interpolation or extrapolation of the same schedules. Runs are labeled as validation if their rank is at least 160 or if their path contains one of the validation keywords: reuse , prefill , validation , val , extra , target , heldout , or race .14

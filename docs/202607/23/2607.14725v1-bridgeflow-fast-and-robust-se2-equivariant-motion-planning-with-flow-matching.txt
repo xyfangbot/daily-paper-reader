@@ -1,0 +1,422 @@
+Title: BridgeFlow: Fast and Robust SE(2)-Equivariant Motion Planning with Flow Matching
+
+URL Source: https://arxiv.org/pdf/2607.14725v1
+
+Published Time: Fri, 17 Jul 2026 00:50:47 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# BridgeFlow: Fast and Robust SE(2)-Equivariant Motion Planning with Flow Matching 
+
+Xinzhe Zhou †, Xuyang Wang †, Xiaoming Duan †, and Jianping He †
+
+Abstract — In robotic motion planning, equivariance to rigid body transformations is crucial for robust spatial generaliza-tion. However, current learning-based planners face a critical dilemma: they either lack inherent equivariance, treating trans-formed tasks as novel scenarios, or enforce it via computation-ally expensive specialized architectures that bottleneck real-time inference. To break this trade-off, we propose BridgeFlow, a fast and strictly SE(2) -equivariant generative motion planning framework. Rather than relying on heavy equivariant networks, BridgeFlow achieves exact spatial equivariance via a lightweight task-centric canonicalization module, enabling generalization using standard architectures. To further accelerate inference, we pair a Brownian bridge informative prior with context-aware mini-batch optimal transport. This constructs a straight-ened vector field that minimizes transport costs and stabilizes training. Furthermore, environmental awareness is explicitly embedded via Classifier-Free Guidance. Evaluations in dense 2D environments and on a 7-DoF Franka manipulator demon-strate that BridgeFlow achieves up to a 15 × inference speedup and a 2× higher valid trajectory rate over state-of-the-art diffusion baselines, alongside robust generalization to entirely unseen environments and arbitrary spatial transformations. 
+
+I. I NTRODUCTION 
+
+Motion planning is a fundamental problem in robotics, requiring the generation of collision-free, kinematically fea-sible trajectories from a start to a goal configuration in complex environments. For motion planning, equivariance to rigid body transformations is a fundamental cornerstone of generalization and robustness. It ensures that algorithms can reliably solve structurally identical tasks regardless of their global pose. While traditional sampling-based [1], [2] and optimization-based [3]–[6] algorithms provide theoret-ical guarantees and completeness, their computational bot-tlenecks severely limit real-time applicability. Consequently, learning-based approaches have emerged as a highly promis-ing alternative, though effectively integrating strict equivari-ance into these models remains a formidable challenge. Current learning-based methods broadly fall into two main paradigms: sequential state prediction and joint trajectory generation. Sequential state prediction methods [29]–[32] iteratively predict future states. However, they not only suffer from compounding errors and slow sequential inference, but also fundamentally lack any consideration for spatial            
+
+> This work was supported in part by the National Natural Science Foundation of China under Grants 625B1023, 62373247, and 62303314, and in part by the State Key Laboratory of Autonomous Intelligent Unmanned Systems under Grant ZZKF2025-1-19.
+> †All authors are with the School of Automation and Intelligent Sensing, Shanghai Jiao Tong University, Shanghai, China. E-mail: {zhou xinzhe, 2674789652, xduan, jphe }@sjtu.edu.cn.
+
+equivariance. Conversely, joint trajectory generation mod-els, prominently diffusion-based frameworks [7]–[11], [14], excel in feasible and multimodal trajectory generation but also face a geometric dilemma. Some variants [15]–[17] achieve equivariance by employing specialized, mathemat-ically heavy neural architectures, which critically bottleneck their real-time inference capabilities. Other methods [9], [10] ignore geometric symmetries entirely, treating spatially translated or rotated tasks as entirely novel scenarios. This failure to capture underlying geometric symmetries results in brittle performance and a severe lack of spatial robustness. Beyond the equivariance dilemma, generative models like diffusion also suffer from slow inference due to iterative denoising. Flow Matching (FM) [19], [20] addresses this speed bottleneck by constructing a smooth probability flow from initial noise to the target data distribution, enabling highly efficient few-step inference. However, existing FM-based planners [22]–[24] still suffer from three critical lim-itations. First, these FM methods still lack inherent spatial equivariance. Second, they naively employ standard Gaussian noise as the prior distribution [19]. As demonstrated by recent advances leveraging Gaussian Process [12] or task-informed priors [25], structured noise significantly enhances generative performance. Third, current generative planners [9], [10], [22] ignore environmental geometries during train-ing. Thus, their inherent capability to generate collision-free paths is restricted, almost entirely relying on computationally expensive cost-function gradient guidance during inference. To break this critical trade-off between geometric ro-bustness and inference speed, we propose BridgeFlow ,an environment-aware and strictly SE(2) -equivariant Flow Matching framework for fast, robust motion planning. Our core contributions are summarized as follows:  
+
+> •
+
+We introduce a Brownian bridge informative prior paired with context-aware mini-batch optimal transport. By constructing the initial distribution as a noise-injected linear interpolation between endpoints and strictly confining OT couplings within identical task contexts, this synergy significantly straightens the flow field and drastically reduces transport costs.  
+
+> •
+
+We leverage Classifier-Free Guidance [26]–[28] to ex-plicitly embed environmental awareness. By condition-ing the FM training on occupancy maps, we distill spatial constraints into the learned prior, eliminating the reliance on expensive inference-time optimization.  
+
+> •
+
+We achieve strict SE(2) -equivariance via a lightweight task-centric canonicalization module. This dynamically transforms inputs into a standardized frame and de-arXiv:2607.14725v1 [cs.RO] 16 Jul 2026 canonicalizes the output vector field, achieving ro-bust spatial generalization across continuous rigid body transformations with standard network architectures. II. R ELATED WORK 
+
+A. Generative Models for Motion Planning 
+
+Learning-based motion planning broadly falls into two main paradigms: sequential state prediction and joint tra-jectory generation. Sequential models [29]–[31] formulate planning as an iterative decision-making process, which often suffers from compounding errors and slow sequential inference. Consequently, joint trajectory generation methods have gained prominence by directly modeling the feasible trajectory distribution. While foundational diffusion frame-works [9]–[11] capture robust multimodal priors, their iter-ative denoising fundamentally bottlenecks inference speed. To overcome this computational barrier, recent advances [22]–[24] have introduced Flow Matching (FM) [19]–[21] to generative planning. FM constructs a smooth probability path between a tractable prior and the target data distribution, enabling highly efficient few-step inference via ordinary differential equation solvers. For instance, FlowMP [22] replaces the diffusion backbone of MPD [9], [10] with FM to drastically accelerate trajectory sampling. However, the naive application of FM to structured motion planning remains sub-optimal. First, standard FM often re-lies on task-agnostic Gaussian priors, which induces highly curved, complex vector fields, leading to inefficient transport. Second, existing generative planners handle environmental awareness sub-optimally. They either condition on heavy, high-dimensional sensory data [18], incurring severe compu-tational overhead, or lack explicit environmental conditioning entirely [9], [10], [22]. By ignoring environmental geome-tries during training, these foundational frameworks are forced to rely heavily on computationally expensive test-time cost-function gradients for obstacle avoidance. Addressing these intertwined inefficiencies through task-aligned priors, context-aware transport, and explicit environmental guidance forms the core motivation of our framework. 
+
+B. Equivariant Learning 
+
+In motion planning, solving structurally identical tasks that differ only in their global pose is frequent. To achieve this robust spatial generalization, generative planners must pos-sess equivariance [33], ensuring that the generated trajectory transforms deterministically alongside the input environment. Existing approaches to endow planners with equivariance typically rely on either data augmentation or specialized network architectures [15]–[17], [34]–[36]. Data augmentation requires massively inflated datasets and fails to guarantee strict mathematical equivariance. Conversely, specialized architectures entail complex custom operations, imposing significant computational overhead and complicating integration with standard generative pipelines like FM. To circumvent these bottlenecks, our framework proposes a lightweight task-centric canonicalization strategy. By pre-transforming inputs into a standardized coordinate frame, we achieve strict spatial generalization while main-taining full compatibility with standard neural architectures. III. M ETHODOLOGY 
+
+In this section, we detail our fast and SE(2) -equivariant generative motion planner, BridgeFlow. We begin by for-mally defining the generative motion planning objective (Sec. III-A). To address the transport inefficiencies of standard Flow Matching, we introduce a Brownian bridge infor-mative prior (Sec. III-B) paired with context-aware mini-batch optimal transport (Sec. III-C). Next, we detail how environmental constraints are explicitly embedded into the generative process via Classifier-Free Guidance (Sec. III-D). Finally, we present our lightweight task-centric canonical-ization module (Sec. III-E), which guarantees strict SE(2) -equivariance across the entire framework. 
+
+A. Problem Formulation 
+
+We formulate motion planning in a workspace Rd (d ∈{2, 3}). A task is defined by the tuple P = ( s, g, M), where 
+
+s, g ∈ Rd are the start and goal positions, and M : Rd →{0, 1} is the environmental occupancy map. The objective is to learn a policy π that generates a kinematically feasible, collision-free waypoint sequence x = [ p1, . . . , p N ] ∈ RN ×d
+
+conditioned on P.To ensure spatial generalization, we formulate a strictly 
+
+SE(2) -equivariant motion planning problem. Consider aspatial rigid body transformation T = ( R, d) ∈ SE (2) ,comprising a rotation R ∈ SO (2) and a translation d ∈ Rd.The transformed task context is given by ˜P = T (P) = (Rs + d, Rg + d, T (M)) . The generative policy π must satisfy the exact equivariance constraint: 
+
+π(T (P)) = T (π(P)) 
+
+We realize this policy within a continuous-time Flow Matching framework, modeling trajectory generation as an ordinary differential equation over flow time t ∈ [0 , 1] . Thus, the problem reduces to learning an SE(2) -equivariant neural vector field vθ (xt, t | P ) that strictly satisfies the geometric pushforward rule: 
+
+vθ (T (xt), t | T (P)) = R · vθ (xt, t | P )
+
+This strict condition guarantees that the generative con-tinuous dynamics remain geometrically consistent under any 
+
+SE(2) transformation of the task. 
+
+B. Brownian Bridge Informative Prior 
+
+The initial distribution p0 is critical for the efficiency of Flow Matching. Standard FM typically employs a naive standard Gaussian distribution, which is entirely uninforma-tive regarding the planning task, leading to complex vector fields and high transport costs. To address this, we propose a Brownian bridge informative prior that constructs pinfo based on the start and goal positions, aligning directly with robotic kinematic characteristics. (a) Gaussian Prior (b) Brownian Bridge Prior 
+
+Fig. 1: Comparison of initial priors. The Brownian bridge anchors the endpoints, reducing required deformation. 
+
+1) Prior Design: For a trajectory x0 consisting of N
+
+waypoints at flow time t = 0 , let γi = i−1  
+
+> N−1
+
+∈ [0 , 1] be the normalized index of the i-th waypoint for i ∈ { 1, . . . , N }.We construct a linear interpolation μlin,i = (1 − γi)s + γig.The proposed prior pinfo is formulated point-wise as: 
+
+x0,i = μlin,i + σprior · pγi(1 − γi) · ε, ε ∼ N (0 , I d),
+
+where σprior ∈ R+ scales the base noise. The bridge factor pγi(1 − γi) analytically enforces the variance to strictly drop to zero at the start ( γ1 = 0 ) and goal ( γN = 1 ) while peaking in the middle. This mirrors the physical intuition of motion planning as fine trajectory adjustments bounded by fixed endpoints. 
+
+2) Transport Cost Reduction: To theoretically validate the advantage of pinfo , we analyze the transport cost C(p0, p 1),defined as the expected kinetic energy of the flow. Under the linear optimal transport probability path ψt(x) = (1 −t)x0 +
+
+tx1, the cost simplifies to the expected pairwise Euclidean distance: C(p0, p 1) = Ex0,x1 [∥x1 − x0∥2.To quantify the cost reduction, we firstly decompose the expert trajectory of dimension D = N d as x1 = μlin + δ,where δ captures the spatial deformation for obstacle avoid-ance. For our Brownian bridge prior, we denote the step-wise noise scale as σi = σprior 
+
+pγi(1 − γi), yielding an average variance ¯σ2 = 1
+
+> N
+
+PNi=1 σ2 
+
+> i
+
+. We strictly bound the base noise such that ¯σ2 < 1.
+
+Theorem 1 (Transport Cost Reduction) . Given the trajectory decomposition x1 = μlin + δ, the transport cost of the informative prior ( Cinfo ) is bounded below that of the standard Gaussian prior ( Cstd ). The exact reduction margin is: 
+
+Cstd − C info = ∥μlin ∥2 + 2 ⟨μlin , E[δ]⟩ + (1 − ¯σ2)D. 
+
+Proof. For the standard prior pstd , tracking the expected distance with an independent x0 ∼ N (0 , I D ) yields: 
+
+Cstd = E ∥x1∥2 − 2⟨x1, x0⟩ + ∥x0∥2
+
+= ∥μlin ∥2 + E[∥δ∥2] + 2 ⟨μlin , ¯δ⟩ + D. 
+
+For the informative prior pinfo , substituting x0 = μlin + ϵ
+
+(where point-wise ϵi ∼ N (0 , σ 2 
+
+> i
+
+Id)) directly cancels μlin :
+
+Cinfo = E ∥(μlin + δ) − (μlin + ϵ)∥2
+
+= E[∥δ∥2] + ¯ σ2D. 
+
+Subtracting the two costs yields the exact margin: 
+
+Cstd − C info = ∥μlin ∥2 + 2 ⟨μlin , ¯δ⟩ + (1 − ¯σ2)D. 
+
+Considering symmetrically distributed obstacles across the dataset, the expected deformation neutralizes ( ¯δ → 0). Since the linear energy ∥μlin ∥2 > 0 and (1 − ¯σ2)D > 0, the exact margin is strictly positive, proving Cinfo < Cstd .
+
+Remark. Minimizing σprior reduces Cinfo but risks collapsing the prior into a more deterministic state, stripping the model’s multimodal capacity. Thus, σprior is a critical hyperparameter balancing transport efficiency and generative diversity. 
+
+3) SE(2)-Equivariance of the Brownian Bridge Prior: 
+
+The pinfo inherently exhibits SE(2) -equivariance, seamlessly enabling the task-centric canonicalization. 
+
+Proposition 1. For any trajectory sample x0 ∼ p0(· | P )
+
+and transformation T ∈ SE (2) , the transformed sample exactly matches the distribution of the prior conditioned on the transformed task: T (x0) ∼ p0(· | T (P)) .
+
+Proof. First, the interpolation mean strictly commutes with 
+
+T : T (μlin (γ)) = Rμ lin (γ) + d. Then, applying T to a waypoint x0(γ) sampled from the pinfo yields: 
+
+T (x0(γ)) = R(μlin (γ)+ σ(γ)ϵ)+ d = T (μlin (γ))+ σ(γ)Rε. 
+
+Since the base noise ε is isotropic and R is orthogonal, the rotated noise Rε retains the covariance RI dRT = Id. Thus, it is identical to unrotated noise. Consequently, T (x0(γ)) = 
+
+T (μlin (γ)) + σ(γ)ε, proving strict SE(2) -equivariance. 
+
+C. Context-Aware Mini-Batch Optimal Transport 
+
+Standard mini-batch optimal transport (OT) blindly pairs initial noise x0 and expert trajectories x1 across an entire training batch B, fundamentally ignoring the underlying task condition c = ( s, g, M) in our problem. Consequently, it inadvertently cross-pairs a prior sampled for one specific context with an expert trajectory belonging to a completely different context. Because the parameterized vector field vθ is explicitly conditioned on c, such cross-context pairing forces the network to learn physically contradictory mappings. This ill-posed regression target inherently destabilizes training and collapses the learned conditional flow field. To rectify this, we propose context-aware mini-batch OT (Algorithm 1). Instead of a global batch assignment, we dynamically partition the mini-batch into context-specific disjoint subsets B = SNn=1 Bcn , where each subset Bcn
+
+exclusively contains trajectories sharing the exact same task condition cn. We then solve the linear assignment strictly within each local subset using the Hungarian algorithm: 
+
+σ∗ 
+
+> n
+
+= arg min  
+
+> σ
+> |B cn |
+
+X
+
+> k=1
+
+X (k)0,c n − X (σ(k)) 1,c n
+
+> 2
+
+, ∀n ∈ { 1, . . . , N }
+
+By explicitly confining the OT coupling to trajectories sharing identical boundary conditions and obstacle lay-outs, we completely eliminate physically impossible cross-context pairings. This formulation guarantees the learning Fig. 2: Task-Centric Canonicalization Framework. The system achieves strict SE(2) -equivariance by projecting global tasks into a unified canonical frame. The input is normalized via Tcan (p) = R−θ (p − s), anchoring ˆs at the origin and aligning ˆg
+
+with the x-axis. A standard U-Net then infers the canonical vector field ˆv conditioned on the aligned map cM. The canonical velocity is decanonicalized via vglobal = Rθ ˆv, ensuring generated trajectories transform deterministically with any rigid body transformation of the workspace. of smooth, task-consistent conditional flow fields, thereby further straightening transport paths and accelerating both training and inference processes. 
+
+Algorithm 1 Context-Aware Mini-Batch Optimal Transport  
+
+> 1:
+
+Input: Mini-batch of expert trajectories and task con-texts B = {(x(i)1 , c (i))}Bi=1 where c = ( s, g, M), train-able vector field policy vθ 
+
+> 2:
+
+Output: Context-aligned FM regression loss LF M (θ) 
+
+> 3:
+
+Initialize accumulated loss LF M ← 0 
+
+> 4:
+
+Extract unique task contexts C = {c1, . . . , c N } from B 
+
+> 5:
+
+for each context cn ∈ C do  
+
+> 6:
+
+Extract Kn experts: X (n)1 = {x(i)1 | c(i) = cn} 
+
+> 7:
+
+Sample Brownian Bridge noise: X (n)0 ∼ p0(· | cn) 
+
+> 8:
+
+Compute cost matrix: Ci,j = ∥X (n)0 [i] − X (n)1 [j]∥2 
+
+> 9:
+
+Solve assignment: σ∗ = arg min σ
+
+P 
+
+> k
+
+Ck,σ (k) 
+
+> 10:
+
+Sample batched flow times: t ∼ U (0 , 1) Kn 
+
+> 11:
+
+Interpolate states: Xt = (1 − t)X (n)0 + tX (n)1 [σ∗] 
+
+> 12:
+
+Target vector fields: Ut = X (n)1 [σ∗] − X (n)0 
+
+> 13:
+
+Lbatch + = P 
+
+> k
+
+∥vθ (Xt[k], t[k] | cn) − Ut[k]∥2 
+
+> 14:
+
+end for  
+
+> 15:
+
+return LF M /B {Gradient objective for policy update }
+
+D. Environment-Aware Classifier-Free Guidance 
+
+To directly embed environment awareness and eliminate the reliance on computationally expensive optimizations, we explicitly integrate the environment occupancy map M into the Flow Matching framework via Classifier-Free Guidance. During training, we randomly mask the environment con-dition M with a learnable null token ∅ at a fixed dropout probability pdrop . This forces the network to jointly learn an environment-aware vector field, denoted concisely as vM 
+
+> θ
+
+≜
+
+vθ (xt, t | s, g, M), and an unconditional field v∅ 
+
+> θ
+
+≜ vθ (xt, t |
+
+s, g, ∅) that relies solely on task endpoints. During inference, we extrapolate the flow in the direction of the environmental condition. The final guided vector field 
+
+vCF G used to update the trajectory ODE is formulated as: 
+
+vCF G (xt, t ) = v∅ 
+
+> θ
+
++ ω ·
+
+
+
+vM 
+
+> θ
+
+− v∅
+
+> θ
+
+
+
+,
+
+where the guidance scale ω ≥ 1 acts as a crucial control lever, seamlessly balancing collision-free performance with the preservation of multimodal generation. By distilling environment awareness directly into the learned vector field, this explicit integration completely elim-inates the need for iterative, cost-based gradient guidance during sampling, fully preserving the inherent low-latency advantage of Flow Matching. 
+
+E. Task-Centric Canonicalization 
+
+To achieve SE(2) -equivariance without incurring the com-putational overhead of specialized network architectures, we propose a lightweight task-centric canonicalization module 2 that deterministically transforms all spatial inputs into a standardized canonical frame prior to network inference. 
+
+1) SE(2)-Equivariance Definition: Let T ∈ SE (2) be parameterized by a rotation matrix Rα ∈ SO (2) and a translation vector d ∈ R2. The group action applies to points as T (p) = Rαp + d, and applies pointwise to a trajectory waypoint sequence x. Occupancy maps transform via the pullback operator (T (M))( p) = M(T −1(p)) . Because con-tinuous vector fields represent time derivatives (velocities) of trajectories, they are strictly translation-invariant and solely rotate: T (v(x)) = Rαv(x). Consequently, our generative policy vθ is formally SE(2) -equivariant if, for any valid 
+
+T ∈ SE (2) , it satisfies: 
+
+vθ (T (xt), t | T (s), T (g), T (M)) = Rα vθ (xt, t | s, g, M).
+
+2) Equivariant Framework Construction: Let θ =
+
+atan2 (gy − sy , g x − sx) denote the global heading angle. We define a canonicalization operator Tcan (p) = R−θ (p−s) that translates the start s to the origin and aligns the start-goal vector with the positive x-axis. The equivariant generation executes a Canonicalize-Infer-Decanonicalize pipeline. First, inputs are mapped into the canonical frame: ˆxt = Tcan (xt)
+
+and ˆM(p) = M(T −1
+
+> can
+
+(p)) , mapping endpoints determin-istically to ˆs = 0 and ˆg = (∥g − s∥, 0) . Second, the network predicts the flow entirely within the canonical space: 
+
+ˆv = vθ (ˆ xt, t | ˆs, ˆg, ˆM). Finally, the output velocities are mapped back to the global frame via the inverse rotation: 
+
+vglobal = Rθ ˆv.
+
+Theorem 2 (SE(2) -Equivariance) . The proposed canonical-ization framework guarantees strict SE(2) -equivariance. 
+
+Proof. Consider a planning task P = (s, g, M) and an arbitrary rigid transformation Tworld = ( Rα, d). The trans-formed task is denoted as ˜P = Tworld (P) = (˜ s, ˜g, ˜M). As established in Proposition 1, the initial noise sampled for the transformed task corresponds exactly to the transformed noise of the original task: ˜x0 = Tworld (x0).Because the start-goal vector rotates by α, the updated global heading angle is ˜θ = θ + α. The canonical trans-formation operator for the new task becomes ˜Tcan (p) = 
+
+R−˜θ (p − ˜s). Applying this operator to the transformed trajectory yields: 
+
+˜Tcan (˜ xt) = R−(θ+α) (( Rαxt + d) − (Rαs + d)) = R−θ R−αRα(xt − s) = ˆ xt.
+
+This rigorous cancellation demonstrates that the canonical trajectory remains absolutely invariant regardless of global shifts. By identical logic, applying ˜Tcan to the transformed map recovers the original canonical map: ˜Tcan ( ˜M) = ˆM.Given mathematically identical canonical inputs (ˆ xt, t |
+
+ˆs, ˆg, ˆM), the neural network infers the exact same canonical vector field: ˆv. Finally, the decanonicalization step computes the global vector field for the transformed task: 
+
+˜vglobal = R˜θ ˆv = Rθ+α ˆv = Rα(Rθ ˆv) = Rαvglobal .
+
+This exact match with the vector pushforward rule ˜vglobal =
+
+Tworld (vglobal ) definitively proves that the framework is strictly SE(2) -equivariant. IV. E XPERIMENTS 
+
+The overarching goal of our empirical evaluation is to validate the efficiency, generalization capability, and geo-metric robustness of the proposed BridgeFlow framework. Specifically, our experiments are designed to answer the following core Research Questions (RQs):  
+
+> •
+
+RQ1 (Efficiency & Quality): Does the Brownian bridge informative prior and context-aware mini-batch OT significantly accelerate the inference speed of Flow Matching while maintaining trajectory quality?  
+
+> •
+
+RQ2 (Environmental Generalization): Does the environment-aware Classifier-Free Guidance (CFG) en-able the model to successfully adapt to novel, un-seen obstacle configurations without heavy reliance on inference-time optimization?  
+
+> •
+
+RQ3 (Geometric Robustness): Does the task-centric canonicalization effectively guarantee SE(2) -equivariance, enabling generalization to spatially trans-formed tasks without augmented training data?  
+
+> (a) PointMass2D Dense (b) 7-DoF Franka Panda
+
+Fig. 3: Experimental setups for evaluating generative mo-tion planning. (a) An example of the 2D planar navigation environment heavily cluttered with obstacles. (b) The 3D manipulation workspace in PyBullet. The symmetric square tabletop features four distinct target regions (A, B, C, and D) marked in green at its corners, specifically designed for evaluating SE(2) spatial generalization. 
+
+A. Experimental Setup 1) Environments and Data Collection: To comprehen-sively evaluate our method, we conduct experiments across two distinct domains. We utilize an RRT-Connect planner followed by B-spline smoothing to generate collision-free, kinematically smooth expert trajectories for training. 
+
+PointMass2D Dense: In this foundational planar navi-gation benchmark, a point mass must find a smooth path through densely cluttered obstacles. We generated 200 dis-tinct environments, explicitly partitioned into 150 for training and 50 strictly unseen environments for testing environmen-tal generalization. For each environment, we sampled 500 valid start-goal pairs with 20 feasible multimodal trajectories per pair. By leveraging the time-reversibility of kinematic paths (swapping starts and goals), we cost-effectively aug-mented the dataset to 1,000 directed tasks per environment without incurring additional simulation overhead. 
+
+7-DoF Franka Emika Panda: To evaluate SE(2) -equivariance in high-dimensional 3D manipulation, we sim-ulate a robotic arm performing pick-and-place operations. The symmetric tabletop workspace features four distinct planar regions (A, B, C, and D) located at the corners of a square. We deliberately restrict the training distribution to contain only trajectories originating from region A (i.e., A →
+
+B, C, D ). During testing, the model executes paths between unseen regions (e.g., B → C, D → B). Because these testing tasks represent pure SE(2) rigid body transformations of the training distribution, this setup perfectly isolates the evaluation of geometric generalization. 
+
+2) Baselines: We compare BridgeFlow against two state-of-the-art generative planning frameworks. MPD (Motion Planning Diffusion) is a representative diffusion-based plan-ner that learns strong trajectory priors but suffers from iterative denoising latency and lacks explicit environmental guidance during training. FlowMP replaces the diffusion backbone with standard Flow Matching to accelerate infer-ence, yet it inherits a naive Gaussian prior. 
+
+3) Evaluation Metrics: To fully leverage the parallel com-puting capabilities of GPUs, we sample K = 40 candidate trajectories for each testing context. Success Rate (SR) is the percentage of planning contexts where at least one generated trajectory successfully reaches the goal without collisions. Valid Rate (VR) is the proportion of completely valid paths among all candidates and serves as a proxy for the quality of the generative prior. Collision Intensity is the ratio of waypoints in collision across the entire set of candidates to quantify environmental awareness. Average Length and Diversity represent the mean path length and the spatial variance among successful trajectories, respectively. Inference Time is the average computational latency required to generate the full candidate set. 
+
+B. Results in PointMass2D Dense Environment 
+
+We systematically evaluate our framework in the Point-Mass2D dense environment to answer three core Research Questions (RQs) regarding generative quality, environmental generalization, and geometric robustness. Furthermore, we detail a critical architectural insight regarding boundary satisfaction. Quantitative results are summarized in Table I and Table III. 
+
+1) RQ1: Generative Quality and Inference Efficiency: 
+
+Table I demonstrates that BridgeFlow drastically outper-forms standard diffusion (MPD) and naive Flow Match-ing (FlowMP) in both safety and speed. Operating at 5 inference steps, BridgeFlow achieves an exceptional Valid Rate (VR) of 80 .95% and a minimal Collision Intensity of 
+
+1.67 , effectively doubling the safety of MPD (VR 42 .48% ,Intensity 9.67 ). Remarkably, BridgeFlow requires only 2steps (0.0071 s) to reach a 100% SR and 70 .25% VR. To achieve comparable performance, MPD requires 15 DDIM steps ( 0.1128 s), highlighting a remarkable 15 × inference speedup . This performance stems from the synergy between the Brownian bridge prior and context-aware mini-batch OT. Ablation studies reveal that standard OT alone degrades VR to 58 .38% due to cross-context matching conflicts. However, when combined with the Brownian bridge prior, VR surges to 80 .95% , proving that this synergy reduces transport cost and straightens the flow field. 
+
+2) RQ2: Generalization to Unseen Contexts: To test environmental generalization, we evaluated all models on Random Contexts featuring completely novel obstacle lay-outs and unseen start-goal pairs. For a fair comparison, we integrated our environment-aware CFG mechanism into all baseline models. Despite the distribution shift, BridgeFlow demonstrates vastly superior robustness, maintaining a VR of 39 .4% and an Intensity of 7.5. In contrast, the CFG-enhanced MPD collapses to a VR of 19 .05% and an Intensity of 14 .63 . This substantial margin reveals a critical insight: environmental guidance via CFG is most effective when applied to the structured, straightened vector fields provided by our framework. 
+
+3) RQ3: Geometric Robustness and SE(2)-Equivariance: 
+
+To evaluate geometric robustness, we subjected the models to continuous spatial transformations (T ∈ SE (2) ) on the original training tasks (Table III). Baselines lacking structural equivariance (MPD, FlowMP) suffer catastrophic failures: SRs plummet to 40% –52% , VRs drop below 6% ,and Collision Intensities surge to nearly 25 . This confirms that standard generative planners merely memorize absolute coordinate distributions, entirely losing spatial reasoning. In contrast, BridgeFlow maintains commanding generative performance (SR 96% , VR 74 .85% , Intensity 5.28 ), proving that our task-centric canonicalization module successfully factors out global symmetries for zero-shot generalization. 
+
+4) Insight: Natural Boundary Satisfaction without In-Painting: Beyond quantitative metrics, we observed a ar-chitectural advantage: Unlike baselines requiring heuristic “trajectory in-painting” (overwriting endpoints at each step), BridgeFlow naturally satisfies boundary conditions. Because our Brownian bridge prior analytically enforces zero variance at the boundaries, throughout training, the neural network naturally learns that the vector field at these fixed endpoints must be exactly zero ( vθ = 0 ). This enables the ODE solver to integrate trajectories autonomously, preserving mathemat-ical continuity without manual intervention. 
+
+C. Results on 7-DoF Franka Manipulation 
+
+To validate the scalability and geometric robustness of our framework within high-dimensional, complex robotic systems, we evaluate the models on a 7-DoF Franka Emika Panda manipulation task. The experimental workspace is divided into four symmetric tabletop quadrants (A, B, C, and D). Crucially, the training dataset exclusively com-prises trajectories originating from quadrant A (e.g., A →
+
+B, C, D ). During evaluation, we challenge the models with Out-of-Distribution (OOD) tasks originating from the other quadrants (e.g., B → C, D → B). These OOD tasks represent strict SE(2) spatial transformations of the training distribution. Quantitative results are detailed in Table II. 
+
+1) RQ1: High-Dimensional Generative Performance and Efficiency: Even within the in-distribution tasks, BridgeFlow establishes a commanding advantage. In the complex 7-DoF joint space, it achieves an exceptional Valid Rate (VR) of 
+
+88 .0% , significantly outperforming both the diffusion-based MPD ( 43 .0% ) and the naive FlowMP baseline ( 65 .0% ). Furthermore, BridgeFlow consistently generates the most kinematically efficient paths, demonstrating that our context-aware mini-batch OT successfully straightens the probability flow field even when scaled to high-dimensional continuous state spaces. Notably, while our task-centric canonicaliza-tion module introduces a mathematically negligible coor-dinate transformation overhead ( 0.045 s inference time vs. FlowMP’s 0.038 s), the framework easily satisfies real-time control requirements and remains over 3× faster than MPD. Fig. 4: Visualization of the 3-step Flow Matching generative process in the PointMass2D Dense environment. The top row illustrates the trajectory evolution in the original, uncanonicalized global workspace. The bottom row demonstrates the exact same generation process within our task-centric canonicalization frame. Yellow curves represent feasible, collision-free trajectories, while black curves indicate infeasible paths that collide with obstacles. TABLE I: Comprehensive Ablation Study and Baseline Comparison in PointMass2D Dense Environment 
+
+Method Steps Training Distribution (Dataset) Unseen Distribution (Random Context) 
+
+SR (%) VR (%) Intensity ↓ Avg Length ↓ Diversity ↑ Time (s) ↓ SR (%) VR (%) Intensity ↓ Avg Length ↓ Diversity ↑ Time (s) ↓
+
+MPD 5 (DDIM) 98 39.80 10.87 6.6820 24.6527 0.0410 71 17.95 15.28 7.6305 27.1953 0.0411 MPD 10 (DDIM) 98 42.95 9.66 6.6311 30.1687 0.0769 81 19.55 14.68 7.8246 33.8155 0.0765 MPD 15 (DDIM) 98 42.48 9.67 6.6226 32.8527 0.1128 83 19.05 14.63 7.9008 36.9619 0.1116 MPD Prior 5 (DDIM) 98 39.45 10.94 6.6996 24.6637 0.0141 71 17.48 16.15 7.7226 27.3323 0.0144 MPD Prior 10 (DDIM) 98 42.70 9.73 6.6430 30.1888 0.0255 79 18.27 15.51 7.7856 34.0778 0.0256 MPD Prior 15 (DDIM) 98 42.25 9.74 6.6345 32.8816 0.0382 78 18.20 15.43 7.9227 37.3093 0.0380 FlowMP 2 96 56.75 6.26 6.7602 4.7424 0.0072 66 27.60 11.96 7.7251 4.9368 0.0075 FlowMP 3 99 61.05 5.04 6.7980 9.2915 0.0098 74 29.60 10.88 7.8051 9.6412 0.0096 FlowMP 4 100 61.55 4.65 6.8545 13.2270 0.0123 81 29.88 10.47 7.8658 13.8280 0.0120 FlowMP 5 100 61.15 4.56 6.8496 16.3040 0.0138 80 29.93 10.17 7.8317 17.0199 0.0140 FlowMP + OT 2 99 53.62 6.28 6.8530 17.4525 0.0075 79 26.80 12.15 7.9296 17.7293 0.0076 FlowMP + OT 3 100 57.40 5.24 6.9228 21.0322 0.0097 80 28.98 11.17 8.0438 21.4398 0.0099 FlowMP + OT 4 100 58.17 4.90 6.9196 23.4120 0.0120 80 29.77 10.78 7.9794 24.0079 0.0120 FlowMP + OT 5 100 58.38 4.79 6.9301 25.0982 0.0139 84 29.88 10.61 8.0604 25.8435 0.0149 FlowMP + BB Prior 2 98 58.40 5.95 6.6487 4.6632 0.0074 67 26.23 11.65 7.6385 4.7095 0.0072 
+
+FlowMP + BB Prior 3 100 64.65 4.42 6.6821 8.9906 0.0100 78 28.55 10.64 7.6823 9.1608 0.0096 FlowMP + BB Prior 4 100 66.53 3.93 6.6900 12.7877 0.0115 81 29.45 10.36 7.6567 13.0263 0.0119 FlowMP + BB Prior 5 100 66.12 3.70 6.7051 15.9542 0.0139 82 29.57 10.22 7.6132 16.2149 0.0140 
+
+BridgeFlow (Ours) 2 100 70.25 4.07 6.6617 8.6599 0.0071 82 32.95 10.16 7.6678 8.1654 0.0075 
+
+BridgeFlow (Ours) 3 100 77.62 2.43 6.6903 13.0911 0.0096 88 37.05 8.38 7.8840 12.7498 0.0094 
+
+BridgeFlow (Ours) 4 100 80.03 1.89 6.7442 16.6112 0.0117 90 38.75 7.75 7.9164 16.2652 0.0117 
+
+BridgeFlow (Ours) 5 100 80.95 1.67 6.7762 19.5054 0.0133 90 39.40 7.50 7.9624 19.0508 0.0140 
+
+TABLE II: Zero-Shot Geometric Generalization on 7-DoF Franka Manipulation Task 
+
+Method In-Distribution ( A → B/C/D ) Unseen SE(2) Transfers (other regions) 
+
+VR (%) ↑ Avg Length ↓ Diversity ↑ Time (s) ↓ VR (%) ↑ Avg Length ↓ Diversity ↑ Time (s) ↓
+
+MPD (15 Step) 43.0 4.82 15.21 0.152 19.0 5.10 18.54 0.155 FlowMP (5 Step) 65.0 4.51 8.52 0.038 21.0 4.95 9.15 0.039 
+
+BridgeFlow (5 Step) 88.0 4.23 12.45 0.045 80.0 4.30 11.82 0.046 
+
+2) RQ3: Geometric Robustness and SE(2) Generaliza-tion: On unseen SE(2) transfer tasks,baseline models suffer a catastrophic performance collapse under spatial shifts. MPD’s VR decreases from 43 .0% to a mere 19 .0% , while FlowMP crashes from 65 .0% to 21 .0% . This confirms that standard architectures overfit to absolute coordinates, render-ing them brittle under spatial shifts. In contrast, BridgeFlow exhibits remarkable geometric robustness, maintaining a VR of 80 .0% on these completely unseen tasks, which proves the efficacy of our canonicalization framework. By systemati-cally factoring out global spatial symmetries prior to network inference, BridgeFlow achieves robust zero-shot generaliza-tion, obviating the need for expensive data augmentation in high-dimensional learning. TABLE III: Evaluation on Random SE(2) Transformed Tasks                                                                            
+
+> Method SR (%) VR (%) Int. ↓Len. ↓Div. ↑Time (s)
+> MPD (5 Step) 44 5.75 23.75 6.3229 24.1820 0.0296 MPD (10 Step) 50 5.75 23.56 6.0229 28.3098 0.0592 MPD (15 Step) 52 5.65 23.55 6.0239 31.3268 0.0880 FlowMP (2 Step) 20 6.20 25.13 5.9499 2.7843 0.0117 FlowMP (3 Step) 32 5.30 25.15 6.1966 6.6363 0.0176 FlowMP (4 Step) 30 4.65 25.16 6.1787 10.1282 0.0232 FlowMP (5 Step) 40 4.65 24.98 5.8222 13.0033 0.0289 BridgeFlow (2 Step) 88 50.65 5.80 6.5569 2.9351 0.0129 BridgeFlow (3 Step) 94 54.05 5.60 6.7047 6.6146 0.0185 BridgeFlow (4 Step) 96 63.45 5.54 6.8044 10.4302 0.0244
+> BridgeFlow (5 Step) 96 74.85 5.28 6.8583 13.1781 0.0302
+
+V. C ONCLUSION 
+
+In this paper, we propose BridgeFlow, a novel SE(2) -equivariant motion planning framework based on Flow Matching that resolves the bottlenecks of existing learning-based planners. By synergistically integrating a Brownian bridge informative prior, environment-aware Classifier-Free Guidance, and context-aware mini-batch optimal transport, our framework achieves exceptionally fast inference while establishing a highly informative geometric prior. Further-more, a lightweight task-centric canonicalization module guarantees strict SE(2) -equivariance, enabling robust gen-eralization across continuous rigid body transformations. Future work will focus on three directions: (1) Extending the framework to 3D motion planning by adapting the occupancy map to 3D distance fields and extending SE(2) -equivariance to SE(3) -equivariance. (2) Optimizing the noise variance σprior and guidance weight ω using adaptive methods to further improve trajectory quality and inference speed. (3) Validating the framework on real robotic systems to demonstrate its practical applicability in real-time scenarios. REFERENCES [1] LaValle, Steven. “Rapidly-exploring random trees: A new tool for path planning.” Research Report 9811, 1998. [2] Kuffner, James J., and Steven M. LaValle. “RRT-connect: An efficient approach to single-query path planning.” IEEE International Confer-ence on Robotics and Automation (ICRA), 2000. [3] Ratliff, Nathan, et al. “CHOMP: Gradient optimization techniques for efficient motion planning.” IEEE International Conference on Robotics and Automation (ICRA), 2009. [4] Kalakrishnan, Mrinal, et al. “STOMP: Stochastic trajectory optimiza-tion for motion planning.” IEEE International Conference on Robotics and Automation (ICRA), 2011. [5] Schulman, John, et al. “Finding locally optimal, collision-free tra-jectories with sequential convex optimization.” Robotics: science and systems (RSS), 2013. [6] Mukadam, Mustafa, et al. “Continuous-time Gaussian process motion planning via probabilistic inference.” The International Journal of Robotics Research (IJRR), 2018. [7] Ho, Jonathan, Ajay Jain, and Pieter Abbeel. “Denoising diffusion probabilistic models.” Advances in neural information processing systems (NeurIPS), 2020. [8] Song, Jiaming, Chenlin Meng, and Stefano Ermon. “Denoising diffu-sion implicit models.” Proceedings of the International Conference on Learning Representations (ICLR), 2021. [9] Carvalho, Joao, et al. “Motion planning diffusion: Learning and plan-ning of robot motions with diffusion models.” IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2023. [10] Carvalho, Joao, et al. “Motion planning diffusion: Learning and adapt-ing robot motion planning with diffusion models.” IEEE Transactions on Robotics, 2025. [11] Saha, Kallol, et al. “Edmp: Ensemble-of-costs-guided diffusion for motion planning.” IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2024. [12] Kim, Amelie Minji, Anqi Wu, and Ye Zhao. “Hierarchical diffu-sion motion planning with task-conditioned uncertainty-aware priors.” arXiv preprint arXiv:2509.25685, 2025. [13] Seo, Mingyo, et al. “Presto: Fast motion planning using diffusion models based on key-configuration environment representation.” IEEE International Conference on Robotics and Automation (ICRA), 2025. [14] Chi, Cheng, et al. “Diffusion policy: Visuomotor policy learning via action diffusion.” The International Journal of Robotics Research (IJRR), 2025. [15] Dian Wang, Stephen Hart, et al. “Equivariant diffusion policy.” Pro-ceedings of The 8th Conference on Robot Learning (PMLR), 2025. [16] Yang, Jingyun, et al. “EquiBot: SIM (3)-Equivariant Diffusion Policy for Generalizable and Data Efficient Learning.” Proceedings of The 8th Conference on Robot Learning (PMLR), 2025. [17] Tie, Chenrui, et al. ”Et-seed: Efficient trajectory-level se (3) equivari-ant diffusion policy.” Proceedings of the International Conference on Learning Representations (ICLR), 2024. [18] Huang, Siyuan, et al. “Diffusion-based generation, optimization, and planning in 3d scenes.” Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2023. [19] Lipman, Yaron, et al. “Flow matching for generative modeling.” Pro-ceedings of the International Conference on Learning Representations (ICLR), 2023. [20] Tong, Alexander, et al. “Improving and generalizing flow-based gen-erative models with minibatch optimal transport.” Transactions on Machine Learning Research (TMLR), 2024. [21] Cheng, Ho Kei, and Alexander Schwing. “The curse of conditions: Analyzing and improving optimal transport for conditional flow-based generation.” Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), 2025. [22] Nguyen, Khang, et al. “Flowmp: Learning motion fields for robot planning with conditional flow matching.” IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2025. [23] Funk, Niklas, et al. “Actionflow: Equivariant, accurate, and efficient policies with spatially symmetric flow matching.” arXiv preprint arXiv:2409.04576, 2024. [24] Braun, Max, et al. “Riemannian flow matching policy for robot motion learning.” IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2024. [25] Albergo, Michael S., et al. “Stochastic interpolants with data-dependent couplings.” Proceedings of the 41st International Confer-ence on Machine Learning (ICML), 2024. [26] Ho, Jonathan, and Tim Salimans. “Classifier-free diffusion guidance.” NeurIPS Workshop on Deep Generative Models and Downstream Applications, 2021. [27] Fan, Weichen, et al. “Cfg-zero*: Improved classifier-free guidance for flow matching models.” arXiv preprint arXiv:2503.18886, 2025. [28] Sandra, Edward, et al. “Accelerated multi-modal motion plan-ning using context-conditioned diffusion models.” arXiv preprint arXiv:2510.14615, 2025. [29] Qureshi, Ahmed H., et al. “Motion planning networks.” International Conference on Robotics and Automation (ICRA), 2019. [30] Qureshi, Ahmed Hussain, et al. “Motion planning networks: Bridging the gap between learning-based and classical motion planners.” IEEE Transactions on Robotics, 2020. [31] Qureshi, Ahmed Hussain, et al. “Constrained motion planning net-works x.” IEEE Transactions on Robotics, 2021. [32] Wang, Yinghan, Xiaoming Duan, and Jianping He. “Learning-based motion planning with mixture density networks.” IEEE International Conference on Robotics and Automation (ICRA), 2024. [33] Olver, Peter J. Equivalence, invariants and symmetry. Cambridge University Press, 1995. [34] Cohen, Taco, and Max Welling. “Group equivariant convolutional networks.” International conference on machine learning (ICML), 2016. [35] Fuchs, Fabian, et al. “Se (3)-transformers: 3d roto-translation equiv-ariant attention networks.” Advances in neural information processing systems (NeurIPS), 2020. [36] Seo, Joohwan, et al. “SE (3)-Equivariant robot learning and control: a tutorial survey.” International Journal of Control, Automation and Systems, 2025.

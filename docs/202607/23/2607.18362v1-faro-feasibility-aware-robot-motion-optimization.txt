@@ -1,0 +1,633 @@
+Title: FARO: Feasibility-Aware Robot Motion Optimization
+
+URL Source: https://arxiv.org/pdf/2607.18362v1
+
+Published Time: Wed, 22 Jul 2026 00:05:22 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+> arXiv:2607.18362v1 [cs.RO] 20 Jul 2026 1
+
+# FARO: Feasibility-Aware Robot Motion Optimization 
+
+Michal Ciebielski 1, Shafeef Omar 1, Aaron Johnson 2,3, Majid Khadiv 1
+
+Abstract —Fast planning of novel behaviors in unseen sce-narios remains a fundamental challenge in robotics. The high-dimensional, hybrid, and underactuated nature of humanoid loco-manipulation continues to hinder the realization of this goal. In this paper, we address this challenge by proposing a nested kino-dynamic framework for rapid feasibility check-ing and dynamically consistent trajectory generation given a candidate contact sequence. By integrating this module with a feasibility-guided tree search and a Large Language Model (LLM)-based contact plan sampling strategy, we demonstrate that the proposed framework can substantially improve the search process. Furthermore, we show that the generated tra-jectories can be tracked using a reinforcement learning (RL)-based controller and show that the resulting trajectories are of sufficiently high quality for execution in real-world loco-manipulation scenarios. A supplementary video is available at: https://youtu.be/R6qCHoCormQ. 
+
+Index Terms —Multi-contact whole-body motion planning, con-strained motion planning, kino-dynamic feasibility, fast motion discovery 
+
+I. I NTRODUCTION 
+
+Reasoning about the environment and planning in novel situations are hallmarks of intelligence. Evidence suggests that apes [1] and crows [2] are capable of such planning behaviors, particularly in tool-use tasks. Replicating these capabilities in robotics has proven extremely challenging, primarily be-cause it requires exploration over both motion and feasible force spaces, resulting in a highly complex planning problem. The challenge becomes even more pronounced in humanoid loco-manipulation, where the problem additionally involves searching through an extremely high-dimensional space of the underactuated system over a long horizon. Trajectory optimization (TO) and reinforcement learning (RL) are the two primary paradigms for realizing such be-haviors, and both have seen significant progress over the past decade [3], [4]. In trajectory optimization, to avoid issues associated with overly smoothing the hybrid nature of contact interactions [5], [6], most approaches combine discrete search over contact sequences with trajectory optimization [7], [8], [9], [10], which can be viewed as a relaxation of mixed-integer formulations [11], [12], [13]. Although these methods improve contact reasoning and behavioral diversity, the combinatorial growth of the search space makes them                        
+
+> This work was funded in part by SIEMENS AG and the Technical University of Munich - Institute for Advanced Study and by the Huawei-TUM joint laboratory.
+> 1Munich Institute of Robotics and Machine Intelligence (MIRMI), Technical University of Munich (TUM), Germany.
+
+firstname.lastname@tum.de        
+
+> 2Institute for Advanced Study, Technical University of Munich, Garching, Germany.
+> 3Department of Mechanical Engineering, Carnegie Mellon University, Pittsburgh, PA, USA.
+
+amj1@andrew.cmu.edu    
+
+> Fig. 1. Motion optimization and real-world execution with FARO .Top: snapshots of a trajectory produced by our motion optimization. Bottom: snapshots from executing the optimized trajectory on the real robot.
+
+computationally expensive. Maintaining tractability therefore often requires restricting the search through simplified models, task-specific heuristics, or hand-designed high-level actions, limiting the range of complex dynamic behaviors that can be discovered. On the other hand, RL has achieved remarkable success in locomotion [4] due to the cyclic nature of the task and thanks to the extreme human input through extensive reward shaping [14], [15], but it remains ineffective for solving complex long-horizon loco-manipulation skills. Consequently, many recent advances in RL-based humanoid loco-manipulation rely on tracking demonstrations [16] or human-to-humanoid retarget-ing [17], [18], [19] to bypass the difficult exploration problem. While effective when suitable reference motions are available, these approaches bypass the problem of discovering behaviors in novel situations. Exploration thus remains the central obstacle to the gen-eration of novel loco-manipulation behaviors: its scope is restricted in TO to manage computational complexity and largely avoided in RL through imitation or retargeting. Our ap-proach instead addresses this challenge through more efficient exploration of multi-contact motion. By rapidly pruning infea-sible contact decisions, it reduces the combinatorial burden of search without relying on predefined behavioral abstractions or reference motions. In this paper, we propose a general exploration strategy for efficiently searching the space of motion and contact interaction in humanoid loco-manipulation. Our framework, Feasibility-Aware Robot Motion Optimization (FARO) , sum-2Trajectory 
+
+> Optimization
+> proposed
+> contact
+> plan(s) Scene
+
+# FARO 
+
+> Contact Sequence
+> Generator
+> Kinematic
+> Sequence
+> Optimization
+
+Feasability-Aware 
+
+Motion Optimization 
+
+Whole body dynamic 
+
+loco-manipulation Feasibility    
+
+> Cache
+> Mode/Edge
+> Optimization
+> feasible
+> infeasible
+> Fig. 2. High-level overview of FARO .The scene defines the robot, movable objects, environment geometry, and available contact interfaces from which candidate contact-mode sequences are generated. The contact sequence generator may use search-based, user-specified, or LLM-based methods to produce candidate contact plans. These plans are evaluated by a hierarchy of increasingly restrictive feasibility checks consisting of mode/edge optimization, kinematic sequence optimization, and trajectory optimization. Results of mode/edge feasibility checks are stored in a cache, allowing previously evaluated modes and transitions to be accepted or rejected without resolving the corresponding optimization. Dynamically feasible plans produce whole-body, multi-object loco-manipulation motions, while infeasible plans can provide feedback to the contact sequence generator, which continues proposing and evaluating new contact sequences.
+
+marized in Fig. 2, combines progressively more expressive optimization-based feasibility tests with search to explore discrete contact-mode sequences while preserving a broad range of dynamically feasible behaviors. We demonstrate the framework in model-based tree search, LLM-guided contact-plan generation, and plans specified through human input. The resulting dynamic loco-manipulation skills are transferred to a real humanoid robot using a pre-trained RL-based trajectory-tracking controller, as illustrated in Fig. 1. This work repre-sents a step toward the efficient, on-the-fly generation of com-plex loco-manipulation behaviors in real-world environments. The contributions of this paper are:  
+
+> •
+
+a novel optimization-based pruning strategy, FARO , for multi-contact motion planning that substantially acceler-ates search without introducing a significant number of false-negative feasibility classifications;  
+
+> •
+
+the application of the FARO pruning strategy to afeasibility-guided tree search algorithm for multi-contact motion planning that substantially outperforms direct trajectory-optimization-based exploration;  
+
+> •
+
+a systematic evaluation of the FARO approach in three different algorithms: the model-based tree search, an LLM-guided contact-plan generation, and contact plans provided through human input. II. C ONTACT -E XPLICIT OPTIMIZATION 
+
+Our method centers on contact-explicit optimization, in which a discrete contact-mode sequence is provided as input and the corresponding continuous state, control, and timing variables are optimized subject to the prescribed contacts. To efficiently identify promising contact sequences, we comple-ment a full trajectory optimization with progressively stronger feasibility checks that operate on individual modes, transitions, and complete kinematic sequences. These optimization prob-lems, visualized graphically in Fig 3, share a common set of contact, collision, dynamics, and limit constraints, while differing in the variables they optimize and the level of feasibility they enforce. We first define the contact-mode sequence representation in Section II-A and the state and control spaces in Section II-B, followed by the common constraint formulations in Sec-tion II-C. The mode/edge feasibility optimization, kinematic sequence optimization, and full trajectory optimization are then presented in Sections II-D, II-E, and II-F, respectively. Following this Section III describes how these optimization-based feasibility checks are integrated into a feasibility-guided contact-mode tree search. 
+
+A. Contact Mode Sequence Definition 
+
+Let I be the set of all contact interfaces in the scene, indexed by integers. For each interface a ∈ I , we represent its contact state by a pair (a, b ), where b ∈ I indicates unilateral contact with interface b, and b = ∅ indicates that a is free. A contact mode is the complete assignment over all interfaces a unique contact pair: 
+
+c = {(a, b ) : ∀a ∈ I ∃ ! b ∈ I ∪ { ∅}} . (1) Furthermore, the mode must be consistent, i.e. (a, b ) ∈
+
+c ⇔ (b, a ) ∈ c. For a contact-mode time sequence C =(c0, . . . , c K−1), each mode at time s is written as 
+
+cs = {(a, b s) : a ∈ I} , s = 0 , . . . , K − 1. (2) 3
+
+B. State and Control Spaces 
+
+The state space and control variables are defined as 
+
+x := ( xr , x o1 , . . . , x ono ) ∈ X , (3) 
+
+u := ( ur , u o1 , . . . , u ono ) ∈ U . (4) with components corresponding to the robot, r, and objects, 
+
+oℓ, as indicated by the superscript, 
+
+xr := ( qr , v r , h r ), ur := ( ˙ vr , λ r
+
+> 1
+
+, . . . , λ rnee ), (5a) 
+
+xoℓ := ( qoℓ , Voℓ ), uoℓ := ( ˙Voℓ , Woℓ
+
+> env
+
+). (5b) where qr , vr , and hr denote the robot configuration, general-ized velocity, and centroidal momentum, respectively. For each object oℓ, qoℓ and Voℓ denote its pose and body velocity. The robot control consists of the generalized acceleration ˙vr and end-effector wrenches λre, e = 1 , . . . , n ee , while each object control consists of the body acceleration ˙Voℓ and external environment wrench Woℓ
+
+> env
+
+. The component spaces are 
+
+qr ∈ SE(3) × Rn, vr ∈ se (3) × Rn, hr ∈ R6,
+
+˙vr ∈ se (3) × Rn, λre ∈ R6, (6a) 
+
+qoℓ ∈ SE(3) , Voℓ ∈ se (3) , ˙Voℓ ∈ se (3) , Woℓ 
+
+> env
+
+∈ R6. (6b) 
+
+C. Constraint Definitions 1) Contact: In this work, all end-effectors and environment contact interfaces are modeled as rectangular patches with patch-to-patch unilateral contact, though other contact modali-ties, such as sliding or bilateral contact, could be incorporated. This includes contact between end-effector patches, patches on movable objects, and static environment patches. Let p, R, f , and κ denote the relative position, rotation, force, and moment of contact patch a with respect to contact patch b, expressed in frame b. The patch normals are aligned with their local z-axes. The vector ξ denotes the half-extents of a rectangular patch, so bξa denotes the half-extents of patch a
+
+expressed in frame b. The instantaneous constraints for patch-patch contact are: 
+
+log 3 (R)x,y = 0 , pz = 0 , (7a) 
+
+|px,y | ≤ 
+
+bξb
+
+
+
+> x,y
+
+−
+
+bξa
+
+
+
+> x,y
+
+, (7b) 
+
+|fx,y | ≤ μf z , fz ≥ 0, (7c) 
+
+|κz | ≤ μr fz ,
+
+κx
+
+κy
+
+
+
+≤ fz
+
+(aξa)y
+
+(aξa)x
+
+
+
+. (7d) Constraint (7a) aligns the patch normals through log 3(R) and enforces zero normal separation, while leaving the relative in-plane position and yaw angle free. Constraint (7b) keeps patches within the admissible region defined by the half-extents ξ. Constraint (7c) enforces unilateral contact and a pyramidal approximation of Coulomb friction with coefficient 
+
+μ. Constraint (7d) enforces torsional friction with coefficient 
+
+μr and center-of-pressure bounds induced by the finite patch size. For a sticking contact that remains active across adjacent timesteps s and s + 1 , we also have the no-slip condition, 
+
+ ps+1 − ps 
+
+> x,y
+
+= 0 , log 3
+
+
+
+(Rs)⊤ Rs+1 
+
+> z
+
+= 0 . (8) which is enforced by constraining both the in-plane position and the in-plane rotation across timesteps. 
+
+2) Collision: All bodies in the robot and scene are mod-eled using convex geometries, and collision avoidance is imposed with the signed-distance approximation of Schulman et al. [20]. For each collision pair A and B, the collision is queried using the GJK algorithm [21] as implemented in [22]. The query returns witness points pA and pB , expressed in the local frames of the two bodies, together with a separating normal ˆn. T wA (x) and T wB (x) represent the transformation of body A and B in the world frame. The resulting constraint based on the signed-distance approximation is 
+
+0 ≤ sd AB (x) ≈ ˆn · (T wA (x)pA − T wB (x)pB ) (9) 
+
+3) Dynamics: The robot dynamics constraints are, 
+
+qri+1 = qri ⊕ vri+1 ( ¯T ∆t), vri+1 = vri + ˙ vri+1 ( ¯T ∆t),hri+1 = hri + ˙hri+1 ( ¯T ∆t), (10a) 
+
+˙hr =
+
+ mg + Pnee  
+
+> e=1
+
+f rePnee 
+
+> e=1
+
+(pre − c) × f re + κre
+
+
+
+, hr = A(qr )vr . (10b) where (10a) integrates the robot configuration, velocity, and centroidal momentum using a backward Euler discretization over the scaled timestep ¯T ∆t, and ⊕ denotes integration on the configuration manifold. The centroidal momentum rate ˙hr in (10b) is given by the net external wrench acting on the robot, including gravity and the end-effector wrench components λre = ( f re , κ re). Finally, the centroidal momentum 
+
+hr is constrained to ensure consistency with the whole-body robot dynamics via the centroidal momentum matrix A(qr ).The object dynamics are defined as, 
+
+qoℓ 
+
+> i+1
+
+= qoℓ 
+
+> i
+
+⊕ V oℓ 
+
+> i+1
+
+( ¯T ∆t), Voℓ 
+
+> i+1
+
+= Voℓ 
+
+> i
+
++ ˙Voℓ 
+
+> i+1
+
+( ¯T ∆t) (11a) 
+
+Woℓ 
+
+> ext
+
+= Goℓ ˙Voℓ − ad Voℓ
+
+⊤Goℓ Voℓ . (11b) where (11a) integrates the object pose and twist using a back-ward Euler discretization over the scaled timestep ¯T ∆t, and 
+
+⊕ denotes integration on the object configuration manifold. (11b) defines the object twist–wrench dynamics driven by the total external wrench, following [23]. Here, Woℓ denotes wrenches expressed in the object body frame, ad Voℓ
+
+ is the adjoint Lie bracket operator associated with the object body twist Voℓ , and Goℓ is the spatial inertia matrix of object oℓ.
+
+Woℓ 
+
+> ext
+
+:= Woℓ 
+
+> env
+
++ Woℓ 
+
+> grav
+
++ P 
+
+> a∈I
+
+Woℓ 
+
+> a
+
+collects the signed body wrenches entering the object dynamics: Woℓ 
+
+> env
+
+encodes interaction with the environment, Woℓ 
+
+> grav
+
+represents gravity, and Woℓ 
+
+> a
+
+captures the wrench applied through interface a on object oℓ.
+
+4) Limits: Let the actuated joint torque be 
+
+τj := S M (q) ˙ v + b(q, v ) −
+
+> nee
+
+X
+
+> e=1
+
+Je(q)⊤λre
+
+!
+
+. (12) where S selects the actuated components of the dynamics. Similarly, qj and vj denote the vectors of actuated joint posi-tions and velocities. The joint position, velocity, and torque-speed limits are 
+
+qmin ≤ qj ≤ qmax , (13a) 
+
+vmin ≤ vj ≤ vmax . (13b) 4Kinematic Sequence Optimization Trajectory Optimization Kinematic Sequence Feasibility Trajectory Optimization Mode/Edge Optimization    
+
+> Mode Edge
+> Fig. 3. Graphical overview of the optimization problems used in FARO . The mode/edge optimization finds a single configuration that satisfies the constraints associated with an individual contact mode or transition. The kinematic sequence optimization finds one configuration per transition plus one configuration satisfying the initial and one the terminal condition. The trajectory optimization searches for a dynamically feasible motion by discretizing a continuous trajectory over the contact-mode sequence and enforcing the scene dynamics, contact constraints, and initial and terminal conditions throughout the trajectory. These checks form a hierarchy of increasingly restrictive feasibility tests: a feasible contact-mode sequence requires its constituent modes and transitions to be feasible, while dynamic feasibility further requires the existence of a feasible kinematic sequence. Thus, moving from left to right, feasibility at one level is necessary, but not sufficient, for feasibility at the next. Because the necessary conditions on the left are substantially cheaper to evaluate than full trajectory optimization, they can reject infeasible candidates early and avoid unnecessary trajectory optimizations, thereby accelerating search, as demonstrated in our evaluation.
+
+|τj | + τmax 
+
+vτ, max 
+
+|vj | ≤ τmax . (13c) The last inequality is a linear torque-speed envelope: the avail-able torque decreases affinely with joint speed, reaching zero at vτ, max . Each constraint in (13) is applied componentwise. 
+
+D. Contact Mode and Edge Feasibility 
+
+In order to prune kinematically infeasible contact modes and transitions between them, we formulate the following inverse kinematics optimization problem (14). A contact mode c is said to be infeasible if the resulting nonlinear program does not converge within a number of maximum iterations. To test whether two modes c1 and c2 can be connected via an edge, c
+
+is replaced by c1 ∪c2, representing the instantaneous transition between the two modes. 
+
+min  
+
+> q
+
+(q − qnom )⊤W (q − qnom )
+
+s.t. contact( q, c ) ≤ 0 (7a) , (7b) ,
+
+collision( q) ≤ 0 (9) ,
+
+limits( q) ≤ 0 (13a) ,
+
+(14) The contact, collision, and limit constraints are defined in section II-C, while q = ( qr , q o1 , . . . , q ono ) represents the robot and object configurations and qnom represents the nominal configuration used for regularization with weight W . Within a search procedure, expansions from a parent node cparent 
+
+to candidate child nodes cchild are evaluated using this op-timization, and the results are cached to avoid recomputing previously checked contact modes and transitions. 
+
+E. Kinematic Sequence Optimization 
+
+Given a sequence of K contact modes, C = ( c0, . . . , c K−1),the kinematic sequence optimization (KSO) solves for K + 1 
+
+robot–object configurations q0 = (q0, . . . , q K ). The con-figuration q0 satisfies the initial condition, while qK can optionally constrain the terminal condition when evaluating a goal-reaching sequence. Each intermediate configuration qs
+
+represents the transition between adjacent modes cs−1 and cs.The optimization enforces the contact constraints (7a), (7b), (8), collision avoidance (9), and configuration limits (13a) along the sequence. For notational convenience, we define 
+
+cK := cK−1, so that the terminal configuration can be handled using the same indexing as the intermediate configurations. The resulting optimization is 
+
+min 
+
+> q0: K
+> K
+
+X
+
+> s=0
+
+(qs − qnom )⊤W (qs − qnom )
+
+s.t. q0 = qinit , qK ∈ Qgoal ,
+
+∀s ∈ { 1, . . . , K } :contact  qs, c s−1 ∪ cs
+
+ ≤ 0 (7a) , (7b) ,
+
+collision( qs) ≤ 0 (9) ,
+
+limits( qs) ≤ 0 (13a) ,
+
+∀s ∈ { 0, . . . , K − 1} :
+
+∀a ∈ I satisfying (16a) or (16b) :contact  qs, q s+1 , c s) = 0 (8) .
+
+(15) The objective regularizes each configuration about the nom-inal configuration qnom with weight W . The optimization tests geometric feasibility without imposing time-dependent dynamics. Coupling between adjacent configurations is in-troduced through transition-consistency constraints associated with sticking contacts. Specifically, for each transition s →
+
+s + 1 , we enforce for any interface a ∈ I whose contact-state assignments in cs and cs+1 satisfy either 
+
+bs = bs+1 ̸ = ∅, (16a) 
+
+bs̸ = ∅ ∧ bs+1 = ∅. (16b) Condition (16a) corresponds to persistent contact, while con-dition (16b) corresponds to contact release. In both cases, the relative in-plane pose of the contact interface is con-strained to remain fixed across the transition according to (8). For persistent contact, this preserves the contact location between adjacent configurations. For release, qs+1 represents 5
+
+the boundary configuration at which contact is broken, so the sticking constraint is enforced up to the instant of separation. 
+
+F. Trajectory Optimization 
+
+Whereas the KSO verifies the geometric consistency of transitions along a given contact-mode sequence, the trajec-tory optimization additionally enforces the full robot–object dynamics over a discretized trajectory. Given the contact-mode sequence C = (c0, . . . , c K−1), the optimization solves for the state trajectory x0: N , control trajectory u0: N −1, and one dimensionless time-scaling factor ¯Ts for each contact-mode stage s:
+
+min x0: N ,u0: N −1, 
+
+> ¯T0: K−1
+> N−1
+
+X
+
+> i=0
+
+ϕ(xi, u i) + ϕN (xN ) + wTK−1X
+
+> s=0
+
+( ¯Ts − 1) 
+
+s.t. x0 = xinit , xN ∈ Xgoal ,
+
+∀s ∈ { 0, . . . , K − 1} :¯Tmin ≤ ¯Ts ≤ ¯Tmax ,
+
+∀i ∈ { 0, . . . , N − 1} :dyn( xi, x i+1 , u i, ¯Ts(i), c s(i)) = 0 (10) , (11) ,
+
+contact( xi, u i, c s(i)) ≤ 0 (7) , (8) ,
+
+collision( xi) ≤ 0 (9) ,
+
+limits( xi, u i) ≤ 0 (13) .
+
+(17) Here, xinit fixes the initial robot–object state, and Xgoal is the admissible terminal set for the task. The running and terminal costs are denoted by ϕ and ϕN . The factor ¯Ts scales the nominal timestep ∆t for all knot points in contact stage 
+
+s, so knot point i uses timestep ¯Ts(i)∆t, where s(i) maps knot points to contact-mode stages. The bounds ¯Tmin and 
+
+¯Tmax constrain each stage duration, and wT
+
+PK−1 
+
+> s=0
+
+( ¯Ts − 1) 
+
+penalizes deviations from the nominal scaling ¯Ts = 1 . The remaining constraints enforce dynamics, contact feasibility, collision avoidance, and state/control limits at each knot point and are each described in section II-C. 
+
+G. Implementation 
+
+Both (15) and (17) are implemented using a direct multiple-shooting transcription. The distance function approximation in (9) is implemented with the collision and distance resolution in coal [22]. Robot kinematics and dynamics are evaluated with Pinocchio [24], and the resulting nonlinear programs are formulated in CasADi [25]. The KSO is solved with the SQP solver in acados [26], whereas the TO is solved with the SQP solver Hippo [27]. The mode/edge optimizations (14) are solved with Ipopt [28]. III. F EASIBILITY -G UIDED TREE SEARCH 
+
+Based on the optimization formulations presented in the preceding sections, we propose a feasibility-guided tree search over discrete contact-mode sequences, shown in Algorithm 1. The tree is rooted at an initial mode c0, and each node v,together with its root-to-node prefix, represents a contact-mode sequence C(v). Node selection uses a cost-based variant of Upper Confidence bounds applied to Trees (UCT), which balances the exploitation of low-cost branches with the explo-ration of less frequently visited nodes. 
+
+v∗ = argmin 
+
+> u∈children( v)
+
+"
+
+J(u) − C
+
+s
+
+log( N (v) + 1) 
+
+N (u) + 1 
+
+#
+
+. (18) 
+
+J(u) is the node cost, C is the exploration coefficient and 
+
+N (·) denotes the visit count. Expansion is controlled by progressive widening, with the maximum number of children 
+
+M (v) increasing as node v is visited more often: 
+
+M (v) = max {1, kN (v)α} . (19) The coefficients are set as k = 1 .0, α = 0 .5 and C = 3 . Given the selected parent node v, P ROPOSE SUCCESSOR returns a random untested successor mode c+, defining the candidate sequence 
+
+C+ = C(v) ⊕ c+. (20) Before admission to the tree, V ERIFY applies the selected feasibility filters F. We consider the following filters, ordered from cheaper to more expensive: 1) contact-mode feasibility, M (c+), using (14), 2) transition-edge feasibility, E (c(v), c +), using (14), 3) kinematic sequence optimization, KSO (C+), using (15), 4) trajectory optimization, TO (C+), using (17). The mode filter M evaluates the proposed successor mode 
+
+c+, while the edge filter E evaluates the transition from the terminal mode c(v) of the parent sequence to c+. The sequence-level filters KSO and TO evaluate the complete candidate sequence C+.The four search variants evaluated in this work use 
+
+F1 =  KSO , F2 =  M, E, KSO ,
+
+F3 =  M, E, KSO , TO , F4 =  TO . (21) Within each variant, the filters are applied from left to right and verification terminates at the first failed filter. Reusable outcomes are stored in the feasible and infeasible caches, Kfeas 
+
+and Kinfeas , so that previously evaluated checks do not need to be solved again. If all active filters succeed, the candidate is added to the tree and assigned the cost J returned by the final filter in F. Successful goal-reaching sequences are added to Sgoal , and the search continues until the time budget B is exhausted. IV. E VALUATION 
+
+We evaluate our method in three settings. First, using human-specified contact sequences, we compare the compu-tational cost and constraint coverage of the KSO and TO formulations and demonstrate real-world execution of the re-sulting trajectories on a humanoid robot. Second, we evaluate the proposed feasibility-guided tree search in Algorithm 1, measuring its exploration performance and solution discovery under a fixed time budget. Finally, we evaluate KSO as a feasibility filter for contact plans generated by an LLM across several scene exploration tasks. 6
+
+Algorithm 1 Feasibility-Guided Contact-Mode Tree Search 
+
+Require: initial mode c0, time budget B, feasibility filters F 
+
+> 1:
+
+T ← INITIALIZE TREE (c0) 
+
+> 2:
+
+Sgoal ← ∅ 
+
+> 3:
+
+Kfeas , Kinfeas ← ∅, ∅ 
+
+> 4:
+
+while ELAPSED TIME () < B do  
+
+> 5:
+
+v ← SELECT (T ) ▷ cost-based UCT with progressive widening  
+
+> 6:
+
+c+ ← PROPOSE SUCCESSOR (v) 
+
+> 7:
+
+C+ ← C (v) ⊕ c+ 
+
+> 8:
+
+(feasible , J ) ← VERIFY (C+, F, Kfeas , Kinfeas ) 
+
+> 9:
+
+if ¬feasible then  
+
+> 10:
+
+continue  
+
+> 11:
+
+end if  
+
+> 12:
+
+ADD CHILD (T , v, c +, J ) 
+
+> 13:
+
+if GOAL (C+) then  
+
+> 14:
+
+if TO ∈ F then  
+
+> 15:
+
+goalFeasible ← true  
+
+> 16:
+
+else  
+
+> 17:
+
+goalFeasible ← TRAJECTORY OPT .(C+) 
+
+> 18:
+
+end if  
+
+> 19:
+
+if goalFeasible then  
+
+> 20:
+
+Sgoal ← S goal ∪ {C +} 
+
+> 21:
+
+end if  
+
+> 22:
+
+end if  
+
+> 23:
+
+end while  
+
+> 24:
+
+return Sgoal 
+
+A. Qualitative analysis on human-defined contact sequences 
+
+To evaluate the proposed optimization hierarchy on human-defined contact plans, we design eight contact-mode sequences with varying lengths and levels of complexity. Each mode in the TO is discretized using 20 optimization knots. For each se-quence, we report the TO and KSO solve times, the reduction in decision variables from TO to KSO, and the fraction of TO constraint types represented in the KSO. The resulting data is presented in Table I. The sequences marked with an asterisk are additionally executed on the real robot using an RL-based trajectory-tracking controller [19] (experiments are captured in the accompanying video). Snapshots of the trajectory and real world execution of the Double Catch task can be seen in Fig. 1. Across the eight sequences, the KSO is approximately two orders of magnitude faster than the TO while retaining, on average, 70.0% of the constraint types present in the TO. This combination of high constraint coverage and an average 74.8 × reduction in decision variables makes the KSO a fast yet expressive feasibility check. The constraints omitted by the KSO are those associated with dynamics, since it optimizes one configuration per mode transition rather than a fully discretized trajectory. 
+
+B. Feasibility-guided tree search 
+
+We evaluate the proposed feasibility-guided tree search Algorithm 1 on two variants of the box-placement task shown in Figure 4. Each variant is evaluated over five runs with   
+
+> Fig. 4. Tree Search Evaluation Scenes. The feasibility-guided tree search is evaluated on two box-placement tasks with the same contact-mode search space but different levels of kinematic and dynamic difficulty. In both tasks, the objective is to place the white box on the platform.
+
+different seeds controlling the random successor selection, with a two-hour time budget per run and a max depth of 5 switches. As a baseline, we use tree search with TO as the only feasibility check, which is similar to the exploration strategies used in [8], [9], [10]. Table II reports the search statistics for the different filter sets F. The allowed contact interfaces are listed in Table IV, yielding a maximum branching factor of 108. Across both task variants, searches using the proposed feasibility filters outperform the TO-only baseline in solution discovery and tree expansion. Filters that exclude TO during node expansion explore substantially faster and invoke TO only after reaching the discrete goal, indicating that KSO can serve as an effective proxy for guiding search. This advantage is especially pronounced in the hard task where the TO-only baseline finds no solutions and expands only 12.8 nodes on average, whereas the M , E, KSO variant expands 814.6 nodes and finds 26.4 solutions on average. The hard task also highlights the benefit of mode and edge filtering in addition to KSO. Since contact modes and transitions are repeatedly revisited during search, cached infea-sibility results allow previously checked queries to be rejected without resolving the corresponding optimization problems. This substantially reduces redundant exploration and explains the large performance gap between the KSO and M , E, KSO variants. 
+
+C. LLM-based Contact Plan Sampling 
+
+We evaluate the KSO as a feasibility filter for contact plans generated by GPT-5.5 [29]. Given a scene and goal description, the LLM is prompted to generate 100 diverse contact plans. We repeat this stochastic generation five times with the same prompt for each scene in Fig. 5 and report the results in Table III. For each plan, we solve both the KSO and TO and evaluate the KSO as a classifier of TO feasibility using its false-negative and false-positive rates. We also report the computational speedup obtained when the KSO is used as a feasibility filter before TO. Each scene has an easier -a variant and a more challenging -b variant. KSO filtering provides a speedup in all tasks, with larger gains in the harder variants. At the same time, the false-negative rate remains near zero, indicating that KSO rarely rejects plans that are feasible under TO. This is consistent with 7
+
+TABLE I COMPUTATIONAL PERFORMANCE AND CONSTRAINT COVERAGE ON HUMAN -SPECIFIED CONTACT SEQUENCES .Metric/Task Climb 1 Climb 2 Pick Place 1 * Pick Place 2 * Toss to Table * Double Catch * Triple Catch Juggle * Avg. 
+
+Num. Modes K 6 11 6 11 4 8 11 10 8.4 
+
+TO time [s] 50.59 106.01 21.36 83.40 9.73 91.53 117.62 37.33 64.70 
+
+KSO time [s] 0.34 1.93 0.37 0.90 0.14 0.31 0.42 0.43 0.60 
+
+Dec.-var. reduction [ ×] 74.9 74.4 74.9 74.9 74.9 74.9 74.9 74.9 74.8 
+
+Constraint coverage [%] 70.2 70.6 70.2 71.3 70.2 69.1 69.1 69.1 70.0 
+
+TABLE II FEASIBILITY -GUIDED TREE SEARCH PERFORMANCE ACROSS FILTER CONFIGURATIONS .Easy Hard Metric/Task KSO M,E,KSO M,E,KSO,TO TO KSO M,E,KSO M,E,KSO,TO TO No. sol. 73 .6 ± 19 .7 83 .8 ± 6.5 8.0 ± 3.7 20 .0 ± 5.0 0.4 ± 0.9 26 .4 ± 9.7 1.2 ± 0.8 0.0 ± 0.0
+
+Time to first sol. [s] 192 ± 96 194 ± 74 1455 ± 989 951 ± 583 2671 ± n/a 2763 ± 1549 5399 ± 868 n/a KSO attempts 410 .6 ± 27 .1 410 .0 ± 18 .7 230 .8 ± 16 .4 0.0 ± 0.0 1660 .8 ± 55 .4 1415 .0 ± 77 .4 437 .4 ± 13 .0 0.0 ± 0.0
+
+TO attempts 182 .0 ± 4.2 176 .2 ± 7.4 223 .0 ± 13 .6 208 .4 ± 8.3 5.4 ± 2.4 79 .6 ± 7.3 164 .0 ± 13 .8 216 .2 ± 5.5
+
+Total tree nodes 393 .8 ± 24 .3 380 .8 ± 22 .3 90 .6 ± 5.5 87 .8 ± 12 .2 218 .2 ± 24 .0 814 .6 ± 78 .9 52 .8 ± 7.7 12 .8 ± 2.2
+
+TABLE III LLM E XPLORATION                                                                    
+
+> Metric/Task 1-a 1-b 2-a 2-b KSO-feas. 30 .8±11 .14.6±6.447 .0±9.920 .6±28 .0
+> TO-feas. 8.8±5.00.4±0.910 .2±8.02.8±5.7
+> FNR [%] ↓0.0±0.00.0±0.01.3±2.60.0±0.0
+> FPR [%] ↓24 .2±10 .44.2±5.841 .4±8.319 .5±26 .1
+> Speedup [ ×]↑3.8±1.415 .5±10 .22.4±0.57.4±4.3
+
+TABLE IV ALLOWED CONTACT INTERACTIONS , RELATIVE TO INITIAL SCENE STATE .Interface Allowed contacts Left hand box left, box front, free Right hand box right, box rear, free Left foot floor, free Right foot floor, free Box bottom floor, tabletop, free 
+
+the shared constraint structure of the two formulations where the KSO preserves most of the geometric and contact con-straints enforced by TO, while omitting the additional dynamic constraints and trajectory variables. The few observed false negatives were primarily associated with poor initialization or insufficient solver iterations in the KSO. V. C ONCLUSION 
+
+In this work, we presented FARO , a feasibility-aware framework for rapidly discovering dynamic humanoid loco-manipulation behaviors from candidate contact-mode se-quences. FARO hierarchically filters candidates using contact mode, transition, kinematic sequence, and full trajectory opti-mization checks. Early pruning and cached feasibility results reduce expensive trajectory optimizations while preserving promising contact sequences. Experiments across feasibility-guided tree search, LLM-generated, and human-designed plans show that the mode/edge and kinematic sequence optimizations capture most relevant 
+
+Fig. 5. LLM Contact-Plan Sampling Scenes. The KSO feasibility filter is evaluated on LLM-generated contact plans across four task scenarios. For each task, the -b variant is more challenging than the corresponding -a variant. The LLM is prompted to output contact plans that explore the scene in qualitatively different ways. 
+
+constraints at substantially lower cost than full trajectory opti-mization, enabling faster and broader exploration of candidate contact plans and improving solution discovery in challenging scenarios while producing very few false-negative classifica-tions. These results establish the practical value of our feasibility-aware motion optimization, while also highlighting several directions for further development. The current formulation assumes planar contact interfaces and could be extended to richer geometries using differentiable signed-distance repre-sentations such as [30]. The optimization hierarchy is designed around increasingly restrictive feasibility conditions, and we expect the corresponding feasible sets to be nested, although a formal proof of this property is left to future work. Finally, scaling to substantially longer-horizon tasks will likely require integrating FARO with higher-level task and motion planning 8
+
+or program search [31] to manage the combinatorial complex-ity of contact-space search. REFERENCES [1] K. Vaesen, “The cognitive bases of human tool use,” Behavioral and Brain Sciences , vol. 35, no. 4, pp. 203–218, 2012. [2] J. H. Wimpenny, A. A. Weir, L. Clayton, C. Rutz, and A. Kacelnik, “Cognitive processes associated with sequential tool use in New Cale-donian crows,” PLoS One , vol. 4, no. 8, p. e6471, 2009. [3] P. M. Wensing, M. Posa, Y. Hu, A. Escande, N. Mansard, and A. D. Prete, “Optimization-based control for dynamic legged robots,” IEEE Transactions on Robotics , vol. 40, pp. 43–63, 2024. [4] S. Ha, J. Lee, M. van de Panne, Z. Xie, W. Yu, and M. Khadiv, “Learning-based legged locomotion: State of the art and future perspec-tives,” The International Journal of Robotics Research , vol. 44, no. 8, pp. 1396–1427, 2025. [5] Y. Tassa, T. Erez, and E. Todorov, “Synthesis and stabilization of complex behaviors through online trajectory optimization,” in 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems ,2012, pp. 4906–4913. [6] I. Mordatch, E. Todorov, and Z. Popovi´ c, “Discovery of complex behaviors through contact-invariant optimization,” ACM Transactions on Graphics , vol. 31, no. 4, pp. 1–8, 2012. [7] S. Tonneau, A. Del Prete, J. Pettr´ e, C. Park, D. Manocha, and N. Mansard, “An efficient acyclic contact planner for multiped robots,” 
+
+IEEE Transactions on Robotics , vol. 34, no. 3, pp. 586–601, 2018. [8] M. A. Toussaint, K. R. Allen, K. A. Smith, and J. B. Tenenbaum, “Differentiable physics and stable modes for tool-use and manipulation planning,” in Robotics: Science and Systems , 2018. [9] J.-P. Sleiman, F. Farshidian, and M. Hutter, “Versatile multicontact planning and control for legged loco-manipulation,” Science Robotics ,vol. 8, no. 81, p. eadg5014, 2023. [10] M. Ciebielski, V. Dh´ edin, and M. Khadiv, “Task and motion planning for humanoid loco-manipulation,” in IEEE-RAS International Conference on Humanoid Robots , 2025, pp. 1179–1186. [11] R. Deits and R. Tedrake, “Footstep planning on uneven terrain with mixed-integer convex optimization,” in IEEE-RAS International Confer-ence on Humanoid Robots , 2014, pp. 279–286. [12] B. Aceituno-Cabezas, C. Mastalli, H. Dai, M. Focchi, A. Radulescu, D. G. Caldwell, J. Cappelletto, J. C. Grieco, G. Fern´ andez-L´ opez, and C. Semini, “Simultaneous contact, gait, and motion planning for robust multilegged locomotion via mixed-integer convex optimization,” IEEE Robotics and Automation Letters , vol. 3, no. 3, pp. 2531–2538, 2017. [13] B. Ponton, M. Khadiv, A. Meduri, and L. Righetti, “Efficient multi-contact pattern generation with sequential convex approximations of the centroidal dynamics,” IEEE Transactions on Robotics , vol. 37, no. 5, pp. 1661–1679, 2021. [14] J. Hwangbo, J. Lee, A. Dosovitskiy, D. Bellicoso, V. Tsounis, V. Koltun, and M. Hutter, “Learning agile and dynamic motor skills for legged robots,” Science Robotics , vol. 4, no. 26, p. eaau5872, 2019. [15] J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter, “Learning quadrupedal locomotion over challenging terrain,” Science Robotics ,vol. 5, no. 47, p. eabc5986, 2020. [16] M. Seo, S. Han, K. Sim, S. H. Bang, C. Gonzalez, L. Sentis, and Y. Zhu, “Deep imitation learning for humanoid loco-manipulation through human teleoperation,” in IEEE-RAS International Conference on Humanoid Robots , 2023, pp. 1–8. [17] C. Pan, C. Wang, H. Qi, Z. Liu, H. Bharadhwaj, A. Sharma, T. Wu, G. Shi, J. Malik, and F. Hogan, “SPIDER: Scalable physics-informed dexterous retargeting,” in arXiv preprint arXiv:2511.09484 , 2025. [18] L. Yang, X. Huang, Z. Wu, A. Kanazawa, P. Abbeel, C. Sferrazza, C. K. Liu, R. Duan, and G. Shi, “OmniRetarget: Interaction-preserving data generation for humanoid whole-body loco-manipulation and scene inter-action,” in IEEE International Conference on Robotics and Automation ,2026. [19] V. Dhedin, I. Taouil, S. Omar, D. Yu, K. Tao, A. Dai, and M. Khadiv, “DynaRetarget: Dynamically-feasible retargeting using sampling-based trajectory optimization,” in arXiv preprint arXiv:2602.06827 , 2026. [20] J. Schulman, Y. Duan, J. Ho, A. Lee, I. Awwal, H. Bradlow, J. Pan, S. Patil, K. Goldberg, and P. Abbeel, “Motion planning with sequential convex optimization and convex collision checking,” The International Journal of Robotics Research , vol. 33, no. 9, pp. 1251–1270, 2014. [21] E. G. Gilbert, D. W. Johnson, and S. S. Keerthi, “A fast procedure for computing the distance between complex objects in three-dimensional space,” IEEE Journal on Robotics and Automation , vol. 4, no. 2, pp. 193–203, 1988. [22] J. Pan, S. Chitta, D. Manocha, F. Lamiraux, J. Mirabel, J. Carpentier, L. Montaut et al. , “Coal: an extension of the flexible collision library,” https://github.com/coal-library/coal, 2015–2024. [23] K. M. Lynch and F. C. Park, Modern robotics . Cambridge University Press, 2017. [24] J. Carpentier, G. Saurel, G. Buondonno, J. Mirabel, F. Lamiraux, O. Stasse, and N. Mansard, “The Pinocchio C++ library – A fast and flexible implementation of rigid body dynamics algorithms and their analytical derivatives,” in IEEE International Symposium on System Integrations , 2019. [25] J. A. Andersson, J. Gillis, G. Horn, J. B. Rawlings, and M. Diehl, “CasADi: a software framework for nonlinear optimization and optimal control,” Mathematical Programming Computation , vol. 11, no. 1, pp. 1–36, 2019. [26] R. Verschueren, G. Frison, D. Kouzoupis, J. Frey, N. van Duijkeren, A. Zanelli, B. Novoselnik, T. Albin, R. Quirynen, and M. Diehl, “acados – a modular open-source framework for fast embedded optimal control,” 
+
+Mathematical Programming Computation , 2021. [27] H. Zhao, L. Righetti, and M. Khadiv, “Hippo: High-performance interior-point and projection-based solver for generic constrained tra-jectory optimization,” IEEE Robotics and Automation Letters , vol. 11, no. 6, pp. 6752–6759, 2026. [28] A. W¨ achter and L. T. Biegler, “On the implementation of an interior-point filter line-search algorithm for large-scale nonlinear programming,” 
+
+Mathematical Programming , vol. 106, pp. 25–57, 2006. [29] OpenAI, “Gpt-5.5,” 2026, large language model. [Online]. Available: https://openai.com/index/introducing-gpt-5-5/ [30] C. Dietz, S. Albrecht, A. Nurkanovi´ c, and M. Diehl, “Smoothed distance functions for direct optimal control of contact-rich systems,” in European Control Conference . IEEE, 2025, pp. 2515–2522. [31] I. Taouil, M. Ciebelski, S. Omar, H. Zhao, A. Dai, A. M. Johnson, and M. Khadiv, “MotionDisco: Motion discovery for extreme humanoid loco-manipulation,” arXiv preprint arXiv:2606.06139 , 2026.

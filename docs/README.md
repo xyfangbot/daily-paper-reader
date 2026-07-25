@@ -6,95 +6,97 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-24
-- 运行时间：2026-07-25 06:20:15 Asia/Shanghai
+- 最新运行日期：2026-07-25
+- 运行时间：2026-07-26 05:56:42 Asia/Shanghai
 - 运行状态：成功
 - 本次总论文数：25
 - 精读区：10
 - 速读区：15
 
 ### 今日简报（AI）
-今日共收录25篇论文，精读10篇，速读15篇，重点聚焦自动驾驶与智能导航领域。最值得精读的是《GeoWorldAD》自动驾驶几何世界模型和《Anticipate Before Act》未来状态条件视觉语言导航，均获9.0高分。建议优先精读这两篇，再拓展速读清单中的社会感知导航与认知双过程规划方法。
-- 详情：[/202607/24/README](/202607/24/README)
+今日精选25篇论文，聚焦VLAs时序逻辑与具身智能导航两大方向。  
+最值得关注《STeP》用信号时序逻辑精准规范VLM动作生成，以及《Emergent Compositional Skills》揭示MoE架构的涌现组合技能。  
+建议后续验证时序逻辑在实际VLM部署中的效果，并探索多专家模型在楼层间零样本导航等复杂场景的融合。
+- 详情：[/202607/25/README](/202607/25/README)
 
 ### 精读区论文标签
-1. [GeoWorldAD: Geometry World Action Model for Autonomous Driving](/202607/24/2607.17521v2-geoworldad-geometry-world-action-model-for-autonomous-driving)  
-   标签：评分：9.0/10、query:world-model
-   evidence：提出GeoWorldAD，一种用于自动驾驶规划的几何世界动作模型，具有显式3D基础
-2. [Anticipate Before Acting: Future-State-Conditioned Vision-Language Navigation](/202607/24/2607.18042v2-anticipate-before-acting-future-state-conditioned-vision-language-navigation)  
-   标签：评分：9.0/10、query:vtt
-   evidence：未来状态条件化的视觉语言导航
-3. [Extreme-RGMT: Continual Learning of Highly Dynamic Skills for Robust Generalist Humanoid Control](/202607/24/2607.20110v1-extreme-rgmt-continual-learning-of-highly-dynamic-skills-for-robust-generalist-humanoid-control)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：持续学习框架用于鲁棒通用人形控制及动态技能
-4. [HyWorldVLA: A Vision-Language-Action Model with Hybrid World Modeling for Autonomous Driving](/202607/24/2607.20988v1-hyworldvla-a-vision-language-action-model-with-hybrid-world-modeling-for-autonomous-driving)  
-   标签：评分：9.0/10、query:world-model
-   evidence：混合世界建模的视觉-语言-动作模型用于自动驾驶
-5. [GuidedAttention: Interpretable and Correctable Visual Attention for OOD-Robust Robot Manipulation via Imitation Learning](/202607/24/2607.21049v1-guidedattention-interpretable-and-correctable-visual-attention-for-ood-robust-robot-manipulation-via-imitation-learning)  
+1. [STeP: Signal Temporal Logic for Precise Specifications for Action Generation with Vision Language Models](/202607/25/2607.18580v1-step-signal-temporal-logic-for-precise-specifications-for-action-generation-with-vision-language-models)  
    标签：评分：9.0/10、query:vla-robotics
-   evidence：机器人操作的模仿学习
-6. [Compact Latent Coordination for Autonomous Vehicles at Unsignalized Intersections](/202607/24/2607.21488v1-compact-latent-coordination-for-autonomous-vehicles-at-unsignalized-intersections)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：强化学习用于机器人导航
-7. [Streaming Multi-Agent Autoregressive Diffusion Model with World State Registers](/202607/24/2607.21594v1-streaming-multi-agent-autoregressive-diffusion-model-with-world-state-registers)  
-   标签：评分：9.0/10、query:world-model
-   evidence：多智能体交互世界模型，包含跨智能体世界状态寄存器
-8. [Towards Torque-Driven Reinforcement Learning for Quadruped Locomotion](/202607/24/2607.18365v1-towards-torque-driven-reinforcement-learning-for-quadruped-locomotion)  
-   标签：评分：8.0/10、query:rl-robotics
-   evidence：基于扭矩的强化学习用于四足机器人在粗糙地形上运动
-9. [STL-GCS: A Planner-Controller Framework for Signal Temporal Logic via Graphs of Time-varying Convex Sets](/202607/24/2607.19196v1-stl-gcs-a-planner-controller-framework-for-signal-temporal-logic-via-graphs-of-time-varying-convex-sets)  
+   evidence：视觉语言动作模型结合信号时序逻辑精确生成动作
+2. [Emergent Compositional Skills in Mixture-of-Experts VLAs](/202607/25/2607.20771v1-emergent-compositional-skills-in-mixture-of-experts-vlas)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：基于混合专家VLA的组合机器人策略
+3. [Obstacle-Aware Four-Dimensional Trajectory Design for Urban Air Mobility](/202607/25/2607.15690v1-obstacle-aware-four-dimensional-trajectory-design-for-urban-air-mobility)  
    标签：评分：8.0/10、query:topic
-   evidence：使用B样条进行轨迹规划，满足信号时序逻辑约束
-10. [No Training, Better Flights: Test-Time Scaled VLMs for UAV Navigation](/202607/24/2607.19288v1-no-training-better-flights-test-time-scaled-vlms-for-uav-navigation)  
+   evidence：城市环境中eVTOL的混合轨迹优化
+4. [Learning Reach-Avoid Task with Reinforcement Learning: Vectorized Simulation and Benchmark](/202607/25/2607.15935v1-learning-reach-avoid-task-with-reinforcement-learning-vectorized-simulation-and-benchmark)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：强化学习用于机械臂到达-避障任务，提供DRL基准测试
+5. [From Perception to Assistance: Open-Vocabulary Shared Autonomy for Robotic Manipulation](/202607/25/2607.17323v1-from-perception-to-assistance-open-vocabulary-shared-autonomy-for-robotic-manipulation)  
+   标签：评分：8.0/10、query:vla-robotics
+   evidence：使用视觉语言模型的机器人共享自主操作
+6. [Stability and Comfort in Mobile Robot-Pedestrian Interactions](/202607/25/2607.17604v1-stability-and-comfort-in-mobile-robot-pedestrian-interactions)  
    标签：评分：8.0/10、query:vtt
-   evidence：适用于无人机的视觉语言导航，利用测试时缩放提升性能
+   evidence：非完整移动机器人的社交感知导航
+7. [Towards Torque-Driven Reinforcement Learning for Quadruped Locomotion](/202607/25/2607.18365v1-towards-torque-driven-reinforcement-learning-for-quadruped-locomotion)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：强化学习扭矩控制用于四足机器人在崎岖地形行走
+8. [Model-Agnostic Meta Learning for Differentiable MPC](/202607/25/2607.19271v1-model-agnostic-meta-learning-for-differentiable-mpc)  
+   标签：评分：8.0/10、query:topic
+   evidence：元学习用于可微模型预测控制，轨迹优化
+9. [Diffusion ReRoll: Revisable Denoising for Robotic Sequential Prediction](/202607/25/2607.19919v1-diffusion-reroll-revisable-denoising-for-robotic-sequential-prediction)  
+   标签：评分：8.0/10、query:vla-robotics
+   evidence：基于扩散的机器人序列预测框架，支持可修正的去噪过程
+10. [ReferTrack: Referring Then Tracking for Embodied Visual Tracking](/202607/25/2607.20061v1-refertrack-referring-then-tracking-for-embodied-visual-tracking)  
+   标签：评分：8.0/10、query:vtt
+   evidence：基于指称的具身视觉跟踪
 
 ### 速读区论文标签
-1. [SAGE: A Socially-Aware Generative Engine for Heterogeneous Multi-Agent Navigation](/202607/24/2607.16619v2-sage-a-socially-aware-generative-engine-for-heterogeneous-multi-agent-navigation)  
-   标签：评分：8.0/10、query:vtt
-   evidence：社交导航跟随机器人
-2. [Cognitive Dual-Process Planning for Autonomous Driving with Structured Scene Knowledge and Verifiable Reasoning-Action Consistency](/202607/24/2607.19194v1-cognitive-dual-process-planning-for-autonomous-driving-with-structured-scene-knowledge-and-verifiable-reasoning-action-consistency)  
+1. [PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution](/202607/25/2607.16636v1-phyagentos-a-self-evolving-operating-system-for-embodied-agents-with-decoupled-cognitive-planning-and-physical-execution)  
    标签：评分：8.0/10、query:world-model
-   evidence：利用视觉语言模型进行自动驾驶规划，场景理解具有世界模型风格
-3. [Cognitive Dual-Process Planning for Autonomous Driving with Structured Scene Knowledge and Verifiable Reasoning-Action Consistency](/202607/24/2607.19194v2-cognitive-dual-process-planning-for-autonomous-driving-with-structured-scene-knowledge-and-verifiable-reasoning-action-consistency)  
-   标签：评分：8.0/10、query:world-model
-   evidence：同第一版本：用VLM进行自动驾驶规划，包含世界模型表示
-4. [From Distances to Trajectories: Real-Time Signed Distance Function Mapping and Distance-Accelerated Motion Planning for UAVs](/202607/24/2607.19306v1-from-distances-to-trajectories-real-time-signed-distance-function-mapping-and-distance-accelerated-motion-planning-for-uavs)  
-   标签：评分：8.0/10、query:topic
-   evidence：使用SDF进行实时运动规划，处理障碍约束
-5. [Unified Prediction and Planning via Conflict-Aware Disjoint Parameter Training](/202607/24/2607.19971v1-unified-prediction-and-planning-via-conflict-aware-disjoint-parameter-training)  
+   evidence：整合世界模型和VLA的具身智能体系统级运行时
+2. [Robostral Navigate](/202607/25/2607.20785v1-robostral-navigate)  
    标签：评分：8.0/10、query:vtt
-   evidence：面向社交机器人导航的统一预测与规划
-6. [Socially Consistent Multi-Robot Navigation Using Decoupled Planning and Trajectory Coordination](/202607/24/2607.20772v1-socially-consistent-multi-robot-navigation-using-decoupled-planning-and-trajectory-coordination)  
+   evidence：8B视觉语言模型用于导航，使用单目RGB图像预测路径点，跨机器人具身泛化
+3. [ZONDA: Zero-shot Object Navigation with Dynamic Avoidance in Multi-floor Environments](/202607/25/2607.21025v1-zonda-zero-shot-object-navigation-with-dynamic-avoidance-in-multi-floor-environments)  
    标签：评分：8.0/10、query:vtt
-   evidence：社会性多机器人导航与轨迹协调
-7. [PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution](/202607/24/2607.16636v1-phyagentos-a-self-evolving-operating-system-for-embodied-agents-with-decoupled-cognitive-planning-and-physical-execution)  
-   标签：评分：7.0/10、query:world-model
-   evidence：具身智能体中世界模型与VLA的集成
-8. [Distilling Global Traversability Priors for Image-based Affordance Prediction in Off-road Environments](/202607/24/2607.17984v1-distilling-global-traversability-priors-for-image-based-affordance-prediction-in-off-road-environments)  
+   evidence：零样本物体导航，并在多楼层环境中动态避障
+4. [VoLN: Vision-Only Long-Horizon Navigation---Paradigm, Benchmark, and Method](/202607/25/2607.21400v1-voln-vision-only-long-horizon-navigation---paradigm-benchmark-and-method)  
+   标签：评分：8.0/10、query:vtt
+   evidence：仅视觉的远距离导航，将外部指令中的路线信息转移到本地场景线索
+5. [Beyond Fixed Goal Delivery: Online POMDP Planning for Target Interception in Crowds](/202607/25/2607.18517v1-beyond-fixed-goal-delivery-online-pomdp-planning-for-target-interception-in-crowds)  
+   标签：评分：7.0/10、query:vtt
+   evidence：人群中目标拦截的在线POMDP规划，社交导航
+6. [Stochastic Multi-Objective Kinodynamic Planning Against Adversaries](/202607/25/2607.19284v1-stochastic-multi-objective-kinodynamic-planning-against-adversaries)  
    标签：评分：7.0/10、query:topic
-   evidence：面向越野导航路径规划的全局可通行性先验
-9. [RoboHarness: Memory-Driven Orchestration of Heterogeneous Robot Policies for Long-Horizon Planning](/202607/24/2607.18060v1-roboharness-memory-driven-orchestration-of-heterogeneous-robot-policies-for-long-horizon-planning)  
+   evidence：随机多目标动力学规划
+7. [EA-Nav: Learning Safe Visual Navigation Policies with Embodiment Awareness](/202607/25/2607.19880v1-ea-nav-learning-safe-visual-navigation-policies-with-embodiment-awareness)  
+   标签：评分：7.0/10、query:rl-robotics
+   evidence：基于模仿学习的具身感知视觉导航策略，与强化学习导航目标一致
+8. [URF: A Unified Robot Control-Policy Framework for Stable Contact Aware Manipulation](/202607/25/2607.20912v1-urf-a-unified-robot-control-policy-framework-for-stable-contact-aware-manipulation)  
    标签：评分：7.0/10、query:vla-robotics
-   evidence：视觉语言动作模型用于机器人操作
-10. [Patch Policy: Efficient Embodied Control via Dense Visual Representations](/202607/24/2607.18236v1-patch-policy-efficient-embodied-control-via-dense-visual-representations)  
-   标签：评分：7.0/10、query:vla-robotics
-   evidence：提出Patch Policy作为重型VLA模型的高效替代，用于机器人操控
-11. [STeP: Signal Temporal Logic for Precise Specifications for Action Generation with Vision Language Models](/202607/24/2607.18580v1-step-signal-temporal-logic-for-precise-specifications-for-action-generation-with-vision-language-models)  
-   标签：评分：7.0/10、query:vla-robotics
-   evidence：使用VLM和信号时序逻辑实现机器人操控的精确动作生成
-12. [Vision-Language-Motion Maps: An Open-Vocabulary, Uncertainty-Aware, Queryable Motion Attribute for 3D Scene Maps](/202607/24/2607.16173v1-vision-language-motion-maps-an-open-vocabulary-uncertainty-aware-queryable-motion-attribute-for-3d-scene-maps)  
+   evidence：统一机器人控制策略框架，结合柔性动作预测与阻抗-导纳控制，用于操控
+9. [Distributed Model-Based Diffusion For Scalable Multi-Robot Trajectory Optimization](/202607/25/2607.20992v1-distributed-model-based-diffusion-for-scalable-multi-robot-trajectory-optimization)  
+   标签：评分：7.0/10、query:topic
+   evidence：分布式扩散模型用于多机器人轨迹优化
+10. [Exo2EgoPose: Leveraging Exocentric Demonstrations for Vision-Language guided Egocentric 3D Hand Pose Forecasting](/202607/25/2607.15890v1-exo2egopose-leveraging-exocentric-demonstrations-for-vision-language-guided-egocentric-3d-hand-pose-forecasting)  
+   标签：评分：6.0/10、query:vla-robotics
+   evidence：视觉语言引导的手部姿态预测用于机器人操作
+11. [Retriever: Composing Closed-Loop Asynchronous Robot Programs](/202607/25/2607.17213v1-retriever-composing-closed-loop-asynchronous-robot-programs)  
+   标签：评分：6.0/10、query:rl-robotics
+   evidence：机器人异步闭环流水线，包含规划与控制
+12. [EvolvingWorld: An Open-Schema Framework for Co-Evolving Role-Play Agents and World Model in Interactive Literary World](/202607/25/2607.17250v1-evolvingworld-an-open-schema-framework-for-co-evolving-role-play-agents-and-world-model-in-interactive-literary-world)  
    标签：评分：6.0/10、query:world-model
-   evidence：用于场景运动理解的世界模型
-13. [An Indoor Navigation System for the Visually Impaired based on UWB Positioning and D* Lite Path Planning Algorithm](/202607/24/2607.16614v1-an-indoor-navigation-system-for-the-visually-impaired-based-on-uwb-positioning-and-d-lite-path-planning-algorithm)  
+   evidence：面向交互文学世界的世界模型，支持角色与环境共同演化
+13. [Conservative Query and Adaptive Regularization for Offline RL Under Uncertainty Estimation](/202607/25/2607.19199v1-conservative-query-and-adaptive-regularization-for-offline-rl-under-uncertainty-estimation)  
+   标签：评分：6.0/10、query:rl-robotics
+   evidence：离线强化学习的保守查询与自适应正则化
+14. [Self-Supervised Bio-Inspired Robotic Trajectory Planning with Obstacle Avoidance](/202607/25/2607.20743v1-self-supervised-bio-inspired-robotic-trajectory-planning-with-obstacle-avoidance)  
    标签：评分：6.0/10、query:topic
-   evidence：基于D* Lite的动态障碍路径规划
-14. [Learning Adaptive Safety Margins for Visual Navigation](/202607/24/2607.18200v1-learning-adaptive-safety-margins-for-visual-navigation)  
-   标签：评分：6.0/10、query:topic
-   evidence：视觉导航中自适应安全裕度学习
-15. [VoLN: Vision-Only Long-Horizon Navigation---Paradigm, Benchmark, and Method](/202607/24/2607.21400v1-voln-vision-only-long-horizon-navigation---paradigm-benchmark-and-method)  
-   标签：评分：6.0/10、query:vtt
-   evidence：纯视觉长时程导航作为视觉语言导航的补充范式
+   evidence：自监督轨迹规划框架，针对移动机器人避障和规划，属于轨迹优化方法
+15. [Offline RL with Hierarchical Action Chunking](/202607/25/2607.20834v1-offline-rl-with-hierarchical-action-chunking)  
+   标签：评分：6.0/10、query:rl-robotics
+   evidence：基于分层动作分块的离线强化学习用于长程任务
 
 
 <div class="dpr-home-promo-card">

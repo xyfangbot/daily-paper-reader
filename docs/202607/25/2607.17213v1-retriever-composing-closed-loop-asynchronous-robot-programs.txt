@@ -1,0 +1,1926 @@
+Title: Retriever: Composing Closed-Loop Asynchronous Robot Programs
+
+URL Source: https://arxiv.org/pdf/2607.17213v1
+
+Published Time: Tue, 21 Jul 2026 01:17:51 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Retriever: Composing Closed-Loop Asynchronous Robot Programs 
+
+Linfeng Zhao ¶, Haojie Huang ‡, Jiayuan Mao §, Weiyu Liu ¶, Mykel Kochenderfer ⋆¶, Lawson L.S. Wong ⋆‡¶Stanford University, §MIT, ‡Northeastern University, ⋆Equal Advising 
+
+Abstract —Building long-horizon robot agents requires com-posing closed-loop pipelines—perception, belief update, planning, and control—whose components run at different clocks and with variable latency. Today, these systems are often assembled with ad-hoc concurrency and pub/sub conventions that make timing and input-consumption semantics implicit, yielding schedule-dependent behavior that is hard to reproduce, debug, and reuse. Current solutions typically solve parts of this problem at either the algorithmic or the systems layer, but not both. In this work, we propose Retriever, which spans the entire stack: an asynchronous decision model, a programming model, a runtime, and an example closed-loop agent pipeline. Retriever represents an agent as a graph of stateful causal stream functions executed on explicit run clocks. We formalize this view via an asynchronous environment–agent loop over continuous-time streams and show that finite-memory causal policies can be represented by compo-sitions of these operators. Retriever compiles these graphs into a runtime that supports multiple backends, enabling systematic debugging across running environments and deterministic replay from logged asynchronous data. We evaluate Retriever through a real-robot case study together with controlled studies of runtime overhead and deterministic replay behavior. 
+
+I. I NTRODUCTION 
+
+General robotic manipulation poses fundamental challenges. Tasks often require long-horizon decision making under partial observability while following open-ended human instructions in dynamic environments. Training a single unified policy is often infeasible because of data or latency constraints. Instead, effective agents use closed-loop, reactive, modular pipelines (e.g., Figure 2) in which specialized modules handle perception, reasoning, and control at different rates. Even as data scaling gradually pushes the field toward more integrated systems, this modular stage remains inevitable. However, today’s stacks offer no general-purpose way to build such pipelines: each system is engineered as a brittle one-off, even though the same coordination problems recur across tasks and platforms. If the pipeline blocks on a slow model call, control stalls and the robot stutters. If modules run without coordination, they act on stale data, and behav-ior depends on thread scheduling in ways that are nearly impossible to debug or replay. While deep learning thrives on modularity and compositionality (e.g., PyTorch layers), robotics does not yet have a widely adopted abstraction that makes the temporal composition of these components explicit and deterministic. Such an abstraction is increasingly timely: general-purpose coding agents can already write and debug programs together with roboticists, making programs the key  
+
+> 1
+
+from retriever import Pipeline, Rate, Trigger, Latest  
+
+> 23
+
+# 1) Define Flows (what) + run clocks (when)  
+
+> 4
+
+head_cam = CameraSource( id =0) @Rate(hz=30)  
+
+> 5
+
+wrist_cam = CameraSource( id =1) @Rate(hz=30)  
+
+> 6
+
+belief = BeliefMemoryFlow() @Trigger(  
+
+> 7
+
+"inspection_done")  
+
+> 8
+
+monitor = ExecutionMonitorFlow() @Trigger(  
+
+> 9
+
+"belief_updated", "progress")  
+
+> 10
+
+planner = VLMPlanFlow("gemini") @Trigger("replan")  
+
+> 11
+
+vla = VLASkillFlow("pi05") @Rate(hz=2)  
+
+> 12
+
+robot = ControllerFlow( id =0) @Rate(hz=200)  
+
+> 13 14
+
+# 2) Build the graph (composition + sync on edges)  
+
+> 15
+
+pipe = Pipeline("Closed-loop Agent")  
+
+> 16
+
+with pipe: # Each line defines a chain  
+
+> 17
+
+wrist_cam.then(vla, sync=Latest())\  
+
+> 18
+
+.then(robot, sync=Latest())  
+
+> 19
+
+head_cam.then(belief, sync=Latest())\  
+
+> 20
+
+.then(planner, sync=Latest())\  
+
+> 21
+
+.then(monitor, sync=Latest())\  
+
+> 22
+
+.then(vla, sync=Latest())  
+
+> 23 24
+
+# 3) Debug vs deploy  
+
+> 25
+
+pipe.step(dt=0.1) # Run for 0.1s in main process  
+
+> 26
+
+pipe.run(backend="dora") # Run async -> deploy 
+
+Fig. 1: Retriever-0 (representative pipeline). Retriever is a pro-gramming model and runtime framework for closed-loop reactive agents. Agents are written by composing Flows into computational graphs (via then ) and making time explicit: each Flow declares a run clock, and each edge declares a synchronization or buffering contract. Between Flows with mismatched rates, plan chunks and action chunks carry time-extended outputs, so slow planning overlaps skill execution and 2Hz inference keeps 200Hz control fed (Sec. V). The graph can be stepped in the main process for debugging ( .step() )or executed asynchronously (.run() ). The listing is essentially runnable Python, simplified mainly in naming, and corresponds to the canonical pipeline in Fig. 2. 
+
+intermediate representation between foundation models and robots. Tightly coupling semantic reasoning with reactive skills is central to robust autonomy. For instance, a tool-use task (Fig. 2) may combine slow VLM planning, fast VLA skill execution, real-time failure monitoring, and still faster inverse-kinematics and control loops. These modules must remain coordinated despite their different rates. 1 A programming model that makes these temporal couplings explicit would 
+
+> 1
+
+Language-goal and teleoperation Flows are optional input sources for task specification, recovery, and data collection. arXiv:2607.17213v1 [cs.RO] 19 Jul 2026 Fig. 2: System Pipeline. Retriever-0 composes camera, belief/memory, planning VLM, execution-monitor, VLA skill, and robot-controller Flows. Triggered belief and progress updates close the loop; PlanChunk s and ActionChunk s bridge slow planning, 2Hz skill inference, and 200Hz control. 
+
+allow developers to safely compose modules at mismatched rates without relying on brittle, task-specific glue code. Real-world robotic systems operate asynchronously and under strict timing constraints , creating a fundamental mismatch with our abstractions. The challenge is twofold. (1) 
+
+Physics vs. Compute: Large models (e.g., VLMs) have vari-able latency while physical control requires strict deadlines. Standard Markov decision process (MDP/POMDP) formula-tions abstract away execution time. In a naive implementation, blocking stalls execution while non-blocking access can yield stale decisions. (2) Determinism vs. Asynchrony: Many middleware applications (e.g., ROS stacks) rely on implicit callback ordering. The resulting schedule dependence makes behavior difficult to replay or verify and makes differentiable optimization unreliable. A natural goal is to decouple module algorithms from asynchronous execution details. Existing paradigms provide 
+
+limited support for this in closed-loop settings (Table I). (1) Mismatched Abstractions: Learning formulations (e.g., RL and imitation learning over MDPs/POMDPs) assume a globally synchronized timestep, while systems tools (e.g., ROS) assume loose message passing, losing temporal se-mantics. (2) Missing Abstraction Boundary: Middleware lacks explicit primitives for temporal coordination (buffering, chunking), leaving correctness to ad-hoc glue code. In this paper, we introduce Retriever, a new programming model and a flexible runtime for asynchronous, compositional robot agents. Its primitives make buffering, scheduling, and deadlines explicit without embedding composition logic inside individual modules. The result is functional determinism :under the fixed clocks, synchronization policies, and replay conditions formalized later, the same input trace yields the same output trace regardless of scheduler interleavings. This supports reproducible replay, verification, and path-gradient studies over fixed temporal traces. Our contributions include: (1) Formulation in Physical Time: We formulate asynchronous agent–environment inter-action over continuous physical time, without the single global timestep assumed in MDPs and POMDPs (Sec. III). (2) 
+
+Programming Model: We define a dataflow graph in which modules have explicit clocks and edges use synchronization policies for deterministic input consumption. (3) Runtime Framework: Our embedded Python DSL compiles to an intermediate representation that can be stepped locally for debugging and replay or run on supported backends such as Dora without replacing transport middleware (Sec. IV). (4) Long-Horizon Manipulation Pipeline and Controlled Studies: We build a closed-loop multi-rate pipeline for long-horizon manipulation that combines VLM planning, reactive skills, belief memory, and monitoring, together with controlled studies of runtime overhead and determinism (Sec. V, VI). II. R ELATED WORK 
+
+Retriever combines ideas from robotic systems, dataflow/stream processing, and functional programming, including the Unix philosophy of simple, composable interfaces [1]. Existing tools address connectivity, modularity, and reactivity from different layers. It unifies these concerns under one timing model. Table I compares the underlying paradigms, and Table II (Sec. IV) scores their coverage of the design desiderata. 
+
+A. Open-World Robot Agents 
+
+Open-world robot agents must solve long-horizon tasks under partial observability. They must gather information, maintain belief and task progress, execute skills, monitor outcomes, and replan after failures. Modular systems address these needs through STRIPS-style decoupling of reasoning and execution [2], hierarchical task planning and skill libraries [3], compositional skill models for task-and-motion planning [4], and object-oriented world models [5]. Belief-space planning formalizes the same idea by aggregating history into an explicit belief state for planning-to-perceive [6, 7, 8] and uncer-tainty handling [9, 10]. Language-model-driven instruction-following systems [11] adopt a similar modular structure 2Framework Abstraction Time Model Determinism Primary Scope                                    
+
+> Standard RL (Gym) MDP/POMDP/Agent Loop Synchronized Steps Sequential Algorithmic Learning Imperative Call-Return / Loop Implicit (Blocking) Sequential Prototyping & Glue Code ROS / ROS 2 Pub/Sub (Transport) Implicit (Wall-clock) Best-effort* Async Robot System Process networks (KPN) Process Graph + FIFOs Logical Streams Schedule-independent Stream Semantics FRP (e.g. Yampa) Signal Functions Continuous / Logical Functional Determinism Functional Logic Actor model / Ray Actors + Async Messages Event-driven Nondeterministic Distributed Execution TF / PyTorch (ML) Graph IR (+ runtime) Discrete Steps Functional Determinism Gradient Optimization
+> Retriever Behavior-Level Graph Explicit (Clocks/Sync) Functional Determinism Closed-Loop Agent Composition
+
+TABLE I: Comparison of Retriever with related paradigms. Retriever targets a systems-level abstraction that makes time and input-consumption semantics explicit for deterministic closed-loop agent composition; see Appendix A for a longer historical lineage, and Table II (Sec. IV) for how each family covers Retriever’s design desiderata. *Best-effort: not guaranteed schedule-independent; functional determinism :outputs are functions of input histories, not scheduler interleavings (Sec. II). 
+
+(estimation, deliberation, execution), but amplify timing chal-lenges due to variable-latency inference. Interfaces such as 
+
+policy.forward( ·) or a single LLM call do not provide a programming model for coordinating closed-loop asyn-chronous modules in embodied environments. The missing piece is explicit temporal semantics for module latency, multi-rate coordination, and delay handling. 
+
+B. Robotics Middleware and Frameworks 
+
+Robotics systems are commonly built atop message-passing middleware such as ROS [12] and ROS 2 [13]. These sys-tems provide connectivity and deployment tooling but largely leave timing and data alignment to the application. Callbacks, queues, and shared state therefore encode when modules run and what they consume, including alignment, bounded staleness, and multi-rate dependencies. These hidden policies make runs hard to reproduce and input consumption hard to inspect. A carefully engineered ROS 2 stack can realize many of these behaviors case by case, but as bespoke application code rather than reusable contracts. More recent systems such as Dora [14] provide execution and transport for robotics graphs. Retriever sits above this layer and specifies graph tim-ing, synchronization, and input-consumption contracts. Real-time frameworks like OROCOS [15] and Cyber RT [16] strengthen guarantees for safety-critical loops, but do not provide a reusable abstraction for heterogeneous agent graphs spanning slow deliberation and fast control. This motivates a programming layer that exposes timing and input-consumption semantics at the graph level (Sec. I–IV). 
+
+C. Programming Models for Asynchronous systems 
+
+A dataflow graph model represents programs as graphs of stateful operators connected by streams. Kahn process networks ( KPN ) provide a key anchor: each node is a de-terministic sequential process communicating only via FIFO channels, where reads block when inputs are unavailable [17]. Under these assumptions, the entire network is determinate :for a fixed program and fixed input histories, the histories produced on all channels are uniquely determined and do not depend on the runtime schedule. We refer to this property as functional determinism —outputs are a function of input histories, not of thread interleavings. Synchronous dataflow further restricts rates to enable static schedules and resource analysis [18]. In parallel, functional programming and functional reac-tive programming (FRP) emphasize explicit semantics for composing time-varying computation and feedback [19, 20]. 
+
+Arrowized FRP formalizes reactive systems as compositions of causal signal functions with disciplined feedback [21, 22]. For embodied robotics, these models still leave two choices implicit: how a module aligns multi-rate event streams at decision time, and how that choice is inspected and replayed across runtimes. The actor model emphasizes isolated state with asyn-chronous message passing [23, 24]; modern runtimes such as Ray operationalize similar ideas for AI workloads [25]. How-ever, actors alone do not specify a unique input-consumption order across concurrent arrivals, so determinism typically requires additional constraints. Finally, ML frameworks such as TensorFlow and PyTorch use explicit graphs/IRs for portability and optimization [26, 27], but largely assume synchronous tensor steps rather than asynchronous sensorimotor streams. Retriever combines these ideas in an explicit agent graph whose input consumption is schedule-independent and an-chored in physical time. Appendix A provides a longer histor-ical lineage. III. F ORMULATION : A SYNCHRONOUS 
+
+ENVIRONMENT –A GENT LOOP 
+
+We first define time-varying values and the causal transfor-mations between them. We use the formal term causal stream function (CSF) for the semantic object; the programming object introduced later is a Flow . We use these definitions to lift the standard agent–environment loop to continuous time. Observations, computation completions, and actions become streams over event time rather than values locked to one global step. Sec. IV turns this timing model into a programming model and runtime. Table II states the design desiderata used to evaluate it. Appendix B and Appendix A-J provide additional definitions and timing discussion. 
+
+A. The Data Types: Time and Streams 
+
+We assume a global continuous time-tag set T = R≥0
+
+shared by all streams, at which sensors fire and actions take effect. For a value type V, we write Stream (V) for the set of time-tagged streams taking values in V. Following the tagged-signal view [28, 29], a Stream (or Signal ) is a partial function 3s : T ⇀ V. Equivalently, it is a set of timestamped events 
+
+{(ti, v i)} with at most one value per time tag in a given stream. We write events as time–value pairs (ti, v i) throughout the paper. We use s(t) = ⊥ only as notation for “no event at time 
+
+t.” There are two fundamental types of stream.  
+
+> •
+
+Continuous streams (behaviors): sc : T → V c. Defined for all t (e.g., physical properties, robot joint positions, velocity).  
+
+> •
+
+Discrete event streams: se : T ⇀ Ve with countable, locally finite support (e.g., camera images, robot actions, messages, contact events). This partial-function notation covers continuous behaviors and discrete events within one causal model. Related sig-nal/function views appear in FRP and synchronous-language semantics [30, 21]. For any stream s, we write s|≤t or s|<t for the restriction of the stream to tags up to, or strictly before, time t.We define a Clock as a special Event Stream whose values are unitless “ticks.” 2 A clock C defines when a computational module runs, effectively discretizing continuous time for func-tion execution. Clocks can be periodic, event-driven, a union of both, or driven by external synchronization signals. Event time remains continuous; clocks induce local decision epochs, so composition yields interleaved local steps rather than one global step sequence. 
+
+B. Causal Stream Functions (CSFs) and Flows ( F)
+
+The semantic unit of computation is a causal stream function (CSF) F : Stream (I) → Stream (O), which maps input streams of type I to output streams of type O.3 Let sin 
+
+and s′ 
+
+> in
+
+denote two input streams. Causality means that if they agree through time t, their output histories also agree through 
+
+t:
+
+sin |≤t = s′
+
+> in
+
+|≤t =⇒ F (sin )|≤t = F(s′
+
+> in
+
+)|≤t. (1) This definition lets a pointwise map use an event at t. Feedback cycles require the stricter prefix rule introduced below. Two properties make CSFs modular. First, CSFs are state-ful : F can maintain internal memory ht (e.g., integrators, Kalman filters, belief states) that evolves over time. Second, they satisfy closure : a directed graph of CSFs is itself a CSF. This lets us build agent hierarchies from submodules without reasoning about one global state. At an event time t, a stateful CSF can be written as a local transition 
+
+(ht+ , y t) = f (ht− , x t), (2) where ht− and ht+ are the local state immediately before and after processing the event, xt is the synchronized input snapshot consumed by the step, and yt ∈ O is the emitted output value. Closed-loop composition makes these graphs 
+
+cyclic : feedback between acting and sensing is the point, not               
+
+> 2Equivalently, we identify a clock with its locally finite support of trigger times supp( C) = {tk}.
+> 3For a multi-input module with port value types I1, . . . , Im,Stream (I)
+> is shorthand for the tuple of independent input streams Qmj=1 Stream (Ij);the synchronized input at a tick is the port tuple xt∈Qmj=1 Ij.
+
+an edge case. Instantaneous cycles would impose algebraic constraints such as xt = f (xt). Therefore, every directed cycle must contain at least one delay or strictly causal edge whose consumer sees only producer events from times < t .4
+
+Unlike a deep-learning graph that can avoid feedback or unroll recurrence offline, a robot agent must execute such feedback directly in time. To execute a CSF, we bind it to a Clock and input-snapshot rules. The resulting runtime object is a Flow : the CSF defines 
+
+what is computed, while the Flow defines when it runs and which aligned snapshot it consumes. 
+
+Flow (F, C) : Stream (I) → Stream (O) (3) Here I and O are the input and output value spaces. At the 
+
+k-th sample tick tk ∈ supp( C), the Flow evaluates its local transition. Edgewise sync policies assemble the synchronized input snapshot xtk (Sec. IV): 
+
+(ht+
+
+> k
+
+, y tk ) = f (ht−
+
+> k
+
+, x tk ). (4) A Flow runs at tk and makes its result visible at a declared commit time ck (usually ck = tk), so periodic and event-driven modules share the same causal semantics. 5
+
+C. Asynchronous Environment–Agent Loop 
+
+We extend the standard MDP/POMDP agent–environment loop by relaxing its single global timestep. In the resulting asynchronous environment–agent loop, observations and ac-tions are causal streams over continuous event time. The task objective is unchanged. The model instead specifies which past values a module may consume when modules observe, compute, and act at different rates. At the task level, the important split is: 1) Environment E: A causal map from action streams to observation streams. The environment evolves continu-ously, and observations may arrive at any time. 2) Agent Policy π: A causal stream function mapping observation history to action streams. The agent does not wait for a “next step”; it reacts asynchronously to events. At a local tick tk, a sync policy selects an aligned snap-shot or buffer from upstream events before tk. The runtime assembles these edge values into the module’s ordered input record. Sec. IV implements this as sync(...) calls between clocked Flows. Unlike step-based MDPs, the environment does not wait: while a module computes, physical state and other streams continue to evolve. The informational constraint remains causal: an emitted action can depend only on observa-tions committed to the histories sampled by its synchronization policies.              
+
+> 4A state-delay node’s output at tick tkdepends only on state established before tk. Acyclic same-tick dependencies are also admissible when their order is declared deterministically.
+> 5Variable-latency policies may use ck> t k. Replay fixes or logs both {tk}
+> and {ck}, and downstream sync policies read only committed events.
+
+4IV. R ETRIEVER PROGRAMMING MODEL & R UNTIME 
+
+This section turns the causal-stream-function (CSF) formu-lation into a programming model and runtime for multi-rate closed-loop systems (Fig. 2). Temporal coordination becomes an explicit graph contract rather than glue code. 
+
+A. Design Desiderata 
+
+We start from requirements induced by the canonical pipeline in Fig. 2:  
+
+> •
+
+D1 Compositionality: systems can be built by composing reusable modules that depend only on their inputs and local state, not global state and glue logic inside callbacks.  
+
+> •
+
+D2 Asynchronous multi-rate: planners, skills, and controllers run in parallel at different rates, and model inference has variable latency; there is no single global synchronized tick.  
+
+> •
+
+D3 Closed-loop modularity: agent pipelines need closed-loop feedback (monitoring → replanning → execution) without ad-hoc concurrency.  
+
+> •
+
+D4 Explicit time semantics: slow →fast and fast →slow boundaries require principled handling of synchronization and buffering (e.g., staleness, chunking, and timeouts).  
+
+> •
+
+D5 Determinism, replay, and debuggability: same inputs and initial internal state should yield identical traces/outputs under replay (independent of runtime scheduling), enabling data collection and debugging with breakpoints.  
+
+> •
+
+D6 Supported backend mapping: decouple graph seman-tics from placement and transport choices where backend adapters exist, without treating hardware-specific behavior as part of the algorithm. Table II scores how representative abstraction families cover these desiderata. 
+
+B. Core Abstractions: Flows, Clocks, and Pipeline Graphs 
+
+Retriever programs the agent computation graph : users write Flows and connect them inside a Pipeline . A Flow is a stateful synchronous step function (Fig. 3); asynchrony comes from its clock and graph edges. Programmatically, each Flow realizes a CSF from Sec. III with three fields:  
+
+> •
+
+step() — the synchronous transition: update local state, emit outputs;  
+
+> •
+
+clock — when the Flow steps: a periodic rate or an event trigger;  
+
+> •
+
+input ports — what each step consumes: typed edges whose histories are materialized by sync policies. These choices directly reflect the desiderata above: Flows provide a reusable, state-local unit of composition ( D1 ); clocks make multi-rate execution explicit ( D2 ); and edge policies make cross-rate interaction deterministic and replayable ( D4– D5 ) while remaining portable across backends ( D6 ). Closed-loop wiring (monitoring → replanning → execution) is ex-pressed as an explicit graph pattern rather than hidden callback logic ( D3 ). At each tick, the runtime materializes the input snapshot and calls step() once. The returned output is then delivered downstream. Every Flow owns exactly one run clock, enforcing single-threaded sequential semantics per module.                
+
+> 1# Example: a VLA skill flow @2Hz
+> 2# (wrist cam obs, robot state, SkillCmd) -> ActionChunk
+> 3class VLASkillFlow(Flow):
+> 4def reset(self):
+> 5self.cur_skill = None
+> 67def step(self, inp):
+> 8cam_obs, robot_state, skill_cmd = inp #aligned by sync policies
+> 9self.cur_skill = skill_cmd
+> 10 return self.vla(cam_obs, robot_state, self. cur_skill)
+
+Fig. 3: VLA Flow Example. At each 2Hz step() , the skill Flow receives a synchronized snapshot: the latest 30Hz wrist-camera frame, 60Hz robot state, and active SkillCmd . It emits an ActionChunk 
+
+so high-rate control can continue between policy calls (Fig. 4). 
+
+Fig. 4: Explicit synchronization for asynchronous modules. Adownstream 2Hz VLA step() consumes a synchronized snapshot assembled by deterministic policies such as Latest() from asyn-chronous streams (30Hz wrist camera, trigger events, 60Hz robot state). Output rates can differ from input clocks. 
+
+Sec. V shows how option-style skills and task primitives such as OpenDrawer(handle) become SkillCmd inputs, 
+
+ActionChunk outputs, and progress/status streams. 
+
+C. Synchronization Policies: The Deterministic Bridge 
+
+CSFs define causal semantics; Retriever adds the runtime contract for clocked step() modules. Before each step() ,deterministic sync policies turn asynchronous upstream his-tories into one input snapshot (Fig. 4). This makes input sampling an explicit timestamped edge contract rather than an implicit queue read ( D4–D5 ). Schematically, each tick follows the same contract:             
+
+> 1for tick in flow.clock:
+> 2inp = {}
+> 3for edge in flow.inputs:
+> 4hist = edge.history(committed_before=tick)
+> 5inp[edge.port] = sync(edge.policy, hist)
+> 6out = flow.step(inp)
+
+The returned out becomes visible downstream at the declared commit time. The key contract is that sync is deterministic over committed events. By default, it reads only events com-mitted before the Flow tick. Same-tick visibility requires a declared deterministic order. For one incoming edge u → v,the core operation is inp[edge.port]=sync(...) :
+
+> visible = edge.history(committed_before=tick)
+
+5Framework family Async closed loop                                           
+
+> (D2–D3)
+> Modular graph
+> (D1)
+> Explicit sync/stale
+> (D4)
+> Temporal skills/chunks
+> (D4)
+> Replayable step inputs
+> (D5)
+> Backend mapping
+> (D6)
+> MDP/POMDP loop [31] Partial No No Partial Partial No ROS 2/Dora [13, 14] Partial Partial Manual Manual Partial Partial TAMP/options [6, 32] Partial Partial No Yes No No KPN/FRP [17, 21] Partial Yes Partial No Yes No Ray/actors [23, 25] Partial Yes No No Partial Yes PyTorch/TF IRs [27, 26] No Yes No No Partial Yes Retriever Yes Yes Yes Yes Yes Yes
+
+TABLE II: Coverage of the design desiderata D1–D6 across representative abstraction families; Table I gives the corresponding paradigm taxonomy. “Yes” means the capability is first-class in the abstraction; “Partial” means the abstraction supports part of the need but leaves an important robot-agent contract unspecified; “Manual” means the behavior is implementable but encoded in application glue; “No” means it is outside the abstraction’s target. Retriever’s contribution is combining these capabilities in a single abstraction.   
+
+> x_edge =sync(edge.policy, visible)
+
+The resulting x_edge is one field in the ordered input record consumed by step() .6
+
+A concrete sync step. Suppose an edge u → v carries the timestamped stream (time, value) 
+
+su→v =  (0 .10 , 1) , (0 .20 , 4) , (0 .35 , 9) , (0 .60 , 16) ,
+
+and v ticks at tvk = 0 .50 . The strict prefix visible at this tick drops the future event at 0.60 :
+
+su→v <0.50 =  (0 .10 , 1) , (0 .20 , 4) , (0 .35 , 9) .
+
+The same history then yields different snapshots under differ-ent policies:    
+
+> visible =history.before(0.50) sync(Latest(), visible) -> 9 sync(Window(0.30), visible) -> [4, 9] sync(Window(0.45), visible) -> [1, 4, 9]
+
+The snapshot is a deterministic function of the committed history, not of queue order. With deterministic Flow code and 
+
+sync policies, a fixed clock/commit trace therefore determines the network trace. 7 Sec. V wires these policies onto the robot pipeline. Common edge input-materialization policies include 
+
+Latest , Window , and chunk-style buffering or playback; 
+
+Join assembles the sampled edge values into the input record consumed by step() . Table III summarizes the core computation, synchronization, and record-assembly operators. Temporal chunking patterns such as action-chunk playback are built from these primitives as buffering policies or small Flows. Making the rules explicit replaces “whatever message happens to be in the queue” with a deterministic snapshot function of history (Sec. III). 
+
+> 6
+
+Formally, x_edge is the per-edge value xu→v (tvk ), and the full snapshot 
+
+xtvk =  xu→v (tvk ) 
+
+> u∈In( v)
+
+is the xtk consumed by the local transition f in Sec. III. Each edge value may be a frame, held value, short buffer, aggregate, or missing/stale status. 
+
+> 7
+
+For fixed discrete event/synchronization paths and differentiable module dynamics, this also gives well-defined path gradients; Sec. VI uses this property in a differentiable simulation study.                   
+
+> Operator Role Contract / Typical Use
+> Map Stateless Pointwise transformation of one snapshot into another.
+> Scan Stateful Folds input history into local state, e.g., belief or monitor state.
+> Latest Sync Sample-and-hold at the downstream tick, option-ally with bounded staleness.
+> Window Sync Returns a bounded temporal buffer, e.g., last N
+> frames.
+> Join Bundle Bundles synchronized edge values into one downstream input record.
+
+TABLE III: Core Retriever operators. Map and Scan define causal computation within a module; Latest and Window sample asyn-chronous edge histories at module boundaries; Join assembles multi-input records. 
+
+Lag & deadline semantics. When compute cannot keep up, Retriever makes the fallback explicit ( D4 ). A policy can hold the last valid value for a bounded duration, mark an input missing or expired, trigger a safe fallback, or raise an error in debug mode. A blocking contract can instead require a fresh unread event before a step proceeds. Rate clocks also declare whether lagging ticks are dropped, replayed to catch up, warned, or treated as errors. Because replay depends on the resulting tick/commit trace, production logs must preserve lag decisions rather than reconstruct them from wall time. We expand practical contracts and examples in Appendix D. 
+
+D. Representation Power 
+
+Why choose a temporal dataflow graph? The agent in Fig. 2 combines high-rate control, medium-rate skills, and slow belief-space planning [6, 8]. We show that temporal dataflow graphs of CSFs are expressive enough for policies that act at discrete decision times, keep bounded memory, and sample asynchronous inputs deterministically. Such policies need only pointwise maps, stateful scans, deterministic edge sampling, and record assembly (Table III). These roles match standard primitives in Functional Reactive Programming (FRP) [33, 30] and stream processing [34], giving the sufficient basis formal-ized below. 
+
+Theorem 1 (Representability) . Any deterministic policy in the asynchronous environment–agent loop with locally finite decision times, fixed-size memory, finite aligned inputs from committed observation histories via deterministic sync poli-cies, and strictly causal feedback can be implemented by 
+
+6a Retriever graph with the same action stream for every observation history. 
+
+In programming terms, π is a control loop: read inputs, update state, and emit an action. The proof (Appendix C-A) makes this concrete. A single-rate policy becomes a Scan 
+
+node, optionally followed by a Map , under one Clock ; a multi-rate policy is several such loops coupled through deterministic  
+
+> sync
+
+edges. The decision-time and input-sampling conditions are not bookkeeping. Changing the rate or sampling rule closes a different loop with the environment and therefore defines a different policy. Clocks and sync policies are part of the policy, not mere scheduling details. Thus, the Retriever graph model is sufficient for the bounded-memory, multi-rate policies targeted here. 
+
+Stochasticity. Theorem 1 extends to stochastic policies and environments. A policy that samples actions—an RL policy or a temperature-sampled VLM—can be written as a deterministic sampler given its input and explicit random bits: ak ∼ π(· | zk) becomes ak = f (zk, ϵ k). One extra stream of realized draws, seeds, or logged model outputs therefore recovers the theorem and supplies the replay contract below (Thm. 2). Environment randomness needs no extension, since every guarantee is a per-trace statement; Appendix C-C expands both points. 
+
+E. Runtime: Graph IR to Actors 
+
+Retriever separates graph definition from execution to sup-port D6 without losing D4–D5 . Appendix D provides addi-tional detail. 1) Definition (Python): Users define Flows and connect them into a graph. This code is declarative; no threads are spawned yet. 2) Compilation (IR): The system compiles the Python objects into a Static Intermediate Representation (IR) .The IR captures topology, clock definitions, and synchro-nization parameters. 3) Execution (Actors): The IR is sent to a backend. Each 
+
+actor typically runs one Flow with its own state; edges become message channels and deterministic adapters. 
+
+Backend Mapping. Once compiled, the same graph can run with supported executors ( D6 ), including in-process step-ping, multiprocessing, and Dora. Retriever preserves the graph meaning, clocks, and input-consumption contracts. ROS 2, Dora, and other messaging substrates still handle transport and device integration. 
+
+Functional Determinism, Logging, and Replay. Re-triever’s replay contract can be stated as the following theorem. 
+
+Theorem 2 (Functional Determinism) . Fix deterministic Flow code and sync policies, initial states, committed external-input histories, and a clock/commit trace (including lag de-cisions), with strictly causal feedback. If stochastic calls are replayed from logged seeds or outputs, the output history is unique and independent of runtime scheduling. 
+
+This contract matters because closed-loop nondeterminism compounds: a scheduling race can change one action, then future observations, and eventually the whole trace. Explicit clocks and sync policies turn functional determinism into a logging and replay interface, following a key property of KPN (Sec. II). 8 We formalize this as trace determinism —the per-trace statement of functional determinism—and prove it in Appendix C-B. This enables deterministic replay and dataset extraction ( D5 ). Sec. VI studies this empirically in a differentiable hybrid physics example: Retriever fixes the realized discrete event path under replay, so the backward pass differentiates the same graph across runs rather than a schedule-dependent graph. Determinism here concerns the dis-crete event path, not bitwise GPU numerics (Appendix C-C). V. C ASE STUDY : C LOSED -LOOP HIERARCHICAL 
+
+MANIPULATION WITH HUMAN -IN -THE -L OOP 
+
+We implement a long-horizon tabletop manipulation pipeline that couples partial observability, slow planning, medium-rate skills, and fast control. We use Retriever-0 to denote the representative pipeline pattern in Fig. 1, instantiated at full scale in Fig. 2. 
+
+Case-study notation. We denote the main Flows in Fig. 2 as Fcam (observation), Fbelief (belief/memory), Fplan (plan-ning VLM), Fexe (execution monitor), Fskill (skill policy), and Fctrl (controller). We reserve PlanChunk , SkillCmd ,
+
+> ActionChunk
+
+, and SkillProgress for typed messages. 9
+
+Key technical ideas. The case study instantiates Retriever around three runtime ideas:  
+
+> •
+
+Temporal and plan chunking. We generalize action chunking [35] to time-extended objects at multiple levels: 
+
+> ActionChunk
+
+s bridge VLA inference to high-rate control, while PlanChunk s let slow high-level planning overlap with asynchronous skill execution.  
+
+> •
+
+Belief-conditioned planning. The belief Flow emits compact task facts over objects, containers, and task state, supporting short conditional skill programs such as IF drawer contains the spice THEN pick it ELSE continue search [8].  
+
+> •
+
+Progress-aware switching. The skill layer includes aprogress-prediction module whose output lets the monitor switch skills, trigger fallback, or replan at explicit handoff points. 
+
+A. Flow Definition, I/O, and Run Clocks 
+
+We implement the pipeline as six major Flows with explicit I/O contracts and run clocks. Each Flow owns local state, declares when it wakes, consumes an aligned input record, and emits typed outputs. The runtime handles synchronization and backend data passing between Flows.  
+
+> •
+
+Fcam (Observation Flow) : emits timestamped camera ob-servations at 30Hz and robot state at 60Hz. 
+
+> 8VLM/VLA modules may still be stochastic because of sampling tempera-ture or API-level nondeterminism. Retriever treats such randomness as part of the input stream: deterministic replay requires logging each module’s random seed or raw output so replay consumes the logged values rather than re-invoking the model.
+> 9Lower-case “plan chunking” and “action chunking” refer to the corre-sponding runtime patterns rather than the message datatypes.
+
+7• Fbelief (Belief/Memory Flow) : maintains belief b
+
+as local state and updates only after inspect(a drawer) , emitting compact three-valued task predicates such as contains(top-left drawer, spice) 
+
+∈ { Yes , No , Unknown }.10  
+
+> •
+
+Fplan (Planning VLM Flow) : consumes goal + belief b and produces a bounded-horizon PlanChunk , often a small con-ditional tree for partial observability. It runs asynchronously when receiving a replan trigger from Fexe . 
+
+> •
+
+Fexe (Execution Monitor Flow) : triggered by belief updates and skill-progress predictions; buffers PlanChunk s, emits 
+
+replan triggers, maintains the active SkillCmd , resolves belief-conditioned branches, and decides skill handoff or replanning.  
+
+> •
+
+Fskill (Skill VLA Flow) : uses the pi05 (π0.5) model from [36] to execute the active SkillCmd at ∼2Hz. It emits an ActionChunk and a progress prediction; inspection skills also emit inspection_done . 
+
+> •
+
+Fctrl (Controller Flow) : consumes ActionChunk s and produces 200Hz motor commands. Appendix E gives the lower-level belief representation, 
+
+PlanChunk structure, and skill library details. 
+
+Programming view of a skill Flow. We use “skill” op-erationally: a finite-memory behavior that is started by a 
+
+SkillCmd , reads synchronized observations and robot state, and returns low-level actions plus status. 
+
+Definition 1 (Skill) . A skill is a finite-memory, temporally extended behavior with three parts: (i) initiation : a trigger condition that starts it; (ii) execution : local state and a within-skill transition that emits low-level commands or action chunks while active; (iii) termination : conditions that end it, emitting status, success, failure, or handoff events. 
+
+This is the initiation–policy–termination structure of options and skill formalisms [32, 37], augmented with status and handoff events for asynchronous monitoring. 
+
+Proposition 1 (Skills as Flows) . Every deterministic finite-memory skill whose initiation and termination read times-tamped input histories is representable as a Retriever Flow. When a separate monitor manages initiation and handoff, as in our pipeline, the skill splits into a monitor Flow and a skill Flow linked by SkillCmd , progress prediction, and terminal-status streams. 
+
+This is an instance of Theorem 1, with each part of the definition mapped to the Flow interface. Initiation (i) arrives through synchronized trigger events or SkillCmd s. Execution (ii) stores the active flag and skill memory in Flow state and runs the within-skill policy in step() . Termination (iii) emits status and terminal events as typed output streams. The VLA skill Flow therefore has the following pseudocode contract:                               
+
+> 10 This three-valued predicate interface is supported by abelief-space planning theory/algorithm [8].
+> F_skill.clock =Rate(hz=2) F_skill.inputs ={obs: Latest(F_cam.obs), state: Latest(F_cam.state), cmd: Latest(F_exe.SkillCmd), }
+> def F_skill.step(obs, state, cmd, memory): action_chunk =VLA(obs, state, cmd, memory) progress =progress_prediction_module(obs, state, cmd, memory)
+> return ActionChunk(action_chunk), SkillProgress(progress)
+
+Symbolic operators, option-like skills, and learned VLA primitives can use this interface once their commands, observations, state, actions, progress predictions, and terminal status are exposed as typed streams. 11 
+
+B. Connections and Synchronization 
+
+Figure 2 separates main data connections (gray arrows), 
+
+control connections (red triggers), and auxiliary inputs (blue). 
+
+a) Main data connections (gray).:  
+
+> •
+
+Perception to belief and skill. The 30Hz observation stream from Fcam is synchronized to the ticks of Fbelief and Fskill 
+
+via Latest (sample-and-hold with a bounded-staleness check). This produces a well-defined input snapshot for each belief update and VLA step() (Fig. 4).  
+
+> •
+
+Skill to control. Fskill emits an ActionChunk ; Fctrl 
+
+consumes it through deterministic chunk playback, sampling one action per 200Hz control tick. This separates the slow VLA inference clock from the safety-critical control clock. 
+
+b) Control connections (red): plan chunking and mon-itored handoff.: The central coordinator is Fexe . It receives belief updates from Fbelief , PlanChunk proposals from Fplan ,and progress predictions from Fskill . It then selects the next active SkillCmd .12  
+
+> •
+
+Trigger chain. Information-gathering skills emit 
+
+inspection_done , and belief updates emit 
+
+belief_updated . The monitor then requests replan ,receives a PlanChunk , and commits future skills only at explicit handoff boundaries.  
+
+> •
+
+Plan chunking. Fplan proposes a short-horizon PlanChunk 
+
+while the current skill is still running. Fexe buffers this pro-posal and switches to the next SkillCmd only at monitor-approved handoff points, so planning overlaps execution without mid-skill rewrites. The default commit rule never interrupts the active skill: if the agent is executing skill 
+
+C when a new plan A,B,C,D,E arrives, it finishes C and continues with D,E . 
+
+> •
+
+Stale-plan handling. Each proposal records the belief snap-shot and current-skill context that produced it. The monitor commits it only while that context remains compatible with the active execution state; otherwise it drops the proposal or replans.     
+
+> 11 Retriever does not replace option or TAMP formalisms; it provides the runtime substrate that composes them with asynchronous perception and control.
+> 12 The Fexe ↔Fskill cycle remains strictly causal: progress emitted at a skill tick is consumed only at a later monitor tick.
+
+8High-level                          
+
+> Planning VLM Flow
+> Low-level
+> Skill VLA Flow
+> Controller
+> Robot Controller Flow
+> C O M P U T E P L A N
+> P L A N C H U N K
+> R E P L A N
+> N E X T P L A N C H U N K
+> I N F E R A C T I O N
+> A C T I O N C H U N K
+> A C T I O N C H U N K
+> A C T I O N C H U N K
+> A C T I O N C H U N K
+> A C T I O N C H U N K
+> A C T I O N C H U N K
+> 0s 15s
+> T I M E F L O W S L E F T T O R I G H T computation valid chunk
+
+Fig. 5: Plan chunking (D2 , D4 ). We generalize action chunking to temporal chunking —a synchronization policy over time-extended outputs— and extend it to VLM planning. Arrows are computation intervals; blocks are chunk-validity horizons. Overlap keeps downstream clocks running while the next plan or action chunk is produced. 
+
+(a) Bimanual platform (b) Meta Quest 3 teleoperation 
+
+Fig. 6: Robot hardware used in the real-robot evaluation. (a) The bimanual PiperX platform uses wrist cameras and an external Re-alSense camera. (b) Optional Meta Quest 3 teleoperation provides human-in-the-loop recovery and data collection, integrated as an optional input Flow and logged for replay.  
+
+> •
+
+Progress-aware handoff. The monitor uses progress predic-tions to approve handoff, detect stalls, or trigger fallback. Together with action-chunk playback on the data path, these monitor policies instantiate temporal chunking (Fig. 5) at two levels: plans are chunks over future skills, while actions are chunks over future controller commands. As with action chunking [35], each commit rule is one strategy within this pattern, and it can be tuned or replaced independently of the rest of the pipeline. 
+
+c) Auxiliary inputs (blue).: A LanguageGoal input starts or restarts planning, while an optional Teleoperation 
+
+input can override the action stream. Both are source Flows integrated by Fexe and logged for replay. Because they have no upstream trigger events, they run on periodic clocks (e.g., 1Hz goal polling, 100Hz teleoperation) and emit events that trigger downstream Flows. Appendix E gives the contract-level task interfaces. VI. E MPIRICAL EVALUATION 
+
+Our evaluation asks three questions: (1) Capability : Can Retriever support long-horizon real-world manipulation that coordinates slow reasoning (VLM), medium-frequency skills (VLA), and fast control? (2) Efficiency : Does asynchronous execution reduce end-to-end task time compared to blocking                                        
+
+> Condition Spice search and seasoning Bag retrieval
+> Proj. time Task progress Proj. time Task progress
+> Retriever-0 (full) 56s 73% 36s 100% − Plan chunking 65s 63% 37s 93% − Progress prediction –12.5% –25% − Belief memory –20% 45s 66% − Replanning –15% –47% + Human-in-the-loop 50s 100% 35s 100%
+> π0.5(VLA only) –0% 41s 41% Diffusion policy only –0% 40s 23%
+
+TABLE IV: Real-robot evaluation and ablations. We report task progress p and projected total time bT = Tbest /p , rounded to the nearest second. Here Tbest is the elapsed time to the best achieved progress. This normalization makes partial runs comparable; it is not a measured completion time. “–” marks values that are not meaningful, such as stalled or non-terminating runs. Retriever-0 is the pipeline in Fig. 1; Appendix E defines progress scoring. 
+
+implementations? (3) Usability : Does making time explicit make agent behavior easier to reproduce, replay, and debug? 
+
+A. Capability: Closed-Loop Asynchronous Pipelines 
+
+We first test whether Retriever supports multi-rate systems that are hard to build with existing tools. Both tasks close the loop across every module—perception, belief memory, VLM planning, VLA skills, and the execution monitor: spice search exercises the belief-update and replanning cycle on every drawer, while bag retrieval stresses the tight perception– manipulation loop under deformation. We deploy the asyn-chronous pipeline from Sec. V on a bimanual robot platform (Fig. 6) in two tasks; Fig. 7 shows representative runs. 
+
+(1) Bag retrieval: A deformable shopping bag holding several objects sits beside two plates. One arm lifts and steadies the bag while the other reaches in to retrieve the target item; in the longer sorting variant, the robot retrieves every item and places each on the plate matching its category before releasing the bag. Because the bag deforms with every extraction, VLM scene understanding and VLA manipulation must remain in a tight loop. Fig. 7 (bottom) additionally shows a longer variant of the bag-retrieval task, in which the robot retrieves several objects and sorts them by category. 9Search the top-left drawer Search the top-right drawer                        
+
+> Initial state
+> 1
+> Open(top-left)
+> 2
+> Inspect(top-left)
+> 3
+> Close(top-left)
+> 4
+> Open(top-right) +Inspect(top-right)
+> 5
+> Pick(spice)
+> 6
+> Season(food)
+> 7
+> Close(top-right)
+> 8
+> Finish()
+> 9Shopping-bag retrieval and sorting: vegetables →red plate ;fruits →blue plate
+> 1
+> Initial state
+> 2
+> Lift(bag)
+> 3
+> Pick(green pepper)
+> 4
+> Place(green pepper, red)
+> 5
+> Pick(banana)
+> 6
+> Place(banana, blue)
+> 7
+> Pick(carrot)
+> 8
+> Place(carrot, red)
+> 9
+> Place(cucumber, blue)
+> 10
+> Place(red pepper, red)
+> 11
+> Place(avocado, blue)
+> 12
+> Release(bag)
+
+Fig. 7: Real-robot task demonstrations. Top (spice search and seasoning) : a representative closed-loop run first inspects the top-left drawer and updates belief after not finding the target spice, then searches the top-right drawer, picks the spice, seasons the food, puts it back, closes the drawer, and terminates. Numbered frames show the executed skill sequence; information-gathering actions (red) trigger belief updates, where the plan branches between continuing the search and executing the seasoning sequence. Bottom (bag retrieval and sorting) : in one closed-loop run, the robot lifts a deformable shopping bag, retrieves several items, sorts vegetables onto the red plate and fruits onto the blue plate, and finally releases the bag. 
+
+(2) Spice search and seasoning: Several spice bottles are placed randomly across four closed drawers, and the language goal names the one to use (e.g., “season the steak with black pepper”). The robot opens a drawer by its handle, inspects the container, and updates its belief: if the target spice is not there, it closes the drawer and continues the search; once found, it picks the bottle, seasons the food, puts the bottle back, and closes the drawer. Locating the right bottle takes multiple VLM calls, while the pick-and-place skills run under high-frequency control. Both tasks are scored by task progress . With the full pipeline, Retriever-0 reaches 73% task progress on spice search (averaged over four drawers) and 100% on bag retrieval (Table IV). We find the low-level policy is the bottleneck, while the high-level reasoning and skill switching are reliable. The human-in-the-loop version uses teleoperation to collect data or correct the policy, which achieves full success. We train the shared low-level skill layer with roughly 200– 300 complete expert episodes across both tasks, each about 1– 3 minutes long, for a total of a few hours of robot data. In this setting, either fine-tuning π0.5 or training a multi-task diffusion policy from scratch works. The optional Teleoperation 
+
+Flow uses a Meta Quest 3 controller interface (Fig. 6) for recovery and data collection in the human-in-the-loop condi-tion. Its actions are logged alongside the robot-agent event trace. Task protocols, skill catalogs, and progress scoring definitions are summarized in Appendix E; hardware/setup and benchmark details are in Appendix F. 
+
+B. Efficiency: Completion Time & Ablations 
+
+We next measure message-passing latency, report progress-normalized projected time for the robot tasks, and ablate four architectural features: plan chunking , progress prediction, belief memory, and replanning. Projected time normalizes elapsed time by achieved progress, keeping partial runs com-parable when conditions fail at different milestones. In Ta-ble IV, “–” marks values without a meaningful measurement, such as stalled or non-terminating runs. 
+
+Message Passing Latency. We measure Retriever’s run-time overhead with a message-passing latency benchmark (Fig. 8(a)). Retriever with the Dora backend closely matches native Dora and is faster than ROS 2 process-based Python/C++ baselines. The figure also includes a stronger ROS 2 C++ components baseline, in which composable nodes share one process [38]. 13 This producer–consumer benchmark iso-
+
+> 13
+
+This baseline should be compared with Retriever’s single-process back-end, which has lower latency for small messages used in control and coordination. 
+
+10 0.0 0.2 0.4 0.6 0.8 1.0            
+
+> time
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> h
+> x*
+> x0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+> L/
+> 0
+> 2
+> 4
+> 6
+> 8
+> Frequency
+> 100 runs
+> (identical)
+> Error: 1.4e-08
+> Path Gradient: Retriever vs. Pub/Sub vs. Analytic
+> Pub/Sub: =0.308, =0.179
+> True: -0.0055
+> Retriever: =-0.0055, =2.6e-18
+
+Fig. 8: Efficiency & Determinism Visualizations. (a) End-to-end message latency vs. payload size (log–log). Retriever with a Dora transport backend closely matches native dora-rs , suggesting low abstraction overhead compared to transport costs. (b) Differentiable physics visualization: ball bouncing with hybrid dynamics. (c) Functional determinism for gradient-based learning: event-time semantics yield identical path gradients across runs, while arrival-time pub/sub yields a broad gradient distribution. 
+
+lates abstraction overhead rather than full robot throughput. 14 
+
+Appendix F gives benchmark details. 
+
+Plan Chunking. We compare asynchronous multi-step chunking with a synchronous blocking baseline (Table IV). In the default setting, the VLM plans the next chunk while the VLA executes the current one. Each PlanChunk contains up to five skills, or about 30 seconds of execution at an average skill duration of ≈ 6 seconds. The ablation plans only one next skill. The monitor advances to the next SkillCmd only at explicit handoff points indicated by progress prediction. When no new information is gathered, the one-skill ablation still waits for planning at every skill boundary, adding idle time and increasing projected total time. Plan chunking and handoff semantics are summarized in Appendix E. Progress prediction. The ablation replaces the learned progress predictor with VLM queries that ask whether the current skill has finished (Table IV). The VLM cannot reliably tell when a skill is done, so the monitor never receives a usable handoff signal and execution halts after the first skill. Projected time is omitted because progress halts at the first skill. See Appendix E for the interface contract. Belief memory. Removing belief memory leaves the agent unaware of which drawers it has already searched: on spice search it repeatedly re-searches the first drawer and never terminates, so its projected time is not meaningful. On bag retrieval it finishes but sometimes misses objects. Replanning. Planning only once decouples the plan from belief updates: after opening a drawer, the plan no longer matches what the agent now knows, so it does not know what to do next. On bag retrieval, the remaining bag contents stay unknown and failures are not recovered. Both runs stall partway, so projected times are omitted. Policy-only baselines. The end-to-end π0.5 and from-scratch multi-task diffusion baselines receive only the language goal. On the drawer task they score 0% : all drawers start closed, so a policy alone does not even know where to start without the search-and-inspect behavior that planning and belief provide. On bag retrieval, which requires no information gathering, they reach 41% and 23% , respectively. 
+
+> 14 Robot runs also include model inference, device drivers, synchronization policies, and control-loop deadlines.
+
+C. Usability: Determinism, Replay, and Debugging 
+
+Finally, we test whether explicit clocks and synchronization make timing-sensitive runs reproducible and inspectable. 
+
+Functional Determinism. For a differentiable bouncing-ball system, we estimate the gradient of location at t = 1 with respect to initial velocity v0 (Fig. 8(b)). In hybrid systems, the computation graph and its gradient depend on the exact timing of discrete events such as impact. For fixed input histories, Retriever reproduces the same computation graph across runs and therefore the same path gradients. Across 100 runs, Retriever yields identical execution traces and a collapsed gradient distribution (std ≈ 10 −18 ). By contrast, pub/sub-style arrival semantics produce diverse traces and gradients under mocked scheduling jitter (Fig. 8(c)); see Appendix F. 
+
+Implementation boilerplate. We also count user-authored code for the message-latency benchmark: 117 lines in one Retriever file versus 191 lines across four ROS 2 Python files, including build configuration. This excludes framework inter-nals and is only a coarse measure of benchmark boilerplate. Appendix F gives the raw comparison. VII. C ONCLUSION 
+
+We introduced Retriever, a programming model and runtime for asynchronous, compositional robot-agent systems in open-world manipulation. By making time and synchronization explicit, Retriever lets developers specify when modules run, which inputs they consume, and what must be recorded for replay. Our experiments show Retriever coordinating VLM planning, skill execution, belief updates, and progress moni-toring for long-horizon robot manipulation. The same explicit timing makes runs reproducible and easier to debug. With a fixed replay trace, Retriever’s deterministic dataflow contract makes event traces and path gradients reproducible (Thm. 2; Sec. VI). Each recorded step pairs an output with the exact inputs and timing that produced it. These traces may support training future, more integrated end-to-end systems. 
+
+a) Code and materials.: Retriever is open source: 
+
+pip install retriever-core (imported as retriever ). Source code, documentation, and runnable examples are avail-able at https://github.com/openretriever/retriever and https:// 11 retriever.build. Applied robot examples are available in Gold-enRetriever (https://golden.retriever.build), with the project home at https://openretriever.org. Retriever Hub packs let projects load Flows, typed messages, and pipelines by name. Each pack resolves to a pinned commit and is fetched without cloning. REFERENCES 
+
+[1] D. M. Ritchie and K. Thompson. The UNIX time-sharing system. Communications of the ACM , 17(7):365–375, 1974. [2] Richard E Fikes and Nils J Nilsson. Strips: A new ap-proach to the application of theorem proving to problem solving. Artificial Intelligence , 2(3–4):189–208, 1971. doi: 10.1016/0004-3702(71)90010-5. [3] Leslie Pack Kaelbling and Tomás Lozano-Pérez. Hierar-chical task and motion planning in the now. In IEEE International Conference on Robotics and Automation (ICRA) , 2011. doi: 10.1109/ICRA.2011.5980391. [4] Zi Wang, Caelan Reed Garrett, Leslie Pack Kaelbling, and Tomás Lozano-Pérez. Learning compositional mod-els of robot skills for task and motion planning. The International Journal of Robotics Research , 40(6–7): 866–894, 2021. doi: 10.1177/02783649211004615. [5] Linfeng Zhao, Lingzhi Kong, Robin Walters, and Lawson L. S. Wong. Toward compositional generalization in object-oriented world modeling. In International Confer-ence on Machine Learning (ICML) , pages 26841–26864, 2022. [6] Leslie Pack Kaelbling and Tomás Lozano-Pérez. Unify-ing perception, estimation and action for mobile manip-ulation via belief space planning. In IEEE International Conference on Robotics and Automation (ICRA) , pages 2829–2836, 2012. doi: 10.1109/ICRA.2012.6225213. [7] Caelan Reed Garrett, Chris Paxton, Tomás Lozano-Pérez, Leslie Pack Kaelbling, and Dieter Fox. Online replanning in belief space for partially observable task and motion problems. In IEEE International Conference on Robotics and Automation (ICRA) , pages 5678–5684, 2020. doi: 10.1109/ICRA40945.2020.9197192. [8] Linfeng Zhao, Willie McClinton, Aidan Curtis, Nishanth Kumar, Tom Silver, Leslie Pack Kaelbling, and Lawson L. S. Wong. Seeing is believing: Belief-space planning with foundation models as uncertainty estimators, 2025. [9] Blai Bonet and Hector Geffner. Planning under partial observability by classical replanning: Theory and ex-periments. In International Joint Conference on Arti-ficial Intelligence (IJCAI) , pages 1936–1941, 2011. doi: 10.5591/978-1-57735-516-8/IJCAI11-324. [10] Aidan Curtis, George Matheos, Nishad Gothoskar, Vikash Mansinghka, Joshua B. Tenenbaum, Tomás Lozano-Pérez, and Leslie Pack Kaelbling. Partially observable task and motion planning with uncertainty and risk awareness. In Robotics: Science and Systems , 2024. doi: 10.15607/RSS.2024.20.118. [11] Brian Ichter, Anthony Brohan, Yevgen Chebotar, Chelsea Finn, Karol Hausman, Alexander Herzog, Daniel Ho, Julian Ibarz, Alex Irpan, Eric Jang, Ryan Julian, Dmitry Kalashnikov, Sergey Levine, Yao Lu, Carolina Parada, Kanishka Rao, Pierre Sermanet, Alexander T. Toshev, Vincent Vanhoucke, Fei Xia, Ted Xiao, Peng Xu, Mengyuan Yan, Noah Brown, Michael Ahn, Omar 12 Cortes, Nicolas Sievers, Clayton Tan, Sichun Xu, Diego Reyes, Jarek Rettinghouse, Jornell Quiambao, Peter Pas-tor, Linda Luu, Kuang-Huei Lee, Yuheng Kuang, Sally Jesmonth, Nikhil J. Joshi, Kyle Jeffrey, Rosario Jauregui Ruano, Jasmine Hsu, Keerthana Gopalakrishnan, Byron David, Andy Zeng, and Chuyuan Kelly Fu. Do as i can, not as i say: Grounding language in robotic affordances. In Conference on Robot Learning (CoRL) , pages 287– 318, 2022. [12] M. Quigley, K. Conley, B. Gerkey, J. Faust, T. Foote, J. Leibs, R. Wheeler, and A. Y. Ng. ROS: an open-source robot operating system. In ICRA Workshop on Open Source Software , 2009. [13] Steven Macenski, Tully Foote, Brian Gerkey, Chris Lalancette, and William Woodall. Robot operating system 2: Design, architecture, and uses in the wild. 
+
+Science Robotics , 7(66):eabm6074, 2022. doi: 10.1126/ scirobotics.abm6074. [14] Haoyan Xue et al. Dora-rs: A dataflow-oriented robotic agent framework. https://github.com/dora-rs/dora, 2024. [15] H. Bruyninckx. Open robot control software: the ORO-COS project. In IEEE International Conference on Robotics and Automation (ICRA) , pages 2523–2528, 2001. doi: 10.1109/ROBOT.2001.933002. [16] Baidu Apollo. Cyber RT: A high performance runtime framework for autonomous driving. https://github.com/ ApolloAuto/apollo/tree/master/cyber, 2019. [17] G. Kahn. The semantics of a simple language for parallel programming. In Information Processing 74: Proceedings of IFIP Congress 74 , pages 471–475, 1974. [18] E. A. Lee and D. G. Messerschmitt. Synchronous data flow. Proceedings of the IEEE , 75(9):1235–1245, 1987. [19] J. Backus. Can programming be liberated from the von neumann style? a functional style and its algebra of programs. Communications of the ACM , 21(8):613–641, 1978. [20] J. Hughes. Why functional programming matters. The Computer Journal , 32(2):98–107, 1989. doi: 10.1093/ comjnl/32.2.98. [21] Henrik Nilsson, Antony Courtney, and John Peterson. Functional reactive programming, continued. In ACM SIGPLAN Workshop on Haskell , pages 51–64. ACM, 2002. doi: 10.1145/581690.581695. [22] J. Hughes. Generalising monads to arrows. Science of Computer Programming , 37(1–3):67–111, 2000. doi: 10. 1016/S0167-6423(99)00023-4. [23] Carl Hewitt, Peter Bishop, and Richard Steiger. Auniversal modular ACTOR formalism for artificial intel-ligence. In International Joint Conference on Artificial Intelligence (IJCAI) , pages 235–245. Morgan Kaufmann, 1973. [24] Joe Armstrong. Making Reliable Distributed Systems in the Presence of Software Errors . PhD thesis, Royal In-stitute of Technology (KTH), Stockholm, Sweden, 2003. [25] Philipp Moritz, Robert Nishihara, Stephanie Wang, Alexey Tumanov, Richard Liaw, Eric Liang, Melih Eli-bol, Zongheng Yang, William Paul, Michael I. Jordan, and Ion Stoica. Ray: A distributed framework for emerging AI applications. In USENIX Symposium on Operating Systems Design and Implementation (OSDI 18) , pages 561–577. USENIX Association, 2018. [26] Martín Abadi, Paul Barham, Jianmin Chen, Zhifeng Chen, Andy Davis, Jeffrey Dean, Matthieu Devin, Sanjay Ghemawat, Geoffrey Irving, Michael Isard, Manjunath Kudlur, Josh Levenberg, Rajat Monga, Sherry Moore, Derek G. Murray, Benoit Steiner, Paul Tucker, Vijay Vasudevan, Pete Warden, Martin Wicke, Yuan Yu, and Xiaoqiang Zheng. TensorFlow: A system for large-scale machine learning. In USENIX Symposium on Operating Systems Design and Implementation (OSDI) , pages 265– 283. USENIX Association, 2016. [27] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zem-ing Lin, Natalia Gimelshein, Luca Antiga, Alban Des-maison, Andreas Kopf, Edward Yang, Zachary DeVito, Martin Raison, Alykhan Tejani, Sasank Chilamkurthy, Benoit Steiner, Lu Fang, Junjie Bai, and Soumith Chin-tala. PyTorch: An imperative style, high-performance deep learning library. In Advances in Neural Information Processing Systems (NeurIPS) , 2019. [28] Edward A. Lee and Alberto Sangiovanni-Vincentelli. A framework for comparing models of computation. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 17(12):1217–1229, 1998. doi: 10.1109/43.736561. [29] Xiaojun Liu. Semantic Foundation of the Tagged Signal Model . PhD thesis, University of California, Berke-ley, Berkeley, CA, USA, 2005. Technical Report No. UCB/EECS-2005-31. [30] Zhanyong Wan and Paul Hudak. Functional reactive programming from first principles. In ACM SIGPLAN Conference on Programming Language Design and Im-plementation (PLDI) , pages 242–252, 2000. doi: 10. 1145/349299.349331. [31] Martin L. Puterman. Markov Decision Processes: Dis-crete Stochastic Dynamic Programming . Wiley Series in Probability and Statistics. John Wiley & Sons, 1994. [32] Richard S. Sutton, Doina Precup, and Satinder Singh. Between MDPs and semi-MDPs: A framework for tem-poral abstraction in reinforcement learning. Artificial Intelligence , 112(1-2):181–211, 1999. [33] Conal Elliott and Paul Hudak. Functional reactive ani-mation. In ACM SIGPLAN International Conference on Functional Programming (ICFP) , pages 263–273, 1997. doi: 10.1145/258948.258973. [34] Harold Abelson, Gerald Jay Sussman, and Julie Sussman. 
+
+Structure and Interpretation of Computer Programs . MIT Press, 1996. [35] Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. Learning fine-grained bimanual manip-ulation with low-cost hardware, 2023. [36] Physical Intelligence, Kevin Black, Noah Brown, James 13 Darpinian, Karan Dhabalia, Danny Driess, Adnan Es-mail, Michael Equi, Chelsea Finn, Niccolo Fusai, Manuel Y. Galliker, Dibya Ghosh, Lachy Groom, Karol Hausman, Brian Ichter, Szymon Jakubczak, Tim Jones, Liyiming Ke, Devin LeBlanc, Sergey Levine, Adrian Li-Bell, Mohith Mothukuri, Suraj Nair, Karl Pertsch, Allen Z. Ren, Lucy Xiaoyang Shi, Laura Smith, Jost To-bias Springenberg, Kyle Stachowicz, James Tanner, Quan Vuong, Homer Walke, Anna Walling, Haohuan Wang, Lili Yu, and Ury Zhilinsky. π0.5: a vision-language-action model with open-world generalization, 2025. [37] George Konidaris, Leslie Pack Kaelbling, and Tomás Lozano-Pérez. From skills to symbols: Learning sym-bolic representations for abstract high-level planning. 
+
+Journal of Artificial Intelligence Research , 61:215–289, 2018. [38] Steve Macenski, Alberto Soragna, Michael Carroll, and Zhenpeng Ge. Impact of ros 2 node composition in robotic systems, 2023. [39] NIST. FIPS PUB 151-1: POSIX (portable operating system interface), 1988. Refers to IEEE Std 1003.1-1988. [40] D. M. Ritchie. The evolution of the UNIX time-sharing system. AT&T Bell Laboratories Technical Journal , 63 (8):1577–1593, 1984. [41] D. M. Ritchie. The development of the C language. In 
+
+ACM SIGPLAN Conference on History of Programming Languages (HOPL) , pages 201–208. ACM, 1993. doi: 10.1145/154766.155580. [42] Jay Kreps, Neha Narkhede, and Jun Rao. Kafka: A distributed messaging system for log processing. In 
+
+International Workshop on Networking Meets Databases (NetDB) , Athens, Greece, 2011. [43] E. W. Dijkstra. The structure of the ‘THE’-multiprogramming system. Communications of the ACM ,11(5):341–346, 1968. doi: 10.1145/363095.363143. [44] D. L. Parnas. On the criteria to be used in decomposing systems into modules. Communications of the ACM , 15 (12):1053–1058, 1972. [45] Paul Caspi, Daniel Pilaud, Nicolas Halbwachs, and John A Plaice. Lustre: A synchronous data-flow pro-gramming language. In Proceedings of the 14th ACM SIGACT-SIGPLAN Symposium on Principles of Pro-gramming Languages (POPL) , pages 178–188, 1987. 14 APPENDIX AHISTORICAL LINEAGE : P ROGRAMMING MODELS AND SYSTEM ABSTRACTIONS FOR 
+
+HARDWARE AND ROBOTS 
+
+In systems practice, “independence from hardware” (including robot hardware) is not a single property. It typically decomposes into four separable goals: 1) Portability of meaning (semantic portability). A program has the same externally observable behavior across machines (modulo performance). This is the hardest kind of independence; it requires explicit semantic contracts. 2) Portability of interfaces (API/ABI portability). Code compiles and runs across platforms because it targets a stable interface boundary (e.g., POSIX [39]). 3) Portability of placement (location transparency). Computation can be placed on different cores/machines without rewriting the program; the runtime chooses placement. 4) Portability of performance (performance portability). The same program attains reasonable efficiency across heterogeneous devices (CPU/GPU/accelerators), usually via compiler/runtime optimization and hardware abstraction layers. Major computing shifts, from minicomputers to clouds and GPUs, were often absorbed through a stable systems abstraction : a small interface shared by many programs and implemented by many backends. UNIX + C is one canonical example of such a mechanism at the OS + language boundary [1, 40, 41]. Retriever targets a narrow waist for robotic agent computation graphs . The program fixes the wiring, message boundaries, and timing semantics, while supported runtimes and backends can vary without rewriting it. This appendix traces the systems ideas behind that separation and maps them to Retriever’s design choices. 
+
+a) Organization.: We group the lineage by recurring design problems and the corresponding historical anchors:  
+
+> •
+
+Uniform interfaces (hardware independence): UNIX/POSIX and the C portability story [1, 39, 40, 41].  
+
+> •
+
+Determinism under concurrency: KPN and synchronous dataflow (schedule-independent mean-ing + strict causality) [17, 18].  
+
+> •
+
+Streams over time: FRP and Arrowized FRP (signals, causality, feedback) [21, 22].  
+
+> •
+
+Scalable isolation and placement: actors and message passing (location transparency without shared-state races) [23, 24].  
+
+> •
+
+Auditability and replay: event logs as the system of record [42].  
+
+> •
+
+Graph IRs as a stable contract: modern learning frameworks (graph/IR enables portability + optimization) [26, 27].  
+
+> •
+
+Robotics integration vs semantics: ROS-style middleware provides transport and ecosystem, but not a semantic runtime [12, 13].  
+
+> •
+
+Decision-theoretic timing: a brief continuous-time / (PO-)SMDP view of asynchronous decision epochs is summarized in Appendix A-J. The remainder of this section elaborates each theme and distills the implication for a Retriever-style semantic contract. 
+
+A. UNIX: Uniform Interfaces as an Anti-Hardware Strategy 1) The Core Bet: A Small Set of Composable Primitives: The 1974 UNIX paper frames UNIX as a general-purpose time-sharing OS whose design emphasizes a small set of core mechanisms and a programming environment conducive to composition [1]. Two ideas became especially influential for hardware independence:  
+
+> •
+
+A uniform I/O interface spanning files, devices, and inter-process communication.  
+
+> •
+
+A process model that makes programs composable through standard streams and pipes. The paper explicitly highlights “compatible file, device, and inter-process I/O” as a central property of the system. This phrase matters because it encodes a portability strategy: if devices and IPC 
+
+can be used through the same I/O interface as files, then most user programs are insulated from device-specific details. Instead of every program embedding device knowledge, device knowledge is concentrated in kernel drivers and the file system namespace. 15 2) Special Files and Pipes: UNIX describes special files (device nodes) as entries in the file system whose reads/writes are redirected into device-specific routines [1]. This is the “universal I/O” idea in operational form: programs depend on open/read/write/close ; devices implement those operations behind the boundary. For Retriever, user code depends on a small set of graph-level operations, while transport, memory movement, and clocking details stay behind the runtime boundary. Ritchie’s retrospective emphasizes pipelined commands as a key part of UNIX’s evolution [40]. Pipes are a simple mechanism that enables a deep property: programs become compositional 
+
+because they agree on a stream interface. This is not merely convenience; it is a portability pattern. If programs compose through a stable stream boundary, you can swap implementations, move stages, or parallelize stages without rewriting the whole application. 
+
+B. C as a Portability Amplifier 
+
+UNIX alone did not create broad portability; UNIX + C did. Ritchie’s history of C describes C as a system implementation language devised for UNIX, evolving into a portable toolchain foundation [41]. Portability often comes from moving complexity into a compiler or runtime instead of duplicating it across applications. C’s abstract machine model made it practical to port UNIX across hardware by rewriting relatively little. This becomes a recurring pattern:  
+
+> •
+
+OS portability: stable syscalls + portable implementation language (UNIX+C) [1, 41].  
+
+> •
+
+API portability: POSIX standardizes the boundary so many OSes can implement it [39].  
+
+> •
+
+ML portability: computation graphs become an IR; runtimes map them to devices (TensorFlow, XLA-like stacks) [26].  
+
+> •
+
+Distributed portability: tasks/actors become a portable unit; runtimes schedule them across clusters (Ray) [25]. 
+
+C. Modularity and Abstraction Boundaries 
+
+The UNIX lineage sits within a broader systems push toward explicit abstraction layers . Dijkstra’s THE system emphasized hierarchical layers and sequential processes to structure multiprogram-ming systems [43]. Parnas’s classic modularization criterion argues for decomposing systems by 
+
+information hiding : modules should conceal design decisions likely to change, exposing stable interfaces [44]. Hardware independence is “Parnas applied to hardware”: hide the hardware-specific decisions (device access method, memory movement, scheduling strategy) behind stable module boundaries so they can evolve without rewriting the whole system. 
+
+D. Deterministic Concurrency: Kahn Process Networks 
+
+With the introduction of concurrency, “portability of meaning” becomes fragile: different thread schedules, queue timings, and buffering can change outcomes. This is the historical niche filled by Kahn process networks (KPN) [17] and related dataflow models. 
+
+a) KPN’s Key Semantic Move: Kahn’s formulation defines each process as a function from input histories to output histories [17]. The deep idea is: if each node is deterministic in this stream-functional sense, the entire network has a well-defined meaning independent of low-level scheduling interleavings. 
+
+b) Implications for Robotics: Robotics systems deviate from classical KPN (unbounded FIFO, blocking reads) due to real-time constraints (bounded buffers, dropping data). Retriever adapts this by: 1) Treating the program as a graph of stream transducers (KPN-like). 2) Making buffering and synchronization policies first-class, explicit, and deterministic. 3) Providing semantics that distinguish denotational meaning (what traces are valid) from operational constraints (latency bounds, scheduling). Synchronous Dataflow (SDF) [18] further trades expressiveness for analyzability (static schedules, bounded memory). For Retriever, SDF is evidence that exposing graph structure and rates makes runtime optimization possible .16 E. Functional Programming and Reactivity 
+
+Backus argued that mainstream languages encourage stateful, hardware-shaped thinking, advocat-ing instead for functional style with algebraic composition [19]. Hughes emphasized that modularity comes from composing small parts through stable combinators [20]. 
+
+1) Functional Reactive Programming (FRP): FRP introduced a disciplined way to describe reactive systems as transformations over time-varying values (signals) and discrete events [33, 21]. Arrowized FRP explicitly connects to Hughes’s Arrow framework [22] as a theoretical underpinning for composing stateful signal functions. ReactiveX (RxJava, RxJS) made event streams a practical systems abstraction. Retriever adopts FRP’s compositional view but makes buffering, latency, and causality explicit for robotics. Causality is central: perception at time t influences actions at time t + ∆ . Making that “delay” explicit in the program graph is key to determinism. 
+
+F. Actor Model and Message Passing 
+
+Hewitt et al. [23] proposed the Actor model as universal primitives for concurrent computation, built around local state and asynchronous message passing. Armstrong’s Erlang thesis verified that share-nothing processes with message passing can build reliable distributed systems [24]. Retriever’s runtime adopts this model: each Flow is an isolated process (like an Actor), communicating via messages. This provides location transparency and avoids shared-memory races, but the Actor model alone does not guarantee determinism. Retriever adds the KPN/FRP-inspired dataflow graph and explicit time policies to constrain the actors into a deterministic execution. 
+
+G. Event Logs and Replay 
+
+Kreps et al. [42] emphasize durable, partitioned logs as the backbone of data pipelines. Retriever likewise treats the log as the system of record for deterministic replay and “time-travel debugging.” If inter-module communication is treated as an append-only sequence of typed events, the system becomes auditable and learnable from traces. 
+
+H. Modern Learning Frameworks 
+
+Modern machine learning frameworks like TensorFlow [26] and PyTorch [27] demonstrate the power of representing computation as an explicit graph (or IR). TensorFlow uses a dataflow graph to map computation across devices. PyTorch combines imperative authoring with structured execution for autograd. Retriever applies the same pattern to robotics. An explicit graph and runtime contract enable determinism checks and potentially differentiable pipelines that are difficult to recover from ad-hoc pub/sub code. 
+
+I. Robotics Middleware: ROS Limitations 
+
+Quigley et al. [12] describe ROS as an open-source robot operating system emphasizing flexibility and ecosystem. While ROS excels at integration, its pub/sub model acts as a transport layer rather than a semantic runtime.  
+
+> •
+
+implicit structure : The computation graph is often implicit in callbacks.  
+
+> •
+
+ordering nondeterminism : Many-to-many pub/sub lacks deterministic merge policies.  
+
+> •
+
+external time : Time semantics are often ad-hoc across nodes. Retriever targets a complementary point: a higher-level programming model that makes the computation graph and synchronization policies explicit. 
+
+J. Relation to Continuous-Time MDPs and (PO-)SMDPs (Brief) 
+
+The asynchronous environment–agent loop in Sec. III emphasizes global continuous time and 
+
+asynchronous events (sensor arrivals, compute completions, control emissions). Below we summarize a few decision-theoretic viewpoints that are relevant for interpreting this formulation:  
+
+> •
+
+Continuous-time control view (CTMDP/CTPOMDP): the plant evolves continuously and actions may be interpreted as piecewise-constant (or envelope-constrained) signals over time. When rewards are defined as rates integrated over time, discounting naturally takes the continuous-time form e−λτ over a duration τ .17 • Event-embedded view (SMDP / PO-SMDP): define decision epochs {tk} as a subset of event times (e.g., the union of observation arrivals and computation completions). Between epochs, the agent’s command stream is fixed by the last emitted decision (or by a fixed low-level controller), so the state evolution over [tk, t k+1 ) induces a semi-Markov transition with holding time τk =
+
+tk+1 −tk. This yields a (partially observable) semi-Markov decision process with standard Bellman equations and existence results [31].  
+
+> •
+
+Temporal abstraction (options/macro-actions): our plan chunks and action chunks are naturally interpreted as temporally extended actions: they specify an initiation rule, an internal policy over a short horizon, and a termination condition. This is the classical option/SMDP connection [32]. 
+
+K. Concluding Remark: A Narrow-Waist Abstraction for Robotic Agent Graphs 
+
+Taken together with the decision-theoretic timing view in Appendix A-J, the lineage above motivates a narrow-waist abstraction for robotic agent computation graphs; Retriever can be viewed as a synthesis of:  
+
+> •
+
+From UNIX/POSIX: uniform interfaces and portable implementation [1, 39].  
+
+> •
+
+From KPN/FRP: explicit stream transduction and time semantics [17, 21].  
+
+> •
+
+From Actors/Erlang: isolation and message-passing scalability [23, 24].  
+
+> •
+
+From ML/Logs: graph-based optimization and replayable history [26, 42]. This combination addresses the specific gap in robotics: building complex, closed-loop agents that are semantically rigorous yet systems-practical. The resulting retriever semantic contract can be summarized as: 1) time model : All messages have explicit event time; operations are defined over event time. 2) snapshot semantics : Explicit rules for joining/aligning asynchronous inputs at decision time. 3) backpressure & policy : Buffer sizes and drop policies are explicit, not implicit. 4) deterministic replay : Given the same trace + policy, execution yields the same action sequence. 5) provenance : Every output is traceable to its input snapshot and code version. APPENDIX BEXTENDED FORMULATION : A SYNCHRONOUS ENVIRONMENT –A GENT LOOP 
+
+This section formalizes the asynchronous environment–agent loop introduced in Sec. III using the same core concepts (streams, clocks, and explicit synchronization), but with more precise definitions for the appendix proofs. 
+
+A. Types: Streams and Clocks 
+
+In this appendix, T denotes continuous event time (wall-clock or sim-clock); discrete decision instants are represented as event timestamps generated by clocks/triggers. 
+
+Definition 2 (Stream) . A stream of type V is a partial function x : T ⇀ V , equivalently a set of tagged events {(ti, v i)} with at most one value per tag in that stream [28, 29]. We sometimes write x(t) = ⊥ as shorthand for t / ∈ dom( x). We distinguish two subtypes (following standard tagged-signal and FRP terminology) [33, 30, 21]:  
+
+> •
+
+Behavior b : T → V : defined for all t (e.g., continuous physical state).  
+
+> •
+
+Event Stream e : T ⇀ V : defined only at a countable, locally finite set of timestamps dom( e).
+
+Definition 3 (Clock) . A clock C is an event stream of unitless ticks: c : T ⇀ {tick }. Discrete clocked execution is standard in synchronous/dataflow models [45, 18]. B. Asynchronous Environment–Agent Loop 
+
+Standard MDPs assume the environment waits for the agent ( st → at → st+1 ). The asynchronous environment–agent loop keeps the agent–environment split but removes the single shared step: 1) Environment: A causal map E : Stream (A) → Stream (Z). It evolves continuously; state at t+∆ 
+
+depends on state at t and actions a|[t,t +∆] .2) Agent: A Causal Stream Function π : Stream (Z) → Stream (A).The crucial difference is that π has non-zero latency. If π takes computation time δ, the action a(t)
+
+cannot depend on observations later than t − δ. Retriever operationalizes this constraint by forcing explicit sync policies that define exactly which past observation z(t − ∆) is consumed. 18 a) Decision-theoretic relation.: See Appendix A-J for a brief decision-theoretic orientation to timing and asynchronous decision epochs (CTMDPs and (PO-)SMDPs). Retriever’s Clock + sync 
+
+policies specify decision epochs and state snapshots, while explicit compute latency constrains which past observations are admissible at each epoch. APPENDIX CTHEORETICAL GUARANTEES 
+
+This appendix provides formal justifications for two core theoretical claims of the Retriever framework: (1) the graph model is sufficient for the bounded-memory causal policies considered here (Representation Theorem), and (2) the execution model yields reproducible behavior under the fixed-trace conditions of the Functional Determinism theorem. The extended environment–agent loop formalization is provided in Appendix B. 
+
+a) Causal Stream Function (CSF).: We model each Flow as a deterministic Causal Stream Function (CSF): it processes timestamped input streams through a local state update. Concretely, a CSF is a tuple (H, h 0, f ) where H is the internal state space, h0 ∈ H is the initial state, and f is a deterministic step map. At each Flow sample tick t (generated by a Clock or Trigger), the Flow consumes an input snapshot xt produced by edge sync policies from committed upstream histories, then updates and emits: 
+
+(ht+ , y t) = f (ht− , x t).
+
+This is the locally-synchronous contract: within one step() , the computation is sequential and deterministic; across steps, distinct Flows may have distinct clocks and communicate through timestamped streams. The emitted value becomes visible at its declared commit timestamp; strict-prefix visibility is the default, while exact-tick visibility requires a deterministic, acyclic same-tick order. 
+
+A. Representation Theorem: Sufficiency of the Primitives 
+
+The Retriever composition model rests on the claim that stateless maps , stateful scans , and 
+
+synchronization policies are sufficient to construct the bounded-memory causal robot policies considered in this paper. This mirrors constructions in synchronous languages [45] and functional reactive programming [30]. 
+
+Theorem 3 (Representation Sufficiency; formal version of Thm. 1) . Let π be a deterministic bounded-memory causal policy whose outputs occur at locally finite decision epochs. At each epoch, its input is a finite aligned record materialized from committed observation histories by deterministic synchronization policies, and its state lies in a fixed state space H with bounded representation size. There exists a Retriever graph G composed of Map and Scan Flows, clocks, and deterministic sync 
+
+edges such that G implements π.Proof Sketch: At decision epoch tk, write the policy transition directly as 
+
+(hk, a k) = g(hk−1, z k),
+
+where zk is the aligned input record and hk ∈ H. A clock supplies the epochs {tk}; deterministic  
+
+> sync
+
+edges materialize each zk from the committed input histories. A Scan Flow stores hk−1
+
+and evaluates g, while an optional Map projects or transforms the emitted action. This construction permits continuous-valued fixed-size state and does not require finite cardinality. For a multi-rate decomposition π1, . . . , π n, apply the same construction to each local clock Ci
+
+and connect the resulting Flows by the policy’s deterministic sync edges:  
+
+> •
+
+Bounded-size memory. The joint state space is H = H1 × · · · × Hn. The graph contains finitely many sub-policies and each local representation size is fixed, so the composite representation size is bounded even when state values are continuous.  
+
+> •
+
+Causality. Each πi consumes only its declared committed history through sync ; every feedback cycle contains a strict edge or delay, so no instantaneous loop is formed.  
+
+> •
+
+Closure. A composition of deterministic causal maps is itself a deterministic causal map. Hence the union graph implements the same local transitions and action emissions as π. No primitive beyond clocked Scan /Map computation and deterministic sync is required. 19 B. Functional Determinism: Trace Reproducibility 
+
+Here we formalize the claim that Retriever programs are functionally deterministic : given fixed committed input histories, clock/commit traces, and initial states, the sequence of internal states and output commands is identical across runs. This property relates to Kahn Process Networks (KPN) [17] and Synchronous Dataflow (SDF) [18], but extends their replay viewpoint to explicit real-time policies. 
+
+Definition 4 (Event Stream) . An event stream S = {(ti, v i)}Ni=1 is a locally finite sequence of time-value pairs, strictly increasing in ti within that stream. 
+
+Definition 5 (Trace Determinism) . A system S is trace deterministic if, for any two runs with identical committed input histories, clock/commit traces, and initial states, the output streams are identical. a) Strict causality (delay on cycles).: We assume cycles do not form instantaneous algebraic loops, which would impose a fixed-point constraint xt = f (xt) rather than an executable step: any dependency around a directed cycle must pass through at least one discrete delay, so values at time 
+
+t depend only on events strictly earlier than t. Operationally, this can be realized by state in a  
+
+> Scan
+
+Flow (which advances only on ticks), or by an explicit lag/buffer policy that guarantees the consumed value comes from event time < t . This is the standard condition used to ensure a cyclic graph can be unrolled into a DAG over logical time [18]. 
+
+Theorem 4 (Functional Determinism of Retriever Graphs; formalizing Thm. 2) . Let G = ( V, E ) be a directed graph of Flows (possibly cyclic). If: 1) Every node F ∈ V is a deterministic Causal Stream Function (CSF). 2) Every edge e ∈ E has a deterministic sync policy. 3) Sample ticks, output commit timestamps, and lag decisions are fixed by deterministic policies or a replay log. 4) Committed external-input histories and initial Flow states are fixed. 5) Strict Causality: Every cycle in G contains at least one delay, so that any value consumed at time t depends only on events with timestamps < t .6) Exact-tick order: Any policy that exposes events committed at the consumer’s tick declares an acyclic deterministic same-tick order; otherwise it uses strict-prefix visibility. Then the entire graph G is trace deterministic. Proof: While G may contain cycles, strict causality implies that the unrolled computation graph 
+
+over time is a DAG (i.e., we cannot have instantaneous algebraic loops xt = f (xt)). This mirrors the “strict causality” requirement in discrete event systems [18]. We proceed by induction over this causal order, refined by the declared same-tick order when exact-tick visibility is enabled. 
+
+Base Case ( k = 0 ): Initial states h0 and the first external stream events are fixed/deterministic. 
+
+Inductive Step: Assume all internal states and stream values are deterministic for all events up to index k − 1. Consider the k-th event occurring at flow F at time t. 
+
+> •
+
+Its inputs are derived from sync applied to the committed visible history. By strict causality and the acyclic same-tick rule, these inputs depend only on values earlier in the causal order.  
+
+> •
+
+By the inductive hypothesis, these past values are identical across runs.  
+
+> •
+
+Since F and sync are deterministic functions, the output at event k is uniquely determined. Thus, by induction on the causal order, the entire infinite trace is unique. 
+
+C. Remark on Stochastic Policies and Environments 
+
+The results above are stated for deterministic components, conditioned on explicit randomness streams. This conditioning covers the stochastic settings common in learned robot systems. 
+
+Stochastic policies. A policy that samples its action—a Gaussian or categorical policy in RL, temperature-based decoding in a VLM, or exploration noise—factors into a deterministic sampler plus exogenous random bits: ak ∼ π(· | zk) is realized as ak = f (zk, ϵ k), or equivalently by a seeded pseudorandom sampler. In Retriever, the noise source is materialized as an explicit event stream (seeds or realized draws) feeding the sampling Flow, so the graph remains a network of deterministic CSFs. Theorem 1 then applies to the policy conditioned on the noise stream, and Theorem 2 holds with the logged noise stream included among the external inputs—which is precisely the logging-and-replay contract of Appendix D. This recovers the standard decision-theoretic view that a stochastic policy is a deterministic policy over an input extended with exogenous noise. 20 Stochastic environments. The environment enters every guarantee only through the realized timestamped observation trace: stochastic dynamics, sensor noise, and random event timing merely determine the distribution over traces, while each theorem is a per-trace statement. No modification is needed; distributional claims (e.g., expected task success) follow by integrating the per-trace guarantees over the environment’s trace distribution. 
+
+Numerical vs. event-level determinism. Trace determinism concerns the event path : which ticks fire, which input snapshots are consumed, and which values are emitted, given the external input streams. It does not promise bitwise-identical floating point across live runs: GPU kernels may reduce in nondeterministic order, exactly as in deep-learning frameworks. Automatic differentiation still differentiates the realized computation, so forward values and gradients remain consistent. The path-gradient experiment in Sec. VI therefore requires only a fixed event path. Retriever fixes the discrete event structure that scheduling races would otherwise change. Within-kernel numerics are orthogonal; deterministic kernels can recover bitwise reproducibility when needed. Floating-point drift in a live run could still flip a downstream threshold event. When the relevant consumed values are logged, replay prevents this divergence by reading them from the log. Value-level nondeterminism from hosted model APIs is different: outputs that vary for the same prompt must be logged and replayed as values (Sec. IV). 
+
+D. Remark on Real-Time Constraints 
+
+Arrival-driven callbacks can let network jitter change which value a step reads. Retriever instead makes timestamp, freshness, and deadline rules explicit in sync . Under the fixed replay conditions of Thm. 2, late data has a declared stale, missing, dropped, or timeout outcome. This separates the program’s denotational semantics from its operational execution , a core tenet of synchronous languages [45]. APPENDIX DRETRIEVER RUNTIME IMPLEMENTATION 
+
+This appendix provides API examples and operational details omitted from Sec. IV. It focuses on 
+
+what the user writes , what the runtime guarantees , and what gets logged for replay .
+
+A. Runtime Design (Flow / IR / Runtime Layers) 
+
+Sec. IV gives the authoring → IR → runtime path. Here, a user-authored Pipeline compiles to a static, typed IR that fixes topology, clocks, edge policies, and backend adapters before execution. 
+
+a) IR example (serialized contract).: The IR is an explicit, typed, serializable graph object: it fixes node types, clocks, and edge adapters, and can be saved/loaded as a deployment artifact (no Python source required at runtime). A schematic excerpt is:                       
+
+> 1ir = pipe.build_ir() # validates types, clocks, adapters
+> 2ir.save("agent.ir.json") # deployable artifact
+> 34#Schematic excerpt of ir.to_json() (fields omitted):
+> 5{
+> 6"version": "1.0.0",
+> 7"metadata": {"name": "Agent", "validated": True},
+> 8"nodes": [
+> 9{"id": "cam", "type": "CameraSource",
+> 10 "config": {"clock": {"Rate": {"hz": 30}}},
+> 11 "outputs": {"frame": "Image"}}
+> 12 ],
+> 13 "edges": [
+> 14 {"source": {"node": "cam", "port": "frame"},
+> 15 "destination": {"node": "skill", "port": "frame"},
+> 16 "adapter": {"Latest": {"staleness": 0.1}},
+> 17 "qsize": 10}
+> 18 ],
+> 19 "topology": {"has_cycle": False}
+> 20 }
+
+In practice, the full IR includes port-level input/output types, queue/backpressure settings, and the computed topology metadata; it underpins visualization (IR.visualize() ) and backend compilation ( IR.compile() ). 21 Fig. 9: Representative closed-loop hierarchical manipulation pipeline (appendix view). The same case-study graph from Sec. V is shown with the messages that matter for implementation review: predicate-level belief, PlanChunk proposals, one active SkillCmd , ActionChunk s, progress predictions, and terminal events. 
+
+b) Scheduling, backpressure, and missed rates.: Real pipelines may miss a requested rate under load, for example during slow VLM calls or heavy perception. Each Flow declares its desired clock, so the runtime can report sustained misses and either terminate (hard real-time), tolerate a bounded number before escalation (soft real-time), or warn and continue (best-effort). These policies configure the runtime; they do not change program semantics. 
+
+B. Flow Interface and Run Clocks 
+
+A Flow is a synchronous state machine stepped by an explicit run clock . Users implement (i) state initialization and (ii) a pure step on aligned inputs:               
+
+> 1class BeliefMemoryFlow(Flow[(Obs, Event), Belief]):
+> 2def reset(self):
+> 3self.belief = Belief()
+> 45def step(self, inp):
+> 6obs, event = inp
+> 7if event == "inspection_done":
+> 8self.belief = update_belief(self.belief, obs)
+> 9return self.belief
+> 10 11 belief = BeliefMemoryFlow() @Trigger("inspection_done")
+
+C. Edgewise Synchronization Policies (How Inputs Are Sampled) 
+
+The formal sync contract and concrete Latest /Window examples are in Sec. IV-C. The corresponding user-facing wiring is simply an edge declaration:           
+
+> 1pipe = Pipeline("Agent")
+> 2with pipe:
+> 3cam.then(vla, sync=Latest())\
+> 4.then(ctrl, sync=Latest()) # controller plays ActionChunk over fast ticks
+> 5cam.then(belief, sync=Latest())\
+> 6.then(monitor,sync=Latest())
+
+a) Why This Matters (Pub/Sub Failure Mode): In pub/sub systems, input alignment is often an implicit “latest message” rule that can vary across runs. Retriever makes each sampled snapshot explicit through sync . A complete replay record includes the consumed input IDs and the clock/commit trace required by Thm. 2. 22 D. Worked Example: Case Study Wiring and Monitor-Mediated Plan Updates 
+
+The case-study agent (Sec. V; Fig. 9) combines slow planning and belief updates with fast skill and control loops. At the appendix level, the planner proposes bounded-horizon PlanChunk s, the monitor commits them at handoff boundaries, and the controller consumes ActionChunk s on a faster clock. Appendix E records the message interfaces. 
+
+E. Temporal Chunking (Plan and Action) 
+
+Figure 5 introduces the shared chunking pattern. An ActionChunk buffers VLA output for 200Hz control, while a PlanChunk lets the monitor overlap replanning with the current skill. Only action chunks are generic buffering adapters; plan chunks remain part of the execution-monitor policy in Appendix E. 
+
+F. Runtime Modes: Debug vs Deployment 
+
+Retriever compiles a user graph to a static IR of nodes, edges, clocks, and policies, then runs it on a supported backend:  
+
+> •
+
+In-process stepping: deterministic, debugger-friendly execution ( pipe.step ) for development and trace inspection.  
+
+> •
+
+Asynchronous execution: actors/processes for deployment ( pipe.run ), where each Flow exe-cutes sequentially on its clock and edges implement deterministic policies. 
+
+G. Logging for Deterministic Replay 
+
+For replay, the runtime logs at least the event time, Flow tick ID, and consumed input IDs for each step. These records identify the snapshot selected by each sync policy and allow offline re-execution (Sec. VI, Appendix F). 
+
+H. Pipeline Interface Summary 
+
+The released implementation follows the same six-Flow decomposition as Sec. V. We summarize the interface contract here rather than reproducing source-level code; the concrete class names and a runnable pipeline are available in the released repository (https://github.com/openretriever/retriever). Appendix E gives the concrete per-Flow interfaces and trigger chain. The framework-level takeaway is only that all messages are typed, timestamped records flowing through explicit clocks and sync policies. 
+
+I. VLM Prompting Details 
+
+To ensure the VLM planner emits plans that the monitor can execute, we constrain the prompt around three ingredients: a finite object/affordance vocabulary, predicate-style belief facts, and a closed skill vocabulary with cleanup/termination rules. These prompt constraints produce bounded-horizon skill programs whose branch conditions can be resolved by the monitor from the current belief. 
+
+a) Belief updater prompt.: The belief updater similarly maps observations plus the previous be-lief to predicate-valued facts. We use a three-valued style ( yes/no/unknown ) and avoid overwriting known facts with unknown unless the task evidence warrants it. 
+
+b) Illustrative prompt contract (drawer task).: The important interface is the typed belief and plan contract the prompt induces, not its exact wording. In the drawer task, the belief updater can be viewed schematically as maintaining three-valued predicates over objects and containers:                 
+
+> contains(top_left_drawer, spice) in {yes, no, unknown} contains(top_right_drawer, spice) in {yes, no, unknown} holding(spice) in {yes, no, unknown} seasoned(food) in {yes, no, unknown}
+
+The planner consumes a goal and this compact belief state, then emits a bounded PlanChunk over the closed skill vocabulary. A simplified example is:     
+
+> Goal: season(food) with spice Belief: contains(top_left_drawer, spice) =unknown PlanChunk: OpenDrawer(top_left_handle) InspectDrawer(top_left_drawer)
+
+23 IF contains(top_left_drawer, spice) = yes: Pick(spice) Season(food) ELSE: CloseDrawer(top_left_handle) OpenDrawer(top_right_handle) InspectDrawer(top_right_drawer) 
+
+This example illustrates the belief-space predicate interface used by the monitor. APPENDIX ECASE STUDY DETAILS 
+
+This appendix records case-study specific interfaces and conventions referenced in Sec. V (belief representation, PlanChunk structure, skill catalog, teleoperation schema, and task-progress scoring). It complements Appendix D by focusing on concrete messages and task-level conventions rather than generic runtime semantics. We use compact aliases F1–F6 below only as appendix shorthand: F1= Fcam , F2= Fbelief , F3= Fplan , F4= Fexe , F5= Fskill , and F6= Fctrl .
+
+a) Flow Specifications (Inputs/Outputs/Triggers):  
+
+> •
+
+F1 Observation ( Fcam ): emits timestamped observations (camera + optional robot state) at 30Hz (or sensor-driven).  
+
+> •
+
+F2 Belief/Memory (Fbelief ): updates only on inspection completion ( inspection_done ). Tracks a compact task state (e.g., drawer {unknown, checked, target_seen} and ob-ject {unknown_location, in_drawer(d), in_gripper, done} ). Emits belief_updated 
+
+(and optional belief_delta ).  
+
+> •
+
+F3 Planning VLM ( Fplan ): triggered by the monitor on belief_updated , failures, or when the remaining plan horizon is low. Inputs: belief summary, goal, and execution context. Output: a bounded-horizon PlanChunk (3–5 skills, ≈10 s horizon), often a small conditional tree whose branch conditions are predicates over belief/evidence. In our implementation, this component is an external multimodal planner service wrapped as a Retriever Flow.  
+
+> •
+
+F4 Execution Monitor ( Fexe ): stores the active PlanChunk subtree, the current node pointer, latest belief, and current skill state. Triggered by skill_done/skill_failed , inspection_done ,
+
+PlanChunk proposals, and progress-prediction events; optional 5–10Hz heartbeat for timeouts and horizon checks. Outputs the active SkillCmd to F5 and replan triggers to F3.  
+
+> •
+
+F5 Skill VLA ( Fskill ): executes the active SkillCmd at ∼2–3Hz and outputs ActionChunk s to F6 plus progress prediction to F4. Inspection skills additionally emit inspection_done . 
+
+> •
+
+F6 Controller ( Fctrl ): consumes ActionChunk s and runs a safety-critical 200Hz control loop. 
+
+b) Low-level policy data efficiency.: Across the drawer and bag-retrieval tasks, the shared low-level policy uses roughly 200–300 complete expert episodes total . Each episode lasts roughly 1–3 minutes , yielding only a few hours of robot data . The dataset covers the closed skill vocabulary rather than separate large per-skill datasets. 
+
+c) Low-level VLA training details ( π0.5 fine-tuning or multi-task diffusion).: We found two training routes sufficient for Fskill : (i) fine-tune the π0.5 VLA model [36] for the closed skill vocabulary, or (ii) train a multi-task diffusion policy from scratch on the same dataset. Both routes condition the shared policy on the current SkillCmd (skill name + arguments) and use the union of skill-labeled expert trajectories. Skills such as OpenDrawer , InspectDrawer , CloseDrawer , Pick , and PlaceBack share the same observation and action interfaces. Because both training routes support this skill set, the system pipeline is not tied to one low-level learning recipe. 
+
+d) Monitor-Mediated Plan Updates (Plan Chunking in the Monitor): In this case study, plan chunking lives inside Fexe , not in an edge policy. The monitor never interrupts the active skill. A new PlanChunk can replace only the remaining suffix, allowing replanning to overlap execution. Belief updates, failures, and a short remaining horizon trigger new proposals. 
+
+e) What the planner emits (skills, not actions): PlanChunk is a short bounded-horizon skill program over a closed skill vocabulary (Sec. V). Each node is a parameterized macro-action such as 
+
+OpenDrawer(handle) , InspectDrawer(container) , Pick(object) , PlaceBack(object) ,or CloseDrawer(handle) . The planner does not emit low-level control. The VLA policy consumes one active SkillCmd at a time and handles within-skill control through ActionChunk s; the monitor handles skill handoff. In practice, the PlanChunk places branch points at information-gathering skills 24 (e.g., inspection) so that belief updates can resolve partial observability online. A representative chunk for the drawer task is:        
+
+> 1#Example PlanChunk (drawer task, schematic)
+> 2OpenDrawer(top_left_handle) -> InspectDrawer(top_left_drawer)
+> 3IF contains(top_left_drawer, spice) = yes THEN
+> 4Pick(spice) -> Season(food) -> PlaceBack(spice)
+> 5ELSE
+> 6CloseDrawer(top_left_handle)
+
+Fexe resolves the IF/THEN/ELSE using the latest belief snapshot and issues the next concrete 
+
+SkillCmd to Fskill at explicit handoff points. 
+
+f) Conditional Execution (Belief-Space IF/THEN/ELSE): To handle partial observability, the planner outputs short programs that can branch after inspections, e.g., IF contains(drawer, target) = yes THEN pick(target) ELSE close-drawer(drawer) . Fexe resolves these branches at runtime using the latest belief snapshot (which is refreshed by inspection-triggered belief updates). This keeps the VLA interface simple: Fskill always receives a concrete SkillCmd ,never a conditional. 
+
+g) Progress Prediction for Handoff: The skill output includes a progress prediction for monitor-mediated handoff. The signal is timestamped, synchronized, and logged like other streams; the predictor and scoring rule are implementation choices behind this interface. 
+
+h) Planner Prompting (Object Grounding & Completion Rules): In practice, VLM planners can hallucinate objects or omit critical cleanup steps. We use prompt constraints that (i) define the complete object set (four drawers + known spice objects), and (ii) enforce task-completion rules (e.g., always close drawers; always terminate after seasoning). These constraints improve reliability without changing the runtime. 
+
+i) Rates and Time-Semantics (Where sync Applies): The case study uses 30Hz cameras, a 
+
+∼2–3Hz VLA, and a 200Hz controller. At each VLA tick, sync samples the perception and state streams. Progress-prediction events trigger the monitor, while the controller consumes the latest valid 
+
+ActionChunk on its own clock. 
+
+j) Teleoperation for HIL & Data Collection: Teleop is an optional input Flow for intervention, recovery, and data collection. After a failure, the monitor can request another inspection or replan, or it can accept a temporary teleop override. Teleop actions are logged alongside the event stream for imitation data and post-hoc analysis. 
+
+k) Concrete Interfaces (Messages): The pipeline logs observations, SkillCmd s, PlanChunk s, 
+
+ActionChunk s, progress predictions, and terminal events as typed messages. The monitor sends one concrete SkillCmd to the VLA and receives progress predictions; the controller consumes 
+
+ActionChunk s on its own clock. 
+
+l) Skill Catalog and Object Affordances: In the drawer task we separate the drawer container 
+
+from its handle so skills can be parameterized by the correct affordance. For readability, examples use explicit names such as top_left_drawer and top_left_handle rather than short drawer codes. A representative skill library includes: OpenDrawer(top_left_handle) ,
+
+InspectDrawer(top_left_drawer) , CloseDrawer(top_left_handle) , Pick(spice) ,
+
+Season(food) , and PlaceBack(spice) (plus recovery variants). The bag task uses an analogous set of skills (e.g., OpenBag , InspectBag , Pick(target) , Extract(target) ), but the same monitor/planner interfaces. 
+
+m) Teleoperation Logging: Teleop can be used both as a safety valve and as a data source. For each intervention, the log records the intervention window and overridden skill/action. Under the replay contract above, recording the consumed input identifiers also pairs each teleop action with the policy/monitor snapshot needed for imitation learning and debugging. 
+
+n) Task Progress and Projected Time: We report normalized task progress p ∈ [0 , 1] from the execution monitor’s task milestones and projected total time bT = Tbest /p (Sec. VI). The projection is a descriptive linear normalization, not a measured completion time. Drawer milestones cover the eight-skill trace in Sec. VI; bag retrieval uses the four-stage sequence OpenBag , InspectBag , Pick ,and Extract . Thus, a run that completes only the first skill receives 1/8 drawer progress or 1/4
+
+bag progress. More complete runs use the monitor’s finer normalized score recorded at termination. 25 0.0 0.2 0.4 0.6 0.8 1.0            
+
+> time
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> h
+> x*
+> x0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+> L/
+> 0
+> 2
+> 4
+> 6
+> 8
+> Frequency
+> 100 runs
+> (identical)
+> Error: 1.4e-08
+> Path Gradient: Retriever vs. Pub/Sub vs. Analytic
+> Pub/Sub: =0.308, =0.179
+> True: -0.0055
+> Retriever: =-0.0055, =2.6e-18
+
+Fig. 10: Efficiency and determinism visualizations (extended version of the main-text figure). (a) End-to-end message latency versus payload size (log–log). This benchmark isolates transport and runtime overhead for a minimal producer-consumer pair, repeated over payload sizes and trials. (b) Hybrid differentiable physics example used to stress trace sensitivity under asynchronous semantics. (c) Distribution of 
+
+path gradients across repeated runs: event-time semantics yield a single trace and a single gradient, while arrival-time semantics can produce different traces (due to jitter-induced staleness) and hence inconsistent gradients. 
+
+This metric distinguishes partial progress from total failure while retaining the raw achieved-progress value beside the projected time. 
+
+o) Mock-to-Robot Portability: The belief updater, planner, monitor, and goal interface stay unchanged between mock and robot deployments. Only perception and action Flows are swapped, such as an image-folder camera for real cameras and a mock policy for the VLA and controller. This lets most pipeline and prompt bugs be debugged before hardware runs. 
+
+p) Latency Profile (Typical): The planner has seconds-level model latency, while belief updates are faster and the monitor is a state machine. Monitor-mediated handoff and action chunking keep this slow inference off the 200Hz control loop. APPENDIX FEXPERIMENT DETAILS 
+
+a) Reproducibility.: The runtime is released as retriever-core (Python 3.11+; pip install retriever-core ), and the latency study uses dora-rs ≥ 0.3.12. Recorded node streams can be stored in MCAP, optionally visualized with Rerun, and replayed as graph inputs. Exact trace replay also requires the consumed snapshots and clock/commit trace in Thm. 2. Each experiment documents its hardware, software versions, execution flags, and trial protocol. 
+
+b) Message Latency Benchmark (Dora Backend): We measure end-to-end producer-to-consumer latency across payload sizes (Fig. 10(a)); error bars show variation across trials. The comparison includes Retriever in one process, across processes, and with Dora, alongside native 
+
+dora-rs and ROS 2 C++/Python baselines. The ROS 2 C++ components curve uses single-process composable nodes [38], so it should be compared with Retriever single-process rather than multi-process ROS 2. Retriever with Dora closely matches native dora-rs , while single-process Retriever gives the lowest small-message latency among the measured stacks. These results suggest that the graph IR, clocks, and policy layer add little overhead relative to transport in this benchmark. 
+
+c) Functional Determinism Experiment (Hybrid Bouncing Ball): We compare event-time semantics (Retriever) with arrival-time semantics (pub/sub) on a hybrid system with continuous dynamics and discrete impacts. The learnable parameter is initial velocity θ, and we report the path gradient ∇θ L for each run rather than an expectation gradient. 
+
+d) Why a Hybrid Physics Example? (Path vs. Expectation Gradients): Hybrid dynamics make the executed computation graph sensitive to the impact tick. A one-tick shift can change the differentiated path, making this a direct test of runtime semantics. We study path gradients of the realized trace: 
+
+gpath = ∇θ L(τrun ).
+
+If arrival-time staleness changes τrun under identical initial conditions, the backward pass yields in-consistent gradients. Expectation gradients over scheduling randomness require a different stochastic treatment and are outside our scope. 26 e) Hybrid System: Free-flight dynamics with gravity: 
+
+vt+1 = vt − g dt, xt+1 = xt + vt+1 dt 
+
+Impact guard ( x < 0): x ← 0, v ← − e v , with restitution e ∈ (0 , 1) . Loss: L = ( xT − xtarget )2.
+
+f) Executors: Retriever (event-time): fixed logical clock t = 0 , . . . , T − 1, deterministic edge policies, fixed topological execution order. Pub/Sub (arrival-time): a generic latest-arrived baseline; random jitter yields stale reads that can shift impact ticks. This is not a live ROS 2 or Dora determinism measurement. 
+
+g) Standard Configuration: Horizon T = 200 , θ = 3 .0, restitution e = 0 .8, time step dt = 0 .01 ,jitter probability p = 0 .2, K = 100 runs. Retriever : 1 unique trace; 1 unique gradient; σg ≈
+
+3.5 × 10 −18 . Pub/Sub : 100 unique traces; 35 unique gradients; σg ≈ 0.177 ; 99% trace mismatch. 
+
+h) High-Jitter Configuration: Horizon T = 150 , θ = 4 .0, e = 0 .85 , dt = 0 .01 , p = 0 .4,
+
+K = 50 . Retriever : 1 unique trace; deterministic gradient. Pub/Sub : 50 unique traces; σg ≈ 0.110 ;98% mismatch; gradient sign can flip. 
+
+i) Interpretation: Arrival-time semantics can shift impact ticks through stale reads, changing both the hybrid trace and its gradient. Event-time semantics yield identical traces and gradients across runs. Figure 10(c) shows the gradient distribution. 
+
+A. Benchmark Implementation Footprint 
+
+We report approximate user-script sizes for the latency benchmark in Fig. 10(a). 
+
+a) Approximate size of user scripts: 
+
+Stack User-script size 
+
+Retriever (single benchmark script) 117 Dora (publisher + subscriber scripts) 32 + 53 ROS2 (publisher + subscriber scripts) 79 + 95 The benchmark scripts all implement the same producer–consumer latency sweep: timestamp a payload at the producer, deliver it through the corresponding runtime/backend, record receive time at the consumer, and aggregate latency by payload size. 
+
+b) Dora benchmark scripts (native Python API):                                       
+
+> 1#!/usr/bin/env python
+> 2#-*- coding: utf-8 -*-
+> 34import time
+> 56import numpy as np
+> 7import pyarrow as pa
+> 8from dora import Node
+> 910 SIZES = [2**i for iin range (6, 25)]
+> 11 12 node = Node()
+> 13 pa.array([]) # pyarrow warm-up
+> 14 15 for size in SIZES:
+> 16 for _in range (0, 100):
+> 17 now = time.time()
+> 18 random_data = np.random.randint(1000, size=size, dtype=np.uint64)
+> 19 random_data[0] = time.perf_counter_ns()
+> 20 21 node.send_output("latency", pa.array(random_data))
+> 22 time.sleep( max (0, 0.05 - (time.time() - now)))
+> 23 24 node.send_output("latency", pa.array([], type =pa.uint64()))
+
+Listing 1: Dora publisher (native Python API; excerpt).      
+
+> 1#!/usr/bin/env python
+> 2#-*- coding: utf-8 -*-
+> 34import time
+> 5
+
+27 6 import pyarrow as pa  
+
+> 7
+
+from dora import Node  
+
+> 8
+
+from helper import record_results  
+
+> 910
+
+pa.array([]) # pyarrow warm-up  
+
+> 11
+
+node = Node()  
+
+> 12 13
+
+current_size = 8  
+
+> 14
+
+n = 0  
+
+> 15
+
+i = 0  
+
+> 16
+
+latencies = []  
+
+> 17 18
+
+NAME = "dora Node"  
+
+> 19 20
+
+while True:  
+
+> 21
+
+event = node. next ()  
+
+> 22
+
+if event["type"] == "INPUT":  
+
+> 23
+
+data = event["value"]  
+
+> 24
+
+else : 
+
+> 25
+
+break  
+
+> 26 27
+
+if len (data) == 0:  
+
+> 28
+
+break  
+
+> 29 30
+
+t_received = time.perf_counter_ns()  
+
+> 31
+
+length = len (data) * 8  
+
+> 32
+
+if length != current_size:  
+
+> 33
+
+if n > 0:  
+
+> 34
+
+record_results(NAME, current_size, latencies)  
+
+> 35
+
+current_size = length  
+
+> 36
+
+n = 0  
+
+> 37
+
+start = time.perf_counter_ns()  
+
+> 38
+
+latencies = []  
+
+> 39 40
+
+t_send = data[0]. as _py()  
+
+> 41
+
+latencies.append((t_received - t_send) / 1000)  
+
+> 42 43
+
+n += 1  
+
+> 44
+
+i += 1  
+
+> 45 46
+
+record_results(NAME, current_size, latencies) 
+
+Listing 2: Dora subscriber (native Python API; excerpt). 
+
+c) ROS2 benchmark scripts (Python):  
+
+> 1
+
+# Copyright 2016 Open Source Robotics Foundation, Inc.  
+
+> 2
+
+# 
+
+> 3
+
+# Licensed under the Apache License, Version 2.0 (the "License");  
+
+> 4
+
+# you may not use this file except in compliance with the License.  
+
+> 5
+
+# You may obtain a copy of the License at  
+
+> 6
+
+# 
+
+> 7
+
+# http://www.apache.org/licenses/LICENSE-2.0  
+
+> 8
+
+# 
+
+> 9
+
+# Unless required by applicable law or agreed to in writing, software  
+
+> 10
+
+# distributed under the License is distributed on an "AS IS" BASIS,  
+
+> 11
+
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+
+> 12
+
+# See the License for the specific language governing permissions and  
+
+> 13
+
+# limitations under the License.  
+
+> 14 15
+
+import time  
+
+> 16 17
+
+import numpy as np  
+
+> 18
+
+import rclpy  
+
+> 19
+
+from rclpy.node import Node  
+
+> 20
+
+from std_msgs.msg import UInt64MultiArray  
+
+> 21 22
+
+SIZES = [  
+
+> 23
+
+8,  
+
+> 24
+
+64,  
+
+> 25
+
+512,  
+
+> 26
+
+10 * 512,  
+
+> 27
+
+100 * 512, 
+
+28 28 1000 * 512,  
+
+> 29
+
+10000 * 512,  
+
+> 30
+
+8,  
+
+> 31
+
+] 
+
+> 32 33 34
+
+class MinimalPublisher(Node):  
+
+> 35
+
+def __init__(self):  
+
+> 36
+
+super ().__init__("minimal_publisher")  
+
+> 37
+
+self.publisher_ = self.create_publisher(UInt64MultiArray, "topic", 10)  
+
+> 38
+
+timer_period = 0.05 # seconds  
+
+> 39
+
+self.timer = self.create_timer(timer_period, self.timer_callback)  
+
+> 40
+
+self.i = 0  
+
+> 41
+
+self.j = 0  
+
+> 42 43
+
+def timer_callback(self):  
+
+> 44
+
+msg = UInt64MultiArray()  
+
+> 45
+
+random_data = np.array(  
+
+> 46
+
+np.random.randint(255, size=SIZES[self.i], dtype=np.uint64)  
+
+> 47
+
+) 
+
+> 48 49
+
+random_data[0] = np.array([time.perf_counter_ns()])  
+
+> 50 51
+
+random_data = random_data.tobytes()  
+
+> 52
+
+msg.data.frombytes(random_data)  
+
+> 53
+
+self.publisher_.publish(msg)  
+
+> 54
+
+if self.j == 100:  
+
+> 55
+
+self.i += 1  
+
+> 56
+
+self.j = 0  
+
+> 57
+
+else : 
+
+> 58
+
+self.j += 1  
+
+> 59 60 61
+
+def main(args=None):  
+
+> 62
+
+rclpy.init(args=args)  
+
+> 63 64
+
+minimal_publisher = MinimalPublisher()  
+
+> 65
+
+rclpy.spin(minimal_publisher)  
+
+> 66 67
+
+minimal_publisher.destroy_node()  
+
+> 68
+
+rclpy.shutdown()  
+
+> 69 70 71
+
+if __name__ == "__main__":  
+
+> 72
+
+main() 
+
+Listing 3: ROS2 publisher (Python; excerpt).  
+
+> 1
+
+# Copyright 2016 Open Source Robotics Foundation, Inc.  
+
+> 2
+
+# 
+
+> 3
+
+# Licensed under the Apache License, Version 2.0 (the "License");  
+
+> 4
+
+# you may not use this file except in compliance with the License.  
+
+> 5
+
+# You may obtain a copy of the License at  
+
+> 6
+
+# 
+
+> 7
+
+# http://www.apache.org/licenses/LICENSE-2.0  
+
+> 8
+
+# 
+
+> 9
+
+# Unless required by applicable law or agreed to in writing, software  
+
+> 10
+
+# distributed under the License is distributed on an "AS IS" BASIS,  
+
+> 11
+
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+
+> 12
+
+# See the License for the specific language governing permissions and  
+
+> 13
+
+# limitations under the License.  
+
+> 14 15
+
+import csv  
+
+> 16
+
+import os  
+
+> 17
+
+import time  
+
+> 18 19
+
+import numpy as np  
+
+> 20
+
+import rclpy  
+
+> 21
+
+from rclpy.node import Node  
+
+> 22
+
+from std_msgs.msg import UInt64MultiArray  
+
+> 23 24
+
+LATENCY = True 
+
+29 25 26 NAME = os.getenv("NAME") or "ROS 2"  
+
+> 27
+
+PLATFORM = "COMPUTER_PERF"  
+
+> 28
+
+current_size = 8  
+
+> 29
+
+n = 0  
+
+> 30
+
+latencies = []  
+
+> 31
+
+save_x = []  
+
+> 32 33 34
+
+def record_results(start, current_size, latencies, latency: bool ):  
+
+> 35
+
+avg_latency = np.array(latencies).mean()  
+
+> 36 37
+
+csv_ file = os.getenv("CSV_TIME_FILE", "time.csv")  
+
+> 38
+
+append = os.path.isfile(csv_ file ) 
+
+> 39
+
+log_header = ["name", "platform", "size", "latency"]  
+
+> 40
+
+log_row = [NAME, PLATFORM, current_size, avg_latency]  
+
+> 41
+
+if append:  
+
+> 42
+
+with open (csv_ file , "a", encoding="utf-8") as f:  
+
+> 43
+
+w = csv.writer(f, lineterminator="\n")  
+
+> 44
+
+w.writerow(log_row)  
+
+> 45
+
+else : 
+
+> 46
+
+with open (csv_ file , "w+", encoding="utf-8") as f:  
+
+> 47
+
+w = csv.writer(f, lineterminator="\n")  
+
+> 48
+
+w.writerow(log_header)  
+
+> 49
+
+w.writerow(log_row)  
+
+> 50 51 52
+
+class MinimalSubscriber(Node):  
+
+> 53
+
+def __init__(self):  
+
+> 54
+
+super ().__init__("minimal_subscriber")  
+
+> 55
+
+self.subscription = self.create_subscription(  
+
+> 56
+
+UInt64MultiArray, "topic", self.listener_callback, 10  
+
+> 57
+
+) 
+
+> 58
+
+self.subscription # prevent unused variable warning  
+
+> 59
+
+self.current_size = 0  
+
+> 60
+
+self.latencies = []  
+
+> 61
+
+self.n = 0  
+
+> 62 63
+
+def listener_callback(self, msg: UInt64MultiArray):  
+
+> 64
+
+t_received = time.perf_counter_ns()  
+
+> 65
+
+length = len (msg.data) * 8 # As it is Uint64  
+
+> 66
+
+if length != self.current_size:  
+
+> 67
+
+if self.n > 0:  
+
+> 68
+
+record_results([], self.current_size, self.latencies, LATENCY)  
+
+> 69
+
+self.current_size = length  
+
+> 70
+
+self.n = 0  
+
+> 71
+
+self.latencies = []  
+
+> 72
+
+t_send = msg.data[0]  
+
+> 73
+
+self.latencies.append((t_received - t_send) / 1000)  
+
+> 74
+
+self.n += 1  
+
+> 75 76 77
+
+def main(args=None):  
+
+> 78
+
+rclpy.init(args=args)  
+
+> 79 80
+
+minimal_subscriber = MinimalSubscriber()  
+
+> 81
+
+rclpy.spin(minimal_subscriber)  
+
+> 82 83
+
+minimal_subscriber.destroy_node()  
+
+> 84
+
+rclpy.shutdown()  
+
+> 85 86 87
+
+if __name__ == "__main__":  
+
+> 88
+
+main() 
+
+Listing 4: ROS2 subscriber (Python; excerpt). 
+
+30

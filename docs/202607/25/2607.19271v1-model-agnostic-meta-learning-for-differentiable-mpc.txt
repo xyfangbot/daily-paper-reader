@@ -1,0 +1,869 @@
+Title: Model-Agnostic Meta Learning for Differentiable MPC
+
+URL Source: https://arxiv.org/pdf/2607.19271v1
+
+Published Time: Wed, 22 Jul 2026 01:17:18 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+> 1
+
+# Model-Agnostic Meta Learning for Differentiable MPC 
+
+Salma Elfeki 1, Riccardo Zuliani 1, Niklas Schmid 1, Efe C. Balta 1,2 , and John Lygeros 1
+
+Abstract —Applying policy optimization to Model Predictive Control (MPC) yields high-performance and reliable controllers. However, the resulting controllers often overfit their training conditions and suffer significant performance degradation in unseen tasks. We propose a novel framework combining policy optimization with meta-learning to train highly adaptable MPC controllers. Our approach enables rapid adaptation to unseen tasks, maintaining high performance at a fraction of the computa-tional cost required for full retraining. Furthermore, we integrate system identification into the pipeline to continuously refine both the MPC hyperparameters and the underlying predictive models. We validate our proposed methodology on a Ball-on-Plate system, demonstrating superior adaptability across various parameterized trajectory-tracking tasks. 
+
+Index Terms —Model Predictive Control, Policy Optimization, Meta Learning, Differentiable Optimization. 
+
+I. I NTRODUCTION 
+
+Model Predictive Control (MPC) is a popular optimal control technique favored for its flexibility, ease of use, and constraint-handling capabilities. Its performance relies primarily on an accurate system model for reliable open-loop predictions, as well as well-designed cost functions and constraints to meet performance and safety requirements. Recently, gradient-based policy optimization has emerged as a principled approach to tuning MPCs for improved per-formance and guaranteed constraint satisfaction [1], [2]. In this framework, cost and constraints are treated as trainable variables, and gradient descent is used to optimize closed-loop performance. System identification can additionally be integrated within the training pipeline to jointly optimize the predictive model alongside the rest of the MPC parameters [3]. These methods, however, remain computationally expensive, requiring multiple closed-loop iterations to converge. This bot-tleneck becomes particularly limiting in hardware implemen-tations, where each iteration carries irreducible costs in terms of execution time and system reset overhead. Furthermore, the resulting controller is optimized for specific training conditions and may fail to generalize if these change. Meta-learning is a class of algorithms that aim to learn policies that generalize across multiple tasks, enabling rapid adaptation to unseen tasks using limited data. To overcome the computational bottleneck associated with traditional closed-loop tuning, we leverage meta-learning techniques to effi-ciently optimize MPC designs across a diverse range of prob-lem definitions. Specifically, we propose an end-to-end MPC                      
+
+> This work was supported as a part of NCCR Automation, a National Centre of Competence in Research, funded by the Swiss National Science Foundation (grant number 51NF40 225155). 1Automatic Control Laboratory (IfA), ETH Z¨ urich, 8092 Z¨ urich, Switzerland
+
+{selfeki,rzuliani,nikschmid,lygeros }@ethz.ch . 3Control and Automation Group, inspire AG, 8005 Z¨ urich, Switzerland. 
+
+efe.balta@inspire.ch .
+
+design pipeline that incorporates meta-learning, online system identification and gradient-based parameter tuning by adapting the model-agnostic meta-learning (MAML) algorithm [4] to the policy optimization framework introduced in [3]. To test the practical viability of our approach, we deploy it on a Ball-on-Plate (BoP) system, and demonstrate rapid adaptation to varying reference trajectories. Our experiments provide strong evidence that 1) the tuning method of [3] effectively improves the performance of an MPC controller on a hardware platform; 2) combining system identification with gradient-based tuning leads to a significant improvement in convergence speed at no additional computational cost; and 3) the proposed framework successfully leverages MAML to adapt to varying reference trajectories in a real-world setting with significantly reduced computational overhead. The remainder of this paper is structured as follows: Section II describes the problem formulation, Section III introduces our method, and Section IV presents the hardware experiments. 
+
+Related work: To the best of our knowledge, applying policy optimization to MPC was first proposed in [1], and subsequently in [5]. Since then, this method has been extended to uncertain systems [6], fully unknown systems [7], and has been combined with system identification to allow for concurrent optimization of the prediction model and the MPC parameters [3]. In [2], the authors propose a framework, rooted in nonsmooth analysis, to derive rigorous convergence guarantees. A separate, yet highly relevant direction, proposes combining MPC controllers with reinforcement learning, using the optimal cost attained by the MPC as a value function approximator (see [8] and subsequent works by the same authors). Even though MAML is recognized as an effective approach for fast parameter adaptation, its use in MPC settings is gen-erally limited to adapting the system model within the MPC framework. For example, [9]–[11] use MAML to improve prediction accuracy of offline-trained neural network represen-tations of the system model, mitigating the sim2real gap. In contrast, we shift the focus from the model to the controller by asking the following question: can we find MPC parameters that rapidly adapt to high performance on unseen tasks, by training the policy on the real system across a limited number of tasks? To the best of our knowledge, no prior research explores the integration of MAML for task-specific adaptation of MPC controllers’ objective and constraint definitions. 
+
+Notation: Z, N, R denote the sets of integer, natural, and real numbers, respectively. 𝑘 ∈ Z[𝑎,𝑏 ) defines an integer 𝑘 ,such that 𝑘 ∈ {𝑎, 𝑎 + 1, . . . , 𝑏 − 1} where 𝑎 < 𝑏 . 𝐼 𝑛 is an identity matrix of dimension 𝑛 × 𝑛 . 𝑄 := 𝐿 ( 𝑝 )𝐿 ⊤ ( 𝑝 )
+
+defines a symmetric positive-definite matrix 𝑄 parameterized by parameter vector 𝑝 through the Cholesky decomposition arXiv:2607.19271v1 [eess.SY] 21 Jul 2026 2
+
+of a lower triangular matrix 𝐿 ( 𝑝 ), whereas 𝑄 := diag ( 𝑝 ) is a matrix 𝑄 with parameter vector 𝑝 as diagonal entries. 𝑄 ≻ 0
+
+describes a positive-definite matrix, and 𝑃 P is the orthogonal projector to a convex set P ⊂ R𝑛 . By default, ∥ · ∥ denotes the (induced) 2-norm of a (matrix) vector. When a subscript 
+
+𝑖 ∈ { 1, 2, 𝐹 } is used, ∥ · ∥ 𝑖 denotes the corresponding 𝑖 -norm or the Frobenius norm, respectively. II. P ROBLEM FORMULATION 
+
+Consider a dynamical system consisting of a plant 𝑓 and an MPC controller over a finite horizon 𝑡 ∈ Z[0,𝑇 )
+
+𝑥 𝑡 +1 = 𝑓 (𝑥 𝑡 , 𝑢 𝑡 ), (1a) 
+
+𝑦 𝑡 = MPC (𝑥 𝑡 , 𝑦 𝑡 −1, 𝑟 · | 𝑡 ; 𝑝, 𝜃 ), (1b) 
+
+𝑢 𝑡 = Π 𝑢 0 (𝑦 𝑡 ) (1c) where 𝑥 𝑡 ∈ R𝑛 𝑥 , 𝑢 𝑡 ∈ R𝑛 𝑢 , 𝑟 · | 𝑡 ∈ R𝑛 𝑟 , and 𝑦 𝑡 ∈ R𝑇 𝑛 𝑢 denote the state, input, MPC reference and MPC output at time 𝑡 ,respectively. The state is assumed to be fully measurable. Note that 𝑢 𝑡 is contained in 𝑦 𝑡 , and Π𝑢 0 (·) projects the MPC solution onto its first planned input. In addition to tracking the reference, we assume that desired state and input constraints 
+
+𝐻 𝑥 𝑥 𝑡 ≤ ℎ𝑥 , ∀𝑡 ∈ Z[0,𝑇 ] ,𝐻 𝑢 𝑢 𝑡 ≤ ℎ𝑢 , ∀𝑡 ∈ Z[0,𝑇 ) . (2) are given as part of the MPC design specification. We assume that 𝑓 is unknown but a model of the form 
+
+𝑓 𝜃 (𝑥, 𝑢 ) = 𝜑 (𝑥, 𝑢 ) + 𝜃 ⊤ 𝜙 (𝑥, 𝑢 ), (3) is available, where 𝜑 : R𝑛 𝑥 ×R𝑛 𝑢 → R𝑛 𝑥 and 𝜙 : R𝑛 𝑥 ×R𝑛 𝑢 →
+
+R𝑛 𝜃 are functions and 𝜃 ∈ R𝑛 𝜃 ×𝑛 𝑥 is a trainable parameter. At each time-step, the MPC output 𝑦 𝑡 is obtained by solving the following optimization problem, designed to promote tracking of the reference 𝑟 while satisfying the constraints in (2): 
+
+minimize       
+
+> 𝑦 𝑡 =(𝑥 ·| 𝑡 ,𝑢 ·| 𝑡 , 𝜖 ·| 𝑡 )
+
+ℓslack (𝜖 · | 𝑡 ) + ℓtrack (𝑥 · | 𝑡 , 𝑢 · | 𝑡 , 𝑟 · | 𝑡 ; 𝑝 ) (4a) subject to 𝑥 𝑖 +1|𝑡 = 𝐴 𝑖 (𝑦 𝑡 −1, 𝜃 )𝑥 𝑖 |𝑡 + 𝐵 𝑖 (𝑦 𝑡 −1, 𝜃 )𝑢 𝑖 |𝑡 
+
++ 𝑐 𝑖 (𝑦 𝑡 −1, 𝜃 ), 𝑖 ∈ Z[0, 𝑁 ) , (4b) 
+
+𝐻 𝑥 𝑥 𝑖 |𝑡 ≤ ℎ𝑥 + 𝜖 𝑖 |𝑡 , 𝑖 ∈ Z[0, 𝑁 ] , (4c) 
+
+𝐻 𝑢 𝑢 𝑖 |𝑡 ≤ ℎ𝑢 , 𝑖 ∈ Z[0, 𝑁 ) , (4d) 
+
+𝜖 𝑖 |𝑡 ≥ 0, 𝑖 ∈ Z[0, 𝑁 ] , (4e) 
+
+𝑥 0|𝑡 = 𝑥 𝑡 . (4f) The decision variable in (4) is a prediction of the future state and input trajectories 𝑥 · | 𝑡 := (𝑥 0|𝑡 , . . . , 𝑥 𝑁 |𝑡 ), 𝑢 · | 𝑡 :=
+
+(𝑢 0|𝑡 , . . . , 𝑢 𝑁 −1|𝑡 ) and a sequence of non-negative slack vari-ables 𝜖 · | 𝑡 := (𝜖 0|𝑡 , . . . , 𝜖 𝑁 |𝑡 ) used for relaxing the state con-straints in (4c) to ensure feasibility. The dynamics are obtained by linearizing the model 𝑓 𝜃 along the previous MPC solution 
+
+(𝑥 · | 𝑡 −1, 𝑢 · | 𝑡 −1), shifted by one time-step 
+
+𝐴 𝑖 (𝑦 𝑡 −1, 𝜃 ) = ∇𝑥 𝑓 𝜃 (𝑥 𝑖 +1|𝑡 −1, 𝑢 𝑖 +1|𝑡 −1), (5a) 
+
+𝐵 𝑖 (𝑦 𝑡 −1, 𝜃 ) = ∇𝑢 𝑓 𝜃 (𝑥 𝑖 +1|𝑡 −1, 𝑢 𝑖 +1|𝑡 −1), (5b) 
+
+𝑐 𝑖 (𝑦 𝑡 −1, 𝜃 ) = 𝑓 𝜃 (𝑥 𝑖 +1|𝑡 −1, 𝑢 𝑖 +1|𝑡 −1) − 𝐴 𝑖 (𝑦 𝑡 −1, 𝜃 )𝑥 𝑖 +1|𝑡 −1
+
+− 𝐵 𝑖 (𝑦 𝑡 −1, 𝜃 )𝑢 𝑖 +1|𝑡 −1, (5c) where 𝑢 𝑁 |𝑡 −1 = 𝑢 𝑁 −1|𝑡 −1. By employing this linearization strategy, which resembles the real-time iteration of [12], we can obtain accurate prediction models without having to resort to nonlinear optimization [2]. The slack penalty cost is 
+
+ℓslack (𝜖 · | 𝑡 ) := 𝑐 1 ∥𝜖 · | 𝑡 ∥22 + 𝑐 2 ∥𝜖 · | 𝑡 ∥1,
+
+for some 𝑐 1, 𝑐 2 > 0, and the tracking cost is 
+
+ℓtrack (𝑥 · | 𝑡 , 𝑢 · | 𝑡 , 𝑟 · | 𝑡 ; 𝑝 ) := ∥𝑥 𝑁 |𝑡 − 𝑟 𝑁 |𝑡 ∥2  
+
+> 𝑃 𝑥 (𝑝 )
+
++ 
+
+> 𝑁 −1
+
+∑︁ 
+
+> 𝑖 =0
+
+∥𝑥 𝑖 |𝑡 − 𝑟 𝑖 |𝑡 ∥2   
+
+> 𝑄 𝑥 (𝑝 )
+
++ ∥ 𝑢 𝑖 |𝑡 ∥2   
+
+> 𝑅 𝑢 (𝑝 )
+
+,
+
+where 𝑟 · | 𝑡 = (𝑟 0|𝑡 , . . . , 𝑟 𝑁 |𝑡 ), with 𝑟 𝑡 +𝑖 = 𝑟 𝑖 |𝑡 for all 𝑡 ∈ Z[0,𝑇 )
+
+and 𝑖 ∈ Z[0, 𝑁 ] . The cost matrices 𝑃 𝑥 ( 𝑝 ), 𝑄 𝑥 ( 𝑝 ), and 𝑅 𝑢 ( 𝑝 )
+
+depend on a trainable parameter 𝑝 ∈ R𝑛 𝑝 .Our goal is to solve the following nonsmooth and nonconvex policy optimization problem for multiple values of 𝑟 
+
+minimize  
+
+> 𝑝,𝑥,𝑢,𝑦
+
+Ctrack (𝑥, 𝑟 ) (6a) subject to 𝑥 𝑡 +1 = 𝑓 (𝑥 𝑡 , 𝑢 𝑡 ), 𝑡 ∈ Z[0,𝑇 ) , (6b) 
+
+𝑦 𝑡 = MPC (𝑥 𝑡 , 𝑦 𝑡 −1, 𝑟 · | 𝑡 ; 𝑝, 𝜃 𝑟 ), 𝑡 ∈ Z[0,𝑇 ) , (6c) 
+
+𝑢 𝑡 = Π 𝑢 0 (𝑦 𝑡 ), 𝑡 ∈ Z[0,𝑇 ) , (6d) 
+
+𝐻 𝑥 𝑥 𝑡 ≤ ℎ𝑥 , 𝑡 ∈ Z[0,𝑇 ] , (6e) 
+
+𝐻 𝑢 𝑢 𝑡 ≤ ℎ𝑢 , 𝑡 ∈ Z[0,𝑇 ) , (6f) 
+
+𝑥 0, 𝑦 −1, and 𝜃 𝑟 given , (6g) where Ctrack (𝑥, 𝑟 ) is the tracking cost. At the same time, we wish to choose a value of 𝜃 𝑟 so that 𝑓 𝜃 𝑟 (𝑥 𝑡 , 𝑢 𝑡 ) ≈ 𝑓 (𝑥 𝑡 , 𝑢 𝑡 ) for all 𝑡 by using data collected from the real system. We assume that the system is repeatedly executed from the same initial state 𝑥 0 for iterations of 𝑇 time-steps. Since we do not assume that there exists a 𝜃 ∗ for which 𝑓 𝜃 ∗ = 𝑓 , we consider different parameters 𝜃 𝑟 for each 𝑟 , to maximize the accuracy of the model for each task. We consider the problem of solving (6) for several values of 𝑟 , a situation in which the method in [3] becomes compu-tationally intractable. The next section outlines our proposed solution. III. M ETHODOLOGY 
+
+To reduce the computational effort required to obtain an optimal design 𝑝 𝑟 for an unseen new reference 𝑟 , we adapt the MAML algorithm [4] to the MPC policy optimization framework of [2], [3]. Our goal becomes obtaining a parameter 
+
+¯𝑝 from which any 𝑝 𝑟 can be retrieved with only a few updates, keeping the interaction with the system at a minimum. We first rewrite (6) as an unconstrained problem, amenable to gradient descent. We consider the following reformulation 
+
+min . 
+
+> 𝑝
+
+Ctrack (𝑥 (𝑟, 𝑝, 𝜃 𝑟 ), 𝑟 ) + Cslack (𝜖 (𝑟, 𝑝, 𝜃 𝑟 )) =: Cfull (𝑟, 𝑝, 𝜃 𝑟 ),
+
+(7) where 𝑥 (𝑟, 𝑝, 𝜃 𝑟 ) := {𝑥 𝑡 (𝑟, 𝑝, 𝜃 𝑟 )} 𝑡 ∈Z[0,𝑇 ] and 𝜖 (𝑟, 𝑝, 𝜃 𝑟 ) :=
+
+{𝜖 𝑡 (𝑟, 𝑝, 𝜃 𝑟 )} 𝑡 ∈Z[0,𝑇 ) denote the closed-loop state and slack tra-jectories satisfying (1) and (4) for 𝑡 ∈ Z[0,𝑇 ] , and Cslack (𝜖 ) :=
+
+𝑐 3 ∥𝜖 ∥, with 𝑐 3 > 0. Note that (6f) is always satisfied thanks to the MPC constraints (4d), and can therefore be omitted from 3
+
+(7). Evaluating 𝑥 (𝑟, 𝑝, 𝜃 𝑟 ), 𝑢 (𝑟, 𝑝, 𝜃 𝑟 ) and 𝜖 (𝑟, 𝑝, 𝜃 𝑟 ) requires access to the real system, whereas the MPC is utilizing the model (3) with nominal parameter 𝜃 𝑟 .The MAML algorithm can then be applied to obtain a parameter ¯𝑝 for which the solution of (7) can be obtained for any 𝑟 by running a single gradient descent step on (7), that is 
+
+𝑝 𝑟 ≈ 𝑝 𝑟 ( ¯𝑝 ) := ¯𝑝 − 𝛼 ∇𝑝 Cfull (𝑟, ¯𝑝, 𝜃 𝑟 ), (8) where 𝛼 > 0 is a positive stepsize. We call 𝑝 𝑟 ( ¯𝑝 ) the task-specific parameter , and ¯𝑝 the generalized parameter . To obtain 
+
+¯𝑝 we solve the following problem 
+
+minimize 
+
+> ¯𝑝
+
+∑︁ 𝑟 ∈R
+
+Cfull (𝑟, 𝑝 𝑟 ( ¯𝑝 ), 𝜃 𝑟 ) =: ¯ C ( ¯𝑝 ), (9) where R is a finite set of references. The goal of (9) is to find a generalized parameter ¯𝑝 such that each adapted 
+
+𝑝 𝑟 ( ¯𝑝 ) effectively minimizes its respective cost Cfull (𝑟, ·, 𝜃 𝑟 ).Consequently, after training, near optimal parameters for un-seen references can be obtained with a single closed-loop interaction via (8). To obtain the gradient of (9), we apply the chain rule leveraging the definition of 𝑝 𝑟 ( ¯𝑝 ) in (8): 
+
+∇ ¯C ( ¯𝑝 ) =∑︁  
+
+> 𝑟 ∈R
+
+∇ ¯𝑝 Cfull (𝑟, 𝑝 𝑟 ( ¯𝑝 ), 𝜃 𝑟 )
+
+=∑︁  
+
+> 𝑟 ∈R
+
+∇𝑝 𝑟 ( ¯𝑝 )⊤∇𝑝 Cfull (𝑟, 𝑝 𝑟 ( ¯𝑝 ), 𝜃 𝑟 )
+
+> (8)
+
+=∑︁  
+
+> 𝑟 ∈R
+
+[𝐼 − 𝛼 ∇2 
+
+> 𝑝
+
+Cfull (𝑟, ¯𝑝, 𝜃 𝑟 )] ⊤∇𝑝 Cfull (𝑟, 𝑝 𝑟 ( ¯𝑝 ), 𝜃 𝑟 ).
+
+(10) Using (10) directly to solve (9) is challenging for two reasons: 1) obtaining an exact Jacobian is computationally expensive as it requires the computation of second derivatives of the MPC function, and 2) the true system is unknown, hence so is the true gradient. Instead, we propose combining system identification and an approximation of (10) that does not require second derivatives. The method is summarized in Algorithm 1, where 𝑘 denotes the iteration, 𝑥 𝑘 𝑟 and 𝑢 𝑘 𝑟 denote 
+
+𝑥 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ) and 𝑢 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ), respectively, with 𝑝 𝑘 𝑟 := 𝑝 𝑟 ( ¯𝑝 𝑘 ),and 𝛼 𝑘 is a vanishing stepsize, such as 𝛼 𝑘 = 𝑐 log (𝑘 +2) 
+
+> 𝑘 +1
+
+for some 
+
+𝑐 > 0. Estimating ∇ ¯C ( ¯𝑝 ) requires two system interactions: the first to form ∇𝑝 Cfull (𝑟, ¯𝑝, 𝜃 𝑟 ) and obtain 𝑝 𝑟 ( ¯𝑝 ), the second to evaluate ∇𝑝 Cfull (𝑟, 𝑝 𝑟 ( ¯𝑝 ), 𝜃 𝑟 ).Next, we outline how system identification can be used to update 𝜃 𝑘 𝑟 (Section III-A), how to estimate ∇𝑝 Cfull (𝑟, 𝑝, 𝜃 )
+
+given any 𝑝 and 𝜃 with imperfect model knowledge (Sec-tion III-B), and how to approximate ∇ ¯C ( ¯𝑝 𝑘 ) (Section III-C). 
+
+A. System Identification 
+
+For a given task 𝑟 , we can leverage knowledge of 𝑥 𝑘 𝑟 and 
+
+𝑢 𝑘 𝑟 for all 𝑘 to update the system estimate 𝜃 𝑘 𝑟 to ensure that 𝑓 (𝑥 𝑘 𝑡 ,𝑟 , 𝑢 𝑘 𝑡 ,𝑟 ) ≈ 𝑓 𝜃 𝑘 𝑟 (𝑥 𝑘 𝑡 ,𝑟 , 𝑢 𝑘 𝑡 ,𝑟 ) for all 𝑡 ∈ Z[0,𝑇 ) after sufficiently many episodes, where 𝑥 𝑡 ,𝑟 := 𝑥 𝑡 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ) and 
+
+𝑢 𝑡 ,𝑟 := 𝑢 𝑡 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ), with 𝑝 𝑘 𝑟 := 𝑝 𝑟 ( ¯𝑝 𝑘 ). Because (3) is parameter affine, we can rewrite (1a) as 
+
+𝑧 𝑘 𝑡 ,𝑟 = 𝜃 𝑘, ⊤ 
+
+> 𝑟
+
+𝜓 𝑘 𝑡 ,𝑟 , (11) 
+
+Algorithm 1 MAML for Differentiable MPC 
+
+Require: {𝛼 𝑘 }𝑘 ∈N ⊂ R>0, R, 𝜃 0, ¯𝑝 0. 
+
+> 1:
+
+Init : 𝜃 0 
+
+> 𝑟
+
+← 𝜃 0, 𝐴 0 
+
+> 𝑟
+
+←𝜆𝐼 , 𝑏 0 
+
+> 𝑟
+
+←𝜆𝜃 0 
+
+> 𝑟
+
+, 𝐻 0 
+
+> 𝑟
+
+← 𝐼 for all 𝑟 ∈ R. 
+
+> 2:
+
+Init : 𝑘 ← 0. 
+
+> 3:
+
+while not converged do  
+
+> 4:
+
+for each 𝑟 ∈ R do  
+
+> 5:
+
+Obtain ˆ∇𝑝 Cfull (𝑟, ¯𝑝 𝑘 , 𝜃 𝑘 𝑟 ) via Alg. 3.  
+
+> 6:
+
+Form 𝑝 𝑘 𝑟 = 𝑝 𝑟 ( ¯𝑝 𝑘 ) via (8).  
+
+> 7:
+
+Obtain 𝑥 𝑘 𝑟 := 𝑥 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ) and 𝑢 𝑘 𝑟 := 𝑢 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ). 
+
+> 8:
+
+Obtain 𝜃 𝑘 +1 
+
+> 𝑟
+
+, 𝐴 𝑘 +1 
+
+> 𝑟
+
+, and 𝑏 𝑘 +1 
+
+> 𝑟
+
+via Alg. 2.  
+
+> 9:
+
+Estimate ˆ∇𝑝 C𝑘  
+
+> full ,𝑟
+
+≈ ∇ 𝑝 Cfull (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ) via Alg. 3.  
+
+> 10:
+
+end for  
+
+> 11:
+
+Estimate ˆ∇ ¯C𝑘 ≈ ∇ ¯C ( ¯𝑝 𝑘 ) via (15).  
+
+> 12:
+
+Update ¯𝑝 𝑘 +1 via ¯𝑝 𝑘 +1 = ¯𝑝 𝑘 − 𝛼 𝑘 ˆ∇ ¯C𝑘 . 
+
+> 13:
+
+𝑘 ← 𝑘 + 1. 
+
+> 14:
+
+end while  
+
+> 15:
+
+return ¯𝑝 𝑘 .where 𝜓 𝑘 𝑡 ,𝑟 = 𝜙 (𝑥 𝑘 𝑡 ,𝑟 , 𝑢 𝑘 𝑡 ,𝑟 ) and 𝑧 𝑘 𝑡 ,𝑟 = 𝑥 𝑘 𝑡 +1,𝑟 − 𝜑 (𝑥 𝑘 𝑡 ,𝑟 , 𝑢 𝑘 𝑡 ,𝑟 ). To identify 𝜃 𝑘 𝑟 we employ a recursive least-squares estimator [13] 
+
+𝐴 𝑘 +1 
+
+> 𝑟
+
+= 𝐴 𝑘 𝑟 + Í𝑇 −1 
+
+> 𝑡 =0
+
+𝜓 𝑘 𝑡 ,𝑟 𝜓 𝑘, ⊤ 
+
+> 𝑡 ,𝑟
+
+, (12a) 
+
+𝑏 𝑘 +1 
+
+> 𝑟
+
+= 𝑏 𝑘 𝑟 + Í𝑇 −1 
+
+> 𝑡 =0
+
+𝜓 𝑘 𝑡 ,𝑟 𝑧 𝑘, ⊤ 
+
+> 𝑡 ,𝑟
+
+, (12b) 
+
+𝜃 𝑘 +1 
+
+> 𝑟
+
+= ( 𝐴 𝑘 +1 
+
+> 𝑟
+
+)−1𝑏 𝑘 +1 
+
+> 𝑟
+
+, (12c) with 𝐴 0 
+
+> 𝑟
+
+= 𝜆𝐼 , 𝑏 0 
+
+> 𝑟
+
+= 𝜆𝜃 0 
+
+> 𝑟
+
+for some initial estimate 𝜃 0 
+
+> 𝑟
+
+and regularization parameter 𝜆 > 0. Observe that the update of 𝜃 𝑘 𝑟 
+
+only occurs at the end of each iteration using the data collected from the real system. The recursive system identification procedure is summarized in Algorithm 2. As we show in Section III-B, system identification not only improves the prediction model of the MPC (used for the linearized dynamics in (5)) but also the estimate of the gradient ∇𝑝 Cfull (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ).
+
+Algorithm 2 Recursive Least Squares Update 
+
+Require: Trajectories 𝑥 𝑘 𝑟 , 𝑢 𝑘 𝑟 , current matrices 𝐴 𝑘 𝑟 and 𝑏 𝑘 𝑟 . 
+
+> 1:
+
+Compute 𝑧 𝑘 𝑡 ,𝑟 = 𝑥 𝑘 𝑡 +1,𝑟 − 𝜑 (𝑥 𝑘 𝑡 ,𝑟 , 𝑢 𝑘 𝑡 ,𝑟 ) for all 𝑡 ∈ Z[0,𝑇 ) . 
+
+> 2:
+
+Compute 𝜓 𝑘 𝑡 ,𝑟 = 𝜙 (𝑥 𝑘 𝑡 ,𝑟 , 𝑢 𝑘 𝑡 ,𝑟 ) for all 𝑡 ∈ Z[0,𝑇 ) . 
+
+> 3:
+
+Compute 𝐴 𝑘 +1 
+
+> 𝑟
+
+and 𝑏 𝑘 +1 
+
+> 𝑟
+
+using (12a) and (12b).  
+
+> 4:
+
+Compute 𝜃 𝑘 +1 
+
+> 𝑟
+
+using (12c).  
+
+> 5:
+
+return 𝜃 𝑘 +1 
+
+> 𝑟
+
+, 𝐴 𝑘 +1 
+
+> 𝑟
+
+, 𝑏 𝑘 +1 
+
+> 𝑟
+
+.
+
+B. Closed-Loop Gradient Estimation 
+
+For each iteration 𝑘 and reference 𝑟 , Algorithm 1 requires estimating two closed-loop gradients ∇𝑝 Cfull (𝑟, ¯𝑝 𝑘 , 𝜃 𝑘 𝑟 ) and 
+
+∇𝑝 Cfull (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ). To obtain an estimate ˆ∇Cfull (𝑟, 𝑝, 𝜃 ) of 
+
+∇𝑝 Cfull (𝑟, 𝑝, 𝜃 ) for any generic 𝑟 , 𝑝 , and 𝜃 , we use the 
+
+Backpropagation-MPC (BP-MPC ) automatic differentiation methodology proposed in [2]. BP-MPC is a framework tailored for sensitivity computation in policy optimization problems 4
+
+involving MPC controllers. At its core, BP-MPC relies on the application of the chain rule to the cost function 
+
+ˆ∇Cfull (𝑟, 𝑝, 𝜃 ) = ∇𝑥 Ctrack (𝑥 (𝑟, 𝑝, 𝜃 ), 𝑟 ) ˆ∇𝑝 𝑥 (𝑟, 𝑝, 𝜃 )+ ∇ Cslack (𝜖 (𝑟, 𝑝, 𝜃 )) ˆ∇𝑝 𝜖 (𝑟, 𝑝, 𝜃 ). (13) The gradients ∇𝑥 Ctrack (𝑥, 𝑟 ) and ∇Cslack (𝜖 ) can be obtained from elementary algebraic calculations using the definitions of Ctrack and Cslack thanks to the knowledge of 𝑥 (𝑟, 𝑝, 𝜃 ) and 
+
+𝜖 (𝑟, 𝑝, 𝜃 ). On the other hand ∇𝑝 𝑥 (𝑟, 𝑝, 𝜃 ) and ∇𝑝 𝜖 (𝑟, 𝑝, 𝜃 ) are unknown due to the unknown 𝑓 . Given a model 𝑓 𝜃 of 𝑓 , we estimate ∇𝑝 𝑥 (𝑟, 𝑝, 𝜃 ) and ∇𝑝 𝜖 (𝑟, 𝑝, 𝜃 ) as follows 
+
+ˆ∇𝑝 𝑥 𝑡 +1 (𝑟, 𝑝, 𝜃 ) = ∇𝑥 𝑓 (𝑥 𝑡 , 𝑢 𝑡 , 𝜃 ) ˆ∇𝑝 𝑥 𝑡 (𝑟, 𝑝, 𝜃 )+ ∇ 𝑢 𝑓 (𝑥 𝑡 , 𝑢 𝑡 , 𝜃 ) ˆ∇𝑝 𝑢 𝑡 (𝑟, 𝑝, 𝜃 ), (14a) 
+
+ˆ∇𝑝 𝑦 𝑡 (𝑟, 𝑝, 𝜃 ) = ∇𝑥 MPC (𝑥 𝑡 , 𝑦 𝑡 −1, 𝑟 𝑡 ; 𝑝, 𝜃 ) ˆ∇𝑝 𝑥 𝑡 (𝑟, 𝑝, 𝜃 )+ ∇ 𝑦 MPC (𝑥 𝑡 , 𝑦 𝑡 −1, 𝑟 𝑡 ; 𝑝, 𝜃 ) ˆ∇𝑝 𝑦 𝑡 −1 (𝑟, 𝑝, 𝜃 )+ ∇ 𝑝 MPC (𝑥 𝑡 , 𝑦 𝑡 −1, 𝑟 𝑡 ; 𝑝, 𝜃 ), (14b) 
+
+ˆ∇𝑝 𝑢 𝑡 (𝑟, 𝑝, 𝜃 ) = Π 𝑢 0 ( ˆ∇𝑝 𝑦 𝑡 (𝑟, 𝑝, 𝜃 )) , (14c) where ˆ∇𝑝 𝑥 0 (𝑟, 𝑝, 𝜃 ) = ˆ∇𝑝 𝑦 −1 (𝑟, 𝑝, 𝜃 ) = 0 since the initial condition and linearization trajectory do not depend on 𝑝 .To obtain the derivative of the MPC map, BP-MPC ap-plies a nonsmooth implicit function theorem to a dual-based optimality condition of the problem. We refer the reader to [2] for further details. Under the mild conditions outlined in [2], gradients are guaranteed to exist almost everywhere, and wherever they do not exist, BP-MPC provides a subgradient which can be used instead without hindering the policy opti-mization procedure. The entire gradient estimation procedure is summarized in Algorithm 3. The algorithm is guaranteed to converge to a critical point provided that the closed-loop trajectories are sufficiently rich for system identification, and there exists some 𝜃 ∗ such that 𝑓 = 𝑓 𝜃 ∗ . Because we do not impose this latter assumption, a detailed analysis of this convergence falls outside the scope of this paper. For a comprehensive discussion, we refer the reader to [3]. 
+
+Algorithm 3 Sensitivity computation with BP-MPC 
+
+Require: 𝑟 , 𝑝 , 𝜃 . 
+
+> 1:
+
+Init : ˆ∇𝑝 𝑥 0 = ˆ∇𝑝 𝑦 −1 = 0, 𝑥 0. 
+
+> 2:
+
+for 𝑡 ∈ Z[0,𝑇 ) do  
+
+> 3:
+
+Fetch 𝑦 𝑡 and 𝑢 𝑡 = Π 𝑢 0 (𝑦 𝑡 ) from the solution of (4).  
+
+> 4:
+
+Fetch 𝑥 𝑡 +1 from the recorded trajectory 𝑥 (𝑟, 𝑝, 𝜃 ). 
+
+> 5:
+
+Compute ˆ∇𝑝 𝑥 𝑡 +1, ˆ∇𝑝 𝑦 𝑡 , and ˆ∇𝑝 𝑢 𝑡 using (14).  
+
+> 6:
+
+end for  
+
+> 7:
+
+Compute ˆ∇Cfull (𝑟, 𝑝, 𝜃 ) using (13).  
+
+> 8:
+
+return ˆ∇𝑝 Cfull (𝑟, 𝑝, 𝜃 ).
+
+C. Model Agnostic Meta-Learning 
+
+Given an estimate of ∇𝑝 Cfull (𝑟, ¯𝑝 𝑘 , 𝜃 𝑘 𝑟 ) for each 𝑟 , we now focus on approximating the gradient of the objective in (9), avoiding the exact expression in (10) which requires computationally expensive second derivatives. One way to do this is to use a Quasi-Newton BFGS approximation of the Hessian [14], defined as 
+
+𝛼 𝑥 
+
+𝛼 𝑦 
+
+𝑠 𝑧 
+
+𝑠 𝑥 
+
+𝑠 𝑦 
+
+Fig. 1: Simplified depiction of the Ball-on-Plate system. 
+
+Fig. 2: The IfA hardware Ball-on-Plate control testbed; a motorized, ball-balancing plate. 
+
+∇ ¯C ( ¯𝑝 𝑘 ) ≈ ∑︁  
+
+> 𝑟 ∈R
+
+(𝐼 − 𝛼𝐻 𝑘 𝑟 )⊤∇𝑝 Cfull (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ), (15a) where 𝐻 𝑘 𝑟 approximates the true Hessian ∇2 
+
+> 𝑝
+
+Cfull (𝑟, ¯𝑝 𝑘 , 𝜃 𝑘 𝑟 ) and is defined iteratively via the direct BFGS update: 
+
+𝐻 𝑘 +1 
+
+> 𝑟
+
+= 𝐻 𝑘 𝑟 + 𝑦 𝑘 𝑟 𝑦 𝑘, ⊤
+
+> 𝑟
+
+𝑦 𝑘, ⊤ 
+
+> 𝑟
+
+𝑠 𝑘 𝑟 
+
+− 𝐻 𝑘 𝑟 𝑠 𝑘 𝑟 𝑠 𝑘, ⊤ 
+
+> 𝑟
+
+𝐻 𝑘 𝑟 
+
+𝑠 𝑘, ⊤ 
+
+> 𝑟
+
+𝐻 𝑘 𝑟 𝑠 𝑘 𝑟 
+
+, (15b) 
+
+𝑠 𝑘 𝑟 = 𝑝 𝑘 +1 
+
+> 𝑟
+
+− 𝑝 𝑘 𝑟 , (15c) 
+
+𝑦 𝑘 𝑟 = ∇𝑝 Cfull (𝑟, 𝑝 𝑘 +1 
+
+> 𝑟
+
+, 𝜃 𝑘 +1 
+
+> 𝑟
+
+) − ∇ 𝑝 Cfull (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ). (15d) In our framework, using BFGS over standard gradient descent introduces no additional computational overhead, as evaluat-ing the gradient ∇𝑝 Cfull remains the primary computational bottleneck. IV. E XPERIMENTS 
+
+We experimentally study the performance of our approach on the Ball-on-Plate testbed, shown in Figures 1 and 2. The system consists of a ball on a motorized screen. The ball-position is measured using a camera. A microcontroller trans-mits this data over a wireless network and accepts setpoints for the plate angles which it realizes via the motors. Our MPC is executed on a desktop computer with an i7-1165G7 CPU. We denote the state of the ball comprising its position and velocity by 𝑥 = [𝑠 𝑥 𝑣 𝑥 𝑠 𝑦 𝑣 𝑦 ]⊤ and the input comprising tilt angles by 𝑢 = [𝛼 𝑥 𝛼 𝑦 ]⊤. The tilt angle of the plate generates forces 𝑔 / 𝑚 + 𝐼𝑟 −2 sin (𝛼 𝑥 ) in the 𝑥 and respectively in the 
+
+𝑦 direction, where 𝑔 = 9.81 m /s2, 𝑟 is the ball radius, 𝑚 5
+
+its mass, and 𝐼 its moment of inertia. The ball is further affected by friction. Neglecting slipping and viscous effects, we approximate the static and Coulomb friction by a force opposing the ball velocity with amplitude 𝐹 𝑐 + ( 𝐹 𝑠 − 𝐹 𝑐 )𝑒 − 𝑣 𝑣𝑠 ,where 𝑣 =√︃ 𝑣 2 
+
+> 𝑥
+
++ 𝑣 2 
+
+> 𝑦
+
+, 𝐹 𝑖 = 𝜇 𝑖 𝑚𝑔 cos 𝛼 𝑥 cos 𝛼 𝑦 for 𝑖 ∈ { 𝑠, 𝑐 }
+
+and 𝑣 𝑠 and 𝜇 𝑖 are friction coefficients [15]. At every time-step 
+
+𝑖 , we approximate the nonlinear dynamics by a linear time-varying model for the time-steps 𝑖, . . . , 𝑖 + 𝑁 − 1 by linearizing the angle-induced forces around 𝛼 𝑥 , 𝛼 𝑦 = 0, and friction-induced forces around the MPC solution at the previous time-step, 𝑢 𝑖 −1|𝑖 −1, . . . , 𝑢 𝑖 +𝑁 −1|𝑖 −1 (or zero-angles, and almost-zero velocities at 𝑖 = 0). This leads to the Euler-discretized linear time-varying dynamics 
+
+𝑥 𝑡 +1 =
+
+
+
+1 Δ 0 00 1 0 00 0 1 Δ
+
+0 0 0 1
+
+
+
+𝑥 𝑡 + Δ
+
+
+
+0
+
+𝜃 𝐼 
+
+0
+
+𝜃 𝐼 
+
+
+
+𝑢 𝑡 +
+
+
+
+0
+
+𝑐 𝑥 
+
+0
+
+𝑐 𝑦 
+
+
+
+, (16) where Δ = 0.025 s is the sampling-time, and 
+
+𝑐 𝑥 = 𝜃 𝑠 cos 𝛼 𝑥,𝑡 cos 𝛼 𝑦,𝑡 + 𝜃 𝑐 𝑣 𝑥,𝑡 cos 𝛼 𝑥,𝑡 cos 𝛼 𝑦,𝑡 ,𝑐 𝑦 = 𝜃 𝑠 cos 𝛼 𝑥,𝑡 cos 𝛼 𝑦,𝑡 + 𝜃 𝑐 𝑣 𝑦,𝑡 cos 𝛼 𝑥,𝑡 cos 𝛼 𝑦,𝑡 ,𝜃 𝐼 = 𝑚𝑔 
+
+ 𝑚 + 𝐼 /𝑟 2 , 𝜃 𝑠 := 𝜇 𝑠 𝑚𝑔, 𝜃 𝑐 := 𝑚𝑔 𝑣 𝑠 
+
+(𝜇 𝑐 − 𝜇 𝑠 ).
+
+The latter define the unknown physical parameters 𝜃 𝐼 , 𝜃 𝑠 ,and 𝜃 𝑐 , which populate the non-zero entries of the parameter matrix 𝜃 identified via Algorithm 2. System (16) is used as prediction model for the MPC with a prediction horizon of 𝑁 = 20 time-steps. We further impose 
+
+|𝑠 𝑥 |, |𝑠 𝑦 | ≤ 0.3m , and |𝛼 𝑥 |, |𝛼 𝑦 | ≤ 11 ◦,
+
+and parametrize the MPC cost matrices as 𝑝 :=
+
+{𝑝 𝑃 𝑥 , 𝑝 𝑄 𝑥 , 𝑝 𝑅 𝑢 }, with 𝑃 𝑥 := 𝐿 ( 𝑝 𝑃 𝑥 )𝐿 ⊤ ( 𝑝 𝑃 𝑥 ), 𝑄 𝑥 :=
+
+diag ( 𝑝 𝑄 𝑥 ), and 𝑅 𝑢 := 𝑝 𝑅 𝑢 𝐼 2. Unless stated otherwise, we initialize 𝑝 so that 𝑄 𝑥 = diag (10 , 1, 10 , 1), 𝑅 𝑢 := 50 · 𝐼 2, and 
+
+𝑃 𝑥 is the solution of the respective DARE. We choose 
+
+Ctrack (𝑥, 𝑟 ) :=
+
+> 𝑇
+
+∑︁ 
+
+> 𝑡 =𝜏
+
+∥𝑥 𝑡 − 𝑟 𝑡 ∥2
+
+> 𝑄
+
+, Cslack (𝜖 ) := 0 · ∥ 𝜖 ∥1, (17) where 𝑄 := diag (100 , 0.01 , 100 , 0.01 ), 𝑇 = 1000 , and 𝜏 = 200 .The tracking cost deliberately omits the first 𝜏 time-steps to prevent the large transient errors of navigating from the corner to the circular trajectory from skewing the total cost. We provide a numerical answer to three key questions, each with an individual experiment: A. Does the BP-MPC scheme improve closed loop perfor-mance over episodes? B. Does system identification improve performance of BP-MPC? C. Does warm-starting BP-MPC with MAML improve per-formance on unseen references? All experiments are implemented using CasADi with the DAQP solver [16]. Before the beginning of each episode, the plate is tilted towards the bottom left corner, ensuring that the ball always starts at the same initial position. We use two reference trajectories, ( i) a circle of radius 0.2 m , and ( ii ) a square of side length 0.3 m . Both references are repeated five times with 5 s per cycle.                   
+
+> PID LQR* MPC MPC* BP-MPC
+> Circle 0.124 0.105 0.038 0.024 0.019 (15 % PID costs)
+> Square 0.116 0.102 0.035 0.022 0.020 (17 % PID costs)
+
+Table I: Cost of PID, LQR, MPC, and our BP-MPC scheme for the circle and square references. Controllers with an asterisk use pre-identified parameters 𝜃 .
+
+A. Does BP-MPC Improve MPC? 
+
+We first study the impact of the BP-MPC tuning mecha-nism combined with system identification. For this we run a simplified version of Algorithm 1 that does not include any meta learning, reported in Algorithm 4. 
+
+Algorithm 4 Task-Specific BP-MPC 
+
+Require: {𝛼 𝑘 }𝑘 ∈N ⊂ R>0, 𝑟 , 𝜃 0 
+
+> 𝑟
+
+, 𝑝 0 
+
+> 𝑟
+
+. 
+
+> 1:
+
+Init : 𝑘 ← 0, 𝐴 0 
+
+> 𝑟
+
+← 𝜆𝐼 , 𝑏 0 
+
+> 𝑟
+
+← 𝜆𝜃 0 
+
+> 𝑟
+
+. 
+
+> 2:
+
+while not converged do  
+
+> 3:
+
+Obtain 𝑥 𝑘 𝑟 := 𝑥 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ) and 𝑢 𝑘 𝑟 := 𝑢 (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ). 
+
+> 4:
+
+Obtain 𝜃 𝑘 +1 
+
+> 𝑟
+
+, 𝐴 𝑘 +1 
+
+> 𝑟
+
+, and 𝑏 𝑘 +1 
+
+> 𝑟
+
+via Alg. 2.  
+
+> 5:
+
+Estimate ˆ∇𝑝 C𝑘  
+
+> full ,𝑟
+
+≈ ∇ 𝑝 Cfull (𝑟, 𝑝 𝑘 𝑟 , 𝜃 𝑘 𝑟 ) via Alg. 3.  
+
+> 6:
+
+Update 𝑝 𝑘 +1 
+
+> 𝑟
+
+via 𝑝 𝑘 +1 
+
+> 𝑟
+
+= 𝑝 𝑘 𝑟 − 𝛼 𝑘 ˆ∇𝑝 C𝑘  
+
+> full ,𝑟
+
+. 
+
+> 7:
+
+𝑘 ← 𝑘 + 1. 
+
+> 8:
+
+end while  
+
+> 9:
+
+return 𝑝 𝑘 𝑟 .The tracking performance of the untrained MPC, untrained MPC with pre-identified 𝜃 , and our BP-MPC scheme is depicted in Fig. 3, the decrease of closed-loop costs over iterations is depicted in Fig. 4. The cost function, equivalent to the tracking cost, is listed in Tab. I with PID and LQR as additional benchmarks. The results confirm that our BP-MPC scheme improves control performance over iterations. The tracking error of the untrained MPC is three times smaller than that of the LQR and PID. Errors further reduce by a third using a pre-identified 
+
+𝜃 . Finally, optimizing the MPC parameters 𝑝 using BP-MPC next to system-identification reduces tracking errors by an additional 10 % .
+
+B. Does System Identification Improve BP-MPC? 
+
+We study the impact of system identification on BP-MPC performance by executing our scheme with and without system-identification as well as with a pre-identified system parameter. Figure 6 depicts the closed-loop costs of all ex-periments over training episodes for the circle and square references. The system identification (i.e., step 5 in Algorithm 4) improves the MPC prediction model and therefore prediction accuracy. It further reduces bias in the gradient estimates. This leads to two-times lower closed-loop costs of BP-MPC with system identification compared to BP-MPC without system identification (where step 5 is skipped altogether) at episode 
+
+20 in Figure 6. Notably, the cost-reduction can not only be attributed to the improved MPC prediction model thanks to system identification. Even with a pre-identified model (that is, for a scheme where step 5 is skipped but 𝜃 0 
+
+> 𝑟
+
+is accurate) 6−0.2 0 0.2
+
+> −0.2
+> 0
+> 0.2
+
+Position 𝑥 (m) 
+
+> Position  𝑦  (m)
+
+Untrained MPC SysID MPC BP-MPC Reference    
+
+> −0.2−0.100.1
+> −0.1
+> 0
+> 0.1
+> 0.2
+
+Position 𝑥 (m) 
+
+Fig. 3: Closed-loop trajectories for the circle and square references generated by the initially untrained MPC, MPC with identified system parameters, and our BP-MPC approach. System identification and optimization of the MPC parameters both reduce tracking errors, see also Table I. The right picture shows recorded ball trajectories for BP-MPC initially and after convergence; the dashed line is the square reference. 0 5 10 15 20 
+
+> 50
+> 100
+
+Iteration 𝑘 
+
+> Cost  C ( 𝑝 )
+
+BP-MPC (Square) 
+
+Constraint Violated 
+
+Optimal Parameter 
+
+BP-MPC (Circle) 
+
+Fig. 4: Closed-loop cost of the circle and square trajectory over episodes. Red Crosses: Constraint violations during episode; Red Balls: Episode with the least cost. 
+
+BP-MPC reduces closed-loop costs by 33 % on the square reference, and by 44 % on the circle reference. 
+
+C. Does Warm-Starting BP-MPC with MAML Improve the Performance on Unseen References? 
+
+We now study whether our MAML algorithm obtains initial task specific parameters 𝑝 ( ¯𝑝 ) which yield low tracking errors across different references, including unseen ones. We run Algorithm 1 using the circle and square references as training data and test the optimal parameter ¯𝑝 without further training on the two training trajectories and additionally on an unseen figure-eight trajectory. The results are summarized in Fig. 5 and Tab. II. As expected, running the MPC with the optimal param-eters for each respective reference always outperforms the MAML parameter ¯𝑝 . However, ¯𝑝 yields strictly lower tracking errors on all references than parameters trained on different references. Further, even on the unseen figure-eight-reference, the MAML parameter ¯𝑝 yields lower tracking errors across episodes than the untrained MPC parameter 𝑝 .                              
+
+> Cfull (𝑝 circle )Cfull (𝑝 𝑟 (¯𝑝 ) ) Cfull (𝑝 square )
+> Circle 32.0608 ±6.6546 34.3113 ±5.9981 42.4070 ±7.0274
+> Square 46.0763 ±5.4495 43.6525 ±5.3521 37.8114 ±4.4533
+
+Table II: Closed-loop MPC cost for the circle and square reference for different parameters. 𝑝 circle : parameters learned by BP-MPC for the circle-reference, 𝑝 square : parameters learned by BP-MPC for the square task, ¯𝑝 : task-specific parameters learned using MAML BP-MPC (after a single gradient update). 
+
+This empirically confirms that implementing MAML yields initial parameters for BP-MPC with improved performance on unseen references. Note that this robust initialization does not render online updates redundant; learning optimal parameters using our BP-MPC scheme further reduced closed-loop costs for each reference by more than 20 % .V. C ONCLUSION 
+
+We presented a novel framework that integrates meta-learning and policy optimization to train highly adaptable Model Predictive Control (MPC) controllers. By adapting model-agnostic meta-learning (MAML) to a differentiable MPC framework, our approach successfully addresses the computational bottlenecks typically associated with closed-loop tuning. Furthermore, we incorporated online system identification into the end-to-end pipeline to continuously and concurrently refine both the underlying predictive models and the MPC hyperparameters. Experimental validation on a hardware Ball-on-Plate testbed confirmed that combining system identification with gradient-based policy optimization improves closed-loop performance and accelerates convergence without adding computational costs. Furthermore, leveraging MAML provides robust initial parameters for rapid adaptation to completely unseen tasks with minimal overhead. Ultimately, this methodology enables the design of highly adaptable MPC controllers that maintain exceptional performance across varying tasks while mitigating the time and reset overheads common in real-world hardware implementations. 70 5 10 15 20 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 
+
+# ⃝
+
+Episode 𝑘 
+
+> Cost  C ( 𝑝 )
+
+BP-MPC (nominal) BP-MPC (meta-initialized) 
+
+0 5 10 15 20 
+
+# □
+
+Episode 𝑘 
+
+0 5 10 15 20 
+
+# ∞
+
+Episode 𝑘 
+
+Fig. 5: Closed-loop cost convergence trends for nominal and meta-initialized policy optimization across circle (left) and square (middle) training references, and an unseen figure-eight reference (right). 0 10 20  
+
+> 0
+> 50
+> 100
+
+# ⃝
+
+Episode 𝑘 
+
+> Cost  C ( 𝑝 )
+
+SysID no SysID offline ID   
+
+> 010 20
+
+# □
+
+Episode 𝑘 
+
+Fig. 6: Closed-loop cost convergence trends for policy optimization framework across different system identification (SysID) modes for circle (left) and square (right) references. 
+
+Future work will focus on strengthening the safety guaran-tees of the adaptation procedure and on developing accelerated algorithms through tailored Quasi-Newton approximations. ACKNOWLEDGMENTS 
+
+We are grateful to Andr´ e Warnecke for his support on on the BoP hardware. We are grateful to Jiaqi Yan for helpful discussions and to Alexander Kaspar for the promising earlier results motivating the current approach. REFERENCES [1] B. Amos, I. Jimenez, J. Sacks, B. Boots, and J. Z. Kolter, “Differentiable MPC for End-to-end Planning and Control,” in Advances in Neural Information Processing Systems , S. Bengio, H. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi, and R. Garnett, Eds., vol. 31. Curran Associates, Inc., 2018. [2] R. Zuliani, E. C. Balta, and J. Lygeros, “BP-MPC: Optimizing the Closed-loop Performance of MPC Using Backpropagation,” IEEE Trans-actions on Automatic Control , vol. 70, no. 9, p. 5690–5704, 2025. [3] ——, “Policy Optimization with Differentiable MPC: Convergence Analysis under Uncertainty,” arXiv preprint arXiv:2601.01940 , 2026. [4] C. Finn, P. Abbeel, and S. Levine, “Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks,” in International Conference on Machine Learning . PMLR, 2017, pp. 1126–1135. [5] A. Agrawal, B. Amos, S. Barratt, S. Boyd, S. Diamond, and J. Z. Kolter, “Differentiable Convex Optimization Layers,” in Advances in Neural Information Processing Systems , H. Wallach, H. Larochelle, A. Beygelzimer, F. d'Alch´ e-Buc, E. Fox, and R. Garnett, Eds., vol. 32. Curran Associates, Inc., 2019. [6] R. Zuliani, E. C. Balta, and J. Lygeros, “Closed-loop performance optimization of model predictive control with robustness guarantees,” 
+
+European Journal of Control , vol. 86, p. 101319, Nov. 2025. [7] ——, “Policy Optimization for Unknown Systems using Differentiable MPC,” in Annual Learning for Dynamics and Control Conference .PMLR, 2026, pp. 1275–1287. [8] S. Gros and M. Zanon, “Data-Driven Economic NMPC Using Rein-forcement Learning,” IEEE Transactions on Automatic Control , vol. 65, no. 2, p. 636–648, Feb. 2020. [9] Y. Mei, X. Zhou, S. Yu, V. Srivastava, and X. Tan, “Fast Online Adaptive Neural MPC via Meta-Learning,” arXiv preprint arXiv:2504.16369 ,2025. [10] J. Yan, A. Chakrabarty, A. Rupenyan, and J. Lygeros, “MPC of Un-certain Nonlinear Systems with Meta-Learning for Fast Adaptation of Neural Predictive Models,” in 2024 IEEE 20th International Conference on Automation Science and Engineering (CASE) . IEEE, Aug. 2024, p. 1910–1915. [11] J. Yan, A. Chakrabarty, N. Schmid, J. Lygeros, and A. Rupenyan, “Meta-Learning for Rapid Adaptation in Reference Tracking of Uncertain Nonlinear Systems,” arXiv preprint arXiv:2605.22513 , 2026. [12] S. Gros, M. Zanon, R. Quirynen, A. Bemporad, and M. Diehl, “From linear to nonlinear MPC: bridging the gap via the real-time iteration,” 
+
+International Journal of Control , vol. 93, no. 1, p. 62–80, 2016. [13] Y. Abbasi-Yadkori, D. P´ al, and C. Szepesv´ ari, “Improved Algorithms for Linear Stochastic Bandits,” in Advances in Neural Information Processing Systems , J. Shawe-Taylor, R. S. Zemel, P. L. Bartlett, F. C. N. Pereira, and K. Q. Weinberger, Eds., vol. 24. Curran Associates, Inc., 2011. [14] J. Nocedal and S. J. Wright, Numerical Optimization , 2nd ed., ser. Springer Series in Operations Research and Financial Engineering. Springer New York, 2006. [15] H. Olsson, K. J. ˚ Astr¨ om, C. C. De Wit, M. G¨ afvert, and P. Lischinsky, “Friction Models and Friction Compensation,” Eur. J. Control , vol. 4, no. 3, pp. 176–195, 1998. [16] D. Arnstrom, A. Bemporad, and D. Axehill, “A Dual Active-Set Solver for Embedded Quadratic Programming Using Recursive LDL 𝑇 
+
+Updates,” IEEE Transactions on Automatic Control , vol. 67, no. 8, p. 4362–4369, Aug. 2022.

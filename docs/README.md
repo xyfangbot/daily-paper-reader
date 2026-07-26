@@ -6,97 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-25
-- 运行时间：2026-07-26 05:56:42 Asia/Shanghai
+- 最新运行日期：2026-07-26
+- 运行时间：2026-07-27 05:41:47 Asia/Shanghai
 - 运行状态：成功
-- 本次总论文数：25
+- 本次总论文数：19
 - 精读区：10
-- 速读区：15
+- 速读区：9
 
 ### 今日简报（AI）
-今日精选25篇论文，聚焦VLAs时序逻辑与具身智能导航两大方向。  
-最值得关注《STeP》用信号时序逻辑精准规范VLM动作生成，以及《Emergent Compositional Skills》揭示MoE架构的涌现组合技能。  
-建议后续验证时序逻辑在实际VLM部署中的效果，并探索多专家模型在楼层间零样本导航等复杂场景的融合。
-- 详情：[/202607/25/README](/202607/25/README)
+今日共处理19篇论文，精读10篇速读9篇，重点聚焦世界模型稳定性与具身视觉跟踪。  
+最值得关注的两项工作：Koopman Dreamer提出谱约束潜在动力学实现稳定世界模型想象（9.0分），ReferTrack创新地先用语言指代再跟踪解决具身视觉跟踪（9.0分）。  
+建议普通读者优先精读这两篇高评分论文，后续可结合速读列表中的层次化动作块离线RL与社区数据引擎，深入理解具身智能的动力学控制与数据驱动范式。
+- 详情：[/202607/26/README](/202607/26/README)
 
 ### 精读区论文标签
-1. [STeP: Signal Temporal Logic for Precise Specifications for Action Generation with Vision Language Models](/202607/25/2607.18580v1-step-signal-temporal-logic-for-precise-specifications-for-action-generation-with-vision-language-models)  
+1. [Koopman Dreamer: Spectrally Constrained Latent Dynamics for Stable World-Model Imagination](/202607/26/2607.19719v1-koopman-dreamer-spectrally-constrained-latent-dynamics-for-stable-world-model-imagination)  
+   标签：评分：9.0/10、query:world-model
+   evidence：基于Koopman谱约束的世界模型，用于基于模型的强化学习
+2. [ReferTrack: Referring Then Tracking for Embodied Visual Tracking](/202607/26/2607.20061v1-refertrack-referring-then-tracking-for-embodied-visual-tracking)  
+   标签：评分：9.0/10、query:vtt
+   evidence：使用语言指令的具体视觉跟踪，视觉-语言-动作策略
+3. [Emergent Compositional Skills in Mixture-of-Experts VLAs](/202607/26/2607.20771v1-emergent-compositional-skills-in-mixture-of-experts-vlas)  
    标签：评分：9.0/10、query:vla-robotics
-   evidence：视觉语言动作模型结合信号时序逻辑精确生成动作
-2. [Emergent Compositional Skills in Mixture-of-Experts VLAs](/202607/25/2607.20771v1-emergent-compositional-skills-in-mixture-of-experts-vlas)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：基于混合专家VLA的组合机器人策略
-3. [Obstacle-Aware Four-Dimensional Trajectory Design for Urban Air Mobility](/202607/25/2607.15690v1-obstacle-aware-four-dimensional-trajectory-design-for-urban-air-mobility)  
+   evidence：混合专家VLA模型用于机器人策略学习
+4. [ADMM-Based Safety-Critical Distributed NMPC for Cooperative Transportation by Quadrupedal Robots](/202607/26/2607.17007v1-admm-based-safety-critical-distributed-nmpc-for-cooperative-transportation-by-quadrupedal-robots)  
    标签：评分：8.0/10、query:topic
-   evidence：城市环境中eVTOL的混合轨迹优化
-4. [Learning Reach-Avoid Task with Reinforcement Learning: Vectorized Simulation and Benchmark](/202607/25/2607.15935v1-learning-reach-avoid-task-with-reinforcement-learning-vectorized-simulation-and-benchmark)  
-   标签：评分：8.0/10、query:rl-robotics
-   evidence：强化学习用于机械臂到达-避障任务，提供DRL基准测试
-5. [From Perception to Assistance: Open-Vocabulary Shared Autonomy for Robotic Manipulation](/202607/25/2607.17323v1-from-perception-to-assistance-open-vocabulary-shared-autonomy-for-robotic-manipulation)  
-   标签：评分：8.0/10、query:vla-robotics
-   evidence：使用视觉语言模型的机器人共享自主操作
-6. [Stability and Comfort in Mobile Robot-Pedestrian Interactions](/202607/25/2607.17604v1-stability-and-comfort-in-mobile-robot-pedestrian-interactions)  
-   标签：评分：8.0/10、query:vtt
-   evidence：非完整移动机器人的社交感知导航
-7. [Towards Torque-Driven Reinforcement Learning for Quadruped Locomotion](/202607/25/2607.18365v1-towards-torque-driven-reinforcement-learning-for-quadruped-locomotion)  
-   标签：评分：8.0/10、query:rl-robotics
-   evidence：强化学习扭矩控制用于四足机器人在崎岖地形行走
-8. [Model-Agnostic Meta Learning for Differentiable MPC](/202607/25/2607.19271v1-model-agnostic-meta-learning-for-differentiable-mpc)  
+   evidence：基于ADMM的分布式NMPC用于四足机器人协作运输
+5. [Finite-Time Curvature-Constrained Vector Field for Saturation-Free Motion Planning of Nonholonomic Robots](/202607/26/2607.17542v1-finite-time-curvature-constrained-vector-field-for-saturation-free-motion-planning-of-nonholonomic-robots)  
    标签：评分：8.0/10、query:topic
-   evidence：元学习用于可微模型预测控制，轨迹优化
-9. [Diffusion ReRoll: Revisable Denoising for Robotic Sequential Prediction](/202607/25/2607.19919v1-diffusion-reroll-revisable-denoising-for-robotic-sequential-prediction)  
+   evidence：非完整移动机器人的曲率约束轨迹优化
+6. [On Optimal Event-Triggered Distributed Control for Stochastic Multi-Agent Systems via Reinforcement Learning](/202607/26/2607.17635v1-on-optimal-event-triggered-distributed-control-for-stochastic-multi-agent-systems-via-reinforcement-learning)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：基于强化学习的多智能体系统分布式控制
+7. [Towards Torque-Driven Reinforcement Learning for Quadruped Locomotion](/202607/26/2607.18365v1-towards-torque-driven-reinforcement-learning-for-quadruped-locomotion)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：用于四足机器人运动的RL力矩控制
+8. [Motion Primitive Discovery in a Humanoid Robot via Self-Organising Maps for Phase Recognition](/202607/26/2607.18737v1-motion-primitive-discovery-in-a-humanoid-robot-via-self-organising-maps-for-phase-recognition)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：人形机器人运动原语发现
+9. [EA-Nav: Learning Safe Visual Navigation Policies with Embodiment Awareness](/202607/26/2607.19880v1-ea-nav-learning-safe-visual-navigation-policies-with-embodiment-awareness)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：使用模仿学习的跨具身导航，关注具身感知导航
+10. [Grasp, Handover, Rotate: Bimanual Object Reorientation via Compositional Diffusion and Energy-Based Optimization](/202607/26/2607.21341v1-grasp-handover-rotate-bimanual-object-reorientation-via-compositional-diffusion-and-energy-based-optimization)  
    标签：评分：8.0/10、query:vla-robotics
-   evidence：基于扩散的机器人序列预测框架，支持可修正的去噪过程
-10. [ReferTrack: Referring Then Tracking for Embodied Visual Tracking](/202607/25/2607.20061v1-refertrack-referring-then-tracking-for-embodied-visual-tracking)  
-   标签：评分：8.0/10、query:vtt
-   evidence：基于指称的具身视觉跟踪
+   evidence：扩散策略用于机器人动作生成
 
 ### 速读区论文标签
-1. [PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution](/202607/25/2607.16636v1-phyagentos-a-self-evolving-operating-system-for-embodied-agents-with-decoupled-cognitive-planning-and-physical-execution)  
-   标签：评分：8.0/10、query:world-model
-   evidence：整合世界模型和VLA的具身智能体系统级运行时
-2. [Robostral Navigate](/202607/25/2607.20785v1-robostral-navigate)  
-   标签：评分：8.0/10、query:vtt
-   evidence：8B视觉语言模型用于导航，使用单目RGB图像预测路径点，跨机器人具身泛化
-3. [ZONDA: Zero-shot Object Navigation with Dynamic Avoidance in Multi-floor Environments](/202607/25/2607.21025v1-zonda-zero-shot-object-navigation-with-dynamic-avoidance-in-multi-floor-environments)  
-   标签：评分：8.0/10、query:vtt
-   evidence：零样本物体导航，并在多楼层环境中动态避障
-4. [VoLN: Vision-Only Long-Horizon Navigation---Paradigm, Benchmark, and Method](/202607/25/2607.21400v1-voln-vision-only-long-horizon-navigation---paradigm-benchmark-and-method)  
-   标签：评分：8.0/10、query:vtt
-   evidence：仅视觉的远距离导航，将外部指令中的路线信息转移到本地场景线索
-5. [Beyond Fixed Goal Delivery: Online POMDP Planning for Target Interception in Crowds](/202607/25/2607.18517v1-beyond-fixed-goal-delivery-online-pomdp-planning-for-target-interception-in-crowds)  
-   标签：评分：7.0/10、query:vtt
-   evidence：人群中目标拦截的在线POMDP规划，社交导航
-6. [Stochastic Multi-Objective Kinodynamic Planning Against Adversaries](/202607/25/2607.19284v1-stochastic-multi-objective-kinodynamic-planning-against-adversaries)  
-   标签：评分：7.0/10、query:topic
-   evidence：随机多目标动力学规划
-7. [EA-Nav: Learning Safe Visual Navigation Policies with Embodiment Awareness](/202607/25/2607.19880v1-ea-nav-learning-safe-visual-navigation-policies-with-embodiment-awareness)  
+1. [Offline RL with Hierarchical Action Chunking](/202607/26/2607.20834v1-offline-rl-with-hierarchical-action-chunking)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：离线强化学习结合分层动作分块，适用于通用机器人任务
+2. [AXIS: A Growable Community-Driven Data Engine for Scalable Robot Manipulation](/202607/26/2607.21588v1-axis-a-growable-community-driven-data-engine-for-scalable-robot-manipulation)  
+   标签：评分：8.0/10、query:vla-robotics
+   evidence：社区驱动数据引擎用于机器人操作策略学习，与视觉-语言-动作相关
+3. [PhyAgentOS: A Self-Evolving Operating System for Embodied Agents with Decoupled Cognitive Planning and Physical Execution](/202607/26/2607.16636v1-phyagentos-a-self-evolving-operating-system-for-embodied-agents-with-decoupled-cognitive-planning-and-physical-execution)  
+   标签：评分：7.0/10、query:world-model
+   evidence：具身AI和视觉-语言-动作中的世界模型
+4. [Conservative Query and Adaptive Regularization for Offline RL Under Uncertainty Estimation](/202607/26/2607.19199v1-conservative-query-and-adaptive-regularization-for-offline-rl-under-uncertainty-estimation)  
    标签：评分：7.0/10、query:rl-robotics
-   evidence：基于模仿学习的具身感知视觉导航策略，与强化学习导航目标一致
-8. [URF: A Unified Robot Control-Policy Framework for Stable Contact Aware Manipulation](/202607/25/2607.20912v1-urf-a-unified-robot-control-policy-framework-for-stable-contact-aware-manipulation)  
+   evidence：离线强化学习结合保守查询与自适应正则化
+5. [Deep Reinforcement Learning for Adaptive Gain Tuning in Control of Teleoperation Manipulators with Joint Flexibility and Time-Varying Delays](/202607/26/2607.21145v1-deep-reinforcement-learning-for-adaptive-gain-tuning-in-control-of-teleoperation-manipulators-with-joint-flexibility-and-time-varying-delays)  
+   标签：评分：7.0/10、query:rl-robotics
+   evidence：深度强化学习用于遥操作机械臂的增益调节，与基于强化学习的机器人控制相关
+6. [Scale Up Strategically: Learning Compositional Generalization via Bias-Aware Evaluation and Data Collection for Robotic Manipulation](/202607/26/2607.21582v1-scale-up-strategically-learning-compositional-generalization-via-bias-aware-evaluation-and-data-collection-for-robotic-manipulation)  
    标签：评分：7.0/10、query:vla-robotics
-   evidence：统一机器人控制策略框架，结合柔性动作预测与阻抗-导纳控制，用于操控
-9. [Distributed Model-Based Diffusion For Scalable Multi-Robot Trajectory Optimization](/202607/25/2607.20992v1-distributed-model-based-diffusion-for-scalable-multi-robot-trajectory-optimization)  
-   标签：评分：7.0/10、query:topic
-   evidence：分布式扩散模型用于多机器人轨迹优化
-10. [Exo2EgoPose: Leveraging Exocentric Demonstrations for Vision-Language guided Egocentric 3D Hand Pose Forecasting](/202607/25/2607.15890v1-exo2egopose-leveraging-exocentric-demonstrations-for-vision-language-guided-egocentric-3d-hand-pose-forecasting)  
-   标签：评分：6.0/10、query:vla-robotics
-   evidence：视觉语言引导的手部姿态预测用于机器人操作
-11. [Retriever: Composing Closed-Loop Asynchronous Robot Programs](/202607/25/2607.17213v1-retriever-composing-closed-loop-asynchronous-robot-programs)  
+   evidence：机器人操控中组成泛化的诊断框架
+7. [WAR: Workload-Aware Rollouts for Synchronous Agentic Reinforcement Learning](/202607/26/2607.17299v1-war-workload-aware-rollouts-for-synchronous-agentic-reinforcement-learning)  
    标签：评分：6.0/10、query:rl-robotics
-   evidence：机器人异步闭环流水线，包含规划与控制
-12. [EvolvingWorld: An Open-Schema Framework for Co-Evolving Role-Play Agents and World Model in Interactive Literary World](/202607/25/2607.17250v1-evolvingworld-an-open-schema-framework-for-co-evolving-role-play-agents-and-world-model-in-interactive-literary-world)  
-   标签：评分：6.0/10、query:world-model
-   evidence：面向交互文学世界的世界模型，支持角色与环境共同演化
-13. [Conservative Query and Adaptive Regularization for Offline RL Under Uncertainty Estimation](/202607/25/2607.19199v1-conservative-query-and-adaptive-regularization-for-offline-rl-under-uncertainty-estimation)  
-   标签：评分：6.0/10、query:rl-robotics
-   evidence：离线强化学习的保守查询与自适应正则化
-14. [Self-Supervised Bio-Inspired Robotic Trajectory Planning with Obstacle Avoidance](/202607/25/2607.20743v1-self-supervised-bio-inspired-robotic-trajectory-planning-with-obstacle-avoidance)  
+   evidence：通过工作负载感知调度加速强化学习生成
+8. [Correct-by-Construction Behavior Tree Synthesis from Signal Temporal Logic Specifications with Application to Robotic Missions](/202607/26/2607.18731v1-correct-by-construction-behavior-tree-synthesis-from-signal-temporal-logic-specifications-with-application-to-robotic-missions)  
    标签：评分：6.0/10、query:topic
-   evidence：自监督轨迹规划框架，针对移动机器人避障和规划，属于轨迹优化方法
-15. [Offline RL with Hierarchical Action Chunking](/202607/25/2607.20834v1-offline-rl-with-hierarchical-action-chunking)  
-   标签：评分：6.0/10、query:rl-robotics
-   evidence：基于分层动作分块的离线强化学习用于长程任务
+   evidence：带时间约束的机器人任务行为树正确性合成
+9. [A Real-Time Generalized Nash Equilibrium Framework for Interaction-Aware Autonomous Driving in Mixed Traffic](/202607/26/2607.21043v1-a-real-time-generalized-nash-equilibrium-framework-for-interaction-aware-autonomous-driving-in-mixed-traffic)  
+   标签：评分：6.0/10、query:topic
+   evidence：广义纳什均衡框架用于自动驾驶轨迹规划
 
 
 <div class="dpr-home-promo-card">

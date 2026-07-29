@@ -1,0 +1,307 @@
+Title: Model Predictive Planner for UAV Navigation in Non-Convex Air Corridors
+
+URL Source: https://arxiv.org/pdf/2607.24369v1
+
+Published Time: Tue, 28 Jul 2026 01:56:31 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Model Predictive Planner for UAV Navigation in Non-Convex Air Corridors ⋆
+
+Henrique Silva, Jr. ∗ Marcelo A. Santos ∗∗ 
+
+Guilherme V. Raffo ∗,∗∗∗ ∗ Graduate Program in Electrical Engineering, Universidade Federal de Minas Gerais, Belo Horizonte, MG, Brazil  
+
+> ∗∗
+
+Department of Management, Information and Production Engineering, University of Bergamo, Dalmine, BG, Italy  
+
+> ∗∗∗
+
+Department of Electronic Engineering, Universidade Federal de Minas Gerais, Belo Horizonte, MG, Brazil 
+
+Abstract: This work presents a motion planning framework for UAV navigation in non-convex urban air corridors. The planner is based on a mixed-integer tracking model predictive control formulation that enforces corridor feasibility and dynamic consistency within a single optimization problem. To guarantee convergence to the target and mitigate the occurrence of local minima induced by non-convex geometry, a shortest-path-based offset cost with feasibility constraints is embedded directly into the planning problem. Numerical simulations show that the proposed formulation generates dynamically valid trajectories that satisfy the corridor constraints and converge to the target without relying on external global planning stages. 
+
+Keywords: Optimal Motion Planning, MPC, Urban Air Mobility, Unmanned Aerial Vehicles 1. INTRODUCTION Driven by significant advances in autonomy and embedded computing, Unmanned Aerial Vehicles (UAVs) have be-come essential tools for civil applications, ranging from in-frastructure inspection to logistics. This widespread adop-tion is closely tied to Urban Air Mobility (UAM) efforts to organize and manage autonomous flights in shared low-altitude airspace. To ensure operational safety and stan-dardization, aviation authorities have issued regulatory frameworks, including the FAA/NASA ConOps (FAA, 2023), EASA’s U-Space (EASA, 2024), and ICAO’s UTM (ICAO, 2023). The constrained structure of UAM airspace makes motion planning a central requirement. A typical hierarchical ap-proach (Quan et al., 2020) employs a high-level planner to compute a geometrically feasible path via search or sampling techniques (Karur et al., 2021). Subsequently, a dynamic control layer computes trajectories and inputs to track this path while enforcing system and safety re-quirements. Model Predictive Control (MPC) is a common choice for this layer (Rawlings and Mayne, 2009), being extensively explored in navigation tasks (Brito et al., 2019; Israr et al., 2022). However, this framework relies on a  
+
+> ⋆This manuscript version is made available under the CC-BY-NC-ND 4.0 license. This work was supported in part by the Brazil-ian agencies CAPES through the Academic Excellence Program (PROEX), CNPq under the grants 317058/2023-1 and 422143/2023-5, and in part by Petrobras/ANP under Grants 2023/00494-5 and 2023/00643-0. Marcelo A. Santos acknowledges support from the Lombardy Region under the PR FESR 2021–2027 ”Collabora & In-nova” call (Decree no. 11969, 2 August 2024), Project ”HARMONY” (CUP: E59I25000850007).
+
+strict time-scale separation (Matni et al., 2024), limiting real-time adaptation in dynamic environments. Within this layered paradigm, an emerging alternative is to reinterpret predictive control as a motion planning mechanism rather than solely as a tracking controller. In this view, the planner directly optimizes dynamically feasible trajectories over a receding horizon, taking into account both the system dynamics and the admissible airspace constraints, while a separate low-level controller is retained for fast stabilization and disturbance rejec-tion. This perspective preserves the hierarchical structure, but replaces purely geometric planning with a predictive, constraint-aware planning layer, in which dynamically fea-sible reference trajectories are generated in real-time. Changing targets in UAM operations require continuous adaptation, motivating predictive formulations that unify motion generation and dynamic regulation (Santos et al., 2024). This joint approach simultaneously addresses dy-namic feasibility, constraint enforcement, and reference generation. However, standard MPC schemes may lose fea-sibility in this context, since their guarantees are typically local and hold only within a limited domain of attraction. This limitation motivated the tracking MPC framework (Limon et al., 2018), which optimizes both the predicted trajectory and an artificial steady-state. By penalizing the deviation from the true target via an offset cost, tracking MPC accommodates target variations, preserves recursive feasibility, and enlarges the domain of attraction. While suitable for constrained navigation, its stability guaran-tees rely on convexity arguments (Krupa et al., 2024), a condition that rarely holds in UAM airspaces featuring protected regions and structured corridors. arXiv:2607.24369v1 [cs.RO] 27 Jul 2026 Several strategies address non-convexity in MPC-based frameworks. Topological transformations (Cotorruelo et al., 2021) map specific non-convex sets into convex ones, though their applicability is limited by the underlying set structure. Other approaches employ multi-trajectory mechanisms to avoid local minima, such as dual-trajectory schemes (Soloperto et al., 2023b) or LIDAR-based branch-ing (Nascimento et al., 2023). Alternatively, redefining the cost function can provide convergence guarantees in non-convex spaces. For instance, Soloperto et al. (2023a) introduced an offset cost based on the shortest feasible curve connecting an artificial reference to the target, an idea refined by K¨ ohler et al. (2025) to improve tractability in cluttered environments. This work develops a model predictive planning strategy for UAV navigation in constrained air corridors, modeled as a sequence of convex sets forming a non-convex region. Building on K¨ ohler et al. (2025), we embed a shortest-path proxy into a mixed-integer tracking MPC to en-sure convergence in non-convex domains while preserv-ing dynamic feasibility. Corridor boundaries are enforced via integer constraints, and a geometry-exploiting warm-start strategy improves computational performance. The main contributions are threefold: i) a predictive planning framework handling target convergence and non-convex constraints within a single optimization problem; ii) a shortest-path-inspired cost adapted for air corridors; and iii) a geometry-based warm start for real-time operation. 2. PROBLEM DEFINITION This work addresses UAV navigation within structured UAM air corridors characterized by non-convex geometry. The planner must generate trajectories that remain within the admissible airspace while satisfying vehicle dynamics, ensuring the references supplied to the lower-level con-troller are dynamically feasible. As illustrated in Fig. 1, the motion planner generates these reference signals, which may include primary outputs, derivatives, or actuation quantities, tailored to the underlying control architecture. 
+
+Fig. 1. Planning and control scheme adopted for UAV navigation in structured UAM environments. To avoid relying on purely geometric paths, the planner optimizes over trajectories consistent with the vehicle dynamics. To this end, let a general class of UAV systems be described by the discrete-time nonlinear dynamics 
+
+x(k + 1) = f (x(k), u (k)) ,
+
+where x(k) ∈ Rn and u(k) ∈ Rm are the state and control input vectors, respectively. The prediction model f (·) and the composition of these vectors depend on the planning and control architecture requirements. In addition, the state and input must satisfy the operational constraints 
+
+x(k), u (k)) ∈ X × U, ∀ k ≥ 0,
+
+where the compact convex sets X ⊂ Rn and U ⊂ Rm reflect physical limitations such as velocity bounds and actuator limits. Moreover, the output map is designed to describe the vehicle position, as 
+
+y(k) = h x(k) ∈ Y, ∀ k ≥ 0,
+
+where Y ⊂ R3 denotes the navigable workspace. The admissible airspace Z ⊂ Y is modeled as a non-convex union of nz convex corridor segments, Z = Snz 
+
+> i=1
+
+Zi, where the corridor segments Zi are assumed to intersect each other only at their borders and each region is represented using a zonotopic description. This choice is motivated by the fact that zonotopes provide a compact parametrization of convex sets and support efficient containment checks within optimization problems. Then, each Zi is given by 
+
+Zi = { ci + Giξ | ξ ∈ [−1, 1] pi }, (1) with center ci ∈ R3 and matrix Gi ∈ R3×pi containing pi
+
+generator vectors. To support model predictive planning in this non-convex domain, consider an artificial steady-state pair ( xs, u s) and its corresponding output ys satisfying 
+
+xs = f (xs, u s) and ys = h(xs).
+
+Then, the admissible set of steady states and inputs is defined as 
+
+S = { (xs, u s) ∈ λ(X × U) | xs = f (xs, u s) }, (2) where λ ∈ (0 , 1) is a scalar arbitrarily close to one, intro-duced to avoid equilibrium points active at the feasibility constraints (Limon et al., 2018). It is worthwhile mention-ing that the artificial output ys acts as an intermediate reference optimized online, ensuring that the planner se-lects a target that is dynamically consistent and remains inside the admissible airspace. Based on these elements, the motion planning problem is formulated as a tracking MPC scheme: min  
+
+> u,x,u s,x s
+> N−1
+
+X
+
+> j=0
+
+ℓ(x(j) − xs, u (j) − us) + Vo(ys, y t)s.t. x(0) = x, (3a) 
+
+x(j + 1) = f (x(j), u (j)) , j ∈ N0: N −1, (3b) (x(j), u (j)) ∈ X × U, j ∈ N0: N , (3c) 
+
+y(j) ∈ Z, j ∈ N0: N , (3d) (xs, u s) ∈ S, (3e) 
+
+ys ∈ Z, (3f) 
+
+x(N ) = xs. (3g) Here, ℓ(·) is a positive definite stage cost guiding the predicted trajectory towards the artificial state, while the offset cost Vo(·) penalizes the deviation between the arti-ficial output and the real target yt. Constraints (3a) and (3b) enforce the initial condition and system dynamics. Moreover, (3c) and (3d) impose operational bounds and limit the predicted output to the admissible airspace, respectively. The artificial variables and their spatial ad-missibility are established by (3e) and (3f), while (3g) guarantees terminal convergence to the artificial reference. Finally, N denotes the prediction horizon and Na:b the set of integers in [ a, b ]. 3. NON-CONVEX CORRIDOR CONSTRAINTS AND GLOBAL CONVERGENCE This section presents the modeling of the corridor con-straints together with the formulation proposed to achieve global convergence based on a shortest-path offset cost. 
+
+3.1 Zonotopic Corridor Constraints 
+
+Since the admissible corridor is modeled as a non-convex union of convex segments, the containment requirement in (3d) and (3f) must be enforced for every predicted output along the horizon and the artificial output. For each corridor segment Zi, defined in (1), verifying that a point y belongs to this set can be performed through different approaches, including quadratic programming (Combastel, 2013) and H-representations (Althoff, 2010). In this work, we consider the containment verification 
+
+y ∈ Zi simply as a feasibility problem, expressed as 
+
+∃ξi ∈ [−1, 1] pi s.t. y − ci − Giξi = 0 .
+
+Since each predicted output must belong to exactly one corridor segment at every prediction step, we introduce binary decision variables to encode this assignment over the horizon. Therefore, we define 
+
+δi(j) ∈ { 0, 1}, ∀i ∈ N1: nz and ∀j ∈ N0: N .
+
+This conditional activation can be implemented in an op-timization problem using a Big-M formulation (Bemporad and Morari, 1999), which links the output y to the active corridor segment. Thus, the predicted output feasibility constraints of (9) are reformulated as 
+
+∥y(j) − ci − Giξi(j)∥∞ ≤ M (1 − δi(j)) , (4) for all i ∈ N1: nz and j ∈ N0: N , where M is a sufficiently large positive constant and ∥·∥ ∞ denotes the infinity norm. Finally, the exclusive assignment of each predicted output to a single segment is enforced through 
+
+> nz
+
+X
+
+> i=1
+
+δi(j) = 1 , ∀j ∈ N0: N .
+
+It is worth noting that no zonotopic reformulation is re-quired for the artificial output, since the terminal condi-tion x(N ) = xs implicitly ensures that ys ∈ Z. Indeed, once y(N ) ∈ Z is enforced, the terminal equality implies 
+
+ys = h(xs) = h(x(N )). 
+
+3.2 Shortest-Path Offset Cost for Global Convergence 
+
+Standard tracking MPC schemes typically use an Eu-clidean distance-based offset cost, which can lead to local minima and prevent global convergence in non-convex domains. To mitigate this, K¨ ohler et al. (2025) replaces the Euclidean measure with a shortest-feasible-path construc-tion that accounts for the admissible space topology. The formulation proposed in this work adapts this concept to the corridor structure defined in Section 2, ensuring target convergence even in non-convex airspace. To represent the path connecting the artificial output ys
+
+to the target yt, consider a sequence of points r that forms 
+
+ns straight segments. Since each segment must remain inside the admissible corridor, a discretized interpolation scheme is introduced. For that, let Np denote the number of interpolation steps and define 
+
+A = {k/N p| k ∈ N0: Np }.
+
+For every segment q ∈ N0: ns−1 and interpolation factor 
+
+α ∈ A, the intermediate points are given by 
+
+rp(q, α ) = (1 − α) r(q) + α r (q + 1) , (5) and must satisfy a zonotopic containment condition. As in Section 3.1, containment is enforced using auxil-iary continuous variables γi(q, α ), which encode the zono-topic generator coefficients, together with binary variables 
+
+ζi(q, α ) that activate the corresponding corridor segment. Their relation is imposed through 
+
+∥rp − ci − Giγi∥∞ ≤ M (1 − ζi). (6) Moreover, the resulting offset cost is given by 
+
+Vo(r) = κsns−1X
+
+> q=0
+
+∥ r(q + 1) − r(q) ∥2, (7) where κs weights the contribution of the path length. Then, the artificial path r is defined as the solution of the optimization problem min  
+
+> r
+
+Vo(r)s.t. r(0) = ys, (8a) 
+
+r(ns) = yt, (8b) (5) , q ∈ N0: ns−1, α ∈ A, (8c) (6) , q ∈ N0: ns−1, α ∈ A, (8d) 
+
+> nz
+
+X
+
+> i=1
+
+ζi(q, α ) = 1 , q ∈ N0: ns−1, α ∈ A. (8e) This optimization problem computes the shortest feasible 
+
+ns-segment path anchored between ys and yt via (8a) and (8b). The discretization (8c) enforces the containment constraints (8d) and (8e) only on a finite set of interpolated points, avoiding the prohibitive cost of checking continuous segments. Thus, the formulation captures the non-convex connectivity while remaining tractable. By minimizing this piecewise-linear path, the offset cost induces global conver- 
+
+> (a) Standard approach (b) Proposed approach
+
+Fig. 2. Illustration of the difference between the standard Tracking MPC formulation and the approach proposed in this work. The airspace delimited by zonotopes is represented in yellow, and the target in red. The UAV (blue box) optimizes the predicted state trajectory (blue segment) towards the artificial reference (green circle), which in turn optimizes the offset cost (green dashed line) towards the target. In (a), the standard offset cost causes the system to get stuck in a local minimum, whereas in (b), convergence to the target is achieved. gence, effectively guiding the artificial reference toward the target, as illustrated in Fig. 2. 4. MODEL PREDICTIVE PLANNING FORMULATION Considering the tracking MPC formulation in (9) together with the mixed-integer corridor constraints of Section 3.1 and the shortest-path offset cost of Section 3.2, the planning problem can be posed as a single mixed-integer optimization problem. This formulation simultaneously obtains the predicted trajectory, the artificial variables, and the geometric connection to the target while enforcing the admissible airspace constraints, and is given by min       
+
+> u,x,r,δ,ξ,
+> γ,ζ, u s, x s
+> N−1
+
+X
+
+> j=0
+
+ℓ(x(j) − xs, u (j) − us) + Vo(r)s.t. x(0) = x, (9a) 
+
+x(j + 1) = f (x(j), u (j)) , j ∈ N0: N −1, (9b) (x(j), u (j)) ∈ X × U, j ∈ N0: N −1, (9c) (4) , i ∈ N1: nz , j ∈ N0: N , (9d) (xs, u s) ∈ S, (9e) 
+
+x(N ) = xs, (9f) 
+
+r(0) = ys, (9g) (5) , q ∈ N0: ns−1, α ∈ A, (9h) (6) , q ∈ N0: ns−1, α ∈ A, (9i) 
+
+r(ns) = yt, (9j) 
+
+> nz
+
+X
+
+> i=1
+
+δi(j) = 1 , j ∈ N0: N , (9k) 
+
+> nz
+
+X
+
+> i=1
+
+ζi(q, α ) = 1 , q ∈ N0: ns−1, α ∈ A, (9l) where ℓ(·) = ∥x(j)−xs∥2 
+
+> Q
+
++∥u(j)−us∥2 
+
+> R
+
+with the matrices 
+
+Q ≥ 0 and R > 0 representing the weighting factors on the states and the inputs, respectively. The decision variables include the predicted state and input sequences x and u,the artificial reference ( xs, u s), the artificial path nodes r,and the auxiliary continuous variables ξ and γ together with the binary variables δ and ζ, which together encode the mixed-integer zonotopic constraints. Finally, the initial condition x is a parameter of the problem. In the optimization problem (9), the cost functional jointly optimizes the predicted trajectory toward the artificial ref-erence while simultaneously steering this reference through the non-convex space toward the target. Constraints (9a)-(9c) establish the initial condition, system dynamics, and operational bounds, whereas (9d) restricts the predicted outputs to the admissible corridor. The artificial equi-librium is defined by (9e) and enforced as a terminal equality constraint in (9f). The artificial path is anchored between ys and yt via (9g) and (9j), with its feasibility verified through the interpolation rule (9h) and zonotopic containment constraints (9i). Finally, binary summation constraints (9k) and (9l) ensure the exclusive selection of corridor segments. In a receding-horizon setting, the optimization problem in (19) is solved at each step using the current state as the initial condition. This iterative structure updates the predicted motion as the UAV progresses, providing a direct mechanism to accommodate changes in the target or in the admissible corridor while remaining consistent with the operational constraints. The formulation thereby supports real-time adaptation within the constrained airspace. 
+
+4.1 Initialization Strategy 
+
+The offset mechanism embedded in (9) requires solving a mixed-integer problem whose convergence is highly sensi-tive to the initial iterate, making a suitable initialization essential for the first MPC iteration. A key design param-eter in this setup is ns, the number of linear segments used to represent the artificial path. The geometry of the corridor provides a natural criterion for selecting this value. Since each corridor region is modeled as a convex zonotope, a path that moves through a sequence of nz
+
+regions can be parameterized by nz linear segments, as illustrated in Fig. 3. Thus, ns = nz is adopted, providing a representation consistent with the corridor structure. Although this choice may introduce redundancy as the UAV advances along the corridor, it ensures feasibility in the most restrictive portion of the trajectory, as illustrated in Fig. 4.          
+
+> (a) ns=nz(b) ns> n z(c) ns< n z
+
+Fig. 3. Analysis of the number of path segments ( ns) relative to the number of zonotopes ( nz ). In (a), ns = nz is always sufficient to represent the shortest path. In (b), ns > nz results in redundant segments. In (c), fewer segments ( ns < n z ) may be adequate for simpler topologies only.   
+
+> (a) (b)
+> (c) (d)
+
+Fig. 4. Trajectory evolution from (a) to (d). The parameter ns is dimensioned for the most constrained scenario, which is the initial state (a). As the UAV progresses, the fixed ns becomes increasingly redundant but maintains feasibility without requir-ing dynamic adjustment. 
+
+To generate the initial guess for the first iteration, an auxil-iary version of the optimization problem (8) is introduced, formulated as min  
+
+> r
+
+Vo(r)s.t. r(0) = y0, (10a) 
+
+r(j) ∈ { Zj , Zj+1 }, j ∈ N1: ns −1, (10b) 
+
+r(ns) = yt, (10c) where y0 corresponds to the UAV position at the start of the planning procedure. In this variation, the artificial path starts at the initial position, and the segment constraints (8c) and (8d) are replaced by (10b). The constraint (10b) significantly re-duces the admissible search space by confining the path nodes to the intersections between consecutive zonotopes, as shown in Fig. 5, yielding a more structured and eas-ier initialization problem than the general formulation. Besides, following the zonotope definition, (10b) can be easily embedded in the optimization problem as a feasi-bility constraint. Furthermore, this initialization strategy removes the need for an external global planning stage or a precomputed roadmap, as required in K¨ ohler et al. (2025).  
+
+> (a) With (8c) and (8d) (b) With (10b)
+
+Fig. 5. Analysis of the difference in the admissible space defined in the original problem (18), yellow sets, and in the auxiliary optimization problem (20), purple lines. 
+
+5. NUMERICAL RESULTS This section presents simulations to evaluate the planner’s ability to satisfy non-convex constraints, manage corridor transitions, and converge to the target in a UAM corridor. All computations were carried out in Matlab 2025a using CasADi and the Bonmin mixed-integer solver. The planning model is tailored to the low-level con-troller, which regulates and bounds position and linear velocity. Consequently, the planning state is defined as 
+
+x = [ X, Y, Z, U, V, W ]⊤, allowing these constraints to be directly imposed and yielding admissible reference tra-jectories. The control inputs are the translational forces 
+
+u = [ Fx, F y , F z ]⊤, consistent with a point-mass vehicle description. This ensures the planned motion respects low-level actuation limits, as force bounds directly translate into acceleration bounds. Under this point-mass representation, and with sampling time τs and mass m, the discrete-time translational dy-namics are 
+
+
+
+X(k+1) 
+
+Y (k+1) 
+
+Z(k+1) 
+
+U (k+1) 
+
+V (k+1) 
+
+W (k+1) 
+
+
+
+=
+
+
+
+X(k)+ τsU (k)
+
+Y (k)+ τsV (k)
+
+Z(k)+ τsW (k)
+
+U (k)
+
+V (k)
+
+W (k)
+
+
+
++
+
+
+
+0.5τ 2 
+
+> s
+
+Fx(k)/m 
+
+0.5τ 2 
+
+> s
+
+Fy (k)/m 
+
+0.5τ 2 
+
+> s
+
+Fz (k)/m τsFx(k)/m τsFy (k)/m τsFz (k)/m 
+
+
+
+. (11) The proposed experiment considers a 20 kg UAV oper-ating inside a moderate-volume UTM corridor composed of four orthogonal rectangular zonotopes, simulating a metropolitan urban canyon restricted to street overflight and vertically bounded between minimum obstacle clear-ance and a 120 m ceiling. The initial state and target are x0 = [20 , 0, 60 , 0, 0, 0] ⊤ and yt = [120 , 20 , 50] ⊤,respectively. The predictive planner uses a horizon N = 5 with a sampling time τs = 0 .5 s, and cost weights de-fined as Q = I6, R = 0 .25 I3, and ks = 50. Operational constraints restrict velocities to ±20 m/s in all axes, with horizontal and vertical force limits bounded at ±33 N and 
+
+±66 N. Finally, the mixed-integer formulation employs a Big-M constant M = 15000 and two interpolation points (Np = 2) for the offset-cost path. In this scenario, the midpoint verification is sufficient to capture the orthogonal corridor geometry without unnecessarily increasing the number of binary variables. The simulation results demonstrate the efficacy of the proposed formulation in planning a trajectory to guide the UAV through the non-convex corridor. As shown in Figs. 6 and 7, the planner generates a smooth path that converges to the target while avoiding local minima, even with a short prediction horizon ( N = 5). Furthermore, the mixed-integer formulation manages the switching between corridor segments effectively, ensuring that the predicted states remain within the admissible airspace. 
+
+> (a) Isometric View
+> (b) Top-down View
+
+Fig. 6. 3D and XY projections of the planned trajectory inside the air corridor. The velocity profiles shown in Fig. 8 confirm that the UAV operates within the prescribed limits ( ±20 m/s), with smooth transitions during direction changes, particularly in the XY-plane maneuvers. The force inputs in Fig. 9 exhibit aggressive behavior and frequently become active at the input constraints ( ±33 N). This behavior follows from the weighting choice in R, which penalizes input magnitude but not input variation. If required, the predic-tive planner can be extended in a straightforward manner to include input-variation constraints, thereby moderating these transitions. Fig. 7. Position evolution of the planned trajectory. 
+
+Fig. 8. Evolution of the planned velocities. 
+
+Fig. 9. Evolution of the planned forces. While the trajectory is dynamically feasible, the relatively large sampling time ( τs = 0.5 s) adopted to improve prediction capabilities may induce inter-sample constraint violations (tunneling effect) near boundaries, which can be mitigated by introducing an appropriate safety margin in the corridor representation. Furthermore, the mixed-integer formulation’s computational burden scales with the chosen design parameters, requiring careful tuning to maintain tractability. 6. CONCLUSION This work presented a motion planning framework for UAV navigation in non-convex urban air corridors. By leveraging a mixed-integer tracking MPC and a shortest-path offset cost, the approach enforces dynamic feasibil-ity and ensures global target convergence without rely-ing on external roadmaps. While simulations demonstrate constraint-compliant trajectories within short horizons, the formulation’s integer variables introduce a compu-tational burden tied to topological complexity. Future work will focus on reducing this complexity using Hybrid Zonotopes and geometric methods for continuous segment verification, extending the framework to multi-agent sys-tems and reactive obstacle avoidance, and evaluating its computational performance against other corridor-capable architectures. 
+
+REFERENCES Althoff, M. (2010). An efficient algorithm for computing the h-representation of a zonotope. In Proceedings of the IEEE 49th CDC , 6739–6744. Bemporad, A. and Morari, M. (1999). Control of systems integrating logic, dynamics, and constraints. Automatica , 35(3), 407–427. Brito, B., Floor, B., Ferranti, L., and Alonso-Mora, J. (2019). Model predictive contouring control for collision avoidance in unstruc-tured dynamic environments. IEEE Robotics and Automation Letters , 4(4), 4459–4466. Combastel, C. (2013). A quadratic programming-based method for determining the distance between a point and a zonotope. In 
+
+Proceedings of the IEEE 52nd CDC , 655–660. Cotorruelo, A., Ramirez, D.R., Limon, D., and Garone, E. (2021). Nonlinear MPC for tracking for a class of nonconvex admissible output sets. IEEE Transactions on Automatic Control , 66(8), 3726–3732. EASA (2024). Easy Access Rules for U-space (Regulation (EU) 2021/664). URL https://www.easa.europa.eu/en/document -library/easy-access-rules/easy-access-rules-u-space-r egulation-eu-2021664 . Revision from May 2024. Accessed on: November 9, 2025. FAA (2023). Urban Air Mobility (UAM) Concept of Operations, v2.0. URL https://www.faa.gov/sites/faa.gov/files/Urban-A ir-Mobility-Concept-of-Operations-2.0.pdf . Accessed on: November 9, 2025. ICAO (2023). Unmanned Aircraft Systems Traffic Management (UTM) – A Common Framework. URL https://www.icao.i nt/sites/default/files/sp-files/safety/UA/Documents/UTM %20Framework%20Edition%203.pdf . Accessed on: November 9, 2025. Israr, A., Ali, Z.A., Alkhammash, E.H., and Jussila, J.J. (2022). Optimization methods applied to motion planning of unmanned aerial vehicles: A review. Drones , 6(5). Karur, K., Sharma, N., Dharmatti, C., and Siegel, J.E. (2021). Asurvey of path planning algorithms for mobile robots. Vehicles ,3(3), 448–468. K¨ ohler, J., Zhang, D., Soloperto, R., Carron, A., and Zeilinger, M. (2025). An MPC framework for efficient navigation of mobile robots in cluttered environments. arXiv preprint arXiv:2509.15917 .Krupa, P., K¨ ohler, J., Ferramosca, A., Alvarado, I., Zeilinger, M.N., Alamo, T., and Limon, D. (2024). Model predictive control for tracking using artificial references: Fundamentals, recent results and practical implementation. In Proceedings of the IEEE 63rd CDC , 2977–2991. Limon, D., Ferramosca, A., Alvarado, I., and Alamo, T. (2018). Nonlinear MPC for tracking piece-wise constant reference signals. 
+
+IEEE Transactions on Automatic Control , 63(11), 3735–3750. Matni, N., Ames, A.D., and Doyle, J.C. (2024). A quantitative framework for layered multirate control: Toward a theory of control architecture. IEEE Control Systems , 44(3). Nascimento, I.B.P., Rego, B.S., Pimenta, L.C.A., and Raffo, G.V. (2023). NMPC strategy for safe robot navigation in unknown environments using polynomial zonotopes. In Proceedings of the IEEE 62nd CDC , 7100–7105. Quan, L., Han, L., Zhou, B., Shen, S., and Gao, F. (2020). Survey of UAV motion planning. IET Cyber-Systems and Robotics , 2(1), 14–21. Rawlings, J.B. and Mayne, D.Q. (2009). Model Predictive Control: Theory and Design . Nob Hill Publishing. Santos, M.A., Ferramosca, A., and Raffo, G.V. (2024). Set-point tracking MPC with avoidance features. Automatica , 159, 111390. Soloperto, R., K¨ ohler, J., and Allg¨ ower, F. (2023a). A nonlinear MPC scheme for output tracking without terminal ingredients. 
+
+IEEE Transactions on Automatic Control , 68(4), 2368–2375. Soloperto, R., Mesbah, A., and Allg¨ ower, F. (2023b). Safe explo-ration and escape local minima with model predictive control under partially unknown constraints. IEEE Transactions on Automatic Control , 68(12), 7530–7545.

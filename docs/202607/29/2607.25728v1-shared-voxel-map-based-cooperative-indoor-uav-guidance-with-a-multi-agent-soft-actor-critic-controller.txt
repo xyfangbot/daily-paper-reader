@@ -1,0 +1,501 @@
+Title: Shared Voxel-Map-Based Cooperative Indoor UAV Guidance with a Multi-Agent Soft Actor-Critic Controller
+
+URL Source: https://arxiv.org/pdf/2607.25728v1
+
+Published Time: Wed, 29 Jul 2026 01:01:20 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+> 1
+
+# Shared Voxel-Map-Based Cooperative Indoor UAV Guidance with a Multi-Agent Soft Actor-Critic Controller 
+
+Thomas Hickling, Dylan Wynne, Yu Su and Nabil Aouf School of Science and Technology City St George’s University of London London, United Kingdom Email: Tom.Hickling, Dylan.Wynne, Yu.Su, Nabil.Aouf@city.ac.uk 
+
+Abstract —This paper presents a cooperative indoor UAV guidance framework that combines a shared voxel-map world model with a multi-agent Soft Actor-Critic (MASAC) controller. Multiple drones fuse 360 ◦ LiDAR observations into a common world-frame occupancy map, which is converted into a compact bird’s-eye-view (BEV) representation and provided to each agent as an ego-aligned local crop. This integrate-in-world, act-in-ego design enables consistent multi-UAV spatial fusion whilst retaining decentralised continuous control. The policy combines BEV map features, near-field obstacle observations, and compact goal and peer-state information within a centralised-training, decentralised-execution framework. In simulation, the learned controller achieves a 90.3% success rate in corridor navigation, outperforming A* planning, an artificial potential field controller, and a prior guidance method. To address residual sim-to-real mismatch, the simulation-trained policy is further adapted using offline imitation fine-tuning from real-world data. Real-world experiments in GNSS-denied indoor environments demonstrate stable two-UAV cooperative operation across increasingly chal-lenging obstacle layouts. The results show that shared voxel-map representations provide an effective and scalable spatial substrate for learned cooperative indoor UAV guidance. 
+
+Note to Practitioners —Deploying multiple UAVs indoors is difficult because each drone must navigate around obstacles, avoid other vehicles, and operate without GNSS, all while relying on limited onboard sensing and communication. This paper presents a cooperative guidance approach for that setting. Each drone contributes LiDAR data to a shared map, allowing the team to make better navigation decisions than would be possible from local sensing alone. The approach outperformed conventional planning and reactive avoidance methods in simulation and was successfully deployed on two real UAVs in a GNSS-denied indoor arena. A key practical finding is that successful deployment depends not only on the AI controller, but also on the surrounding autonomy stack, including localisation, communication, map fusion, and safety monitoring. Another important lesson is that simulation training alone was not sufficient: some real-world adaptation was required before reliable hardware operation was achieved. The current study is limited to two drones and indoor environments, but the same ideas could be useful for inspection, warehouse automation, search and rescue, and other multi-robot systems that need shared situational awareness in confined spaces. 
+
+Index Terms —Unmanned aerial vehicles (UAVs), cooperative navigation, multi-agent reinforcement learning, soft actor–critic, voxel mapping, bird’s-eye view (BEV), GNSS-denied odometry, sim-to-real transfer 
+
+I. I NTRODUCTION 
+
+A. Research background 
+
+Autonomous indoor flight in GNSS-denied environments remains a challenging problem for unmanned aerial vehi-cles (UAVs), particularly when multiple platforms must op-erate simultaneously in confined and cluttered spaces. In such settings, reliable collision avoidance must be maintained despite partial observability, occlusions, sensing noise, and localisation uncertainty, whilst sufficient spatial context is needed to negotiate longer-horizon geometric structures such as corridors, junctions, and dead ends. In the multi-UAV case, the problem is further complicated by dynamic inter-agent interactions, communication constraints, and the requirement to safely share limited airspace. Classical navigation pipelines typically decompose the prob-lem into mapping, planning, and control, for example by combining occupancy grids or voxel maps with graph-based planners such as A* and a local tracking controller [1]–[4]. Such methods remain attractive because they are interpretable and geometrically grounded, but their practical performance can degrade when mapping is noisy, map updates are delayed, replanning is intermittent, or neighbouring UAVs are handled only as static obstacles. At the opposite end of the spectrum, reactive approaches such as artificial potential fields (APF) are computationally efficient and straightforward to deploy, but are prone to local minima and dead-end failures in cluttered environments when decisions are driven primarily by local attractive and repulsive cues [5]. Deep reinforcement learning (DRL) provides an alterna-tive by learning continuous control policies directly from sensory observations. In particular, entropy-regularised off-policy methods such as Soft Actor-Critic (SAC) are attrac-tive for robotics because they offer strong performance in continuous action spaces together with improved optimisation stability and sample efficiency [6], [7]. In multi-agent settings, centralised training with decentralised execution (CTDE) is widely adopted to mitigate non-stationarity during learning by allowing richer training-time value estimation whilst preserv-ing local execution policies at deployment [8]. Therefore, there remains a need for navigation frameworks that can effectively integrate global spatial structure with local decision-making, while maintaining scalability and robustness in multi-UAV indoor environments. arXiv:2607.25728v1 [cs.RO] 28 Jul 2026 2
+
+B. Previous work 1) Structured mapping, planning, and reactive guidance: 
+
+Occupancy-grid mapping remains a core approach in robotic navigation, enabling noisy range measurements to be fused into a consistent spatial representation [2], [3]. For 3D envi-ronments, OctoMap provides an efficient probabilistic octree-based occupancy framework that has been widely adopted in robotic mapping and planning [4]. In indoor UAV navigation, such structured map representations are attractive because they decouple perception from control and provide an interpretable substrate for planning, debugging, and safety analysis. How-ever, their effectiveness depends strongly on update stability, latency, and the ability to incorporate information from mul-tiple robots without excessive communication overhead. Graph-based planners such as A* remain widely used because of their completeness and optimality properties under suitable modelling assumptions [1]. Reactive methods such as artificial potential fields (APF) offer lower computational cost and higher update rates, but are prone to local minima and oscillatory behaviour in cluttered or dead-end environments [5]. These trade-offs motivate hybrid approaches that retain explicit geometric structure for mid-field spatial reasoning whilst using learned control for robust local decision-making under imperfect sensing and dynamic interactions. To balance spatial expressiveness and computational ef-ficiency, bird’s-eye-view (BEV) representations have been widely adopted, providing a compact projection of 3D en-vironments in which relevant obstacle structures are well captured in near-horizontal slices. Beyond binary occupancy, additional channels can further enhance spatial representation; in particular, Euclidean distance transforms encode obstacle clearance and provide smooth spatial cues for planning and control [9]. In multi-robot systems, cooperative mapping has long been studied as a means to improve coverage and reduce uncertainty through shared spatial information [10]. However, in decen-tralised settings, communication bandwidth and latency remain major constraints, motivating the development of compressed representations and selective information-sharing strategies [11], [12]. 
+
+2) Reinforcement learning, CTDE, and sim-to-real adapta-tion: SAC has become a widely adopted method for contin-uous control due to its off-policy formulation, entropy regu-larisation, and strong empirical stability [6], [7]. In navigation problems, dense reward shaping is often employed to improve learning efficiency, with potential-based shaping providing a principled framework for introducing informative progress signals [13]. In multi-agent settings, centralised training with decentralised execution (CTDE) is commonly used to miti-gate non-stationarity, allowing training-time critics to leverage richer joint information while maintaining decentralised poli-cies at deployment [8], [14]. For UAV guidance, DRL has been applied to tasks such as obstacle avoidance, path planning, and cooperative motion generation. Existing approaches range from reactive policies driven by local sensing to hybrid methods that integrate learned policies with planning structures or imitation signals. While reactive policies can achieve high-frequency collision avoidance, they often struggle in geometrically constrained en-vironments where mid-field spatial context is required. Multi-agent formulations further introduce challenges related to peer interaction, partial observability, and safety constraints, and many existing methods simplify the problem by assuming access to peer states or to a globally consistent map. Bridging the sim-to-real gap remains a major challenge in learned UAV control due to discrepancies in sensing, dynamics, and environmental variability. To address this issue, recent work has explored combining reinforcement learning with demonstrations, corrective supervision, or additional fine-tuning stages to improve transfer robustness [15]–[21]. These studies highlight the effectiveness of incorporating limited real-world data after simulation training, although challenges remain in achieving reliable generalisation in complex and cooperative navigation scenarios. 
+
+C. Present work 
+
+Existing approaches to UAV navigation typically either rely on structured geometric representations for planning or leverage learning-based policies for control. Whilst mapping-based methods provide interpretability and global consistency, they often lack adaptability in dynamic and uncertain envi-ronments. In contrast, learning-based approaches offer greater flexibility but are frequently limited by partial observability and insufficient exploitation of spatial structure. To address these limitations, this work adopts a hybrid perspective that combines the structural advantages of explicit geometric mapping with the adaptability of learned control. Rather than learning directly from raw observations, the pro-posed framework enables multiple UAVs to fuse 360 ◦ LiDAR measurements into a shared world-frame voxel occupancy map, which is subsequently transformed into a compact BEV representation for policy input. A key design principle is the separation between mapping 
+
+and control frames . Spatial information is integrated in a fixed world frame to ensure consistent multi-UAV fusion, while each agent operates on an ego-centric BEV crop aligned with its body frame. This integrate-in-world, act-in-ego formulation reduces the learning burden associated with rotational and translational invariance while preserving a shared and scalable spatial representation. The novelty of this work does not lie in individual com-ponents such as voxel maps, BEV representations, or SAC, but in their integration into a unified cooperative indoor guidance framework. The shared voxel-derived BEV represen-tation serves as a common spatial substrate for decentralised continuous control, enabling multiple UAVs to exploit fused mid-field spatial context without increasing the dimensionality of policy inputs with team size. This results in a system that remains geometrically interpretable, scalable to larger teams, and capable of end-to-end continuous cooperative navigation in cluttered indoor environments. In contrast to prior approaches that primarily utilise shared maps for planning or exploration, the proposed framework employs a shared voxel-derived BEV representation as a uni-fied perception-to-control interface for decentralised learned 3
+
+guidance. Each UAV contributes sensed geometry to a com-mon world-frame representation, whilst each agent consumes only a fixed-size ego-aligned BEV crop together with compact relative state information. This design preserves decentralised execution and prevents the policy input dimensionality from increasing with team size. Building upon our prior work on robust DRL-based UAV guidance and cooperative decision-making in real-world set-tings [22], [23], the present study extends this line of research to cooperative indoor navigation. The proposed framework is validated in both simulation and GNSS-denied real-world flight experiments, demonstrating its effectiveness in complex indoor environments. To further address residual sim-to-real discrepancies en-countered during deployment, an offline adaptation stage is introduced, in which the simulation-trained policy is fine-tuned through behaviour cloning using actions generated by an A* reference controller [17]. This improves transfer robustness whilst preserving the advantages of the learned policy. 
+
+D. Contributions 
+
+The principal contributions of this paper are as follows:  
+
+> •
+
+A cooperative indoor UAV guidance architecture in which multiple drones fuse LiDAR observations into a shared world-frame voxel map, whilst each agent receives a fixed-size ego-aligned BEV crop for decentralised con-tinuous control.  
+
+> •
+
+A compact BEV state representation that augments bi-nary occupancy information with a Euclidean-distance-based clearance channel, thereby providing both obstacle location and a smooth traversability surrogate for policy learning.  
+
+> •
+
+A centralised-training, decentralised-execution multi-agent Soft Actor-Critic controller with decentralised ac-tors and centralised twin critics, together with practical training measures to improve stability during large-scale experience collection and optimisation.  
+
+> •
+
+A simulation study in corridor environments of increasing geometric difficulty, demonstrating that the learned co-operative guidance policy outperforms classical baselines and a prior learned guidance method.  
+
+> •
+
+A real-world deployment of the cooperative guidance framework on two UAVs in a GNSS-denied indoor envi-ronment, including onboard perception, shared-map com-munication, safety-gated execution, and offline adaptation for sim-to-real transfer.  
+
+> •
+
+An offline real-world adaptation procedure based on imitation fine-tuning from an A* reference controller, enabling incremental correction of sim-to-real mismatch and checkpoint-based selection of deployable policies. II. M ETHODOLOGY 
+
+A. Perception and shared map representation 
+
+The perception pipeline converts raw 360° LiDAR mea-surements into compact control-oriented representations at two spatial scales. Near-field obstacle avoidance is supported by a lightweight angular depth feature, whereas mid-field spatial context and multi-agent information sharing are provided through a persistent shared world-frame occupancy map. All mapping is performed in a common world frame using the NED convention. This is necessary for fusing observa-tions from multiple UAVs into a single spatial representation. Immediately before policy inference, a fixed local window is cropped around each agent and rotated into the vehicle body-aligned frame, yielding an integrate-in-world, act-in-ego 
+
+representation. This preserves stable multi-UAV fusion whilst presenting the policy with a task-aligned local view. The LiDAR point cloud is compressed into a fixed-size angular feature tensor represented as inverse depth in [0 , 1] ,where 1 denotes near obstacles and 0 denotes distant returns. To preserve coarse vertical structure without reconstructing full 3D geometry, three elevation bands (below, level, and above) are used where appropriate as shown in Fig 1. To reduce computational cost, dense scans are sub-sampled using fixed strides.   
+
+> Fig. 1. The three inverse depth image bands for low (left), medium (centre), and high (right)
+> Fig. 2. The shared world BEV map used cooperatively between the two drones
+
+The shared world model is maintained as a 3D occupancy grid with resolution 0.25 m per cell. Free space is updated by ray-carving along each measurement ray and occupied space is incremented at the terminal hit cell. For policy input, the 3D grid is projected into a 2D BEV representation by accumulating occupancy within a vertical slice of ±0.5 mabout the vehicle height. A shared world BEV map between the two drones can be found in Fig 2. A Euclidean distance transform over free cells then provides a clearance channel, clipped to a practical range for numerical stability [9]. Each policy therefore receives a two-channel ego-aligned BEV tensor, 
+
+{occupancy , clearance } (1) 4 
+
+> Fig. 3. The ego view fed to the neural network, here right is forward of the drone
+
+cropped to 39 × 39 cells, corresponding to 9.75 × 9.75 m at the chosen resolution. The ego view fed to the neural network is shown in Fig 3. In addition to the map input, each agent receives a compact goal-and-peer state vector: 
+
+g = d, sin θ, cos θ, ∆z, d peer 
+
+ (2) where d is planar goal distance, θ is the ego-frame bearing to the goal, ∆z is vertical error, and dpeer is inter-UAV separation. This provides minimal global context without increasing the dimensionality of the convolutional inputs. 
+
+B. MASAC policy and critic architecture 
+
+To enable stable learning in continuous control with multi-agent interactions, we adopt a multi-agent extension of Soft Actor-Critic (MASAC), which combines entropy-regularised policy optimisation with CTDE. A shared multi-branch actor is used for all agents within the MASAC framework. The actor-critic architecture is shown in Fig 4. The actor processes three input streams: i) angular near-field obstacle features, ii) the ego-aligned BEV map, and iii) the goal-and-peer vector g.The obstacle and BEV branches are encoded by compact con-volutional modules, whilst g is processed by a small multilayer perceptron. The resulting latent features are concatenated and passed through a fusion multilayer perceptron with LayerNorm before being mapped to a Gaussian policy head producing the action mean and log-standard deviation. Actions are squashed through tanh and scaled to the bounded command space of forward velocity, yaw rate, and vertical velocity. Training follows a CTDE formulation. During training, two centralised critics receive the concatenated per-agent latent features and joint actions, and estimate the joint action value. Target critics are maintained using Polyak averaging. During execution, each UAV acts only on its local perception and compact relative state. The SAC target is: 
+
+y = r + γ(1 − done) 
+
+
+
+min  
+
+> m
+
+Q− 
+
+> θm
+
+(s′, a ′) − α log π(a′|s′)
+
+
+
+(3) where α is the entropy temperature and done is the episode-terminal flag [6].                  
+
+> Actor πϕ(per agent)
+> Goal/Peer
+> Obstacle Features ego BEV
+> MLP goal CNN obst CNN BEV
+> Concatenate & fusion MLP
+> Gaussian head
+> μ(z),log σ(z)
+> Tanh activation Action (vx,˙ψ, v z)
+> Centralised critics
+> Per-agent latents {zi}
+> & joint actions {ai}
+> Shared critic trunk (MLP)
+> Twin heads
+> Qθ1(s, a ), Q θ2(s, a )
+> latents ziactions ai
+> Fig. 4. The actor-critic architecture. The actor fuses obstacle features, goal/peer encoding, and ego-centric BEV into a latent representation and a Gaussian action head. A centralised critic receives stacked per-agent latents and joint actions and outputs twin value estimates for SAC.
+
+C. Reward design 
+
+The reward is dense, bounded, and structured to encourage goal-reaching behaviour whilst maintaining safe and smooth flight. For each agent, the reward combines progress towards the goal in the horizontal plane, reduction in vertical error, heading alignment, local clearance, action smoothness, action regularisation, and a soft penalty for violating a minimum inter-UAV separation. Terminal bonuses and penalties are applied for goal completion, collision, out-of-bounds termi-nation, and drone-to-drone contact. 5
+
+The per-agent reward is defined as: 
+
+ri = wxy 
+
+ dt − dt+1 
+
+| {z }
+
+> progress in XY
+
++ wz
+
+ |∆zt| − | ∆zt+1 || {z }
+
+> vertical progress
+
++ wh cos θt+1 
+
+| {z }
+
+> heading
+
++ wc clearance ego 
+
+| {z }
+
+> navigability
+
+− wt
+
+|{z} 
+
+> time
+
+− ws∥at+1 − at∥2
+
+| {z }
+
+> smoothness
+
+− wv ∥at+1 ∥2
+
+| {z }
+
+> speed regulariser
+
+− wnear  
+
+> vz
+
+I(|∆zt+1 | < δ ) v2
+
+> z
+
+| {z }
+
+> vertical discipline
+
+− wwrong  
+
+> vz
+
+I(|∆zt+1 | > δ ) I(sign( vz ) = sign(∆ z)) |vz |
+
+| {z }
+
+> vertical discipline
+
+− wsep ϕ(dpeer )
+
+| {z }
+
+> separation penalty
+
+(4) where: 
+
+ϕ(dpeer ) = 
+
+
+
+max 
+
+
+
+0, dsafe − dσ
+
+ 2
+
+(5) In Eq. 4, dt denotes the planar distance to the goal, 
+
+∆zt = zt − zgoal is the vertical error, and θt+1 is the heading error relative to the goal direction. clearance ego denotes the local obstacle clearance, defined as the minimum distance to nearby obstacles from onboard perception (e.g., LiDAR). The action is at = ( v, ˙ψ, v z ), where vz is the vertical velocity. The parameter δ defines a vertical tolerance band: inside the band, 
+
+v2 
+
+> z
+
+is penalised to stabilise altitude; outside, motion away from the target height is penalised based on sign( vz ) = sign(∆ z).
+
+I(·) denotes the indicator function. In Eq. 5, ϕ(dpeer ) is a smooth hinge penalty that is zero outside the safety radius and increases as agents approach one another. dpeer is the inter-agent distance, with dsafe the minimum safe separation and σ a scaling factor. This design encourages efficient and stable navigation without rewarding unnecessary separation. 
+
+D. Training procedure 
+
+Experience collection and optimisation are decoupled into separate simulation and training threads, as shown in Fig 5. The simulation thread executes both UAVs in AirSim, performs depth preprocessing, updates the shared world map, constructs ego-aligned policy inputs, computes rewards, and appends transitions to an on-disk replay buffer. The training thread samples mini-batches from replay, updates the critics at each optimisation step, updates the actor with a delayed schedule, and applies Polyak averaging to the target networks. To improve training stability, an expert guidance signal is used during early learning. Specifically, policy actions are blended with actions from an expert controller based on APF or A* planning over the BEV map, 
+
+a = βa π + (1 − β)aexpert (6) where aπ ∼ πϕ(· | s) denotes the policy action and aexpert 
+
+is provided by a classical controller (e.g., APF or A*); the blended action is executed during data collection. The coeffi-cient β is gradually annealed from 0 to 1 as replay fills and 
+
+Algorithm 1: Multi-Agent Soft Actor-Critic (MASAC) for Cooperative Drone Guidance 
+
+Input: Initial policy parameters ϕ, critic parameters 
+
+θ1,2, target parameters θ− 
+
+> 1,2
+
+← θ1,2, empty replay buffer D, expert planner πexp 
+
+for each episode do 
+
+Initialize shared world voxel-map M and drone states si
+
+for each timestep t do 
+
+// Simulation Thread: Data Collection 
+
+for each agent i ∈ { 1, . . . , N } do 
+
+Extract ego-centric BEV crop Ci
+
+(occupancy + clearance) from M
+
+Construct state si,t using Ci, angular depth, and goal/peer vector gi
+
+Sample action ai,t ∼ πϕ(·| si,t )
+
+// Expert Action Blending 
+
+aenv i,t ← βa i,t + (1 − β)πexp (si,t )
+
+end 
+
+Execute joint actions aenv t , observe rewards 
+
+{ri,t } and next states {si,t +1 }
+
+Update shared map M with new LiDAR observations Store transition (st, at, rt, st+1 , dt) in D
+
+// Training Thread: Optimisation 
+
+if it is time to update then 
+
+Sample minibatch B ∼ D 
+
+for each agent i do 
+
+Compute target: yi =
+
+ri + γ(1 − di)(min j=1 ,2 Q− 
+
+> θj
+
+(s′, a′) −
+
+α log πϕ(a′
+
+> i
+
+|s′
+
+> i
+
+)) 
+
+Update critics by minimizing 
+
+> 1
+> |B|
+
+P(Qθ1,2 (s, a) − yi)2
+
+end if t (mod delay ) == 0 then 
+
+Update actor ϕ using policy gradient: 
+
+∇ϕJπ (ϕ)
+
+Update entropy coefficient α
+
+Update target networks: 
+
+θ− 
+
+> j
+
+← τ θ j + (1 − τ )θ−
+
+> j
+
+end end 
+
+Anneal blending coefficient β from 0 to 1 
+
+end end 
+
+policy performance improves. Additional stabilisation mea-sures include critic and actor gradient clipping, conservative learning rates, entropy-temperature optimisation, and check-point selection based on policy-only success. The simulation-time training and interaction pipeline of the proposed method is summarised in Algorithm 1. 6
+
+Simulation thread 
+
+Training thread                   
+
+> AirSim environment (multi-drone, LiDAR)
+> Preprocessing depth & poses
+> World fusion 3D grid →BEV ego
+> Expert planner (APF / A* on BEV)
+> Actor πϕ
+> (GPU)
+> Action blend
+> a=βa π+ (1 −β)aexp
+> On-disk replay buffer (memmap, ring buffer)
+> Sample mini-batch
+> (s, a, r, s ′, d )
+> Critics Qθ1, Q θ2
+> update (JQ)
+> Actor update
+> (Jπ)
+> Entropy update
+> αwith floor
+> Target critics Polyak averaging
+> depth, poses
+> rays, shared frame
+> BEV ego ,goals, peers BEV ego ,goals, obst
+> expert action
+> aexp
+> policy action aπ
+> joint actions
+> states st
+> actions at
+> reward rt,infos, done
+> updated πϕ
+> target Q−
+> Fig. 5. Overview of the multi-agent SAC pipeline. The simulation thread runs the AirSim environment, performs depth preprocessing and world fusion, blends expert and policy actions, and writes transitions to an on-disk replay buffer. The training thread samples batches from replay to update the critics, actor, and entropy coefficient, feeding updated parameters back to the simulation thread.
+
+E. Real-world system integration and deployment 
+
+A key contribution of this work is the deployment of the cooperative guidance framework on physical UAVs in GNSS-denied indoor environments. To enable this, the learned controller was embedded within a ROS 2-based onboard autonomy stack interfaced with PX4 through μXRCE. The onboard software handled LiDAR acquisition, depth-feature generation, shared-map construction, inter-UAV communica-tion, safety monitoring, and offboard velocity command gen-eration. Computationally demanding perception and mapping components were implemented in C++ to satisfy real-time execution requirements on the Jetson Orin Nano companion computer. Because the real-world experiments were conducted with-out GNSS, vehicle state estimation was provided by DLIO LiDAR-inertial odometry [24]. The resulting pose estimate was used throughout the autonomy stack for shared-map fusion, goal representation, and closed-loop control. This provided a consistent local reference frame for both individual guidance and cooperative map sharing. Cooperation between UAVs was supported through ex-change of both pose information and batched shared-map updates. In the deployed system, positional information was transmitted at a higher rate than world-map updates, re-flecting practical communication and processing constraints. Each UAV therefore combined its own sensed geometry with peer-provided map information to construct a richer spatial representation than would be available from onboard sensing alone. In real-world deployment, the voxel-based map from Li-DAR observations exhibited noticeable noise, particularly around the drone body, due to sensor artefacts and structural reflections. These spurious returns can degrade both policy inputs and safety checks. To address this, a filtering stage was introduced to suppress such artefacts, as illustrated in Fig 6. The noise filtering results in a more stable and reliable spatial representation for both control and safety mechanisms. To reduce deployment risk, the learned controller oper-ated alongside conservative safety mechanisms. These in-cluded inter-UAV separation checks, LiDAR-based obstacle-proximity gating, and supervised reset procedures during staged validation. These safety layers were essential not only for protecting the hardware, but also for enabling iterative de-bugging and refinement of the cooperative autonomy pipeline during real-world trials. This system integration highlights an important practical result of the study: successful transfer of cooperative DRL from simulation to hardware depends not only on the learned policy, but also on the reliability of the surrounding perception, localisation, communication, and safety infrastructure. 7
+
+(a) Ego voxel map with-out the noise filtering. 
+
+(b) Ego voxel map with the noise filtering. 
+
+> Fig. 6. A comparison of the ego voxel map with and without the noise filtering showing the noise around the drone that effects not only the AI guidance but also why the safety systems need a similar filtering to work.
+
+F. Real-world adaptation 
+
+Although the policy was trained primarily in simulation, initial hardware deployment revealed a residual sim-to-real gap caused by sensing artefacts, actuation latency, calibra-tion mismatch, and environmental differences. To reduce this discrepancy, the simulation-trained actor was further adapted using offline imitation learning on real-world data. During data collection, the learned policy did not directly command the platform. Instead, observations were logged while a conservative A*-based reference controller generated velocity-level actions. Each dataset sample comprised the ego-centric BEV tensor, the angular obstacle-band features, the compact goal-state vector, and the corresponding expert ac-tion. Data were collected across multiple representative arena layouts to improve environmental coverage. The actor was then fine-tuned by behaviour cloning, min-imising: 
+
+LBC (θ) = E(ot,a∗ 
+
+> t)∼D
+
+h
+
+∥πθ (ot) − a∗ 
+
+> t
+
+∥22
+
+i
+
+(7) To preserve the robust behaviour learned in simulation, fine-tuning used a small learning rate and conservative optimisation settings. In practice, the best real-world behaviour was ob-tained early in fine-tuning, with longer optimisation tending to degrade performance. Unless otherwise stated, the real-world results reported in this paper correspond to the best-performing fine-tuned checkpoint. III. E XPERIMENTAL SETUP 
+
+A. Simulation environment and training protocol 
+
+Training and evaluation in simulation were conducted in Unreal Engine 4 using AirSim. The simulated environment comprised a corridor-based suite designed to stress longer-horizon obstacle negotiation, constrained flight, and inter-UAV interaction. Episodes terminated upon goal completion, collision, out-of-bounds violation, or timeout. Training was carried out on a workstation equipped with an NVIDIA RTX A4500 GPU. Approximately 100,000 environ-ment steps were collected over 2,000 episodes. Checkpoints were retained throughout training for subsequent policy selec-tion and evaluation. 
+
+B. Model selection and baselines 
+
+Policy selection followed a two-stage protocol. First, re-tained checkpoints were evaluated across all training corridors, and only policies achieving 100% success on this suite were shortlisted. Secondly, shortlisted policies were assessed on progressively more challenging scenarios, including previously unseen corridor geometries, and the most robust policy was selected for detailed evaluation. The proposed method was compared against three baselines:  
+
+> •
+
+A* planning operating on the world-frame BEV map,  
+
+> •
+
+Artificial Potential Field (APF) control,  
+
+> •
+
+Sapience 1 guidance agent , a prior policy designed primarily for short, near-linear waypoint transitions. 
+
+C. Simulation evaluation 
+
+In simulation, the selected policy was evaluated over ran-domly sampled corridor layouts for a fixed number of trials. A trial was counted as successful only if both UAVs reached their respective goals without collision, timeout, or out-of-bounds termination. This metric was chosen to reflect the cooperative nature of the task, since failure of either platform invalidated the joint mission. 
+
+D. Real-world platform and deployment 
+
+Real-world experiments were conducted in the indoor drone arena at City St George’s, University of London, with approx-imate dimensions of 13 m × 8 m , as shown in Fig 7. The arena was enclosed by safety netting and configured using modular 
+
+1.2 m ×2.4 m wooden wall panels to create repeatable obstacle layouts.  
+
+> Fig. 7. The City St George’s University of London indoor drone flight arena.
+
+The UAV platform was based on a modified Holybro X550v2 frame configured as an octocopter with contra-rotating propellers, as shown in Fig 8. Each vehicle used a Cube Orange+ flight controller running PX4, an NVIDIA Jetson Orin Nano companion computer, an Ouster OS-1 128-line LiDAR, and a Doodle Labs Mesh Rider radio for inter-UAV communication. Typical flight time was approximately 12 minutes using dual 5500 mAh batteries. The onboard autonomy stack was implemented in ROS 2, which handled sensor integration, mapping, inter-process com-munication, and offboard control. LiDAR-inertial odometry was provided by DLIO [24], enabling localisation and map integration in GNSS-denied indoor flight. Conservative safety 8 
+
+> Fig. 8. The octocopter drone layout with the Ouster Lidar on the bottom and the Jetson Orin Nano companion computer on top.
+
+mechanisms were applied throughout deployment, including inter-UAV separation checks, obstacle-proximity gating, and supervised reset procedures during early validation. 
+
+E. Real-world evaluation scenarios 
+
+Real-world testing proceeded incrementally. Initial single-UAV experiments were used to validate perception, mapping, odometry, and safety logic. Two-UAV trials were then intro-duced to verify shared-map fusion and cooperative operation before progressing to obstacle-rich scenarios. Five arena configurations were evaluated: i) an empty arena, ii) a single-panel obstacle, iii) a two-panel layout, iv) a three-panel layout, as shown in Fig 9, and v) a T-shaped course. A run was counted as successful only if the task was completed without collision with obstacles or the peer UAV, without safety-triggered termination, and without manual intervention.  
+
+> Fig. 9. The three-panel course in the arena.
+
+IV. R ESULTS AND DISCUSSION 
+
+A. Simulation performance 
+
+The selected MASAC policy achieved a 90.3% success rate across the simulated corridor evaluation suite (Table I), outperforming all baseline methods. The strongest baseline was A*, which achieved 55.0% success, but its performance was limited by delayed or noisy map updates, infrequent replanning, and conservative treatment of the peer UAV as an obstacle within the shared map. Under these conditions, A* could stall, generate unnecessarily long detours, or produce in-tersecting trajectories when peer-state updates were imperfect. The APF controller performed substantially worse, particu-larly in dead-ends and maze-like layouts, where purely local repulsion and attraction cues provided insufficient look-ahead. The prior Sapience 1 guidance agent also underperformed, reflecting the fact that it was designed primarily for short, near-linear waypoint transitions rather than cooperative long-horizon navigation.                        
+
+> TABLE I SUCCESS RATE ACROSS THE CORRIDOR EVALUATION SUITE .
+> Method Success rate Notes
+> MASAC agent 90.3% Learned multi-input controller using depth, BEV, and relative state A* planner 55.0% Limited by replanning and treatment of peer UAVs as obstacles APF controller 21.5% Local-only; prone to dead-ends and oscillation Sapience 1 agent 30.0% Designed for short waypoint transitions rather than cooper-ative navigation
+
+These results indicate that the combination of shared world-frame fusion, ego-aligned BEV control input, and dense re-ward shaping provides a more robust basis for cooperative in-door navigation than either purely reactive control or classical planning under practical sensing and multi-agent constraints. A representative simulated trajectory is shown in Fig. 10.  
+
+> Fig. 10. Representative trajectory of the selected agent through one of the evaluation corridors.
+
+B. Real-world performance 
+
+Real-world evaluation was conducted after offline imitation-based fine-tuning using state-action pairs labelled by an A*-based reference controller. This adaptation stage was necessary because the simulation-trained policy alone exhibited reduced stability under real sensing and actuation conditions. Fol-lowing fine-tuning, the controller was evaluated in two-UAV operation across five indoor arena configurations of increasing difficulty. A practical constraint during deployment was the shared-map update rate, which operated at approximately 5 Hz, with higher-rate positional exchange between UAVs. During early trials, a defect in the map-fusion pipeline prevented occupancy decay and led to saturation of the shared map over time. After separating the combined and uncombined map streams and restoring temporal decay, the mapping process remained numerically stable and the experimental campaign proceeded successfully. 9
+
+Table II summarises the real-world outcomes. Across all five arena configurations, the system achieved 100% success over 10 trials per course, with both UAVs completing the task without collision, manual intervention, or safety-triggered termination.                  
+
+> TABLE II REAL -WORLD PERFORMANCE ACROSS FIVE INDOOR ARENA CONFIGURATIONS . E ACH COURSE WAS EXECUTED FOR 10 TRIALS WITH TWO UAV S. A SUCCESS IS COUNTED WHEN BOTH UAV S COMPLETE THE OBJECTIVE WITHOUT COLLISION OR MANUAL INTERVENTION .
+> Course Trials Success rate
+> Empty arena 10 100% Single-panel obstacle 10 100% Two-panel obstacle 10 100% Three-panel obstacle 10 100% T-shaped layout 10 100%
+
+In Fig. 11, combined DLIO-derived maps from both UAVs showed that shared perception improved reconstruction of the obstacle layouts beyond what either individual platform could observe alone. As shown in Fig. 12, this was particularly evident in the more constrained courses, where the shared map provided mid-field context that supported route selection before the full obstacle structure was directly visible to a single vehicle.  
+
+> Fig. 11. The combined feature maps from the DLIO packages on both drones.
+> Fig. 12. The benefits of the voxel map sharing can be seen in this image as the entire wall structure is depicted in the voxel map even though it can not all be seen by one drone.
+
+C. Qualitative behavioural observations 
+
+Although all real-world courses were completed success-fully, the different layouts exposed distinct aspects of the controller behaviour. In the empty arena, both UAVs reached their goals efficiently whilst maintaining stable altitude, con-firming nominal goal-seeking behaviour in the absence of obstacles as shown in Fig. 13. In the single-panel and two-panel layouts, both vehicles consistently selected feasible routes around obstacles rather than attempting to force passage through geometrically unsafe gaps, as shown in Fig. 14 and Fig. 15. In particular, the two-panel course showed that the controller did not simply pursue the shortest geometric route, but instead favoured wider and safer trajectories when the central gap was below the practical traversal width of the platform. The three-panel layout provided the clearest evidence of cooperative interaction in constrained geometry. In this sce-nario, one UAV temporarily held position while the other cleared the narrow passage, after which it resumed progress towards its own goal, as shown in Fig. 16 and Fig. 17. This behaviour was not imposed by an explicit sequencing module, but emerged from the combination of shared-map fusion, inter-UAV separation logic, and learned continuous control. In the T-shaped layout, the two UAVs selected opposite routes around the obstacle structure, again consistent with cooperative operation under shared perception, as shown in Fig. 18.      
+
+> Fig. 13. The top-down view of the initial test of the multi-drone deployment in the open arena with no obstacles. The drones move towards the target points in an efficient manner.
+> Fig. 14. The top-down view of the one-panel obstacle flight. Some obstacle avoidance behaviour is shown. 10
+> Fig. 15. The top-down view of the two obstacle flight. The gap between the panels is not large enough to fly a drone through safely, so the drones avoid it. The path shows the safety measure built into the software, pushing Drone B wider due to an abundance of caution.
+> Fig. 16. The top-down view of the flight path of the three-panel obstacle course. Drone A can be seen to hold while Drone B is navigating the gap.
+> Fig. 17. The isometric view of the three-panel obstacle course with the two drones path through it.
+> Fig. 18. Top-down view of the two drones flying around the T-shaped obstacle used in previous studies.
+
+D. Deployment lessons and limitations 
+
+The real-world experiments highlight several lessons that are less visible in simulation. First, modest offline adaptation using real-world state-action data was important for stable transfer from simulation to hardware. Secondly, shared-map fusion must be engineered carefully: communication-limited update rates and numerical artefacts in occupancy accumula-tion can materially affect behaviour if not handled correctly. Thirdly, conservative safety gating improved robustness during deployment, but could also induce avoidable detours when thresholds were set aggressively. The results demonstrate that the proposed framework can support reliable cooperative indoor UAV guidance in GNSS-denied environments, but several limitations remain. The cur-rent study considers two UAVs and a predominantly planar BEV representation. Scaling to larger teams and more ver-tically complex environments will likely require more effi-cient communication, richer 3D spatial representations, and tighter integration between learned control and deployment-time safety mechanisms. In addition, take-off transients re-mained a practical challenge in some runs, indicating a need for more explicit handling of early-flight stabilisation in future work. V. C ONCLUSION 
+
+This paper presented a cooperative indoor UAV guidance framework that combines a shared voxel-map world model with a multi-agent Soft Actor-Critic controller. Multiple UAVs fuse LiDAR observations into a shared world-frame represen-tation, from which each agent receives an ego-aligned bird’s-eye-view crop containing occupancy and clearance informa-tion for decentralised continuous control. This design couples explicit geometric structure with learned cooperative guidance, providing a scalable spatial substrate for multi-UAV navigation in cluttered indoor environments. In simulation, the proposed method outperformed classical baselines, demonstrating that shared map-based intermediate representations can support more robust cooperative navigation than purely reactive control or conventional planning under 11 
+
+practical sensing and multi-agent constraints. Real-world ex-periments in a GNSS-denied indoor arena further showed that, after modest offline imitation-based adaptation, the proposed framework could support stable two UAV operation across progressively more challenging obstacle layouts. The results also highlighted the importance of system-level factors such as shared-map stability, communication constraints, and safety-gated deployment when transferring learned cooperative con-trol from simulation to hardware. The results highlight that successful cooperative DRL deployment depends not only on policy learning, but also on the fidelity and numerical stability of the shared representation used at run time. Overall, the study shows that shared voxel/BEV mapping combined with decentralised learned control is a practical and effective approach for cooperative indoor UAV guidance. Future work will focus on scaling to larger teams, extending the representation to more fully 3D environments, and im-proving robustness to deployment time effects such as take-off transients, localisation drift, and map update latency. REFERENCES [1] P. E. Hart, N. J. Nilsson, and B. Raphael, “A formal basis for the heuristic determination of minimum cost paths,” IEEE transactions on Systems Science and Cybernetics , vol. 4, no. 2, pp. 100–107, 1968. [2] H. Moravec and A. Elfes, “High resolution maps from wide angle sonar,” in Proceedings. 1985 IEEE international conference on robotics and automation , vol. 2. IEEE, 1985, pp. 116–121. [3] S. Thrun, “Probabilistic robotics,” Communications of the ACM , vol. 45, no. 3, pp. 52–57, 2002. [4] A. Hornung, K. M. Wurm, M. Bennewitz, C. Stachniss, and W. Burgard, “Octomap: An efficient probabilistic 3d mapping framework based on octrees,” Autonomous robots , vol. 34, no. 3, pp. 189–206, 2013. [5] O. Khatib, “Real-time obstacle avoidance for manipulators and mobile robots,” The international journal of robotics research , vol. 5, no. 1, pp. 90–98, 1986. [6] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor,” in International conference on machine learning . Pmlr, 2018, pp. 1861–1870. [7] T. Haarnoja, A. Zhou, K. Hartikainen, G. Tucker, S. Ha, J. Tan, V. Ku-mar, H. Zhu, A. Gupta, P. Abbeel et al. , “Soft actor-critic algorithms and applications,” arXiv preprint arXiv:1812.05905 , 2018. [8] R. Lowe, Y. I. Wu, A. Tamar, J. Harb, O. Pieter Abbeel, and I. Mordatch, “Multi-agent actor-critic for mixed cooperative-competitive environ-ments,” Advances in neural information processing systems , vol. 30, 2017. [9] P. F. Felzenszwalb and D. P. Huttenlocher, “Distance transforms of sampled functions,” Theory of computing , vol. 8, no. 1, pp. 415–428, 2012. [10] W. Burgard, M. Moors, C. Stachniss, and F. E. Schneider, “Coordinated multi-robot exploration,” IEEE Transactions on Robotics , vol. 21, no. 3, pp. 376–386, 2005. [11] J. Bayer and J. Faigl, “Decentralized multi-robot exploration under low-bandwidth communications,” Autonomous Robots , vol. 50, no. 1, p. 7, 2026. [12] W. Zhang, L. Cheng, X. Xu, and Z. Hu, “Reducing bandwidth usage in cvslam: A novel approach to map point selection and efficient data compression,” Journal of Advanced Computational Intelligence and Intelligent Informatics , vol. 28, no. 5, pp. 1154–1163, 2024. [13] A. Y. Ng, Shaping and policy search in reinforcement learning . Uni-versity of California, Berkeley, 2003. [14] J. Su, S. Adams, and P. Beling, “Value-decomposition multi-agent actor-critics,” in Proceedings of the AAAI conference on artificial intelligence ,vol. 35, no. 13, 2021, pp. 11 352–11 360. [15] J. Xing, A. Romero, L. Bauersfeld, and D. Scaramuzza, “Bootstrapping reinforcement learning with imitation for vision-based agile flight,” 
+
+arXiv preprint arXiv:2403.12203 , 2024. [16] B. Joshi, D. Kapur, and H. Kandath, “Sim-to-real deep reinforcement learning based obstacle avoidance for uavs under measurement uncer-tainty,” in 2024 10th International Conference on Automation, Robotics and Applications (ICARA) . IEEE, 2024, pp. 278–284. [17] Y. Jiang, C. Wang, R. Zhang, J. Wu, and L. Fei-Fei, “Transic: Sim-to-real policy transfer by learning from online correction,” in Conference on Robot Learning . PMLR, 2025, pp. 1691–1729. [18] M. Torne, A. Simeonov, Z. Li, A. Chan, T. Chen, A. Gupta, and P. Agrawal, “Reconciling reality through simulation: A real-to-sim-to-real approach for robust manipulation,” arXiv preprint arXiv:2403.03949 , 2024. [19] S. Cheng, L. Ma, Z. Chen, A. Mandlekar, C. Garrett, and D. Xu, “Generalizable domain adaptation for sim-and-real policy co-training,” 
+
+arXiv preprint arXiv:2509.18631 , 2025. [20] P. Yin, T. Westenbroek, S. Bagaria, K. Huang, C.-a. Cheng, A. Kobolov, and A. Gupta, “Rapidly adapting policies to the real world via simulation-guided fine-tuning,” arXiv preprint arXiv:2502.02705 , 2025. [21] L. Ankile, Z. Jiang, R. Duan, G. Shi, P. Abbeel, and A. Nagabandi, “Residual off-policy rl for finetuning behavior cloning policies,” arXiv preprint arXiv:2509.19301 , 2025. [22] T. Hickling, N. Aouf, and P. Spencer, “Robust adversarial attacks detection based on explainable deep reinforcement learning for uav guidance and planning,” IEEE Transactions on Intelligent Vehicles ,vol. 8, no. 10, pp. 4381–4394, 2023. [23] T. Hickling, M. Hogan, A. Tammam, and N. Aouf, “Deep rein-forcement learning based autonomous decision-making for cooperative uavs: A search and rescue real world application,” arXiv preprint arXiv:2502.20326 , 2025. [24] K. Chen, R. Nemiroff, and B. T. Lopez, “Direct lidar-inertial odometry: Lightweight lio with continuous-time motion correction,” in 2023 IEEE International Conference on Robotics and Automation (ICRA) . IEEE, 2023, pp. 3983–3989.

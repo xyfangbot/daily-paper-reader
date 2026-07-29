@@ -6,126 +6,100 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-28
-- 运行时间：2026-07-29 06:28:43 Asia/Shanghai
+- 最新运行日期：2026-07-29
+- 运行时间：2026-07-30 06:26:25 Asia/Shanghai
 - 运行状态：成功
-- 本次总论文数：34
-- 精读区：19
+- 本次总论文数：26
+- 精读区：11
 - 速读区：15
 
 ### 今日简报（AI）
-今日机器人强化学习研究聚焦四足机器人扭矩驱动控制与多无人机安全载荷运输，均实现高分突破。
-
-两篇9分精读值得关注：力矩驱动强化学习提升四足运动效率，CBF结合零样本Sim2Real实现多无人机安全运输。
-
-建议普通读者重点追踪Sim2Real迁移与安全强化学习方法，尤其关注人形机器人VLA闭环验证与自适应控制新策略。
-- 详情：[/202607/28/README](/202607/28/README)
+1) 今日精读聚焦机器人实时执行与物理引导策略学习，速读涉足水下导航与运动控制新方法。  
+2) 最值得关注的是《FutureRTC》的预期条件动作分块和《DeVA》的物理引导解耦模型，均获9.0高分。  
+3) 建议进一步关注动作分块与物理先验结合的实际部署效果，同时留意离线层次分块方法的可迁移性。
+- 详情：[/202607/29/README](/202607/29/README)
 
 ### 精读区论文标签
-1. [Towards Torque-Driven Reinforcement Learning for Quadruped Locomotion](/202607/28/2607.18365v1-towards-torque-driven-reinforcement-learning-for-quadruped-locomotion)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：强化学习扭矩控制用于四足机器人运动
-2. [Safe and Scalable Multi-Drone Payload Transport via CBF-based Reinforcement Learning with Zero-Shot Sim-to-Real Transfer](/202607/28/2607.20665v1-safe-and-scalable-multi-drone-payload-transport-via-cbf-based-reinforcement-learning-with-zero-shot-sim-to-real-transfer)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：强化学习用于无人机路径规划与控制
-3. [WCM: World-Cognition Model for Generalizable Human-Robot Interaction](/202607/28/2607.22999v1-wcm-world-cognition-model-for-generalizable-human-robot-interaction)  
+1. [FutureRTC: Real-Time Robot Execution with Anticipatory-Conditioned Action Chunking](/202607/29/2607.24008v1-futurertc-real-time-robot-execution-with-anticipatory-conditioned-action-chunking)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：VLA策略异步执行与预测条件动作块
+2. [DeVA: Decoupled Video-Action Model with physical guidance for robot policy learning](/202607/29/2607.24159v1-deva-decoupled-video-action-model-with-physical-guidance-for-robot-policy-learning)  
    标签：评分：9.0/10、query:world-model
-   evidence：基于世界模型的规划器和VLA用于人机交互
-4. [Actuator-Aware Spatiotemporal Tube Synthesis for Temporal Reach-Avoid-Stay Tasks](/202607/28/2607.23040v1-actuator-aware-spatiotemporal-tube-synthesis-for-temporal-reach-avoid-stay-tasks)  
-   标签：评分：9.0/10、query:topic
-   evidence：伯恩斯坦多项式参数化用于时空管合成
-5. [Towards Dual-Brain Minimal Sufficient Representation for Vision-Language Navigation](/202607/28/2607.23181v1-towards-dual-brain-minimal-sufficient-representation-for-vision-language-navigation)  
+   evidence：解耦视频-动作模型，包含物理引导，用于机器人策略学习
+3. [Room-Mediated Co-occurrence for Zero-Shot Object-Centric Semantic Navigation via Frontier Scoring](/202607/29/2607.25448v1-room-mediated-co-occurrence-for-zero-shot-object-centric-semantic-navigation-via-frontier-scoring)  
    标签：评分：9.0/10、query:vtt
-   evidence：视觉语言导航，最小充分表示
-6. [MemVLN: Episodic and Procedural Memory for Vision-and-Language Navigation](/202607/28/2607.23504v1-memvln-episodic-and-procedural-memory-for-vision-and-language-navigation)  
-   标签：评分：9.0/10、query:vtt
-   evidence：使用情节性和程序性记忆的视觉语言导航
-7. [$N_0$-VTLA: Scaling Vision-Tactile-Language-Action Model with Latent Tactile Tokens](/202607/28/2607.23782v1-n0-vtla-scaling-vision-tactile-language-action-model-with-latent-tactile-tokens)  
+   evidence：具身AI中的物体目标导航
+4. [CoTinyVLA: Chain-of-Thought Distillation for a Sub-Billion-Parameter Vision-Language-Action Model](/202607/29/2607.25487v1-cotinyvla-chain-of-thought-distillation-for-a-sub-billion-parameter-vision-language-action-model)  
    标签：评分：9.0/10、query:vla-robotics
-   evidence：用于机器人操控的视觉-触觉-语言-动作基础模型
-8. [$N_0$-TWAM: Scaling Tactile-Native World-Action Model for Contact-Rich Manipulation](/202607/28/2607.23783v1-n0-twam-scaling-tactile-native-world-action-model-for-contact-rich-manipulation)  
+   evidence：十亿参数以下的VLA模型，使用思维链蒸馏
+5. [A Causality-aware Infer-diagnose-refine Framework for Test-time Modality Adaptation in VLA Models](/202607/29/2607.25516v1-a-causality-aware-infer-diagnose-refine-framework-for-test-time-modality-adaptation-in-vla-models)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：VLA模型测试时模态适应的因果框架
+6. [Shared Voxel-Map-Based Cooperative Indoor UAV Guidance with a Multi-Agent Soft Actor-Critic Controller](/202607/29/2607.25728v1-shared-voxel-map-based-cooperative-indoor-uav-guidance-with-a-multi-agent-soft-actor-critic-controller)  
+   标签：评分：9.0/10、query:rl-robotics
+   evidence：多智能体SAC用于室内无人机协同导航
+7. [Cooperative Multi-UAV Navigation in Complex Environments via Systematic Multi-Agent Deep Reinforcement Learning](/202607/29/2607.25754v1-cooperative-multi-uav-navigation-in-complex-environments-via-systematic-multi-agent-deep-reinforcement-learning)  
+   标签：评分：9.0/10、query:rl-robotics
+   evidence：多智能体深度强化学习用于无人机导航
+8. [HiFi-UMI: Learning Deployable Manipulation Policies from High-Fidelity UMI Data Alone](/202607/29/2607.25895v1-hifi-umi-learning-deployable-manipulation-policies-from-high-fidelity-umi-data-alone)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：机器人操作的模仿学习
+9. [SAM3D-Guided Object-Centric Representation Alignment for Vision-Language-Action Models](/202607/29/2607.25912v1-sam3d-guided-object-centric-representation-alignment-for-vision-language-action-models)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：VLA模型结合3D对象对齐
+10. [DC-WAM: Dynamic-Centric Visual Supervision and Reasoning for World-Action Models](/202607/29/2607.25918v1-dc-wam-dynamic-centric-visual-supervision-and-reasoning-for-world-action-models)  
    标签：评分：9.0/10、query:world-model
-   evidence：触觉原生世界动作模型用于接触丰富操作
-9. [A Few Words Go a Long Way: Language Guided Robot Policy Synthesis](/202607/28/2607.23784v1-a-few-words-go-a-long-way-language-guided-robot-policy-synthesis)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：语言引导的机器人策略合成与模块化程序架构
-10. [WorldDiT: A Unified Diffusion Architecture for World and Action Modeling](/202607/28/2607.23909v1-worlddit-a-unified-diffusion-architecture-for-world-and-action-modeling)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：用于机器人操控的世界与动作统一扩散Transformer
-11. [Bridging Reinforcement Learning and Optimal Control via Feasible Action Mapping](/202607/28/2607.23930v1-bridging-reinforcement-learning-and-optimal-control-via-feasible-action-mapping)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：结合强化学习和最优控制处理约束动态系统
-12. [LeapBot-WA: World-Anchor Action Models via Predictive Latent Alignments](/202607/28/2607.23969v1-leapbot-wa-world-anchor-action-models-via-predictive-latent-alignments)  
+   evidence：动态中心视觉监督的世界行动模型，与机器人世界模型相关
+11. [INTACT: Isomorphic Intent-to-Action Learning for Search-Free World Models](/202607/29/2607.26056v1-intact-isomorphic-intent-to-action-learning-for-search-free-world-models)  
    标签：评分：9.0/10、query:world-model
-   evidence：基于预测潜在对齐的世界锚点动作模型
-13. [Learning Reusable Hybrid Motion Priors for Humanoid Locomotion from Motion Imitation](/202607/28/2607.24083v1-learning-reusable-hybrid-motion-priors-for-humanoid-locomotion-from-motion-imitation)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：通过强化学习为双足运动生成可复用混合运动先验
-14. [A Motion-Aware Vector Quantization Framework with Centroid Reuse for Efficient VLA Inference](/202607/28/2607.24148v1-a-motion-aware-vector-quantization-framework-with-centroid-reuse-for-efficient-vla-inference)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：通过向量量化加速VLA模型推理
-15. [Secrecy Energy Efficiency for IRS-Assisted Low-Altitude Communications: A D3QN-PER Based Approach](/202607/28/2607.24183v1-secrecy-energy-efficiency-for-irs-assisted-low-altitude-communications-a-d3qn-per-based-approach)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：基于强化学习的无人机轨迹优化以提升安全能效
-16. [Learning Adaptive Multi-Task Guidance, Navigation, and Control via Hypernetworks](/202607/28/2607.24292v1-learning-adaptive-multi-task-guidance-navigation-and-control-via-hypernetworks)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：多任务强化学习用于自由飞行机器人制导导航控制
-17. [PAC-DP: PAC-Bayesian Diffusion Policy Learning](/202607/28/2607.24296v1-pac-dp-pac-bayesian-diffusion-policy-learning)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：基于PAC-Bayes的扩散策略正则化用于机器人操作
-18. [τ: Learning Touch-Augmented Vision-Language-Action Models from Future Visual Supervision](/202607/28/2607.24485v1--learning-touch-augmented-vision-language-action-models-from-future-visual-supervision)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：触觉增强的视觉-语言-动作模型用于机器人操作
-19. [Data Pyramid for Embodied Manipulation](/202607/28/2607.24744v1-data-pyramid-for-embodied-manipulation)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：用于具身基础模型的数据金字塔
+   evidence：通过从轨迹中同构意图到动作学习实现无搜索世界模型
 
 ### 速读区论文标签
-1. [Closing the Loop in Humanoid VLA: Persistent 3D Object Tokens for Verifiable Loco-Manipulation](/202607/28/2607.18016v2-closing-the-loop-in-humanoid-vla-persistent-3d-object-tokens-for-verifiable-loco-manipulation)  
+1. [Offline RL with Hierarchical Action Chunking](/202607/29/2607.20834v1-offline-rl-with-hierarchical-action-chunking)  
    标签：评分：8.0/10、query:rl-robotics
-   evidence：人形机器人VLA用于移动操作，持续性对象标记
-2. [Robostral Navigate](/202607/28/2607.20785v2-robostral-navigate)  
+   evidence：离线目标条件强化学习结合层级动作块，用于长时域机器人任务
+2. [Strategic Inference of Adversarial Navigation Objectives for Unmanned Underwater Vehicles](/202607/29/2607.21945v1-strategic-inference-of-adversarial-navigation-objectives-for-unmanned-underwater-vehicles)  
+   标签：评分：8.0/10、query:topic
+   evidence：基于Hamilton-Jacobi的时间最优路径推断，用于对抗水下导航
+3. [PRISM: Polynomial Representations for Interaction-Structured Motor Control](/202607/29/2607.23473v1-prism-polynomial-representations-for-interaction-structured-motor-control)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：多项式策略表示用于电机控制，与强化学习控制人形机器人相关
+4. [MOJITO: Modal Joint Learning for Unified End-to-End Autonomous Driving](/202607/29/2607.23511v1-mojito-modal-joint-learning-for-unified-end-to-end-autonomous-driving)  
+   标签：评分：8.0/10、query:world-model
+   evidence：自动驾驶世界模型
+5. [Hybrid Advantage Estimation with Unified Critic for VLM Agentic Reinforcement Learning](/202607/29/2607.23605v1-hybrid-advantage-estimation-with-unified-critic-for-vlm-agentic-reinforcement-learning)  
+   标签：评分：8.0/10、query:rl-robotics
+   evidence：面向VLM代理强化学习的混合优势估计
+6. [Memory for Attention: Language-Conditioned Re-Perception with a Vision--Language--Motion Map](/202607/29/2607.23797v1-memory-for-attention-language-conditioned-re-perception-with-a-vision--language--motion-map)  
    标签：评分：8.0/10、query:vtt
-   evidence：8B视觉语言模型用于单目RGB航点预测导航
-3. [Deep Reinforcement Learning for Adaptive Gain Tuning in Control of Teleoperation Manipulators with Joint Flexibility and Time-Varying Delays](/202607/28/2607.21145v1-deep-reinforcement-learning-for-adaptive-gain-tuning-in-control-of-teleoperation-manipulators-with-joint-flexibility-and-time-varying-delays)  
+   evidence：使用视觉-语言-运动图进行语言条件机器人导航和重感知
+7. [Co-planning of Flight Corridors and Communication Infrastructure for Urban Drone Logistics Networks](/202607/29/2607.23989v1-co-planning-of-flight-corridors-and-communication-infrastructure-for-urban-drone-logistics-networks)  
    标签：评分：8.0/10、query:rl-robotics
-   evidence：深度强化学习用于遥控操作机械臂的自适应控制
-4. [Safe Learning Predictive Control for Ego-World Robotic Systems](/202607/28/2607.22225v1-safe-learning-predictive-control-for-ego-world-robotic-systems)  
-   标签：评分：8.0/10、query:rl-robotics
-   evidence：用于机器人导航的安全学习预测控制
-5. [Real2Sim2Real for Vision-Language-Action Manipulation: An AMD ROCm-Based Pipeline](/202607/28/2607.22997v1-real2sim2real-for-vision-language-action-manipulation-an-amd-rocm-based-pipeline)  
-   标签：评分：8.0/10、query:vla-robotics
-   evidence：基于AMD硬件的VLA操控流水线，包含Real2Sim2Real工作流
-6. [Odin: Primitive-Level Synchronization for Distributed Point-Based Neural Rendering](/202607/28/2607.19893v1-odin-primitive-level-synchronization-for-distributed-point-based-neural-rendering)  
-   标签：评分：7.0/10、query:world-model
-   evidence：面向具身AI和世界模型管线的分布式点云神经渲染
-7. [Learning Diverse Humanoid Tasks via Synthetic Video Scenarios without Real World Data](/202607/28/2607.21648v1-learning-diverse-humanoid-tasks-via-synthetic-video-scenarios-without-real-world-data)  
+   evidence：组合多臂老虎机用于无人机飞行走廊与通信基础设施联合规划
+8. [Model Predictive Planner for UAV Navigation in Non-Convex Air Corridors](/202607/29/2607.24369v1-model-predictive-planner-for-uav-navigation-in-non-convex-air-corridors)  
+   标签：评分：8.0/10、query:topic
+   evidence：无人机非凸走廊中的MPC规划
+9. [Optimal Reward Shaping: Autonomous Car Parking Case Study](/202607/29/2607.23617v1-optimal-reward-shaping-autonomous-car-parking-case-study)  
    标签：评分：7.0/10、query:rl-robotics
-   evidence：合成视频场景用于人形机器人任务学习
-8. [Zero-Shot Mission-Level Evaluation for Aerial MLLM Agents](/202607/28/2607.22014v1-zero-shot-mission-level-evaluation-for-aerial-mllm-agents)  
-   标签：评分：7.0/10、query:vtt
-   evidence：空中MLLM代理的基准测试，包含导航和规划
-9. [One Hand Watches The Other: Dynamic Multi-Agent Cooperation for Sample-Efficient Bimanual Manipulation in Dynamic Environments](/202607/28/2607.22119v1-one-hand-watches-the-other-dynamic-multi-agent-cooperation-for-sample-efficient-bimanual-manipulation-in-dynamic-environments)  
+   evidence：强化学习奖励整形在自动驾驶泊车中的应用
+10. [Bridging Reinforcement Learning and Optimal Control via Feasible Action Mapping](/202607/29/2607.23930v1-bridging-reinforcement-learning-and-optimal-control-via-feasible-action-mapping)  
+   标签：评分：7.0/10、query:rl-robotics
+   evidence：通过可行动作映射整合强化学习与最优控制用于约束动态系统
+11. [ArmnetBench v0.1: Parallel Real-World Evaluation of Manipulation Policies on a Low-Cost Arm Farm](/202607/29/2607.24481v1-armnetbench-v01-parallel-real-world-evaluation-of-manipulation-policies-on-a-low-cost-arm-farm)  
    标签：评分：7.0/10、query:vla-robotics
-   evidence：多流机器人操控策略用于双臂协调
-10. [False Prophets: On the Security of World Models in Agentic Systems](/202607/28/2607.23147v1-false-prophets-on-the-security-of-world-models-in-agentic-systems)  
-   标签：评分：7.0/10、query:world-model
-   evidence：代理系统中世界模型的安全性分析
-11. [Conservative Query and Adaptive Regularization for Offline RL Under Uncertainty Estimation](/202607/28/2607.19199v1-conservative-query-and-adaptive-regularization-for-offline-rl-under-uncertainty-estimation)  
+   evidence：机器人操作策略评估基准，与VLA评估相关
+12. [P3: Probabilistic Policy Propagation for Stable VAE-Based Robot Learning](/202607/29/2607.25541v1-p3-probabilistic-policy-propagation-for-stable-vae-based-robot-learning)  
+   标签：评分：7.0/10、query:rl-robotics
+   evidence：强化学习与机器人学习结合，提出概率策略传播
+13. [A Self-Evolving Default Action for Cooperative Tasks with Continuous Action Space](/202607/29/2607.18597v2-a-self-evolving-default-action-for-cooperative-tasks-with-continuous-action-space)  
    标签：评分：6.0/10、query:rl-robotics
-   evidence：离线强化学习结合不确定性估计，可应用于机器人学习
-12. [Offline RL with Hierarchical Action Chunking](/202607/28/2607.20834v1-offline-rl-with-hierarchical-action-chunking)  
+   evidence：连续动作多智能体强化学习，可应用于多机器人系统
+14. [A Self-Evolving Default Action for Cooperative Tasks with Continuous Action Space](/202607/29/2607.18597v3-a-self-evolving-default-action-for-cooperative-tasks-with-continuous-action-space)  
    标签：评分：6.0/10、query:rl-robotics
-   evidence：面向长程任务的离线分层动作分块强化学习
-13. [CommandLM: Data driven behavior level descriptor for ego vehicles](/202607/28/2607.22078v1-commandlm-data-driven-behavior-level-descriptor-for-ego-vehicles)  
-   标签：评分：6.0/10、query:world-model
-   evidence：自动驾驶行为描述，可用于世界模型规划
-14. [ObsDriveBench: Benchmarking Multimodal Understanding under Adverse Weather with Observability Awareness](/202607/28/2607.23537v1-obsdrivebench-benchmarking-multimodal-understanding-under-adverse-weather-with-observability-awareness)  
-   标签：评分：6.0/10、query:world-model
-   evidence：恶劣天气下自动驾驶多模态理解基准
-15. [B-spline shaping for low-thrust interplanetary rendezvous](/202607/28/2607.23790v1-b-spline-shaping-for-low-thrust-interplanetary-rendezvous)  
-   标签：评分：6.0/10、query:topic
-   evidence：B样条参数化用于轨迹优化
+   evidence：多智能体强化学习，连续动作，可用于机器人控制
+15. [KAI: A Kinematic-Aware Interface for Data-Efficient Articulated Object Manipulation](/202607/29/2607.24493v1-kai-a-kinematic-aware-interface-for-data-efficient-articulated-object-manipulation)  
+   标签：评分：6.0/10、query:vla-robotics
+   evidence：通过运动学感知接口提升铰接物体操作的数据效率，与模仿学习相关
 
 
 <div class="dpr-home-promo-card">

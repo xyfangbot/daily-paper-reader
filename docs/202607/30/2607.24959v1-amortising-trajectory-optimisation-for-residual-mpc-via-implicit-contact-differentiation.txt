@@ -1,0 +1,573 @@
+Title: Amortising Trajectory Optimisation for Residual MPC via Implicit Contact Differentiation
+
+URL Source: https://arxiv.org/pdf/2607.24959v1
+
+Published Time: Wed, 29 Jul 2026 00:13:42 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+> arXiv:2607.24959v1 [cs.RO] 27 Jul 2026
+
+# Amortising Trajectory Optimisation for Residual MPC via Implicit Contact Differentiation 
+
+Daniel Layeghi 1* , Thomas Corbères 1* , Calum Arnott 1† , Aditya Kamireddypalli 1,Hashim Al-Obaidi 1, Steve Tonneau 1, Michael Mistry 1 
+
+> Fig. 1. Examples of trajectories solved across different scenarios with our framework.
+
+Abstract — Differentiable simulation can accelerate contact-rich trajectory optimisation by exposing local sensitivities of task outcomes to controls. Existing approaches either use finite differences, which are expensive and step-size sensitive; differentiate iterative contact solvers by unrolling automatic differentiation (AD), which stores a growing computation trace; or require intricate, solver-specific KKT sensitivity derivations. We introduce an AD-assisted implicit derivative for regularised smooth contacts and apply it to Mujoco MJX, based on the Implicit Function Theorem (IFT). The method differentiates the stationarity residual at the tolerance-converged solution, avoiding both solver unrolling and hand-assembled KKT systems. IFT keeps compiled temporary memory nearly constant with solver effort, changing by less than 4% from one to ten iterations versus 10.6× growth for unrolled AD. IFT memory grows slower with active contacts and model dimension, using 20× less memory at 256 contacts and 6× less at 16 contacts and 96 DoF. We further introduce optimiser distillation for residual MPC, amortising batched full-horizon iLQR into a policy that guides short-horizon residual iLQR. Across Finger, Franka, and Unitree, this raises six-step success by 28-98 percentage points over standard iLQR. 
+
+I. I NTRODUCTION 
+
+Differentiable simulation connects contact-rich planning and learning. Local derivatives show how controls affect future task outcomes, enabling trajectory optimisation. In many cases optimised trajectories are used to supervise policies, amortising expensive task-specific computation across initial conditions and goals. Scaling this pipeline is difficult because contact is com-monly resolved by an iterative constrained solve. Under standard unrolled reverse-mode automatic differentiation  
+
+> 1School of Informatics, University of Edinburgh, Scotland.
+> *These authors contributed equally.
+> †Corresponding author: c.r.arnott@ed.ac.uk .
+
+(AD), every solver iteration becomes part of the backward trace for each contacted step and trajectory. Tightening the contact solution therefore consumes more memory and leaves room for fewer parallel trajectories; truncating it saves memory but differentiates an under-solved contact response. Rematerialisation reduces stored intermediates by replaying the (K)-step solver during the backward pass, so its computation still grows with solver effort. This creates a convergence–parallelism trade-off. We address this trade-off with a residual-based implicit derivative for regularised smooth contact. Using the Implicit Function Theorem (IFT), we derive the local sensitivity of the tolerance-converged contact solution and instantiate it in Mujoco MJX without changing the forward solver. We compare its gradient agreement and memory scaling with finite differences and unrolled AD as solver effort, active contacts, and generalized velocity dimension increase. The derivative is local to fixed smooth contact regions and may change across contact-set or friction-mode transitions. We then use this scalability to introduce optimizer distilla-tion for residual MPC. Batched full-horizon iLQR generates and continually refreshes contact-rich teacher trajectories, whose optimized actions are distilled into a policy. At deployment, the policy provides the long-horizon nominal action, while short-horizon residual iLQR supplies local model-based corrections. We evaluate how this amortization changes the success rate and planning-horizon trade-off relative to standard iLQR on Finger, Franka, and Unitree. 
+
+Contributions. (1) We introduce an AD-assisted implicit backward pass for the stationarity residual of MJX’s regu-larised contact solve. It leaves the forward solver unchanged, avoids hand-assembled KKT sensitivities, and removes solver-iteration-dependent reverse-mode storage. (2) We validate whole-rollout gradients against central finite differences, showing that IFT matches AD and FD in accuracy at high iteration counts while substantially outperforming them in compiled temporary memory across solver iterations, active contacts, and generalised velocity dimension. We use the resulting derivatives in batched full-horizon trajectory optimisation. (3) We distil full-horizon optimised actions into a policy paired with short-horizon residual iLQR, and evaluate closed-loop behaviour on Finger, Franka, and Unitree. We release the implementation as open source. 1
+
+> 1https://github.com/calumarnott/mujoco
+
+II. B ACKGROUND 
+
+A contact-rich simulator step is often defined by an iterative numerical solve rather than an explicit transition map. Its derivative therefore depends on whether one differentiates the executed solver trace or the converged solution. We review three areas relevant to this distinction: modular implicit differentiation, differentiable contact simulation and batched trajectory optimisation, and optimiser distillation for policy-guided MPC. 
+
+A. Implicit differentiation as a modular solver interface 
+
+Optimisation layers differentiate solutions through opti-mality conditions rather than through the iterations used to compute them. OptNet differentiates quadratic programs through their Karush–Kuhn–Tucker (KKT) system, while dif-ferentiable convex-programming layers canonicalise broader problem classes to cone programs and differentiate the resulting solution map [ 1], [ 2]. These methods are general within their supported problem classes, but their backward passes require an explicitly represented optimisation problem. Modular implicit-differentiation frameworks instead sep-arate the forward solver from its derivative. Blondel et al. [ 3] use a user-defined root, fixed-point, or optimality map and apply automatic differentiation to form the Jacobian products required by the Implicit Function Theorem (IFT). Related work constructs matrix-free implicit derivatives for energy-based soft-body simulation using reverse-mode AD [ 4]. We apply similar modular pattern to continuos and differentiable contact simulation of rigid bodies and instantiate it in Mujoco/MJX. 
+
+B. Differentiable contact and batched trajectory optimisation 
+
+Rigid contact is modelled through complementarity con-ditions, conic constraints, or regularised convex programs [ 5], [ 6], [ 7 ]. These formulations differ in their physical approximations and numerical smoothness. Regularisation can give a unique, locally smooth solution within a fixed contact set and smooth frictional regime, but it does not remove non-smoothness at contact creation, removal, or friction-mode changes. Differentiable simulators also differ in how they construct contact sensitivities. Finite differences repeat the simulator evaluation in each input direction. Belbute-Peres et al. [ 8]differentiate the KKT system of an LCP recast as a quadratic program; Nimble derives sparse analytical LCP sensitivities [ 9]; and Dojo implicitly differentiates a custom primal– dual nonlinear-complementarity solver [ 10 ]. Other work uses localised implicit programs or analytical collision and friction derivatives [ 11 ], [ 12 ]. These methods construct the contact backward pass from solver-specific analytical, KKT, or residual structure. Differentiable-programming simulators instead expose their implemented operations to AD and accelerator batching [ 13 ], [14 ], [ 15 ]. When contact is solved iteratively, standard reverse mode differentiates the finite solver trace and stores its intermediate states. This storage issue is distinct from the quality of gradients near nonsmooth events such as contact creation, changing normals, impacts, stiff regularisation, or missing contacts and is part of what we address in this paper. [ 16 ], [ 17 ]. DiffMJX addresses the derivative accuracy through adaptive integration and a backward-only contact-from-distance mechanism [ 18 ]. Our method addresses the truncation error caused by low solver iteration by using IFT to remove the memory scaling bottleneck without changing the forward contact model or the integration method. Trajectory optimisation adds a further scaling requirement. Contact-implicit methods can discover contact-rich behaviour [ 19 ], [ 20 ], while iLQR/DDP and sparse optimal-control libraries exploit local dynamics structure [ 21 ], [ 22 ]. Finite-difference and approximated dynamics derivatives have also supported demanding control [ 23 ], [ 24 ]. Batched and GPU-parallel trajectory optimisation is well established [ 25 ], [ 26 ], [27 ]; our concern is the memory cost of the contact derivative within those batches. With unrolled reverse-mode AD, every contacted step stores the intermediate state of each solver iteration, so tighter solves leave less memory for parallel full-horizon trajectories. This also affects offline distillation, where teacher trajectories are generated in batches. We quantify this dependence in Section III. 
+
+C. Optimiser distillation and policy-guided MPC 
+
+Optimiser distillation uses optimised trajectories to train a policy. Guided Policy Search, PLATO, and MPC-Net amortise trajectory-centric or MPC teachers into policies that replace online planning [ 28 ], [ 29 ], [ 30 ]. The distillation loss itself does not require simulator derivatives. Differentiable MPC takes a different approach: it differentiates the fixed-point KKT conditions of an MPC problem to learn costs or dynamics end-to-end [ 31 ]. Action distillation instead treats optimised controls as supervised targets and need not differentiate through the trajectory optimiser. Hybrid methods retain both learning and planning at deployment. POPLIN uses a policy to initialise or parametrise derivative-free planning over a learned model [ 32 ], while learned networks have also been used to warm-start convex MPC problems [ 33 ]. Residual policy learning adds a learned correction to a fixed model-based controller [ 34 ]. We reverse this assignment: the distilled policy supplies the long-horizon nominal action, while a model-based optimiser computes a short-horizon residual correction and local feedback gains through the differentiable contact model. Other methods shorten online planning by amortising long-horizon information into a terminal value or planning prior. POLO learns a terminal-value ensemble for short-horizon sampling-based MPC [ 35 ], while TD-MPC2 plans in a learned latent model using both a terminal value and a policy prior [ 36 ]. Our policy instead provides the nominal action about which a residual and its feedback gains are optimised. Terminal-value methods are complementary and could use the same full-horizon teacher trajectories. SHAC learns policies directly through differentiable simu-lation using short differentiation horizons to improve contact-gradient quality [ 37 ]. Contact-implicit MPC has also reached long-horizon and hierarchical contact-rich control without amortisation [ 38 ], [ 39 ], [ 40 ], typically using solver-specific or hand-assembled contact sensitivities. We combine a modular residual derivative for MJX contact, batched full-horizon iLQR, and optimiser-in-the-loop distillation. To isolate the effect of policy guidance, we compare the resulting residual controller with standard short-horizon iLQR under the same differentiable model in Section V. III. I MPLICIT FUNCTION THEOREM 
+
+We seek derivatives of the converged MJX contact solution without storing or traversing the iterations used to compute it. The key is to differentiate a stationarity residual that vanishes at the solution. Strong convex regularisation makes the solved acceleration unique. Within a fixed contact set and a smooth cone-projection region, the residual is continuously differentiable and has a nonsingular Jacobian with respect to acceleration. The resulting derivative is local: it need not remain valid across contact creation, contact removal, or friction-mode changes. We retain MuJoCo’s round Coulomb cone rather than replacing it with a polyhedral approximation. Below, we introduce only the contact objective, its stationarity residual, and the corresponding implicit backward rule. Further deriva-tions and comparisons of contact formulations are given in [41 ], [ 42 ], and MJX implements the regularised model used here [15]. 
+
+A. Regularised Cone Contact Dynamics 
+
+Let q ∈ RnQ , v ∈ RnV , and a = ˙ v ∈ RnV denote con-figuration, generalised velocity, and generalised acceleration. With mass matrix M(q) ≻ 0, generalised bias force c(q, v),actuation τ , contact Jacobian J, and contact force λ, the unconstrained and constrained accelerations satisfy 
+
+aunc = M−1(τ − c), Ma + c = τ + JTλ. (1) 
+
+a) Admissible contact forces.: For exposition, consider contacts with one normal and two tangential force components. At contact i, write 
+
+λi =
+
+λN,i 
+
+λT,i 
+
+
+
+∈ R × R2.
+
+Contact can push but not pull, so λN,i ≥ 0. Coulomb friction bounds the tangential force by μiλN,i , where μi ≥ 0 is the friction coefficient. The admissible force cone is 
+
+Ki = λi ∈ R × R2 : λN,i ≥ 0, ∥λT,i ∥2 ≤ μiλN,i . (2) Its dual cone is 
+
+K∗ =
+
+n
+
+z ∈ Rm : λTz ≥ 0 for every λ ∈ K 
+
+o
+
+. (3) Thus, K describes admissible contact forces, while K∗
+
+describes compatible contact-space residuals. MuJoCo embeds this cone geometry in a regularised convex problem. Let aref ∈ Rm denote the reference acceleration constructed from the current constraint state and solver parameters, and let the diagonal matrix R ≻ 0 set the contact regularisation. Introducing a contact-space variable y ∈ Rm,the frictional contact block is 
+
+(a⋆, y⋆) = arg min 
+
+> a,y
+
+12 ∥a − aunc ∥2 
+
+> M
+
++ 12 ∥y − aref ∥2
+
+> R−1
+
+s.t. Ja − y ∈ K ∗.
+
+(4) The first term penalises deviation from unconstrained motion, while the second determines the compliant contact response. The feasible set is convex, and the objective is strongly convex because M ≻ 0 and R−1 ≻ 0. The minimiser is therefore unique. For clarity, we show only the frictional contact block; other regularised constraint rows contribute analogous terms. For fixed a, define u ≜ Ja −aref and substitute z = Ja −y.The inner minimisation becomes a weighted projection onto 
+
+K∗. Following MuJoCo [41], define 
+
+s(u; θ) ≜ min 
+
+> z∈K ∗(θ)
+
+12 ∥u − z∥2 
+
+> R−1
+
+,
+
+L(a; θ) ≜ 12 ∥a − aunc ∥2 
+
+> M
+
++ s(Ja − aref ; θ) ,
+
+a⋆(θ) = arg min 
+
+> a
+
+L(a; θ),
+
+(5) where θ = ( q, v, τ , μ, R, . . . ) collects the quantities entering the contact step. Because K∗ is nonempty, closed, and convex and R ≻ 0,the projection defining s is unique. Consequently, s is convex and continuously differentiable in u, and −∇ us gives the regularised contact force. The strongly convex inertial term then makes the reduced objective strongly convex, so (5) has the same unique acceleration a⋆ as (4) . Within a fixed contact set and smooth projection region, the stationarity residual of this reduced problem is differentiable. For full derivation of Mujoco contact model refer to [41]. 
+
+B. Stationarity Residual and Iterative Solution 
+
+The reduced objective generally has no closed-form min-imiser because s contains a projection onto the friction cone. MJX therefore solves the problem iteratively using Newton or nonlinear conjugate-gradient methods. Both methods target the same unique stationary point; the implicit backward rule depends on that stationary point rather than on the particular iterations used to reach it. Define the stationarity residual 
+
+F(a, θ ) = ∇aL(a; θ)= M (a − aunc ) + JT∇us (Ja − aref ; θ) . (6) The exact minimiser is the unique root 
+
+F(a⋆, θ ) = 0. (7) Thus, F is both the gradient of the reduced objective and the generalised force imbalance at the solution. For the implemented MJX solve, the same residual can be evaluated as 
+
+F = Ma − fsmooth − fconstraint , (8) where fsmooth contains the smooth generalised forces and 
+
+fconstraint contains the generalised force produced by the regularised constraints. Automatic differentiation can there-fore differentiate F directly through the implemented residual computation. To connect this residual to the forward solver, consider the Newton method used in our experiments. Within a fixed contact set and smooth projection region, 
+
+B(a, θ ) = ∂F
+
+∂a
+
+= ∇2
+
+> a
+
+L(a; θ)= M + JT∇2
+
+> u
+
+s (Ja − aref ; θ) J.
+
+(9) Because s is convex, ∇2
+
+> u
+
+s ⪰ 0 wherever the Hessian exists. Since M ≻ 0,
+
+B ≻ 0,
+
+so the local Newton system is nonsingular. At iteration k, Newton’s method computes 
+
+pk = −B−1 
+
+> k
+
+Fk, Bk = B(ak, θ ), Fk = F(ak, θ ).
+
+A line search selects a positive step length αk and applies 
+
+ak+1 = T(ak, θ )= ak + αkpk
+
+= ak − αkB−1
+
+> k
+
+| {z }
+
+Pk
+
+F(ak, θ ). (10) The matrix Pk combines the Newton metric and line-search scale. Locally nonsingular damping or preconditioning can be absorbed into the same matrix. On a neighbourhood where the accepted solver branch is fixed, the update can therefore be written as 
+
+T(a, θ ) = a − P(a, θ )F(a, θ ). (11) Since F(a⋆, θ ) = 0, the stationary solution is also a fixed point: 
+
+T(a⋆, θ ) = a⋆.
+
+Define the iteration-map residual 
+
+G(a, θ ) = a − T(a, θ )= P(a, θ )F(a, θ ). (12) If P is nonsingular, then G(a, θ ) = 0 if and only if F(a, θ ) = 
+
+0. The two residuals therefore identify the same local solution. They also produce the same local solution derivative. Let 
+
+P⋆ = P(a⋆, θ ).
+
+Differentiating G = PF at the solution gives 
+
+Ga = P⋆Fa, Gθ = P⋆Fθ . (13) Terms containing derivatives of P vanish because they are multiplied by F(a⋆, θ ) = 0. Hence, 
+
+−G−1 
+
+> a
+
+Gθ = − (P⋆Fa)−1 P⋆Fθ
+
+= −F−1 
+
+> a
+
+Fθ . (14) The Newton metric and line search therefore affect how the forward solver reaches the root, but not the local derivative of the isolated root. For this derivative, the backward pass need not traverse the Newton iterates or differentiate the line search, warm start, or stopping logic, provided the forward solver reaches the same local solution. 
+
+C. Implicit Differentiation of the Contact Solution 
+
+For each parameter vector θ, let a⋆(θ) denote the unique exact contact solution. Its defining relation is 
+
+F (a⋆(θ), θ ) = 0. (15) MJX approximates this root to its configured tolerance, subject to a maximum-iteration safeguard. Within a fixed contact set and smooth projection region, 
+
+F is continuously differentiable. By (9), 
+
+Fa ≜ ∂F
+
+∂a = B ≻ 0,
+
+so Fa is nonsingular. The Implicit Function Theorem gives 
+
+Fa
+
+da⋆
+
+dθ + Fθ = 0, da⋆
+
+dθ = −F−1 
+
+> a
+
+Fθ , (16) where all Jacobians are evaluated at (a⋆, θ ). This is the derivative of the local contact solution defined by the root condition, rather than the derivative of a finite solver trace. For a scalar loss ℓ(a⋆(θ), θ ), the chain rule gives 
+
+dℓ
+
+dθ = ∇θ ℓ − ∇ aℓTF−1 
+
+> a
+
+Fθ .
+
+There is no need to form either the full sensitivity matrix or the inverse. Instead, define the adjoint η ∈ RnV by 
+
+FT 
+
+> a
+
+η = ∇aℓ, dℓ
+
+dθ = ∇θ ℓ − ηTFθ . (17) Reverse mode therefore requires one transposed linear solve and one vector–Jacobian product, rather than explicitly forming da⋆/dθ.We implement (17) with jax.lax.custom_root , leav-ing the MJX forward solver unchanged. Automatic differen-tiation provides derivatives of the stationarity residual, and a dense QR solve applies F−⊤  
+
+> a
+
+without relying on exact numer-ical symmetry of the AD-constructed Jacobian. The resulting cotangent is then propagated through integration, kinematics, and the remaining simulator operations by standard automatic differentiation. The adjoint cost depends on the generalised velocity dimension, but its stored state and backward traversal do not grow with the number of iterations K used by the forward contact solver. No separately derived primal–dual KKT backward system is required. 
+
+D. IFT Results 
+
+We compare residual-based IFT, unrolled reverse-mode AD, and finite differences (FD), using double precision throughout. Unrolled AD differentiates the executed K-iteration solver trace, whereas IFT differentiates the stationarity residual at the tolerance-converged forward solution. Figure 2 uses whole-rollout central FD to validate the resulting sensitivities. Figure 3 uses a separate parallel per-step FD implementation only to study memory scaling. For the K = 5 comparison, all methods use the same forward-solver configuration and differ only in how the sensitivity is obtained. Fig. 2. Open-loop sensitivity of a ball bounce-to-target rollout. Top: control-gradient magnitude over the horizon. Bottom: per-step relative discrepancy from whole-rollout central FD using the same K = 5 forward-solver configuration. The K = 5 unrolled-AD curve overlaps the IFT curve in the lower panel. Shading marks active-contact intervals, and dotted lines mark contact-set changes. All 480 FD perturbations preserve the nominal contact schedule. 
+
+a) Rollout-gradient validation: We use a fixed H = 80 
+
+open-loop rollout of one free sphere launched toward a floor and wall. The timestep is 0.01 s , the nominal controls are zero with ut ∈ R3, and the loss penalises terminal position and velocity. The rollout contains free flight, floor impact and separation, sustained floor contact, and a later floor– wall interaction; 46 steps invoke contact. At the nominal control, the terminal-loss contribution to an earlier control gradient propagates through the complete rollout due to chain rule. Therefore, local errors in a contact derivative can affect controls well before the corresponding contact event. Figure 2 compares unrolled AD and IFT with whole-rollout central FD. At K = 5 , unrolled AD and IFT agree with FD throughout the horizon, including during active contact. This agreement provides an independent numerical check that the K = 5 trace derivative is correct and has reached the same local sensitivity as the implicit residual derivative. In contrast, the shorter K = 1 and K = 2 unrolls retain errors concentrated around contact. An ϵ-sweep confirms a stable FD reference, and every perturbation preserves the nominal contact schedule. Finite-
+
+K AD is exact for its executed trace; for the shorter unrolls, that trace is under-solved and therefore differs from the locally converged contact map recovered by IFT and approached by AD as K increases. 
+
+b) Temporary-memory scaling: Figure 3 reports com-piled temporary memory for batched MJX contact steps on a 4 GiB GPU. The left panel isolates solver effort at fixed model dimension and contact count. Unrolled-AD memory grows with K, while IFT remains nearly constant because it stores no solver-iteration trace. The centre panel increases the number of active contacts while holding nV fixed. Both methods incur the growing contact workspace, but IFT remains substantially smaller. The right panel increases contacts and model dimension together. Dense QR storage then produces approximately quadratic IFT memory growth in nV , yet IFT completes the largest tested problem, whereas unrolled AD and parallel FD run out of memory earlier. Thus, IFT removes the K-dependent trace term; the ordinary costs of batching, contact workspace, and model dimension remain. IV. T RAJECTORY OPTIMISATION 
+
+We next use the IFT-enabled MJX dynamics for batched trajectory optimisation on the contact-rich tasks in Fig. 1. Removing the solver-iteration trace from each contacted step preserves more batch capacity as the forward contact solve is tightened. We compare Adam, which optimises the full control sequence using first-order gradients, with iLQR, which exploits the temporal structure of the control problem. 
+
+A. Problem Formulation 
+
+We consider finite-horizon trajectory optimisation with discrete-time dynamics 
+
+xt+1 = f (xt, ut), t = 0 , . . . , N − 1,
+
+where f denotes one MJX simulation step, including the regularised contact solve. Given the initial state x0 = xinit ,we optimise the control sequence U = ( u0, . . . , uN −1) by solving 
+
+min  
+
+> U
+
+J(U ) =  
+
+> N−1
+
+X
+
+> t=0
+
+ℓ(xt, ut) + ℓT (xN )
+
+s.t. xt+1 = f (xt, ut), x0 = xinit .
+
+(18) Both methods use the same objective and batched MJX dynamics. Trajectory instances are vectorised across the batch, and each contact solve within f is differentiated using the implicit backward pass from Section III-D. 
+
+B. First-Order Method: Adam 
+
+Adam treats the complete control sequence U as the decision variable and updates it using gradients obtained by reverse-mode differentiation through the rollout. At optimisation iteration k, the update is written schematically as 
+
+U (k+1) = Adam 
+
+
+
+U (k), ∇U J
+
+
+
+U (k) 
+
+.
+
+Differentiating through a long rollout requires storing intermediate trajectory states. We therefore checkpoint the rollout, trading recomputation for memory. Contact steps still use the implicit backward pass and do not store the internal solver iterations. Fig. 3. Compiled temporary memory for batched differentiation through primitive-contact steps at B = 1024 . Left: solver-iteration scaling for four particles with nV = 24 and four active contacts. Centre: the number of active contacts increases on one free body while nV = 6 remains fixed. Right: N free particles each contribute one active contact, giving nV = 6 N . Missing points denote GPU out-of-memory failures. The centre and right panels use K = 5 .0 50 100 150                   
+
+> 0
+> 2
+> 4
+> 6
+> ×10 −2Finger
+> ADAM iLQR
+> 050 100 150 200
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> Hand
+> 050 100 150 200
+> 1
+> 2
+> 3
+> ×10 −2Franka
+> 050 100 150 200
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00 ×10 −2Unitree Time Step t
+> Cost( t)
+> Fig. 4. Running-cost profiles of the final trajectories produced by Adam and iLQR on four contact-rich tasks. Curves show the mean over 100 trajectories after 20 optimisation iterations; shaded regions show the 10th–90th percentile range.
+
+C. Structured Shooting Method: iLQR 
+
+iLQR exploits the local structure of the dynamics and cost-to-go [ 21 ], [ 22 ]. Around a nominal trajectory (xt, ut),it linearises the dynamics as 
+
+δxt+1 = At δxt + Bt δut, At = ∂f
+
+∂x , Bt = ∂f
+
+∂u .
+
+The Jacobians At and Bt include the implicit contact derivatives from Section III-D. Using a quadratic model of the cost-to-go, the standard Riccati backward recursion computes feedforward and feed-back gains kt and Kt [21 ]. We implement this recursion as a backward scan over time steps. This horizon-level scan is separate from the iterations of the contact solver, whose derivatives are handled implicitly. The line search is batched over both the trajectory and step-size dimensions, so each trajectory selects its own step size. 
+
+D. TO Results 
+
+Fig. 4 compares the trajectories produced by Adam and iLQR after 20 optimisation iterations on 100 trajectories per task. iLQR achieves lower mean running cost and tighter 10th–90th percentile ranges on all four tasks, with the clearest separation on Hand and Unitree. We therefore use full-horizon iLQR to generate the teacher trajectories used for policy distillation. V. O PTIMISER DISTILLATION FOR SHORT -H ORIZON 
+
+CONTACT MPC We amortise full-horizon contact optimisation into apolicy for short-horizon control. Full-horizon iLQR generates successful teacher trajectories; at deployment, the policy supplies long-horizon nominal actions and residual iLQR provides contact-aware local feedback. We evaluate three tasks with randomised initial conditions: Finger , where a 2-DoF arm rotates a spinner to a target angle; Franka , where a 7-DoF arm pushes a box to a fixed target region; and Unitree ,where an A1 quadruped accelerates from rest toward 1 m /s.
+
+A. Hybrid residual iLQR 
+
+Let ot denote the policy observation, comprising the state and task information such as the goal. The applied control is 
+
+ut = sg[ π ¯θ (ot)] + rt,
+
+where π ¯θ is the target policy, rt is the iLQR-optimised residual, and sg[ ·] denotes stop-gradient. The policy action remains in the forward rollout, but iLQR treats it as constant and optimises only the residual. For a planning horizon H, the hybrid controller solves 
+
+min 
+
+> r0: H−1
+> H−1
+
+X
+
+> t=0
+
+ℓhyb (xt, rt; x⋆) + ℓT (xH ; x⋆)
+
+s.t. xt+1 = f (xt, sg [ π ¯θ (ot)] + rt) , x0 = xinit .
+
+(19) The hybrid running cost is 
+
+ℓhyb (xt, rt; x⋆) = ℓtask (xt; x⋆) + ∥rt∥2
+
+> R
+
+,
+
+where ℓtask is the task cost and R ≻ 0 penalises the residual. Penalising rt, rather than the full action, keeps the optimised control close to the policy while allowing contact-aware local corrections. B. Online optimiser distillation 
+
+Training uses full-horizon hybrid iLQR as an online teacher, as summarised in Algorithm 1. Each collection batch samples independent initial conditions and goals, and only successful teacher trajectories are retained. For each retained trajectory, the supervised target is the complete optimised action 
+
+u⋆t = sg[ π ¯θ (ot)] + r⋆t ,
+
+where r⋆t is the residual produced by full-horizon iLQR. The resulting observation–action pairs are stored in replay buffer 
+
+B, and the policy is trained on mini-batches M ⊂ B using 
+
+Lsup (θ) = 1
+
+|M| 
+
+X
+
+> (o,u⋆)∈M
+
+∥πθ (o) − u⋆∥22 . (20) Imitating the complete action distils the combined policy– optimiser behaviour while retaining residual MPC for local correction. The target policy is updated by exponential averaging, ¯θ ← (1 − τ )¯θ + τ θ, 
+
+which prevents abrupt policy changes from shifting the optimiser’s rollout distribution. Training uses full-horizon iLQR for supervision, whereas evaluation uses short-horizon receding-horizon control. 
+
+Algorithm 1 Online optimiser distillation with hybrid iLQR 1: Initialise policy πθ , target policy π ¯θ , and replay buffer B
+
+2: for each epoch do 
+
+3: Sample a batch of initial conditions and goals 4: Solve full-horizon hybrid iLQR using π ¯θ
+
+5: Store successful pairs (ot, u⋆t ) in B
+
+6: for each mini-batch M ⊂ B do 
+
+7: Update πθ using (20) 8: Update ¯θ ← (1 − τ )¯θ + τ θ 
+
+9: end for 
+
+10: Evaluate short-horizon hybrid MPC using π ¯θ
+
+11: end for 
+
+12: return trained target policy π ¯θ
+
+C. Distillation Results 
+
+Each controller and planning horizon is evaluated on 160 randomised trials. Success requires spinner-angle error ≤
+
+0.4 rad for Finger, planar box-to-target distance ≤ 0.10 m 
+
+for Franka, and base height ≥ 0.15 m together with forward position ≥ 1.0 m for Unitree. Fig. 5 compares the controllers as the planning horizon varies. For the hybrid controller, H = 0 denotes policy-only execution. For H > 0, the controller replans at each timestep, applies the first optimised action, and repeats. At H = 6 ,policy guidance improves success by 28 –98 percentage points across the three tasks. The policy therefore allows the hybrid controller to succeed with shorter lookahead than standard iLQR. The largest difference appears on Franka . Standard short-horizon iLQR remains near zero success across the evaluated horizons, whereas the hybrid controller succeeds with substan-tially less lookahead. The policy supplies the long-horizon pushing strategy, while iLQR corrects the local box contact. 20           
+
+> 40
+> Finger
+> Cumulative Cost
+> hybrid ilqr
+> 0.0
+> 0.5
+> 1.0
+> Success Rate
+> 2
+> 3
+> Franka
+> 0.0
+> 0.5
+> 1.0
+> 010 20 30
+> 0
+> 5
+> 10
+> 15
+> Unitree
+> 010 20 30
+> 0.0
+> 0.5
+> 1.0
+> iLQR Planning Horizon
+> Fig. 5. Closed-loop performance versus planning horizon Hat a 10 ms
+> simulation and control timestep over 160 randomised trials. Left: cumulative episode cost. Right: success rate.
+
+Two task-specific effects further clarify the results. On 
+
+Finger , the policy-only controller at H = 0 can outperform the shortest residual horizons. In this regime, a myopic residual optimiser can perturb a policy that already encodes the required manoeuvre; iLQR becomes beneficial again once its horizon provides sufficient lookahead. On Unitree , very short-horizon control can obtain low cost while remaining near a stationary configuration and avoiding large orientation penalties. Such behaviour does not satisfy the forward-motion criterion, so success is the more informative metric in this regime. The hybrid controller becomes effective once the horizon is long enough to initiate and stabilise forward motion. VI. C ONCLUSION 
+
+We show that residual-based implicit differentiation makes tolerance-converged MJX contact derivatives practical at accelerator scale. The method matches converged rollout gradients without differentiating through the solver iterations, removing the solver-iteration-dependent memory cost and leaving only the ordinary costs of active contact count and DOF. This enables batched full-horizon iLQR to serve as an online teacher, from which we distil a policy for short-horizon residual MPC. Across Finger, Franka, and Unitree, the resulting hybrid controller achieves substantially higher success than standard iLQR at short planning horizons. REFERENCES [1] B. Amos and J. Z. Kolter, “Optnet: Differentiable optimization as a layer in neural networks,” in Proceedings of the International Conference on Machine Learning , 2017. [2] A. Agrawal, B. Amos, S. Barratt, S. Boyd, S. Diamond, and J. Z. Kolter, “Differentiable convex optimization layers,” in Advances in Neural Information Processing Systems , 2019. [3] M. Blondel, Q. Berthet, M. Cuturi, R. Frostig, S. Hoyer, F. Llinares-López, F. Pedregosa, and J.-P. Vert, “Efficient and modular implicit differentiation,” in Advances in Neural Information Processing Systems ,2022. [4] J. Rojas, E. Sifakis, and L. Kavan, “Differentiable Implicit Soft-Body Physics,” 2021, arXiv:2102.05791 [cs.LG]. [5] D. E. Stewart and J. C. Trinkle, “An implicit time-stepping scheme for rigid body dynamics with inelastic collisions and coulomb friction,” 
+
+International Journal for Numerical Methods in Engineering , vol. 39, no. 15, pp. 2673–2691, 1996. [6] M. Anitescu, “Optimization-based simulation of nonsmooth rigid multibody dynamics,” Mathematical Programming , vol. 105, pp. 113– 143, 2006. [7] E. Todorov, “Convex and analytically-invertible dynamics with contacts and constraints: Theory and implementation in mujoco,” in Proceedings of the IEEE International Conference on Robotics and Automation ,2014. [8] F. d. A. Belbute-Peres, K. A. Smith, K. R. Allen, J. B. Tenenbaum, and J. Z. Kolter, “End-to-end differentiable physics for learning and control,” in Advances in Neural Information Processing Systems , 2018. [9] K. Werling, D. Omens, J. Lee, I. Exarchos, and C. K. Liu, “Fast and feature-complete differentiable physics for articulated rigid bodies with contact,” in Robotics: Science and Systems , 2021. [10] T. A. Howell, S. Le Cleac’h, J. Brüdigam, J. Z. Kolter, M. Schwager, and Z. Manchester, “Dojo: A differentiable simulator for robotics,” in 
+
+Proceedings of the Conference on Robot Learning , 2022. [11] Y.-L. Qiao, J. Liang, V. Koltun, and M. C. Lin, “Scalable differentiable physics for learning and control,” in Proceedings of the International Conference on Machine Learning , ser. Proceedings of Machine Learning Research, vol. 119, 2020. [12] Q. Le Lidec, L. Montaut, Y. de Mont-Marin, F. Schramm, and J. Carpentier, “End-to-end and highly-efficient differentiable simulation for robotics,” 2024, arXiv:2409.07107 [cs.RO]. [13] Y. Hu, L. Anderson, T.-M. Li, Q. Sun, N. Carr, J. Ragan-Kelley, and F. Durand, “Difftaichi: Differentiable programming for physical simulation,” in Proceedings of the International Conference on Learning Representations , 2020. [14] C. D. Freeman, E. Frey, A. Raichuk, S. Girgin, I. Mordatch, and O. Bachem, “Brax: A differentiable physics engine for large scale rigid body simulation,” in Advances in Neural Information Processing Systems Datasets and Benchmarks Track , 2021. [15] Google DeepMind, “Mujoco xla (mjx) documentation,” 2026, authori-tative software documentation, accessed May 2026. [16] Z. Zhong, X. Han, and E. B. Brikis, “Differentiable physics simulations with contacts: Do they have correct gradients with respect to position, velocity and control?” 2022, arXiv:2207.05060 [cs.LG]. [17] Z. Zhong, X. Han, S. Dey, and E. B. Brikis, “Improving gradient computation for differentiable physics simulation with contacts,” in 
+
+Proceedings of the Learning for Dynamics and Control Conference ,ser. Proceedings of Machine Learning Research, vol. 211, 2023, pp. 128–141. [18] A. Paulus, A. R. Geist, P. Schumacher, V. Musil, S. Rappenecker, and G. Martius, “Differentiable Simulation of Hard Contacts with Soft Gradients for Learning and Control,” in Proceedings of the International Conference on Learning Representations , Oct. 2025. [19] M. Posa, C. Cantu, and R. Tedrake, “A direct method for trajectory optimization of rigid bodies through contact,” The International Journal of Robotics Research , vol. 33, no. 1, pp. 69–81, 2014. [20] V. Kurtz and H. Lin, “Contact-Implicit Trajectory Optimization with Hydroelastic Contact and iLQR,” in 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2022, pp. 8829–8834. [21] Y. Tassa, T. Erez, and E. Todorov, “Synthesis and stabilization of complex behaviors through online trajectory optimization,” in 
+
+Proceedings of the IEEE/RSJ International Conference on Intelligent Robots and Systems , 2012. [22] C. Mastalli, R. Budhiraja, W. Merkt, G. Saurel, B. Hammoud, M. Naveau, J. Carpentier, L. Righetti, S. Vijayakumar, and N. Mansard, “Crocoddyl: An efficient and versatile framework for multi-contact optimal control,” in Proceedings of the IEEE International Conference on Robotics and Automation , 2020, pp. 2536–2542. [23] J. Z. Zhang, T. A. Howell, Z. Yi, C. Pan, G. Shi, G. Qu, T. Erez, Y. Tassa, and Z. Manchester, “Whole-Body Model-Predictive Control of Legged Robots with MuJoCo,” 2026, arXiv:2503.04613 [cs.RO]. [24] D. Russell, R. Papallas, and M. Dogar, “Adaptive approximation of dynamics gradients via interpolation to speed up trajectory optimisation,” in 2023 IEEE International Conference on Robotics and Automation (ICRA) , May 2023. [25] F. Rastgar, H. Masnavi, K. Kruusamäe, A. Aabloo, and A. K. Singh, “GPU Accelerated Batch Multi-Convex Trajectory Optimization for a Rectangular Holonomic Mobile Robot,” 2021, arXiv:2109.13030 [cs.RO]. [26] L. Amatucci, J. Sousa-Pinto, G. Turrisi, D. Orban, V. Barasuol, and C. Semini, “Primal-dual ilqr for gpu-accelerated learning and control in legged robots,” IEEE Robotics and Automation Letters , vol. 11, pp. 1010–1017, 01 2026. [27] A. Du, E. Adabag, G. Bravo, and B. Plancher, “GATO: GPU-Accelerated and Batched Trajectory Optimization for Scalable Edge Model Predictive Control,” 2025, arXiv:2510.07625 [cs]. [28] S. Levine, C. Finn, T. Darrell, and P. Abbeel, “End-to-end training of deep visuomotor policies,” The Journal of Machine Learning Research ,vol. 17, no. 1, pp. 1334–1373, Jan. 2016. [29] G. Kahn, T. Zhang, S. Levine, and P. Abbeel, “PLATO: Policy learning using adaptive trajectory optimization,” in 2017 IEEE International Conference on Robotics and Automation (ICRA) , May 2017, pp. 3342– 3349. [30] J. Carius, F. Farshidian, and M. Hutter, “Mpc-net: A first principles guided policy search,” IEEE Robotics and Automation Letters , vol. 5, pp. 2897–2904, 02 2020. [31] B. Amos, I. D. J. Rodriguez, J. Sacks, B. Boots, and J. Z. Kolter, “Differentiable mpc for end-to-end planning and control,” in Proceedings of the 32nd International Conference on Neural Information Processing Systems , ser. NIPS’18. Red Hook, NY, USA: Curran Associates Inc., 2018, p. 8299–8310. [32] T. Wang and J. Ba, “Exploring Model-based Planning with Policy Networks,” in Proceedings of the International Conference on Learning Representations , Sep. 2019. [33] S. W. Chen, T. Wang, N. Atanasov, V. Kumar, and M. Morari, “Large scale model predictive control with neural networks and primal active sets,” Automatica , vol. 135, p. 109947, 2022. [34] T. Johannink, S. Bahl, A. Nair, J. Luo, A. Kumar, M. Loskyll, J. A. Ojea, E. Solowjow, and S. Levine, “Residual reinforcement learning for robot control,” in 2019 International Conference on Robotics and Automation (ICRA) . IEEE Press, 2019, p. 6023–6029. [35] K. Lowrey, A. Rajeswaran, S. Kakade, E. Todorov, and I. Mordatch, “Plan online, learn offline: Efficient learning and exploration via model-based control,” in International Conference on Learning Representa-tions , 2019. [36] N. Hansen, H. Su, and X. Wang, “TD-MPC2: Scalable, robust world models for continuous control,” in The Twelfth International Conference on Learning Representations , 2024. [37] J. Xu, V. Makoviychuk, Y. Narang, F. Ramos, W. Matusik, A. Garg, and M. Macklin, “Accelerated policy learning with parallel differentiable simulation,” in Proceedings of the International Conference on Learning Representations , 2022. [38] Y. Jiang, M. Yu, X. Zhu, M. Tomizuka, and X. Li, “Contact-Implicit Model Predictive Control for Dexterous In-hand Manipulation: A Long-Horizon and Robust Approach,” in 2024 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2024. [39] H. J. T. Suh, T. Pang, T. Zhao, and R. Tedrake, “Dexterous contact-rich manipulation via the contact trust region,” The International Journal of Robotics Research , p. 02783649251398875, 2026. [40] Z. Xie, Y. Xiang, M. Posa, and W. Jin, “Where to Touch, How to Contact: Hierarchical RL-MPC Framework for Geometry-Aware Long-Horizon Dexterous Manipulation,” 2026, arXiv:2601.10930 [cs]. [41] E. Todorov, T. Erez, and Y. Tassa, “Mujoco: A physics engine for model-based control,” in 2012 IEEE/RSJ International Conference on Intelligent Robots and Systems . IEEE, 2012, pp. 5026–5033. [42] Q. Lidec, W. Jallet, L. Montaut, I. Laptev, C. Schmid, and J. Car-pentier, “Contact models in robotics: A comparative analysis,” IEEE Transactions on Robotics , vol. 40, pp. 3716–3733, 01 2024. APPENDIX ITRAINING PARAMETERS 
+
+We list the full configuration used for each task. 
+
+TABLE I CONFIGURATION PARAMETERS , F INGER TASK .
+
+Parameter Value / Description 
+
+iLQR horizon (steps) 150 Batch size 128 Epochs 100 Solver iterations 10 Control dimension 2 (torque control) Observation dimension 14 Initial state sampler Bimodal on qpos , uniform on qvel 
+
+Target generator Uniform quaternion sampling around Y-axis Mini-batch size (150 × 128) /16 = 1200 
+
+Policy optimiser AdamW with linear learning rate schedule Policy learning rate 1 × 10 −3 → 5 × 10 −5 over 50 epochs Target increment step 10% of the policy output Network architecture [64 , 64] 
+
+Policy norm penalisation 0
+
+Evaluation Value / Description 
+
+Batch size 128 iLQR horizon (steps) 6Solver iterations 1MPC iterations 150 
+
+Cost terms Description 
+
+State cost 0.1( θgoal − θfinger )2 + 5 × 10 −4∥ ˙q∥2
+
+Control cost 0.005 ∥u − π(x)∥2 (running cost) Terminal cost Same as state cost Success condition |θgoal − θfinger | ≤ 0.4
+
+TABLE II CONFIGURATION PARAMETERS , U NITREE A1 TASK .
+
+Parameter Value / Description 
+
+iLQR horizon (steps) 200 Batch size 64 Epochs 150 Solver iterations 20 Control dimension 12 (position control) Observation dimension 35 Initial state sampler Fixed pose + small velocity noise Target generator Fixed unit quaternion (no rotation) Mini-batch size (200 × 16) /16 = 200 
+
+Policy optimiser AdamW with linear learning rate schedule Policy learning rate 1 × 10 −3 → 1 × 10 −5 over 50 epochs Target increment step 10% of the policy output Network architecture [32 , 32 , 32] 
+
+Policy norm penalisation 0.15 
+
+Evaluation Value / Description 
+
+Batch size 16 iLQR horizon (steps) 6Solver iterations 1MPC iterations 200 
+
+Cost terms Description 
+
+Feet cost 0.005 P
+
+> i
+
+(zfoot ,i − 0.07) 2
+
+Height cost 0.8( zbody − 0.25) 2
+
+Linear velocity cost 0.005( vx − 1) 2
+
+Rotation cost 0.004 ∥R(q) − I∥2 (deviation from upright) Control cost 0.002 ∥u − π(x)∥2 (running cost) Terminal cost Same as height + velocity + rotation terms Termination condition z < 0.15 or x < 1.0
+
+TABLE III CONFIGURATION PARAMETERS , F RANKA ARM TASK .
+
+Parameter Value / Description 
+
+iLQR horizon (steps) 200 Batch size 64 Epochs 100 Solver iterations 10 Control dimension 7 (torque control) Observation dimension 31 Initial state sampler Fixed arm qpos; box qpos uniform in 
+
+[−0.1, 0.1] × [−0.2, 0.2] × { 0}
+
+Target generator Fixed pose: position (0 .8, 0, 0) ; quaternion from π rotation about Z-axis Mini-batch size 1200 Policy optimiser AdamW with linear learning rate schedule Policy learning rate 1 × 10 −3 → 5 × 10 −6 over 800 steps (50 epochs × 16 steps) Target increment step 10% of the policy output Network architecture [64 , 64] 
+
+Policy norm penalisation 0.05 
+
+Evaluation Value / Description 
+
+Batch size 32 iLQR horizon (steps) 4Solver iterations 1MPC iterations 200 
+
+Cost terms Description 
+
+State cost, orientation 0.001 ∥ log( q−1 
+
+> gripper
+
+⊗ qtarget )∥2
+
+State cost, reaching 0.05 ∥pgripper − poffset box ∥2
+
+State cost, box to target 0.02 ∥pbox − ptarget ∥2
+
+State cost, velocity 10 −6∥ ˙q∥2
+
+Control cost 0.0006 P 
+
+> i
+
+Ri(ui − πi(x)) 2, with 
+
+R = [0 .4, 1, 0.1, 0.1, 1, 1, 1] 
+
+Terminal cost Same as running cost Success condition Box-to-target distance ≤ 0.1

@@ -1,0 +1,282 @@
+Title: NEO: NeRF It Once, Edit It Many Times for Continuous Object Manipulation
+
+URL Source: https://arxiv.org/pdf/2607.24538v1
+
+Published Time: Tue, 28 Jul 2026 02:22:56 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+> SUBMITTED TO IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. 1
+
+# NEO: NeRF It Once, Edit It Many Times for Continuous Object Manipulation 
+
+Mikołaj Zieli´ nski 1,2, David Hall 2, Dominik Belter 1, Peyman Moghadam 2
+
+Abstract —In this paper, we present NEO, a unified framework providing language-guided NeRF editing for robotic manipula-tion. Our paper introduces (i) a language-guided object removal that combines neural field resampling with multiview-consistent progressive inpainting, (ii) a direct NeRF weight editing method utilizing knowledge distillation, composing original and edited NeRFs via a teacher–student model, enabling coherent modeling of future scene states before a robot executes an action, and (iii) the first benchmark ( NEO-Dataset ) for quantitatively evaluating NeRF scene editing methods suitable for robot manipulation. We show that our approach outperforms state-of-the-art baselines in scene editing tasks, including object removal and pick-and-place robotic experiments, yielding visually coherent and geometrically consistent edits that reduce artifacts commonly introduced by prior methods. Finally, we showcase the capability of NEO for multi-stage robotic assembly tasks by preserving a persistent NeRF plus language-field representation after each edit, enabling iterative future-state scene representation prediction without requiring additional scene re-scanning. 
+
+Index Terms —Deep Learning for Visual Perception; Represen-tation Learning; Visual Learning 
+
+# NEURAL Radiance Fields (NeRFs) have emerged as a powerful implicit neural scene representation, enabling high-fidelity novel view synthesis and dense 3D reconstruction from a set of images [1]. Beyond computer vision, these methods are increasingly being explored in robotics [2], with applications in 3D scene reconstruction [3], [4], navigation [5], grasping [6], [7], seg-mentation [8], and robotic manipulation [7], [9], [10]. A key advantage of NeRF-based representations for grasp-ing and manipulation is that they encode 3D environments as continuous functions [1], providing view-consistent geometry and appearance that can be queried at arbitrary resolutions. This enables NeRFs to provide direct continuous occupancy queries through a single network evaluation, which is advanta-geous for grasp synthesis and collision checking. Additionally, NeRFs typically provide accurate and globally consistent 3D reconstructions [11]. This makes NeRFs appealing for tasks that require fine-grained spatial reasoning, such as selecting grasp points [6], [7], validating approach trajectories, teleop-eration [12], and predicting occlusions during interaction [13]. NeRFs can also encode additional modalities such as language features [14], enabling language-guided grasping and manipu-lation [7], [15]. However, robotic manipulation is inherently an interactive process. Each action can change object poses, in-troduce new occlusions, or reveal previously unseen surfaces, which can invalidate the original NeRF. Consequently, many  
+
+> Manuscript submitted: February, 22, 2026 * Mikołaj Zieli´ nski and Dominik Belter were supported by the National Sci-ence Centre, Poland, under research project no UMO-2023/51/B/ST6/01646.
+> 1Institute of Robotics and Machine Intelligence, Poznan University of Technology, 61-131 Pozna´ n, Poland. E-mail: name.surname@put.poznan.pl
+> 2CSIRO Robotics, CSIRO, Australia. E-mail: firstname.lastname@csiro.au
+> Fig. 1. Example assembly task: given language prompts and a single initial scan, the robot executes multiple manipulations. NEO updates the NeRF scene model after each interaction to predict the new scene state without re-scanning.
+
+NeRF-based robot manipulation pipelines require re-observing or re-scanning the scene to update the representation before subsequent actions [16], which is time-consuming and often impractical for real-world robotic applications. An alternative approach is to edit the NeRF representa-tion directly, enabling the scene model to be updated after interaction without re-scanning or re-optimizing from scratch. Several approaches have been proposed in this direction [17], [18], [19], [20], [21], [22]. While these methods demonstrate compelling visual results, they often fall short of the robustness and consistency required for real-world robot manipulation. In particular, edits should be permanent to support future scene updates [21], [23]; removed objects must reveal consistent un-derlying geometry [19], [22]; the edited representation should remain reliable across viewpoints and subsequent actions [24]; and the editing process should avoid hallucinations [18] [25]. These gaps highlight a pressing need for NeRF editing methods tailored to robotic tasks: methods that can update scenes reliably and permanently, while avoiding re-scanning after each robot action. To address these challenges, we present NEO , a NeRF editing technique specifically designed for language-guided robotic manipulation that enables geometrically consistent scene modifications without requiring additional re-scanning. Given a text prompt specifying the object to be manipu-lated, our method performs a three-stage editing pipeline: (i) the object is removed from the scene representation using adaptive ray re-sampling method and image rendering; (ii) multiview-consistent inpainting reconstructs the occluded re-gions to ensure geometric plausibility; and (iii) the object is reinserted at a new location using object-centered knowledge distillation, preserving it permanently in the updated scene. arXiv:2607.24538v1 [cs.RO] 27 Jul 2026 2 SUBMITTED TO IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION.  
+
+> Fig. 2. Architecture of the proposed editable NEO model and its role within the robotic manipulation system. A set of camera images is used to build the NeRF and the language field. Given a language prompt, the object to be removed from the scene is selected. Prior to grasp planning and motion execution, the proposed editable NEO model is used to reposition the object within the neural field and to predict the scene state after the robotic interaction. This is achieved through the proposed object removal, multiview inpainting, and object reconfiguration modules.
+
+All edits are applied directly to the NeRF weights, making them persistent across consecutive scene modifications. We also support continued language-guided interactions involving the same object across subsequent actions. In addition, NEO 
+
+supports batch edits and fine-grained adjustments, such as relocating objects within small spatial offsets. This framework enables prediction and visualization of the edited scene prior to execution, allowing the robot to anticipate outcomes before acting. The contributions of this work are:  
+
+> •
+
+A unified NeRF editing framework for robotic manipulation that directly updates network weights to enable realistic, geometrically consistent, and persistent scene modifications. The pipeline includes object removal via neural field re-sampling, multiview-consistent progressive inpainting for plausible reconstruction of revealed regions, and supports continuous, language-guided interaction without requiring additional scene re-scanning.  
+
+> •
+
+A scene-focused knowledge distillation method that recon-figures scenes by composing an originally trained NeRF with an edited NeRF, using a teacher–student model to permanently preserve scene changes.  
+
+> •
+
+The NEO-Dataset benchmark for NeRF editing in robotic manipulation scenarios, with registered pre- and post-edit scenes to enable rigorous, quantitative evaluation. I. LITERATURE REVIEW 
+
+A. NeRF Editing 
+
+Several recent NeRF-based scene editing methods address object manipulation and appearance editing; however, chal-lenges remain in object removal and in maintaining geometri-cally consistent 3D reconstructions, particularly under sequen-tial edits. The Distilled Feature Fields (DFF) method [26] re-moves content by suppressing densities for ray samples within a user-specified region. Because the sampling strategy is not adapted after removal, regions behind the edited volume can become under-sampled, which often reduces reconstruction fidelity. In addition, DFF does not explicitly handle surfaces that were never observed in the original views, leaving newly revealed regions unconstrained. Reconstructing such unobserved regions can be approached by applying 2D inpainting independently to each view; how-ever, this often leads to view-inconsistent completions and degraded 3D reconstructions [24]. NeRFiller [17] mitigates this issue by using a generative inpainting model to complete missing regions and then distilling the completed views into a NeRF, improving cross-view consistency. Nevertheless, this process typically requires retraining after object removal and can still introduce artifacts in the edited regions. Several other methods explore related directions but do not provide the functionality needed to model the outcomes of robotic manipulation. RAM3D [18] performs inpainting after object removal but does not support object relocation. NeuralEditor [20] edits derived point-cloud representations rather than directly updating a NeRF, while NeRF-Editing [21] focuses on appearance deformation through ray bending and does not address object removal or rigid 3D transformations. Methods that explicitly separate object and background repre-sentations [22] still rely on relatively limited inpainting, which can yield visual inconsistencies. DATENeRF [27] and ViCA-NeRF [28] improve multiview consistency for appearance edits, but are not designed for object removal or manipulation. Seal-3D [19] introduces a teacher–student framework for scene editing, but does not address object removal, which is essential for manipulation scenarios. 
+
+B. Scene Editing and Prediction for Robotic Interaction 
+
+Several approaches have explored scene editing in the context of robotic interaction. Abou-Chakra et al. [29] employ Gaussian Splatting to initialize particle-based simulations and incorporate correction mechanisms for closed-loop interaction, enabling iterative robot–environment updates. However, the underlying scene representation degrades over time under repeated modifications. Splat-MOVER [30] introduces SEE-Splat, a scene-editing module that visualizes object motion through semantic masking and Gaussian-based infilling. While computationally efficient, interpolation-based infilling is lim-ited in its ability to reconstruct occluded geometry and pre-viously unseen regions. These limitations highlight the need ZIELI ´ NSKI et al. : NEO: NERF IT ONCE, EDIT IT MANY TIMES FOR CONTINUOUS OBJECT MANIPULATION 3
+
+a b c 
+
+> Fig. 3. Comparison of our neural field resampling method to the DFF [26] in the task of removing a yellow Lego dozer from the table surface: (a) table with object before editing operation, (b) the scene after removing the dozer with DFF baseline [26], and (c) our NEO method.
+
+for scene representations that support repeated object recon-figuration while preserving geometric and visual consistency. Motivated by this and by the importance of maintaining realistic remnants of removed or relocated objects [31], we propose a multiview-consistent diffusion-based inpainting ap-proach that enables accurate scene editing and reliable future state prediction for robot–environment interaction. II. METHODOLOGY The architecture of the proposed NEO model is shown in Fig. 2, together with its integration in the robotic manipulation pipeline 1. The network FΘ is trained on a set of images I =
+
+{Ij }Nj=1 captured by the robot in a single scan, together with the corresponding set of camera poses Ω = {Ωj }Nj=1 . The network learns a joint neural representation consisting of a scene field S ∈ R4 and an associated language field L ∈ Rdl ,where dl is the dimensionality of the language feature vector. 
+
+(S, L) = FΘ(I.Ω) , (1) Given a user prompt p describing the desired manipulation, we localize the target object region O ⊂ R3 using the language field. Let ϕ(p) ∈ Rdl denote the text embedding of the prompt and L(x) ∈ Rdl the language feature at a 3D surface point 
+
+x ∈ R3 extracted from S. We compute the cosine similarity between ϕ(p) and L(x) over a set of such surface points to obtain a set of high-relevance points. These points are clustered, and the largest cluster is used to fit an oriented bounding box b = ( c, θ ), where c ∈ R3 is the box center and 
+
+θ ∈ SO(2) denotes a planar rotation (yaw) about the vertical axis. This bounding box is used for object removal and for generating candidate grasps G.Conditioned on the prompt p and a planned object motion 
+
+τ , NEO produces an updated scene representation (S′, L′)
+
+without requiring additional re-scanning: 
+
+(S′, L′) = N EO  (S, L), p, τ . (2) The updated representation can be reused as input to the same procedure for subsequent edits in sequential manipula-tion scenarios. For grasp execution, AnyGrasp [32] is used to generate candidate grasps, and the robot trajectory is planned using the most reliable grasp. 
+
+> 1The implementation is available at https://csiro-robotics.github.io/NEO/
+
+abc 
+
+> Fig. 4. Proposed NeRF resampling method. The yellow color shows the region from which we would like to remove an object. Ray samples are represented by green circles. The top diagram depicts how the standard sampling procedure samples actual scene densities. The middle image is the most common practice of suppressing unwanted density values, such as done in DFF [26]. The bottom shows our resampling method, which avoids sampling the object region and focuses on other areas.
+
+A. Neural Field Resampling for Object Removal 
+
+Building on the joint scene and language representation introduced above, we construct an editable NEO model by first removing the user-specified target object from the NeRF. Prior work on NeRF object removal ( e.g. , DFF [26]) commonly edits densities along camera rays to suppress the density associated with the unwanted object. While this strategy is computation-ally efficient, it can introduce distortions in regions that were previously occluded by the removed object. These regions become undersampled during volumetric rendering, which may lead to hallucinated structures and geometric artifacts, asshown in Fig. 3b. Our method takes as input camera poses and an oriented object bounding box b defining the region to be removed in the NeRF world frame. For each camera ray, we compute its intersection with b and exclude the corresponding ray segment from sampling. The remaining ray intervals (typically a near and far segment) are then concatenated into a single continuous 1D sampling domain. We draw a fixed number of uniform samples from it, which reallocates samples that would otherwise fall inside b to the rest of the ray and mitigates under-sampling in newly revealed regions. Next, we predict the densities at each sampled location and convert these densities to volumetric rendering weights using the standard NeRF formulation [1]. These weights are then normalized to define a sampling distribution for hierarchical (PDF-based) resampling. We draw a second, fixed set of samples from this distribution over the same concatenated sampling domain, which increases sampling density in regions with a higher probability of occupied space while ensuring that no samples are drawn inside b. This two-stage sampling procedure enables immediate object removal and reduces artifacts behind the removed object. The proposed method generalizes to single or multiple bounding boxes in the scene. Figure 4a illustrates the standard sampling of densities. The middle diagram (Fig. 4b) depicts DFF [26], which can 4 SUBMITTED TO IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. 
+
+a b 
+
+> Fig. 5. (a) Images of the scene before and (b) after removing the selected object (tomato soup can) containing a hallucinated region underneath the removed object, not visible in the training dataset.
+
+leave the background sparsely sampled. Figure 4c visualizes our proposed resampling method, where the object region is skipped, and sampling is concentrated on regions with a higher probability of occupied space. The impact of this is shown in Fig. 3. Fig. 3a shows the original NeRF rendering. Fig. 3b shows object removal with the baseline method [26], where sparse sampling behind the removed object produces floating points and distorted regions. In contrast, our resampling yields a more consistent reconstruction of the revealed background (black frame and desk in Fig. 3c), which in turn provides a more reliable geometric representation for subsequent manipulation steps. 
+
+B. Multiview-Consistent Progressive Inpainting 
+
+After object removal, regions that were never observed in the original training views become weakly constrained and may be rendered with artifacts or implausible structure ( e.g. ,surfaces previously occluded underneath the “tomato soup can” in Fig. 5). To recover these missing regions, we propose a multiview-consistent progressive inpainting approach that (i) synthesizes additional supervision focused on the occluded area and (ii) integrates this supervision into NeRF training through explicit mask conditioning to jointly reconstruct miss-ing content while preserving observed scene details. An overview of the proposed inpainting pipeline is shown in Fig. 6. Using the bounding box b, we augment the training set with additional virtual camera poses that focus on the local region around the removed object. Concretely, we define a virtual hemisphere centered at the bounding-box center and place virtual viewpoints on this hemisphere with optical axes oriented toward the center, at four opposing azimuths and varying elevations, forming a short upward spiral over the hemisphere (see Fig. 6). This view augmentation concentrates supervision on surfaces that were previously occluded and improves cross-view coherence during subsequent inpainting and NeRF refinement. We then build a training set D that combines (i) object-centered renderings from the virtual viewpoints, denoted Iv ,and (ii) the original captured images Io, together with binary masks that identify the removed region. For each virtual view, we generate an object mask Mv by projecting the 3D bounding box b into the image plane and rasterizing the projected box faces to obtain a 2D mask; the complementary mask for original images is Mo = 1 − Mv .Within each group, we tile four images into a single 
+
+2 × 2 composite and tile their corresponding masks in the same layout, inspired by NeRFiller [17]. A diffusion-based inpainting model is then conditioned on the composite mask,   
+
+> Fig. 6. Multiview consistent progressive inpainting method and NeRF ˜FΘ
+> training with removed object using iterative inpainting.
+
+encouraging mutually consistent completions across views at similar elevations. After inpainting, the composite is split back into individual views. The inpainted object-centered virtual images Iv , together with the original images Io and their respective masks (Mv , M o), are used to train a NeRF that is explicitly conditioned on the masks. This mask-conditioned training allows the model to selectively reconstruct regions previously occluded by the removed object while preserving the observed scene content outside the masked area. Unlike NeRFiller, which inpaints the entire dataset and does not con-dition NeRF training on object masks, our approach performs inpainting only on a small set of dedicated virtual object-centered views and relies on mask-conditioned NeRF training to integrate the completed content into the scene. 
+
+Lrec = E(I,M, Ω) ∼D 
+
+h
+
+ℓ
+
+
+
+R( ˜FΘ, Ω) , I ; M
+
+i 
+
+, (3) where R( ˜FΘ, Ω) renders ˜FΘ from camera pose Ω associated with image I, and ℓ(·, ·; M ) is a mask-conditioned reconstruc-tion loss that compares the rendered image to I over pixels selected by M . The training tuples (I, M, Ω) are sampled from 
+
+D, which includes the original captured views (Io, M o, Ω) and the inpainted virtual object-centered views (Iv , M v , Ω) . Here, 
+
+I is an RGB image, M is a binary mask (with Mv indicating the removed region and Mo = 1 − Mv ). The iterative training of the mask-conditioned NeRF ˜FΘ
+
+after object removal is shown in Fig. 6. During optimization, the virtual object-centered views Iv are re-rendered every n
+
+steps, and the inpainting process described above is repeated to progressively refine the completed regions. After each inpainting iteration, we reduce the inpainting strength factor 
+
+ξ, preserving more of the current rendering in later iterations and promoting convergence toward a stable reconstruction. Next, to explicitly discourage density from reappearing inside the removed-object region, we introduce a regularization loss term that penalizes non-zero density predictions within the bounding box b.
+
+Lreg = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+(˜ σi − ˜σ′
+
+> i
+
+)2 , (4) where 
+
+˜σ′ =
+
+(˜σ′(i) = 0 , p(i) ∈ b
+
+˜σ′(i) = ˜ σ(i), p(i) /∈ b, (5) 
+
+˜σ denotes the density values predicted by the ˜FΘ, p represents 3D sample points, and b is the bounding box of the object. ZIELI ´ NSKI et al. : NEO: NERF IT ONCE, EDIT IT MANY TIMES FOR CONTINUOUS OBJECT MANIPULATION 5 
+
+> Fig. 7. Object reconfiguration module for preservation of the structural integrity of the environment while reconfiguring objects using knowledge distillation via teacher-student networks.
+
+This loss, therefore, applies only to samples within b, re-ducing spurious density (“floaters”) and supporting persistent object removal. Finally, we optimize ˜FΘ using the combined objective Lmasked = λrec Lrec +λreg Lreg , where λrec and λreg 
+
+are weighting constants. At the end of this stage, we obtain a scene representation in which the object is removed, and the previously occluded regions are completed with improved geometric and visual consistency. 
+
+C. Knowledge Distillation Method for Scene Reconfiguration 
+
+The previous stages produce two complementary scene representations: (i) the original NeRF FΘ, which encodes the complete scene including the target object, and (ii) an edited NeRF ˜FΘ, in which the object has been removed and previously occluded regions have been reconstructed. The goal of this stage is to combine these representations into a single NeRF, F ˆΘ, that reflects the desired object reconfiguration while preserving global scene consistency (Fig. 7). Our key idea is to construct a final scene representation 
+
+S′ by selecting supervision from multiple teacher networks rather than distilling from a single fully edited teacher like in Seal-3D [19]. Specifically, rendering is decomposed into three disjoint regions: (i) outside the object bounding box supervised by FΘ,(ii) inside the removal bounding box supervised by ˜FΘ, and (iii) regions corresponding to the relocated object supervised by FΘ under the desired motion (Fig. 7). This region-wise composition defines a target field S′,which is used to supervise a student NeRF F ˆΘ via volumetric rendering. The student parameters ˆΘ are initialized from Θ,while the language field parameters are fixed. The student is optimized to minimize discrepancies between rendered color, density, and depth values induced by S′. To focus supervision on modified regions of the scene, training additionally in-corporates virtual object-centered views Iv introduced during the inpainting stage. These views increase ray density in areas affected by object removal and relocation, improving the fidelity of the distilled representation. Knowledge distillation is performed in two stages. In the initial phase, the student is supervised directly using teacher-predicted color and density values along rays. In the second phase, training proceeds using a combination of the volumetric RGB reconstruction loss plus depth to match rendered RGB and depth images from teacher. Based on this formulation, we define the distillation loss Ldistill as follows: 
+
+Ldistill =
+
+
+
+1
+
+rm 
+
+> r
+
+X
+
+> j=1
+> m
+
+X
+
+> k=1
+
+
+
+|σj,k − ˆσj,k | + ∥cj,k − ˆcj,k ∥1
+
+
+
+1
+
+n
+
+> n
+
+X
+
+> i=1
+
+
+
+∥Ci − ˆCi∥2 + ∥Di − ˆDi∥2
+
+
+
+,
+
+(6) where m is the number of samples per ray, r is the number of rays, and n is the number of pixels. The indices j, k,and i denote the ray index, the sample index along a ray, and the pixel index, respectively. σj,k and cj,k are the teacher density and color at sample k on ray j, while ˆσj,k and ˆcj,k 
+
+are the corresponding student predictions. Ci and Di denote the teacher rendered RGB and depth at pixel i, while ˆCi and 
+
+ˆDi denote the corresponding student renderings. The resulting parameters ˆΘ define an updated NeRF that en-codes the reconfigured scene S′, enabling novel-view render-ing with consistent object relocation, complete object removal, and plausible reconstruction of previously occluded regions. 
+
+D. Updating Language Fields 
+
+After geometric editing, we keep the edited NeRF F ˆΘ fixed and update the associated language field L′ so that it remains consistent with the modified scene and supports subsequent text queries. Supervision for updating L comes from CLIP and DINO features extracted from new images rendered from F ˆΘ
+
+at the original camera poses Ω. In practice, the optimization of 
+
+L′ converges in a small number of iterations. We hypothesize that this is because CLIP and DINO features primarily capture high-level semantic content and are less sensitive to fine geometric detail, allowing the dominant semantic structure to be recovered early during training. 
+
+E. Editing Many Times 
+
+The proposed NEO model supports iterative scene editing, which is essential for multi-step robotic manipulation and assembly tasks. After each editing operation, the resulting scene representation, consisting of a NeRF and an associated language field, retains the same structure as the original input representation. As a result, the edited model can be directly reused as input for subsequent editing steps. Across iterations, regions of the scene unaffected by the current edit are re-constructed using the original NeRF representation, preserving visual and geometric consistency while enabling progressive object-level modifications. III. DATASET A critical limiting factor in assessing NeRF editing models for use in real-world robotic applications is the lack of benchmarks that enable quantitative evaluation of scene edits against real-world changes within a scene. To address this gap, we present the NEO-Dataset benchmark which provides ground-truth, registered tabletop scenes captured both before and after object manipulation. 6 SUBMITTED TO IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. 
+
+a b c d e f g  
+
+> Fig. 8. Example scenes after removing the selected object: (a) original scenes with object, (b) ground truth images after object removal, (c) DFF [26], (d) NeRFiller [17], (e) NeRFiller w/oD [17], (f) Seal-3D [19], and (g) NEO (ours). Regions corresponding to the areas after object removal are shown in enlarged views, and the deformations introduced by NeRFiller are indicated with arrows.
+
+NEO-Dataset comprises twelve total tabletop scenes used to evaluate NeRF editing for object removal and manipulation edits. This includes 11 single-object scenes and 1 multi-object scene. The scenes were captured using two different robotic setups with different fixed robotic arms (Franka Emika Panda and UR5) and tabletops to introduce variability in the bench-mark under controlled illumination, avoiding strong specular and lighting effects. Each scene S is scanned before and after object manipulations using an automated capture procedure in which the robot arm moves a camera along a fixed trajectory while acquiring images, ensuring consistent scene coverage across scans. An example of the camera frames produced by this process can be seen on the left of Fig. 6, colored in blue. The captured images are used both to train the initial model FΘ and as ground truth for evaluating rendered results after editing. For registration purposes, we placed four ArUco markers on the table surface. These markers are detected in the scans and used to compute a rigid transformation that aligns the scenes before and after object manipulations, recovering the scale, orientation, and origin of the scene in the world coordinate frame. ArUco markers are not used for training. The NEO-Dataset includes both object removal and object manipulation scenarios for evaluating NeRF editing methods. For object removal, scans are recorded before and after the object(s) are removed. For object manipulation, the scene is first scanned and the object(s) are then moved by a predefined transform relative to their initial pose, using the same fixed robotic arms to ensure consistent execution. The manipulated object classes are drawn from the YCB dataset [33]. IV. EXPERIMENTAL DESIGN We compare NEO against several recent NeRF editing SOTA baselines. DFF [26] introduced NeRF editing and sup-ports object removal, Nerfiller [17] is designed for inpainting missing regions in neural radiance fields, and Seal-3D [19] is currently the only method capable of moving objects while updating NeRF weights. For evaluation, we employ standard NeRF quality (PSNR, SSIM) and geometry metrics (depth RMSE and photometric reprojection error Erep [34] that measure 3D consistency of the obtained models) computed over both the full image and the edited regions, allowing us to assess both unedited fidelity and reconstruction quality. 
+
+A. Object Removal Experiments 
+
+To evaluate the effectiveness of NEO for object removal, we use five single-object scenes from the NEO-Dataset in which a single object has been physically removed between scans. The evaluation is computed at two levels of spatial focus, full image and masked region. For full-image evaluation, the rendered output from the edited NeRF is compared against the entire ground-truth image. A drop in these metrics can indicate that the model has lost fidelity in unedited regions of the scene, reflecting potential catastrophic forgetting due to the editing process. In the masked-region evaluation, metrics are computed only within the object removal region defined by the bounding box described in Section II. For simplicity, we refer to this region as ”Out”, indicating that the object has been moved out of it. These measurements isolate the model’s ability to plausibly reconstruct previously occluded regions and match them to real-world appearance. 
+
+B. Robotic Manipulation Experiments 
+
+To assess the ability of NEO to capture the outcome of real-world object manipulations, we use six scenes from the NEO-Dataset , each with a single object moved by a robot to a known target pose. Following the same evaluation protocol as in the object removal experiments, we assess editing performance using the standard NeRF metrics computed over two masked regions: “Out”, corresponding to the object’s original location prior to movement, and “In”, corresponding to its new location after the manipulation. These region-based metrics allow us to separately assess the model’s ability to reconstruct newly revealed surfaces (Out) and to render the relocated object at its new position (In), in alignment with real-world observations. 
+
+C. Sequential Manipulation Experiments (Assembly) 
+
+To demonstrate the use of NEO for consecutive edits and downstream robotic tasks, we conduct an assembly experiment in which a sequence of manipulation actions is planned and executed using our model as the scene representation. The objective is to assemble multiple objects into a target config-uration through a series of iterative edits and robot actions. We begin by constructing an initial scene model and then perform four consecutive manipulation steps. At each step, interactive language prompts are used to identify the target ZIELI ´ NSKI et al. : NEO: NERF IT ONCE, EDIT IT MANY TIMES FOR CONTINUOUS OBJECT MANIPULATION 7
+
+> TABLE I AVERAGE METRICS CALCULATED ACROSS FIVE DIFFERENT SCENES IN THE OBJECT REMOVAL SCENARIO .
+
+Method PSNR [dB] ↑ SSIM [-] ↑ RMSE [m] ↓ Erep [-] ↓
+
+Full Out Full Out Full Out Full Out NeRFiller [17] 20.40 21.71 0.696 0.671 0.252 0.254 0.104 0.080 Seal-3D [19] 27.08 20.05 0.866 0.709 0.162 0.140 0.079 0.089 NeRFiller w/o D 22.19 23.73 0.748 0.729 0.080 0.096 0.076 0.080 DFF [26] 26.91 21.64 0.878 0.747 0.048 0.047 0.068 0.074 NEO (Ours) 27.20 25.43 0.881 0.845 0.056 0.033 0.067 0.071 
+
+object and specify its desired motion, expressed as a relative 6-DoF transformation. For each manipulation, NEO predicts the resulting scene state prior to physical execution, allowing the user to visualize the expected outcome. Once confirmed, the robot autonomously moves the selected object to the specified location without further human intervention. Both bounding box generation and grasp planning are performed directly on the current edited NEO model, which incorporates updated geometry and a dynamically refined language field. This experiment highlights NEO’s ability to not only render the visual result of edits, but also to maintain a consistent semantic representation across sequential manip-ulations, enabling it to serve as a live state estimator for manipulation planning. For the manipulation sequence, only the initial scene and reference object motions are provided in NEO-Dataset , requir-ing intermediate states to be produced by the editing method and enabling evaluation of the full scene update pipeline. V. RESULTS 
+
+A. Objects Removal Results 
+
+Tab. I reports the quantitative results for object removal. We observe that, in this task, NEO consistently outperforms two variants of NeRFiller [17] (with and without depth supervision), Seal-3D [19], and the DFF baseline [26], in both full-image and masked-image evaluation settings. In general, NEO achieves the best performance across all metrics. A qualitative comparison, shown in Fig. 8, is consistent with these quantitative results. Our method produces images that closely resemble the ground-truth scene. By contrast, DFF (Fig. 8c) leaves floating artifacts after object removal. NeRFiller (Fig. 8d) and NeRFiller w/o D reconstruct locally plausible regions but introduce more background artifacts, while Seal-3D (Fig. 8f) leaves many artifacts on the table surface. In addition to these accuracy improvements, NEO is computationally efficient, completing scene inpainting in approximately 6 minutes, compared to 13 minutes for DFF and about 1.5 hours for NeRFiller, resulting in an approximately 15 × speed-up. 
+
+B. Robotic Manipulation Results 
+
+We compare NEO against Seal-3D [19] in a pick-and-place scenario. Qualitative results are presented in Fig. 9, demonstrating that NEO produces higher-quality reconstruc-tions of moved objects. Seal-3D often leaves parts of the original object at its previous location and shows noticeable 
+
+ab                                   
+
+> Fig. 9. Example images generated by (a) NEO and (b) Seal-3D [19] after object manipulation experiments. Corner images and arrows show the initial configurations of objects and artifacts generated by both methods, respectively. TABLE II RESULTS OF PICK AND PLACE EXPERIMENTS SHOWING THE METRICS BETWEEN THE IMAGES GENERATED BY NEO AND GROUND -TRUTH IMAGES FROM THE SCENE AFTER MOVING THE OBJECT .Method PSNR [dB] ↑SSIM [-] ↑RMSE [m] ↓Erep [-] ↓
+> Out In Out In Out In Out In Seal-3D [19] 18.94 18.56 0.695 0.589 0.156 0.182 0.102 0.118 NEO 21.99 19.26 0.783 0.619 0.141 0.182 0.046 0.080
+
+degradation in the appearance of the manipulated object. In contrast, NEO avoids these visual artifacts. These observations are supported by the quantitative results in Tab. II where NEO consistently achieves the best photometric scores, depth RMSE, and reprojection error Erep . NEO completes the object manipulation task in about 1.5 minutes, compared to 3 minutes for Seal-3D, yielding a 2 × speed-up due to more efficient teacher–student knowledge distillation. 
+
+C. Ablation Study 
+
+In the ablation study, we compare the full NEO model with variants removing the virtual object-centered view distribution (w/o virtual view dist. in Tab. III), the 2 × 2 grid inpainting strategy (w/o grid inp.), and the mask-conditioned NeRF training objective (w/o mask-cond. train.). We also ablate distillation by training the student F ˆΘ using only the first term of Ldistill in Eq. (6) (field dist. only), enforcing consistency of teacher and student densities and colors along rays. The results in Tab. III show that mask-conditioned training is most important, while virtual view distribution has a smaller impact and grid inpainting lies in between. Ablating Ldistill shows that RGB and depth supervision from student rendering is most valuable, and all components contribute to NEO performance. 
+
+D. Assembly Results 
+
+Qualitative comparisons of our consecutive assembly exper-iment are shown in Fig. 10. These show only small differences between the synthesized view and the real images of the scene during manipulation. Despite multiple actions, the synthesized views closely match real images, demonstrating that even after an edit, the NEO model supports subsequent edits and accurately predicts the effects of each action. 8 SUBMITTED TO IEEE ROBOTICS AND AUTOMATION LETTERS. PREPRINT VERSION. 
+
+a b c d e
+
+Fig. 10. Assembly experiment showing NEO output (top row), which predicts the future state of the scene based on the initial scene (a) and a series of text prompts, along with the ground-truth results of the real-robot experiment using the NEO model for object localization and grasp planning. TABLE III ABLATION STUDY ON THE PICK AND PLACE TASK .Method PSNR [dB] ↑ SSIM [-] ↑ RMSE [m] ↓ Erep [-] ↓
+
+Out In Out In Out In Out In w/o Virtual view dist. 17.34 18.89 0.637 0.614 0.134 0.169 0.054 0.080 
+
+w/o Grid inp. 15.83 18.42 0.590 0.600 0.142 0.173 0.062 0.081 w/o Mask-cond. train. 13.09 18.65 0.502 0.605 0.157 0.171 0.088 0.083 Field distill only 15.24 12.29 0.402 0.387 0.261 0.199 0.060 0.115 NEO full model 21.99 19.26 0.783 0.619 0.056 0.033 0.046 0.080 
+
+VI. CONCLUSIONS In this paper, we present a unified framework for realistic, language-guided NeRF editing tailored to robotic manipula-tion. By combining object removal, knowledge distillation, and direct NeRF weight editing, our approach enables robots to anticipate the visual outcomes of interactions before exe-cution. Through real-world pick-and-place and assembly ex-periments, we demonstrate that edited NeRFs reliably predict manipulation-induced scene changes. Across object removal and relocation scenarios, our method consistently outperforms prior NeRF editing approaches in terms of visual fidelity and structural consistency. These results show that editable NeRF representations can accurately reflect real-world scene changes and serve as reliable predictors for downstream manipula-tion tasks. We additionally provide a ground-truth benchmark dataset to facilitate future evaluation of NeRF editing methods. Future work will extend the framework to articulated objects and leverage NEO to predict future scene states for training an RL-based controller in multi-stage assembly. REFERENCES [1] B. Mildenhall, P. P. Srinivasan et al. , “NeRF: Representing scenes as neural radiance fields for view synthesis.” in ECCV , vol. 12346, 2020, pp. 405–421. [2] G. Wang, L. Pan et al. , “NeRFs in robotics: A survey,” IJRR , 2024. [3] Z. Wang, T. Shen et al. , “Neural fields meet explicit geometric repre-sentations for inverse rendering of urban scenes.” in CVPR , 2023, pp. 8370–8380. [4] Y. Tao, Y. Bhalgat et al. , “Silvr: Scalable lidar-visual reconstruction with neural radiance fields for robotic inspection,” in ICRA , 2024, pp. 17 983–17 989. [5] A. Byravan, J. Humplik et al. , “NeRF2Real: Sim2real transfer of vision-guided bipedal motion skills using neural radiance fields.” in ICRA ,2023, pp. 9362–9369. [6] P. Song, P. Li, and R. Detry, “Implicit grasp diffusion: Bridging the gap between dense prediction and sampling-based grasping,” in CoRL , 2024. [7] A. Rashid, S. Sharma et al. , “Language embedded radiance fields for zero-shot task-oriented grasping,” in CoRL , 2023. [8] F. Engelmann, F. Manhardt et al. , “OpenNeRF: Open set 3D neural scene segmentation with pixel-wise features and rendered novel views.” in ICLR , 2024. [9] W.-C. Tseng, H.-J. Liao et al. , “CLA-NeRF: Category-level articulated neural radiance field.” in ICRA , 2022, pp. 8454–8460. [10] J. Ichnowski, Y. Avigal et al. , “Dex-NeRF: Using a neural radiance field to grasp transparent objects.” in CoRL , vol. 164, 2021, pp. 526–536. [11] S. Fang, I.-C. Shen et al. , “NeRF is a valuable assistant for 3D gaussian splatting,” in ICCV , 2025, pp. 26 230–26 240. [12] M. Wilder-Smith, V. Patil, and M. Hutter, “Radiance fields for robotic teleoperation,” in IROS , 2024, pp. 13 861–13 868. [13] C. Zhu, R. Wan et al. , “Occlusion-free scene recovery via neural radiance fields.” in CVPR . IEEE, 2023, pp. 20 722–20 731. [14] J. Kerr, C. M. Kim et al. , “LERF: Language embedded radiance fields.” in ICCV , 2023, pp. 19 672–19 682. [15] W. Shen, G. Yang et al. , “Distilled feature fields enable few-shot language-guided manipulation,” in CoRL , 2023. [16] Z. Lu, J. Ye et al. , “Fast sparse view guided NeRF update for object reconfigurations.” CoRR , vol. abs/2403.11024, 2024. [17] E. Weber, A. Holynski et al. , “Nerfiller: Completing scenes via gener-ative 3d inpainting,” in CVPR , 2024, pp. 20 731–20 741. [18] E. Bartrum, T. Nguyen-Phuoc et al. , “ReplaceAnything3D: Text-guided object replacement in 3D scenes with compositional scene representa-tions.” in NeurIPS , 2024. [19] X. Wang, J. Zhu et al. , “Seal-3D: Interactive pixel-level editing for neural radiance fields,” in ICCV , 2023, pp. 17 637–17 647. [20] J.-K. Chen, J. Lyu, and Y.-X. Wang, “NeuralEditor: Editing neural radiance fields via manipulating point clouds.” in CVPR , 2023, pp. 12 439–12 448. [21] Y.-J. Yuan, Y.-T. Sun et al. , “NeRF-Editing: Geometry editing of neural radiance fields.” in CVPR , 2022, pp. 18 332–18 343. [22] Y. Wang, W. Wu, and D. Xu, “Learning unified decompositional and compositional NeRF for editable novel view synthesis.” in ICCV . IEEE, 2023, pp. 18 201–18 210. [23] S. Hausler, D. Hall et al. , “Reg-NF: Efficient registration of implicit surfaces within neural fields,” in ICRA , 2024, pp. 15 409–15 415. [24] S. Weder, G. Garcia-Hernando et al. , “Removing objects from neural radiance fields,” in CVPR , 2023. [25] R. Rombach, A. Blattmann et al. , “High-resolution image synthesis with latent diffusion models,” in CVPR , 2022, pp. 10 684–10 695. [26] S. Kobayashi, E. Matsumoto, and V. Sitzmann, “Decomposing NeRF for editing via feature field distillation.” in NeurIPS , 2022. [27] S. Rojas, J. Philip et al. , “DATENeRF: Depth-aware text-based editing of NeRFs,” in ECCV , 2024, pp. 267–284. [28] J. Dong and Y.-X. Wang, “ViCA-NeRF: view-consistency-aware 3D editing of neural radiance fields,” in NeurIPS , 2023. [29] J. Abou-Chakra, K. Rana et al. , “Physically embodied gaussian splatting: A realtime correctable world model for robotics,” in CoRL , 2024. [30] O. Shorinwa, J. Tucker et al. , “Splat-mover: Multi-stage, open-vocabulary robotic manipulation via editable gaussian splatting,” in 
+
+CoRL , 2024. [31] S. Kocour, A. Benbihi et al. , “Is there anything left? measuring semantic residuals of objects removed from 3D gaussian splatting,” 2025. [32] H.-S. Fang, C. Wang et al. , “AnyGrasp: Robust and efficient grasp perception in spatial and temporal domains,” T-RO , 2023. [33] B. C ¸ alli, A. Walsman et al. , “Benchmarking in manipulation research: Using the Yale-CMU-Berkeley object and model set.” IEEE Robotics Autom. Mag. , vol. 22, no. 3, pp. 36–52, 2015. [34] J. Engel, T. Sch¨ ops, and D. Cremers, “LSD-SLAM: Large-scale direct monocular SLAM,” in ECCV , 2014, pp. 834–849.

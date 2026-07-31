@@ -6,107 +6,98 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-30
-- 运行时间：2026-07-31 06:38:33 Asia/Shanghai
+- 最新运行日期：2026-07-31
+- 运行时间：2026-08-01 06:35:01 Asia/Shanghai
 - 运行状态：成功
-- 本次总论文数：29
-- 精读区：14
+- 本次总论文数：26
+- 精读区：11
 - 速读区：15
 
 ### 今日简报（AI）
-今日推荐29篇论文，精读14篇，速读15篇，重点关注两篇9.0分工作。核心方向为强化学习与最优控制的桥接（Feasible Action Mapping），以及基于图像条件查询增强的长尾目标导航（IMPRINT）。建议优先精读这两篇高分论文，理解其方法创新与实验设计。
-- 详情：[/202607/30/README](/202607/30/README)
+今日共读26篇论文，精读11篇、速读15篇，聚焦具身智能与VLA模型前沿进展。最值得关注的是两篇满分精读：LeapBot-WA通过预测潜在对齐实现世界锚定动作建模，τ模型利用未来视觉监督增强触觉-视觉-语言-动作能力。建议优先精读这两篇，并速读风险感知运动规划与运动学路由等应用方向，快速掌握具身智能核心趋势。
+- 详情：[/202607/31/README](/202607/31/README)
 
 ### 精读区论文标签
-1. [Bridging Reinforcement Learning and Optimal Control via Feasible Action Mapping](/202607/30/2607.23930v1-bridging-reinforcement-learning-and-optimal-control-via-feasible-action-mapping)  
+1. [LeapBot-WA: World-Anchor Action Models via Predictive Latent Alignments](/202607/31/2607.23969v2-leapbot-wa-world-anchor-action-models-via-predictive-latent-alignments)  
+   标签：评分：9.0/10、query:world-model
+   evidence：面向具身智能的世界锚定动作模型，通过预测潜空间对齐实现世界建模，匹配机器人操控与运动世界模型
+2. [τ: Learning Touch-Augmented Vision-Language-Action Models from Future Visual Supervision](/202607/31/2607.24485v2--learning-touch-augmented-vision-language-action-models-from-future-visual-supervision)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：基于未来视觉监督的触觉增强视觉-语言-动作模型
+3. [Transformer Transformer: A Unified Model for Motion-Conditioned Robot Co-design](/202607/31/2607.25798v1-transformer-transformer-a-unified-model-for-motion-conditioned-robot-co-design)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：面向跨具身机器人共设计与控制的统一扩散Transformer模型
+4. [Explicit Kinematic Guidance from Analytic Concepts for Vision-Language-Action Models](/202607/31/2607.26513v1-explicit-kinematic-guidance-from-analytic-concepts-for-vision-language-action-models)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：面向机器人操作策略的VLA模型，引入三维运动学引导
+5. [ContactFlow: A video action conditioning that transfers across embodiments](/202607/31/2607.26579v1-contactflow-a-video-action-conditioning-that-transfers-across-embodiments)  
+   标签：评分：9.0/10、query:world-model
+   evidence：面向机器人操作的世界模型动作条件化表示，关注接触约束
+6. [Enfold: Folding World-Generator Computation into Predictive Representations for Efficient Embodied Control](/202607/31/2607.26657v1-enfold-folding-world-generator-computation-into-predictive-representations-for-efficient-embodied-control)  
+   标签：评分：9.0/10、query:world-model
+   evidence：将世界生成器计算折叠进预测表示以支持具身控制
+7. [It's Not Just More Demos: Counterfactual Action Sensitivity Coverage for Data-Efficient Robust Robot Imitation](/202607/31/2607.27261v1-its-not-just-more-demos-counterfactual-action-sensitivity-coverage-for-data-efficient-robust-robot-imitation)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：基于反事实覆盖的数据高效鲁棒机器人模仿学习，直接对应模仿学习操控需求
+8. [World Action Planner: Generalizable Decision-Making with Action-Conditioned World Models](/202607/31/2607.27599v1-world-action-planner-generalizable-decision-making-with-action-conditioned-world-models)  
+   标签：评分：9.0/10、query:world-model
+   evidence：动作条件世界模型用于机器人规划与迭代优化决策
+9. [RedFlow: Redirect Failure into Action-Level Corrections for Flow-matching VLA Policy](/202607/31/2607.27782v1-redflow-redirect-failure-into-action-level-corrections-for-flow-matching-vla-policy)  
+   标签：评分：9.0/10、query:vla-robotics
+   evidence：使用离线强化学习纠正流匹配VLA策略的动作级错误
+10. [Learning Social Robot Navigation By Sensing Human Legs](/202607/31/2607.27922v1-learning-social-robot-navigation-by-sensing-human-legs)  
    标签：评分：9.0/10、query:rl-robotics
-   evidence：强化学习与最优控制结合用于约束系统
-2. [IMPRINT: Image-Conditioned Query Enrichment for Long-Tail Object Goal Navigation](/202607/30/2607.25106v1-imprint-image-conditioned-query-enrichment-for-long-tail-object-goal-navigation)  
-   标签：评分：9.0/10、query:vtt
-   evidence：零样本目标导航，图像增强查询
-3. [Decompose and Reorganize: Planning with Primitives and Visuomotor Policies Learned from Demonstrations](/202607/30/2607.25397v1-decompose-and-reorganize-planning-with-primitives-and-visuomotor-policies-learned-from-demonstrations)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：结合演示学习的视觉运动策略与任务运动规划
-4. [Tri-Manual Visuomotor Imitation Learning of Robot Policies](/202607/30/2607.25731v1-tri-manual-visuomotor-imitation-learning-of-robot-policies)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：三臂机器人视觉运动模仿学习策略
-5. [S2A2: Audio-Visual Imitation Learning for Manipulation Tasks Using Acoustic Spatial Information](/202607/30/2607.26047v1-s2a2-audio-visual-imitation-learning-for-manipulation-tasks-using-acoustic-spatial-information)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：使用视听线索的机器人操作模仿学习
-6. [INTACT: Isomorphic Intent-to-Action Learning for Search-Free World Models](/202607/30/2607.26056v1-intact-isomorphic-intent-to-action-learning-for-search-free-world-models)  
+   evidence：基于LiDAR腿部特征的深度强化学习机器人导航
+11. [EgoGenesis: Egocentric World-Action Modeling with Online Anchored Projective Memory and Action-3D RoPE](/202607/31/2607.28243v1-egogenesis-egocentric-world-action-modeling-with-online-anchored-projective-memory-and-action-3d-rope)  
    标签：评分：9.0/10、query:world-model
-   evidence：通过同构意图-动作学习实现无搜索的动作条件世界模型
-7. [Embodied Agents Take Control: Minimal-Interface Zero-Shot Agents Rival Industrial-Scale Policies in Vision-and-Language Navigation](/202607/30/2607.26148v1-embodied-agents-take-control-minimal-interface-zero-shot-agents-rival-industrial-scale-policies-in-vision-and-language-navigation)  
-   标签：评分：9.0/10、query:vtt
-   evidence：视觉语言导航的零样本代理
-8. [Learning Implicit Causal World Models from Multi-Agent Demonstrations](/202607/30/2607.26336v1-learning-implicit-causal-world-models-from-multi-agent-demonstrations)  
-   标签：评分：9.0/10、query:world-model
-   evidence：通过因果发现建立多智能体交互的社会世界模型
-9. [CG-World: A Large-Scale World-State Dataset and Protocol for World Models](/202607/30/2607.26452v1-cg-world-a-large-scale-world-state-dataset-and-protocol-for-world-models)  
-   标签：评分：9.0/10、query:world-model
-   evidence：用于世界模型评估的大规模数据集和协议
-10. [Enfold: Folding World-Generator Computation into Predictive Representations for Efficient Embodied Control](/202607/30/2607.26657v1-enfold-folding-world-generator-computation-into-predictive-representations-for-efficient-embodied-control)  
-   标签：评分：9.0/10、query:world-model
-   evidence：提出将世界模型计算内化以实现高效具身控制
-11. [SymmGrid: Super-Scaling On-Robot Learning with Parallelized Symmetries and Egocentric-Exocentric Visual Perception](/202607/30/2607.26985v1-symmgrid-super-scaling-on-robot-learning-with-parallelized-symmetries-and-egocentric-exocentric-visual-perception)  
-   标签：评分：9.0/10、query:rl-robotics
-   evidence：使用强化学习通过对称性增强加速机器人学习
-12. [RL$^2$-VLA: Adaptive RL Latent Compositional Steering with Test-Time Scaling for Vision-Language-Action Models](/202607/30/2607.26991v1-rl2-vla-adaptive-rl-latent-compositional-steering-with-test-time-scaling-for-vision-language-action-models)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：视觉语言动作模型结合强化学习用于机器人操作
-13. [DLAM: Distributional Latent Actions with Temporal Constraints](/202607/30/2607.27138v1-dlam-distributional-latent-actions-with-temporal-constraints)  
-   标签：评分：9.0/10、query:vla-robotics
-   evidence：分布性潜在动作模型用于视觉-语言-动作模型
-14. [Mental World Modeling](/202607/30/2607.27201v1-mental-world-modeling)  
-   标签：评分：9.0/10、query:world-model
-   evidence：心理世界模型形式化了隐藏心理状态，用于社交多智能体交互与规划
+   evidence：用于可控操作视频生成的自我中心世界-动作模拟器
 
 ### 速读区论文标签
-1. [Addressing the Orchestration Gap in Generalist Robots via Physical Agency](/202607/30/2607.21725v1-addressing-the-orchestration-gap-in-generalist-robots-via-physical-agency)  
-   标签：评分：8.0/10、query:world-model
-   evidence：通用机器人中的世界知识与规划
-2. [Amortising Trajectory Optimisation for Residual MPC via Implicit Contact Differentiation](/202607/30/2607.24959v1-amortising-trajectory-optimisation-for-residual-mpc-via-implicit-contact-differentiation)  
+1. [Risk-Aware Motion Planning with Learned Trajectory Primitives and Probabilistic Safety Assessment](/202607/31/2607.26802v1-risk-aware-motion-planning-with-learned-trajectory-primitives-and-probabilistic-safety-assessment)  
    标签：评分：8.0/10、query:topic
-   evidence：隐式微分用于MPC轨迹优化
-3. [SONG: A Photorealistic 3D Gaussian Simulation Platform for Benchmarking Social Navigation](/202607/30/2607.25219v1-song-a-photorealistic-3d-gaussian-simulation-platform-for-benchmarking-social-navigation)  
-   标签：评分：8.0/10、query:vtt
-   evidence：基于3D高斯泼溅和LLM驱动行人的逼真社交导航仿真平台
-4. [P3: Probabilistic Policy Propagation for Stable VAE-Based Robot Learning](/202607/30/2607.25541v1-p3-probabilistic-policy-propagation-for-stable-vae-based-robot-learning)  
-   标签：评分：8.0/10、query:rl-robotics
-   evidence：概率策略传播用于机器人中稳定的基于VAE的强化学习
-5. [Tri-Manual Visuomotor Imitation Learning of Robot Policies](/202607/30/2607.25731v2-tri-manual-visuomotor-imitation-learning-of-robot-policies)  
+   evidence：基于MPC的运动规划，学习轨迹原语与概率安全评估
+2. [Route by Kinematics, Act by Observation: Kinematics-Supervised Expert Routing in MoE-Augmented VLA](/202607/31/2607.26807v1-route-by-kinematics-act-by-observation-kinematics-supervised-expert-routing-in-moe-augmented-vla)  
    标签：评分：8.0/10、query:vla-robotics
-   evidence：模仿学习用于多臂机器人操控
-6. [Schrödinger's Cat: Probabilistic Representation and Prediction of Potential Scene Kinematics](/202607/30/2607.25984v1-schrdingers-cat-probabilistic-representation-and-prediction-of-potential-scene-kinematics)  
+   evidence：针对MoE增强VLA的机器人操控，提出运动学监督专家路由方法
+3. [From Passive Video to Editable Experience: Physically Grounded Experience Synthesis for Embodied Intelligence](/202607/31/2607.26903v1-from-passive-video-to-editable-experience-physically-grounded-experience-synthesis-for-embodied-intelligence)  
    标签：评分：8.0/10、query:world-model
-   evidence：概率场景运动预测作为世界模型
-7. [MoMo: Dial Motion Mode in Robot Manipulation with Spatiotemporal Action Tokenization](/202607/30/2607.26315v1-momo-dial-motion-mode-in-robot-manipulation-with-spatiotemporal-action-tokenization)  
+   evidence：从人类视频到机器人可学习数据的物理化经验合成
+4. [RoboBRIDGE: A Modular Framework for Bridging Policies to Robust Real-World Robotic Agents](/202607/31/2607.27881v1-robobridge-a-modular-framework-for-bridging-policies-to-robust-real-world-robotic-agents)  
    标签：评分：8.0/10、query:vla-robotics
-   evidence：使用时空动作标记化的机器人操作模仿学习框架
-8. [EA-Nav: Learning Safe Visual Navigation Policies with Embodiment Awareness](/202607/30/2607.19880v2-ea-nav-learning-safe-visual-navigation-policies-with-embodiment-awareness)  
-   标签：评分：7.0/10、query:rl-robotics
-   evidence：跨具身视觉导航策略，通过模仿学习
-9. [Towards Capability-Aware Traversability Navigation for Unstructured Environments](/202607/30/2607.20679v1-towards-capability-aware-traversability-navigation-for-unstructured-environments)  
+   evidence：将VLA策略部署为鲁棒真实机器人智能体的模块化框架
+5. [QuantWAMs: Calibrating at the Right Granularity for World Action Models](/202607/31/2607.28405v1-quantwams-calibrating-at-the-right-granularity-for-world-action-models)  
+   标签：评分：8.0/10、query:world-model
+   evidence：面向联合预测观测与动作的世界动作模型的训练后量化框架
+6. [QQWorld: Quantile-Quantile Matching for World Model Regularization](/202607/31/2607.28415v1-qqworld-quantile-quantile-matching-for-world-model-regularization)  
+   标签：评分：8.0/10、query:world-model
+   evidence：用分位数-分位数匹配改进潜空间世界模型的正则化，直接支撑基于模型的强化学习
+7. [False Prophets: On the Security of World Models in Agentic Systems](/202607/31/2607.23147v1-false-prophets-on-the-security-of-world-models-in-agentic-systems)  
+   标签：评分：7.0/10、query:world-model
+   evidence：大语言模型智能体中世界模型的安全分析
+8. [Motion Generation With Environmental Constraints](/202607/31/2607.25053v1-motion-generation-with-environmental-constraints)  
    标签：评分：7.0/10、query:topic
-   evidence：感知能力的可通行性导航，考虑机器人特定约束
-10. [Offline RL with Hierarchical Action Chunking](/202607/30/2607.20834v1-offline-rl-with-hierarchical-action-chunking)  
+   evidence：机器人运动规划中的环境约束利用；主动接触降低维度与计算复杂度
+9. [Self-Adaptive Learning and Model Predictive Control for Tracking Unknown Dynamics with No Regret](/202607/31/2607.26370v1-self-adaptive-learning-and-model-predictive-control-for-tracking-unknown-dynamics-with-no-regret)  
+   标签：评分：7.0/10、query:topic
+   evidence：自适应在线学习与MPC结合的跟踪控制
+10. [RLMM-Flow: A Flow-based Mobile Manipulation Framework with Latent-Space Reinforcement Learning](/202607/31/2607.26460v1-rlmm-flow-a-flow-based-mobile-manipulation-framework-with-latent-space-reinforcement-learning)  
    标签：评分：7.0/10、query:rl-robotics
-   evidence：面向机器人任务的离线目标条件RL层次动作分块方法
-11. [The Curse of Precision: A Data Scaling Law for High-Precision Robotic Manipulation](/202607/30/2607.23108v1-the-curse-of-precision-a-data-scaling-law-for-high-precision-robotic-manipulation)  
-   标签：评分：7.0/10、query:vla-robotics
-   evidence：高精度机器人操作中模仿学习的数据规模律
-12. [Optimal Reward Shaping: Autonomous Car Parking Case Study](/202607/30/2607.23617v1-optimal-reward-shaping-autonomous-car-parking-case-study)  
+   evidence：流式全身移动操作策略结合潜空间强化学习后训练，属强化学习与机器人控制结合
+11. [SymmGrid: Super-Scaling On-Robot Learning with Parallelized Symmetries and Egocentric-Exocentric Visual Perception](/202607/31/2607.26985v1-symmgrid-super-scaling-on-robot-learning-with-parallelized-symmetries-and-egocentric-exocentric-visual-perception)  
    标签：评分：7.0/10、query:rl-robotics
-   evidence：强化学习奖励塑形用于自动泊车（移动机器人导航）
-13. [Trade-off for Secure UAV-ISCC Systems](/202607/30/2607.21939v1-trade-off-for-secure-uav-iscc-systems)  
-   标签：评分：6.0/10、query:topic
-   evidence：无人机安全ISCC系统中的三维轨迹优化
-14. [Belief-Aware Influence and Trust (BAIT): Shaping Human Belief During Repeated Human-Robot Interaction](/202607/30/2607.25327v1-belief-aware-influence-and-trust-bait-shaping-human-belief-during-repeated-human-robot-interaction)  
-   标签：评分：6.0/10、query:vtt
-   evidence：社交导航与人机交互中的模型预测控制
-15. [Practice Makes Policies: Bootstrapping and Consolidating Robotic Capabilities from Zero Human Demonstrations](/202607/30/2607.26809v1-practice-makes-policies-bootstrapping-and-consolidating-robotic-capabilities-from-zero-human-demonstrations)  
+   evidence：面向物理机器人的对称性增强深度强化学习方法
+12. [Offline RL with Hierarchical Action Chunking](/202607/31/2607.20834v1-offline-rl-with-hierarchical-action-chunking)  
    标签：评分：6.0/10、query:rl-robotics
-   evidence：无需人类演示的机器人操作自我改进，涉及强化学习和能力演进
+   evidence：分层动作分块的离线目标条件强化学习，提升长程机器人控制
+13. [Factorized Spatio-Temporal Convolutions for Human Pose Estimation from Planar Lidar](/202607/31/2607.21309v1-factorized-spatio-temporal-convolutions-for-human-pose-estimation-from-planar-lidar)  
+   标签：评分：6.0/10、query:vtt
+   evidence：利用平面激光雷达估计人体位置与朝向，为安全社交导航提供感知能力
+14. [NEO: NeRF It Once, Edit It Many Times for Continuous Object Manipulation](/202607/31/2607.24538v1-neo-nerf-it-once-edit-it-many-times-for-continuous-object-manipulation)  
+   标签：评分：6.0/10、query:world-model
+   evidence：面向机器人操控的语言引导NeRF编辑，可建模未来场景状态，关联操控型世界模型
+15. [Practice Makes Policies: Bootstrapping and Consolidating Robotic Capabilities from Zero Human Demonstrations](/202607/31/2607.26809v1-practice-makes-policies-bootstrapping-and-consolidating-robotic-capabilities-from-zero-human-demonstrations)  
+   标签：评分：6.0/10、query:vla-robotics
+   evidence：无人类示范的通用机器人操控自主能力进化
 
 
 <div class="dpr-home-promo-card">

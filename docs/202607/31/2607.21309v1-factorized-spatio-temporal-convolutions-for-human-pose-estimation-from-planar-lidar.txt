@@ -1,0 +1,248 @@
+Title: Factorized Spatio-Temporal Convolutions for Human Pose Estimation from Planar Lidar
+
+URL Source: https://arxiv.org/pdf/2607.21309v1
+
+Published Time: Fri, 24 Jul 2026 01:10:29 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Factorized Spatio-Temporal Convolutions for Human Pose Estimation from Planar Lidar 
+
+Simone Arreghini, Mirko Nava, Nicholas Carlotti, Antonio Paolillo, and Alessandro Giusti 
+
+Abstract — Localizing nearby humans and estimating their facing direction are key capabilities for safe navigation and socially aware human-robot interaction. Many pose-estimation pipelines target cameras and 3D LiDAR or assume GPU-class compute, whereas service robots are often equipped only with omnidirectional planar LiDARs and modest onboard processors. We address omnidirectional human detection and relative 2D pose estimation from planar LiDAR sequences with a lightweight network based on Space–Time Blocks, which explicitly separate spatial processing along scan rays from temporal aggregation across scans. Our network processes 360 ◦
+
+LiDAR sequences to output per-ray human presence, distance, and relative orientation. We train it via cross-modal self-supervision from a narrow RGB-D body tracker in the sensors’ overlap region, removing the need for manual LiDAR labels. Quantitative experiments show that our approach consistently outperforms a parameter-matched baseline model, reducing errors in distance (-38%), position (-28%), and orientation (-15%). We further benchmark on the public FROG dataset, report real-time CPU inference on a service robot, and validate with in-field demonstrations, supporting its suitability for spa-tial perception on computationally constrained service robots. 
+
+I. I NTRODUCTION 
+
+The number of robots operating in spaces shared with humans is steadily increasing, ranging from large service robots [1] deployed in airports, hotels, and hospitals [2]–[4] to smaller household platforms such as robot vacuums and lawn mowers. For these systems, perceiving nearby people and estimating their relative pose is central in enabling safe navigation and social Human-Robot Interaction (HRI) behaviors such as approaching, yielding, or initiating interac-tion [5]. However, achieving reliable human pose perception with the sensing and computing constraints typical of mobile robots remains technically challenging. Many such platforms rely on an omnidirectional planar (2D) LiDAR for robust, all-weather range sensing, often complemented only by a narrow-Field of View (FOV) camera to balance cost, power, and integration constraints [1], [6], [7]. This setting also characterizes our robot shown in Fig. 1, which illustrates the sensing geometry and the target quantities: human presence and relative 2D pose around the robot. Although a planar LiDAR may provide 360 ◦ coverage, individual scans are sparse and ambiguous compared to 3D point clouds: clutter 
+
+> 1
+
+All authors are with the Dalle Molle Institute for Artificial Intelligence (IDSIA), USI-SUPSI, Lugano, Switzerland. Corresponding author: Simone Arreghini, simone.arreghini@supsi.ch 
+
+This work was supported by the European Union through the project SERMAS, by the Swiss State Secretariat for Education, Research and Innovation (SERI) under contract number 22.00247, and by the Swiss National Science Foundation, grant number 213074. 
+
+Fig. 1. Our approach leverages the human tracking capabilities of the narrow-FOV RGB-D head camera (Azure Kinect) as a supervision signal to train a model that, given planar LiDAR scans, predicts the presence and relative 2D pose of humans around the robot. The entire pipeline relies on onboard hardware to autonomously gather and self-label data in any environment. In this laboratory, a Motion Capture system provides 2D ground truth poses used in the quantitative evaluation. 
+
+can produce human-like returns from objects, and the ap-proximate front-back symmetry of the human body makes facing direction difficult to infer from a single snapshot. As a consequence, accurate estimation of position, and especially facing direction, from planar LiDAR benefits from exploiting spatio-temporal cues across multiple scans, rather than relying on instantaneous geometry alone. Vision-based pipelines for human detection and pose estimation are well established [8], [9], and analogous approaches have been developed for 3D LiDAR point clouds [10], [11]. However, transferring these solutions to the planar-LiDAR setting is nontrivial: they either rely on sensing modalities without omnidirectional coverage, or assume input representations and model capacities that do not match sparse 2D scans and typical onboard deployment constraints. We address the task of omnidirectional human detection and relative 2D pose estimation from planar LiDAR se-quences, predicting per-ray human presence, distance, and orientation. Our design follows three pragmatic considera-tions. First, many service robots carry heterogeneous sen-sors with complementary FOV. We exploit this by using a reliable, narrow-FOV RGB-D body-tracking output as a supervision signal to train and continuously adapt a model that operates only on wide-FOV planar LiDAR data, us-ing a masked cross-modal loss enforced where the sensor views overlap [12], [13]. Second, recent advances in spatio-temporal modeling show that explicitly factorizing spatial 
+
+© 2026 IEEE. Personal use of this material is permitted. Permission from IEEE must be obtained for all other uses, in any current or future media, including reprinting/republishing this material for advertising or promotional purposes, creating new collective works, for resale or redistribution to servers or lists, or reuse of any copyrighted component of this work in other works. arXiv:2607.21309v1 [cs.RO] 23 Jul 2026 and temporal processing can improve accuracy and opti-mization compared to entangling them in monolithic ker-nels [14], [15]. Finally, for deployment across platforms, the perception pipeline should be sufficiently lightweight to run fully onboard, enabling continuous human awareness even on smaller robots. While we demonstrate the system on a PAL Robotics TIAGo platform, the goal is to develop an onboard-efficient approach for omnidirectional planar-LiDAR human pose perception that can transfer easily to smaller form-factor robots with resource-constrained compute and lower-end planar LiDAR sensors [7]. Our main contributions are:  
+
+> •
+
+ST-Block: we adapt space-time factorization to circular 2D LiDAR sequences, separating circular 1D spatial convolutions from lightweight temporal convolutions that aggregate motion cues over a fixed scan history.  
+
+> •
+
+Masked cross-modal self-supervision: we leverage a narrow-FOV RGB-D body tracker to gather labels and enforce a masked loss only in the area with camera-LiDAR overlap, eliminating manual annotation and en-abling on-site adaptation to new environments.  
+
+> •
+
+Omnidirectional planar-LiDAR pose perception on onboard compute: we predict per-ray human presence, distance, and facing direction from planar LiDAR and validate on a motion-capture test set, with ablations, closed-loop robot trials, and a public FROG bench-mark [16]. After reviewing related work in Sec. II, Sec. III presents the ST-Block model and self-supervised training, Sec. IV describes the platform, dataset, and evaluation protocol, Sec. V reports the results, and Sec. VI concludes. An online video illustrating the sensing setup, qualitative LiDAR pose predictions, and closed-loop robot experiments is available at youtu.be/Ay7KMmk-ESA .II. R ELATED WORK 
+
+A. Sensors for Human Detection and Pose Estimation 
+
+Vision-based human detection and pose estimation are widely used in HRI, often relying on RGB or RGB-D sensing [8], [9]. In mobile robotics, LiDAR sensors are also common as they provide longer-range measurements with wide coverage and strong robustness across lighting conditions. For people detection, both 2D and 3D LiDAR have been studied. Comparative analyses suggest that 3D LiDAR approaches are generally more resilient to occlu-sions, while 2D LiDAR perception retains good performance, remaining attractive due to its simpler sensing setup and favorable runtime–performance trade-offs on mobile robots with limited onboard compute [17]. This has motivated a long line of work on people detection from 2D range scans. Early approaches rely on hand-crafted geometric features extracted from scan segments (often leg-like patterns), com-bined with classical classifiers and tracking [18], [19]. More recent methods learn directly from raw scans using deep models. A common paradigm predicts person centers by combining local scan descriptors with a voting or aggregation stage, which has become a strong baseline family for 2D LiDAR detection [20]. Subsequent work improves robustness by incorporating temporal context, either by aggregating features across consecutive scans or by using attention-based mechanisms to better handle motion and partial observabil-ity [21], [22]. Label scarcity and domain shift are persistent challenges for methods that rely primarily on 2D LiDAR. Self-supervised or weakly supervised pipelines mitigate these issues by exploiting cross-modal supervision [12], where a calibrated camera-based detector provides pseudo-labels for LiDAR data, enabling training and adaptation without manual annotation [23]. Public benchmarks are also avail-able, such as JRDB [24] and the newer FROG dataset [16]. The latter provides fully labeled knee-high 2D scans paired with robot odometry, facilitating standardized comparisons across detection approaches. All the above methods primarily address people detection and 2D position estimation, and do not tackle the more challenging problem of estimating human facing direction. Methods that output orientation typically rely on richer sensing or multi-modal cues, such as combining planar LiDAR with monocular images to infer oriented pedestrian pose [25]. In contrast, our objective is an efficient pipeline for omnidirectional people detection and relative 2D pose estimation, including both position and orientation, solely from planar LiDAR at inference time. We use a narrow-FOV RGB-D tracker as a self-supervision signal only during training and adaptation, avoiding manual annotation for each new deployment while mitigating domain shift and improving performance in the target environment. 
+
+B. Space-Time Architectures 
+
+Literature in video understanding shows that explicitly 
+
+factorizing space and time dimensions helps training and improves the performance of neural networks compared to monolithic architectures, by alternating spatial per-frame convolutions with temporal across-frame convolutions [14]. Early factorized designs on RGB video demonstrated that replacing a single 3D convolution with sequential 2D (spa-tial) and 1D (temporal) layers preserves temporal modeling while reducing parameter coupling and compute [14], [15]. Related principles appear in sequence models for point clouds and pose estimation, where temporal convolutions and attention mechanisms are often combined to capture motion patterns over time [26]–[28]. For planar LiDAR, temporal cues are particularly important because individual scans provide sparse and ambiguous information. Our work applies the same high-level principle of separating spatial and temporal processing to omnidirectional 2D LiDAR time series. Specifically, we introduce the Space-Time Block (ST-Block), which combines circular spatial convolutions, respecting laser scan topology, with temporal convolutions that aggregate motion patterns over time. This design pre-serves the efficiency and inductive biases of convolutional models while enabling dense, per-ray predictions of human presence, distance, and relative orientation around the robot, including outside the region where training labels are directly available. The resulting lightweight architecture aligns with the constraints of commodity service robots, where onboard Laser Sensor Readings Robot Front / Angle          
+
+> Neural Net Model ti ti-N+1 65° Camera FOV
+> Masked MSE loss
+> 43° Receptive Field
+> Presence Distance Cosine Sine Presence Distance Cosine Sine Outputs Labels Angle Inference Direction Fig. 2. Our model uses a temporal window of NLiDAR scans to predict the presence ˆpof nearby people, their distance ˆd, and relative orientation
+> ˆo(represented by sine and cosine). Dilated circular convolutions process omnidirectional scans and yield a 43 ◦receptive field. A masked loss is enforced on predictions that overlap with the camera FOV (red shaded area).
+
+compute and sensing performance are limiting factors. III. M ETHODOLOGY 
+
+We propose a deep learning model that estimates the pres-ence of humans around the robot, and their 2D relative pose, from a sequence of omnidirectional planar LiDAR readings. The model is trained using a supervision signal limited to the head-mounted RGB-D camera’s FOV, as shown in Fig. 2. The model input consists of a temporal window of 
+
+N LiDAR scans, reprojected to the robot’s current pose using its onboard odometry. This preprocessing step alignment minimizes the impact of the robot’s own motion on the input, such that static structures remain fixed across scans, while moving objects generate characteristic spatio-temporal trail-like patterns. Since the LiDAR provides a full 360 ◦ FOV, the first and last rays are adjacent in space. This circular topology requires us to adopt circular convolutions, thereby preserving angular continuity. For each LiDAR ray, the model predicts the likelihood of human presence ˆp ∈ [0 , 1] , the radial distance ˆd, and the person’s relative orientation ˆo. We encode orientation as relative bearing, defined as the clockwise angular deviation of the facing direction with respect to the ray direction; this local (ray-centric) representation promotes generalization across the full 360 ◦ field of view. We represent 
+
+ˆo via sin ˆ o and cos ˆ o. At inference time, human detections are obtained by thresholding ˆp and applying a simple non-maximum suppression strategy. 
+
+A. Space-Time Networks Architecture 
+
+A naive approach to handle spatial and temporal infor-mation with a 1D Fully Convolutional Network (FCN) is to stack LiDAR scans over time as additional input channels. While this strategy is simple and effective at incorporating temporal context, it does not model temporal structure, limiting the network’s ability to capture motion patterns. To address this limitation, we adopt the ST-Block architecture, the fundamental building unit of our network (see Fig. 3). RTin Cin RTin Cin RTin Cm Spatial Convolutions RTin Cm RTout Cout Temporal Convolutions RTout Cout Time-wise Avg Pooling [Tout, Cin, R] [Tout, Cout, R] 1D Conv  
+
+> Fig. 3. Space-Time Block architecture: the input (green) is processed by spatial per-ray 1D convolutions. The resulting features are then passed to the temporal layers (typically a single layer), which aggregate information along the time dimension. An optional residual path applies temporal average pooling and, if necessary, a 1D convolution to match channel dimensions. The residual output is summed with the final temporal layer output.
+
+Each block performs factorized spatio-temporal convolu-tions, separating spatial and temporal processing rather than merging them within one joint convolutional kernel. Given an input tensor 
+
+X ∈ RTin ×R×Cin ,
+
+with Tin timesteps, R rays, and Cin channels, the block first applies 1D circular convolutions along the spatial dimension 
+
+R for each timestep independently: 
+
+Ht = Conv spatial (Xt), H ∈ RTin ×R×Cm .
+
+The subscript t indicates that the spatial convolution is applied independently at each timestep Xt ∈ RR×Cin , pro-ducing an intermediate representation Ht for that timestep. Collecting the outputs over all Tin timesteps yields the tensor 
+
+H ∈ RTin ×R×Cm . The resulting activations H are then processed by a shallow Temporal Convolutional Network (TCN) that aggregates information across timesteps while preserving causality: 
+
+Z = Conv temporal (H), Z ∈ RTout ×R×Cout .
+
+Temporal convolutions use a stride equal to the kernel size 
+
+k, which effectively compresses the sequence length by a factor of k, i.e., Tout = Tin /k . Each ST-Block may include a residual connection: the input is downsampled in time by average pooling with factor k and projected with a 1D convolution to match the channel dimension before being added to Z. Given this design, stacking ST-Blocks yields a network whose receptive field expands in both space and time. The spatial receptive field grows through dilated cir-cular convolutions across rays, while the temporal receptive field grows through the temporal kernel size and stride used to aggregate and downsample the input history. After the last block, we attach one linear layer as a prediction head, yielding the per-ray predictions. Convolutional architectures are particularly well-suited for this setting: their translational invariance allows the detection of patterns independently of their position in the LiDAR scan. As a result, knowledge acquired in the labeled front-facing region can naturally transfer to the rest of the FOV, where direct supervision is unavailable. To expose multi-scale information to the prediction head, we can additionally use skip connections from intermediate block outputs. Let Zb ∈ RT bout ×R×Cbout 
+
+denote the output of block b ∈ { 1, . . . , B }. From each block, we extract the activations at the most recent timestep, project them with a 1D convolution ϕb to a common width, and concatenate across the channel dimension: 
+
+S = Concat   ϕ1(Z10 ), ϕ 2(Z20 ), . . . , ϕ B (ZB 
+
+> 0
+
+) .
+
+The full network is composed of a sequence of B ST-Blocks with residual and skip connections. It takes as input a window of N preprocessed planar LiDAR scans with R rays each (tensor shape R × N ) and outputs an R × 4 tensor with per-ray channels ˆp, ˆd, sin(ˆ o), and cos(ˆ o).
+
+B. Masked Loss Function and Self-supervised Training 
+
+Labels are generated in a cross-modal pseudo-label su-pervision using the Azure Kinect RGB-D body tracker as an off-the-shelf component. The tracker estimates a 3D skeleton with 32 joints per person; we retain the pelvis pose, transform it to the robot base frame, and project it onto the ground plane to obtain the 2D position and facing direction used as supervision. This information is used to produce ray-wise labels for presence p, distance d, and relative orientation o
+
+for each LiDAR ray intersecting a person. The presence label 
+
+p is 1 if a person is detected along the ray and 0 otherwise. Correspondingly, distance and orientation labels are assigned only to rays where a person is detected, and remain undefined otherwise. The models operate only using planar LiDAR data and are trained using a masked regression loss, where errors are enforced only within the current camera’s FOV. Likewise, distance and orientation terms are computed only on rays where people are present in the supervision signal, see Fig. 2. Formally, the loss L is defined as the sum of three equally weighted terms: 
+
+L = Lp + Ld + Lo, (1) 
+
+Lp = MSE( p, ˆp), Ld = MSE( d, ˆd), (2) 
+
+Lo = 12 [MSE (sin o, sin ˆ o) + MSE (cos o, cos ˆ o)] (3) Here, p, d, o denote the ground-truth presence, distance, and orientation (angle), and ˆp, ˆd, ˆo are the corresponding predictions, where ˆo is recovered from the predicted sine and cosine components as ˆo = atan2(sin ˆ o, cos ˆ o). Since ground-truth labels are only available within the limited camera FOV, we leverage the network architecture to generalize to the entire LiDAR range, including regions with little or no direct supervision, such as behind the robot. IV. E XPERIMENTAL SETUP 
+
+We use a customized PAL Robotics TIAGo robot, fea-turing a differential drive base, a movable torso with a prismatic joint, a 7 DoF manipulator, and a head capable of panning ±75 ◦ and tilting from −60 ◦ to 45 ◦ relative to the horizontal plane. To enhance perception and coverage of its surroundings, the robot is equipped with additional sensors:  
+
+> •
+
+a Microsoft Azure Kinect RGB-D camera mounted on the head, with a 65 ◦ horizontal FOV and a 15 Hz frame rate, providing reliable human tracking up to 6 m ;         
+
+> Fig. 4. Dataset environments: Corridor (top left), Break Area (top right),
+> Office (bottom left), and Lab (bottom right).
+> •
+
+two planar LiDARs: a front-facing Sick TiM561 inte-grated into the robot base at a height of 95 mm , provid-ing a 190 ◦ FOV at 15 Hz , and a rear-facing YDLIDAR TG15 mounted at 329 mm , providing a 255 ◦ FOV at 
+
+10 Hz . Both sensors operate over a 0.05 m to 10 m range and provide a distance accuracy of ± 60 mm .To meet the initial assumption of a single, omnidirectional, and radially symmetric sensor, we combine the two physical LiDARs into a virtual single LiDAR. To this end, LiDAR readings are time-synchronized at 10 Hz , projected onto the 2D plane, and aggregated into angular bins centered at the robot’s base. Each bin is assigned the distance of the closest point within it, or a default value of 10 m if the bin contains no points. In our setup, we chose to use 1◦ bins, resulting in a virtual LiDAR that provides 360 evenly spaced rays around the robot’s center. We chose this resolution to remain close to the angular resolution of lower-end planar LiDAR sensors, which supports transfer to resource-constrained platforms. 
+
+A. Dataset 
+
+We collected data across 14 days spread over 7 months in four environments shown in Fig. 4. The first environment is 
+
+Corridor , a public transit area between university classrooms with study desks on the side and passers-by ( 36 k samples); 
+
+Break Area , a large room with tables and chairs where expert individuals interact with the robot ( 12 k samples); Office ,a public municipal office with booths to receive people (6k samples); and Lab , a laboratory setting with expert individuals interacting with the robot ( 39 k samples). Data were collected in diverse settings to capture a wide range of human motion patterns. In the Corridor , people—unaware of the robot—moved naturally between classrooms, sitting or standing near tables. In the Break Area and Lab , actors either moved around the robot or remained stationary. In the Office , people primarily queued in front of service desks or moved while entering and exiting the space. During data collection, the robot’s base motion and the head panning were randomized to increase data variability and the area covered by the camera. The robot followed random trajec-tories while avoiding collisions with the exception of the 
+
+Corridor and Office environments, where the robot base was manually controlled for safety reasons. In all environments, we recorded body joints from the Azure Kinect and scans from the two LiDARs. Additionally, a portion of the Lab 
+
+environment ( 8k samples) provides ground truth poses for people and the robot at 100 Hz from an OptiTrack motion capture system featuring 18 cameras. Data were recorded onboard the robot in the form of ROS2 bag files con-taining streams of timestamped messages. We use message timestamps to synchronize all modalities to the slowest topic (the rear LiDAR running at 10 Hz ), providing multi-sensor readings per timestep. Each sample includes the two LiDAR scans, the RGB-D tracker output, the robot’s internal state and odometry, and, when available, motion-capture measurements. Samples are stored in chronological order within each recording, thus preserving temporal consistency. The data split was performed by separating the recordings from completely different days, rather than randomly, to ensure that the evaluation reflects realistic generalization. The training set includes all samples from Corridor (36 k), 
+
+6k samples from Break Area , 4k samples from Office ,and 28 k samples from Lab , totaling 73 .5k samples. The validation set comprises the remaining 6k samples from 
+
+Break Area , 2k samples from Office , and 3k samples from 
+
+Lab , for a total of 11 .5k samples. The test set contains the 8k samples from the Lab environment recorded with additional OptiTrack data. This collection extends the dataset introduced in Sixth-Sense [29]; its public release is available at 10.5281/zenodo.14936069 .
+
+B. Evaluation Setup 
+
+All models operate on the same input data and are eval-uated under identical conditions. LiDAR observations are aggregated over a temporal window of 3 s , corresponding to 
+
+30 consecutive scans at 10 Hz , and preprocessed as described in Sec. III. Each scan of the virtual sensor provides 360 rays covering the full 360 ◦ around the robot, yielding an input tensor of size 360 × 30 . For each ray, the models predict human presence, distance, and orientation. Furthermore, to ensure a fair comparison, both the baseline and the proposed ST-Block architectures are configured with the same effective receptive fields: 43 rays (degrees) in space and 30 timesteps (3 s ) in time. 
+
+Baseline: As baseline, we use the 1D fully convo-lutional architecture introduced in Sixth-Sense [29]. The model processes the LiDAR history by stacking scans from different timesteps as additional channels, so convolutional kernels slide along the spatial dimension while reading all temporal information indiscriminately. Each convolution has 
+
+32 channels with LayerNorm and GELU activation, using circular padding to respect the angular topology. The first four layers use a kernel size of 3, followed by one layer with a kernel size 5 and two layers with a kernel size 7.All convolutions use a stride 1, so the receptive field grows only through kernel size and dilation, which is set to 1 in the first three layers and to 2 in the remaining four. All layers use 32 feature channels until the final linear layer, which are mapped to the 4 output channels. We designed this baseline to isolate the effect of the proposed ST-Block factorization on this task, while keeping the receptive field comparable. 
+
+ST-Block model: Our proposed architecture achieves the same receptive fields through a factorized design: within each ST-Block, we first apply spatial convolutions along the ray dimension (as in the baseline) and then apply a temporal 
+
+convolution that aggregates information across timesteps. Our implementation employs three ST-Blocks. To match the baseline spatial receptive field, we reuse the same number and configuration of spatial convolutional layers, but apply them only along the spatial (ray) dimension rather than mixing space and time. These spatial layers are distributed as follows: the first block contains three spatial convolutional layers, while the second and third blocks contain two layers each. After each block’s spatial convolutions, a temporal convolution aggregates and downsamples features along the time axis. We use progressively increasing temporal kernels with sizes 2, 3, and 5.
+
+Model Training: All networks are trained using the Adam optimizer with a learning rate of 1 × 10 −4 and a batch size of 64 on the masked loss defined in Eq. (1) for 250 
+
+epochs. For each model replica, we select the best parameters as those achieving the lowest validation loss. To improve generalization, input data is augmented by adding Gaussian noise and by mirroring both the LiDAR readings and the corresponding labels across the robot’s sagittal plane. 
+
+C. Public Benchmark: FROG 
+
+We benchmark our planar-LiDAR people detector on the public FROG dataset [16], using the official evaluation pro-tocol. FROG provides knee-high planar LiDAR scans with ground-truth 2D person positions in the robot front-facing 
+
+180 ◦ field of view, together with robot odometry, which we use in the same motion-compensation preprocessing described in Sec. III. Each scan contains 720 rays over 180 ◦
+
+(4 rays per degree), in contrast to our dataset, which uses 
+
+180 rays over the same 180 ◦ area (1 ray per degree). Since FROG does not provide orientation annotations, we restrict this benchmark to presence ˆp and distance ˆd prediction. V. R ESULTS 
+
+Metrics are computed on the 8k samples from the Lab 
+
+environment with ground-truth human poses available from the motion capture system, and averaged over three replicas of each model configuration to cancel out the effect of random seed initialization. For each output ray, the pose of a person is obtained by applying thresholding and non-maximum suppression, and by projecting the ray onto the 2D ground plane. We report the following metrics: AP is the area under the precision-recall curve, also called average precision. To analyze models at comparable operating points, we consider metrics obtained by thresholding each model with a value yielding a recall of 80% : precision P 80 , distance error E d,relative distance error E rel d , position error E p, orientation error E θ, and the Pearson correlation coefficient ρθ between predicted and ground-truth orientation. 
+
+A. ST-Block Outperforms The Baseline 
+
+We compare our approach against the fully convolutional network baseline, which mixes spatial and temporal infor-mation implicitly. As shown in Table I, the simplest variant TABLE I MODEL PERFORMANCE ON THE TEST SET , METRICS AVERAGED OVER THREE REPLICAS PER ROW .Architecture ST-Block Residuals Skip Connections AP ↑ Metrics obtained with a threshold leading to 80% recall P80 [%] ↑ Ed [cm] ↓ Erel d [%] ↓ Ep [cm] ↓ Eθ [deg] ↓ ρθ [%] ↑                                                           
+
+> Random Pred −−0.1 0.6 21.5 8.1 33.0 90.9 -0.2 Baseline −−48.5 73.8 10.7 4.8 13.2 37.5 84.4 Ours ( --)✗✗54.8 76.5 7.6 3.4 10.6 33.1 86.5 Ours ( R-)✓✗51.3 77.6 8.7 3.9 11.5 32.4 86.9 Ours ( -S )✗✓52.6 79.4 6.6 2.9 9.5 33.3 86.5 Ours ( RS )✓✓51.4 78.1 7.1 3.2 9.9 32.0 87.2
+> Fig. 5. PR curve comparing our ST-Block model (-S) with the baseline (left). Our model achieves a consistently better precision–recall trade-off, indicating more effective use of the temporal history for people detection. Scatter plots of Ours (-S) against ground truth for distance (center) and orientation (right) on the test set: predictions of human distance exhibit high correlation with ground truth, while orientation predictions remain more challenging, reflecting the inherent ambiguity of estimating human facing direction from planar LiDAR data.
+
+of our model, Ours ( --), outperforms the baseline across all metrics: the distance error drops from E d = 10 .7 cm to 7.55 
+
+cm ( −29 .4% ), and position error from E p = 13 .2 cm to 
+
+10 .6 cm ( −20% ), while there are smaller improvements in precision in human detection from P 80 = 73 .8% to 76 .5% ,orientation error E θ from 37 .5◦ to 33 .1◦ (−11 .7% ), and circular pearson correlation ρθ from 84 .4% to 86 .5% . These improvements come with a modest increase in model size, from 32 ,356 parameters for the baseline to 40 ,100 for our variants ( +24% ), demonstrating a better performance at the same scale when compared to the baseline. The first row of Fig. 6 shows a successful detection case in the test set with three people simultaneously present, one in front of and two on the side, all correctly detected. 
+
+B. ST-Block Ablation Study 
+
+We analyze the model performance, reported in Tab. I, un-der different configurations: with or without residual connec-tions inside each ST-Block ( R), and with or without skip con-nections from block outputs to the prediction head ( S). The configuration with skip connections and no residuals, Ours 
+
+(-S) , yields the lowest position errors with E p = 9 .5 cm and Ed = 6 .6 cm. By contrast, adding residual connections inside the ST-Blocks improves orientation estimation at the cost of position estimation, reducing E θ to 32 .0◦, and increasing ρθ
+
+to 87 .2% . For qualitative results, we adopt Ours (-S) as our reference model, whose performance is shown in Fig. 5. 
+
+C. Benchmark on FROG dataset 
+
+To study the impact of angular resolution, we train two variants of our RS model: (i) Ours (Low Resolution) down-                                                       
+
+> TABLE II DETECTION PERFORMANCE AND RUNTIME ON FROG DATASET .Method AP Peak F1EER Runtime System [%] ↑[%] ↓[ms] ↓
+> LFE-Peaks [16] 65.6 70.7 70.7 1.76 GPU LFE-PPN [16] 69.2 69.5 69.5 1.49 GPU Ours (Low Resolution) 65.9 70.9 70.9 2.87 CPU
+> Ours (High Resolution) 66.4 72.0 72.0 3.36 CPU
+> DROW3 ( T=1 ) [20] 73.9 72.0 71.8 13.08 GPU DR-SPAAM ( T=1 ) [21] 73.7 72.1 71.8 13.95 GPU DR-SPAAM ( T=5 ) [21] 75.6 73.6 73.4 13.99 GPU AP = Average Precision; Peak F1= maximum F1over the decision-threshold sweep; EER = Equal Error Rate; Runtime = end-to-end inference time (preprocessing, inference, postprocessing); System: Our runtimes are measured on the CPU onboard TIAGo (Intel Core i7-10700, 16 GB RAM); FROG runtimes are from [16] (Intel Core i9-9900X, 128 GB RAM, NVIDIA TITAN RTX 24 GB).
+
+samples each scan to 180 rays with no architectural changes; and (ii) Ours (High Resolution) preserves the FROG original 
+
+720 -ray input by prepending an adapter layer (32 channels, kernel size 5, stride 4, no dilation) that maps the input to the 180 -ray internal representation expected by our network. In this benchmark, we use the RS variant as a conservative choice for runtime, since it is the most computationally de-manding configuration among our ST-Block ablations while remaining representative of the full model. We evaluate using the official FROG benchmarking suite with association distance d = 0.5 m , and report average precision (AP), Peak F1, equal error rate (EER), and end-to-end runtime (preprocessing, inference, postprocessing). Table II reports detection performances and runtime on the FROG [16] dataset. In terms of accuracy, Ours (Low Resolution) is competitive with the lightweight baselines provided with FROG (LFE-Peaks and LFE-PPN), while the high-resolution adapter yields only a limited improvement in AP and Peak 
+
+F1. This indicates that, for coarse human awareness in common mobile service robot scenarios, increasing angular resolution beyond 1 ray/degree offers diminishing returns relative to its additional computation. DROW3 and DR-SPAAM achieve higher AP under the FROG benchmark, but the corresponding runtimes are only reported on a powerful GPU system. From a deployment perspective, both of our variants run in real time on a robot CPU without any tuning or pipeline optimization, making the approach suitable for CPU-only service-robot deployment. TABLE III IMPACT OF SELF -SUPERVISED ADAPTATION STARTING FROM A MODEL PRETRAINED ON FROG, METRICS EVALUATED ON OUR DATASET .Time AP ↑ P80 Ep Eθ                                                       
+
+> [%] ↑[cm] ↓[deg] ↓
+> Pretrain 12 .4±4.513 .5±6.128 .7±1.392 .4±0.4
+> Day 1 24 .5±2.551 .6±5.618 .1±0.648 .6±0.7
+> Day 2 40 .2±1.065 .1±1.011 .4±0.337 .3±1.3
+> Day 3 52 .6±1.879 .4±1.59.5±0.233 .3±1.1
+> Metrics are computed by placing the model in the same conditions used in Tab. I. Values are averaged over 3independent runs for each step.
+
+D. Self-supervised adaptation 
+
+To evaluate the importance of adapting to new envi-ronments and robot platforms, we perform online self-supervised adaptation starting from the low-resolution RS 
+
+variant on FROG, where the model predicts presence, dis-tance, and orientation (since FROG does not provide orien-tation labels, we set both orientation targets to zero). We then evaluate this pretrained model on our test set under the same operating conditions as Tab. I, selecting the decision threshold that yields 80% recall. As expected for methods relying on 2D LiDAR scans, which provide limited semantic content and often yield ambiguous observations, direct trans-fer is poor (Tab. III). Next, we simulate deployment on a new robot by partitioning our dataset into three sequential chunks, each representing one day of operation, and use them to self-supervise the model, producing checkpoints after Day 1, Day 2, and Day 3. As shown in Tab. III, self-supervised adaptation consistently improves AP and P 80 , reduces po-sition error, and learns orientation estimation from scratch, rapidly adapting the model to the operating conditions and reaching the best performance reported in Tab. I. 
+
+E. In-field Demonstration 
+
+Thanks to its omnidirectional input, our model provides continuous estimates of nearby human presence and relative pose around the robot. We use a closed-loop in-field demon-stration to illustrate how this perception module can support a simple robot behavior: a service robot detects nearby people, approaches them, and performs an offering gesture similar to a waiter, receptionist, or deliveryman. Specifically, our model performs people detection in the robot’s surroundings, on top of which we apply a Kalman filter to track individuals over time and mitigate noisy predictions. Among the tracked people, the robot selects as the target the closest person facing the robot if closer than 2.5 m . The robot first rotates to face the target, then drives toward them and, once at 1.5 m 
+
+distance, extends the arm to execute the offering gesture, as shown in Fig. 6 (bottom). The figure illustrates a challenging case: the model cor-rectly detects the closer person, while a second person behind them is partially occluded in the LiDAR scan and is not detected, since multiple people cannot be predicted on the same ray. Overall, the experiment illustrates that the trans-lational invariance of the fully convolutional design enables the model to generalize beyond the supervised camera field of view, producing stable detections also in regions where direct supervision was not available during training. VI. C ONCLUSIONS 
+
+We presented a lightweight, fully convolutional Space– Time Block network for omnidirectional human detection and relative 2D pose estimation from planar LiDAR sequences. The proposed model is an architectural instantiation of factorized spatio-temporal processing for 2D range-scan time series: it combines circular spatial convolutions, which re-spect the scan’s angular topology, with temporal convolutions that aggregate motion cues over a fixed history window. To avoid manual annotation and enable on-site deployment, we train the LiDAR model using masked cross-modal self-supervision from the output of a narrow-FOV RGB-D body tracker (3D skeleton/joint estimates), enforcing losses only where the camera and LiDAR fields of view overlap. In quan-titative experiments with motion-capture ground truth, ST-Block variants consistently outperform a parameter-matched 1D fully convolutional baseline that mixes space and time implicitly: at an operating point targeting 80 % recall, the best configuration improves detection precision and reduces distance, position, and orientation errors (up to 38 % , 28 % ,and 15 % reductions, respectively). A benchmark on the public FROG dataset further indicates that the approach remains competitive for 2D people detec-tion while running in real time on a CPU, making it ideal for service robots equipped with planar LiDARs. Limitations include reduced performance in heavy occlusions and in multi-person situations where multiple individuals fall on the same rays, as well as the inherent ambiguity of estimating facing direction from sparse 2D geometry. In future work, we plan to (i) extend the approach from per-frame detection to multi-target people tracking and (ii) incorporate richer social cues, such as interaction intent. REFERENCES [1] J. Pages, L. Marchionni, and F. Ferro, “TIAGo: the modular robot that adapts to different research needs,” in International workshop on robot modularity, IROS , vol. 290, 2016. [2] M. Tonkin, J. Vitale, S. Herse, M.-A. Williams, W. Judge, and X. Wang, “Design methodology for the ux of hri: A field study of a commercial social robot at an airport,” in Proceedings of the 2018 ACM/IEEE international conference on human-robot interaction ,2018, pp. 407–415. [3] C. S. Gonz´ alez-Gonz´ alez, V. Violant-Holz, and R. M. Gil-Iranzo, “Social robots in hospitals: a systematic review,” Appl. Sci. , vol. 11, no. 13, p. 5976, 2021. [4] M. M. O. Youngjoon Choi, Miju Choi and S. S. Kim, “Service robots in hotels: understanding the service quality perceptions of human-robot interaction,” J. of Hospitality Marketing & Management , vol. 29, no. 6, pp. 613–635, 2020. [5] S. Arreghini, G. Abbate, A. Giusti, and A. Paolillo, “Predicting the intention to interact with a service robot: the role of gaze cues,” in    
+
+> IEEE Int. Conf. Robot. and Autom. , 2024, pp. –. [6] H. Mahdi, S. A. Akgun, S. Saleh, and K. Dautenhahn, “A survey on the design and evolution of social robots—past, present and future,”
+> Elsevier Robotics and Autonomous Systems , vol. 156, p. 104193, 2022. [7] R. K. Megalingam, S. R. R. Vadivel, S. S. Kotaprolu, B. Nithul, D. V. Kumar, and G. Rudravaram, “Cleaning robots: A review of sensor technologies and intelligent control strategies for cleaning,” Journal of Field Robotics , vol. 42, no. 5, pp. 2234–2259, 2025. Sensor LiDAR Azure Kinect FOV Model Output Rejected Accepted TP TP TP
+
+2 m Sensor LiDAR Azure Kinect FOV Model Output Rejected Accepted Humans Azure Kinect True Positive (TP) Motion Capture 2 m FN TP Fig. 6. Third-person view of the environment (left) and corresponding top view (right) depicting the LiDAR scan; camera FOV and detected pose arrows; Motion Capture ground truth pose arrows. The predicted presence ˆp is shown as a gray line when below the same detection threshold chosen on validation to target 80% recall (dashed circle centered on the robot), or black otherwise. Purple arrows represent model predictions for true positives (TP). [8] M. Paul, S. M. Haque, and S. Chakraborty, “Human detection in surveillance videos and its applications-a review,” Springer Journal on Advances in Signal Processing , vol. 2013, no. 1, pp. 1–16, 2013. [9] M. T¨ olgyessy, M. Dekan, and L. Chovanec, “Skeleton tracking accu-racy and precision evaluation of kinect v1, kinect v2, and the azure kinect,” MDPI Applied Sciences , vol. 11, no. 12, p. 5756, 2021. [10] Z. Yan, T. Duckett, and N. Bellotto, “Online learning for 3d lidar-based human detection: experimental analysis of point cloud clustering and classification methods,” Springer Autonomous Robots , vol. 44, no. 2, pp. 147–164, 2020. [11] J. N. Hayton, T. Barros, C. Premebida, M. J. Coombes, and U. J. Nunes, “Cnn-based human detection using a 3d lidar onboard a uav,” in IEEE Int. Conf. Auton. Robot. Sys. and Comp. , 2020, pp. 312–318. [12] M. Nava, J. Guzzi, R. O. Chavez-Garcia, L. M. Gambardella, and A. Giusti, “Learning long-range perception using self-supervision from short-range sensors and odometry,” IEEE Robot. and Autom. Lett. ,vol. 4, no. 2, pp. 1279–1286, 2019. [13] M. Nava, A. Paolillo, J. Guzzi, L. M. Gambardella, and A. Giusti, “Uncertainty-aware self-supervised learning of spatial perception tasks,” IEEE Robot. and Autom. Lett. , vol. 6, no. 4, pp. 6693–6700, 2021. [14] L. Sun, K. Jia, D.-Y. Yeung, and B. E. Shi, “Human action recognition using factorized spatio-temporal convolutional networks,” in Proceed-ings of the IEEE international conference on computer vision , 2015, pp. 4597–4605. [15] D. Tran, H. Wang, L. Torresani, J. Ray, Y. LeCun, and M. Paluri, “A closer look at spatiotemporal convolutions for action recognition,” in 
+
+Proceedings of the IEEE conference on Computer Vision and Pattern Recognition , 2018, pp. 6450–6459. [16] F. Amodeo, N. P´ erez-Higueras, L. Merino, and F. Caballero, “Frog: A new people detection dataset for knee-high 2d range finders,” Frontiers in Robotics and AI , vol. 12, p. 1671673, 2025. [17] D. Jia, A. Hermans, and B. Leibe, “2d vs. 3d lidar-based person detec-tion on mobile robots,” in 2022 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2022, pp. 3604–3611. [18] K. O. Arras, O. M. Mozos, and W. Burgard, “Using boosted features for the detection of people in 2d range data,” in Proceedings 2007 IEEE international conference on robotics and automation . IEEE, 2007, pp. 3402–3407. [19] J. Chen, P. Ye, and Z. Sun, “Pedestrian detection and tracking based on 2d lidar,” in 2019 6th International Conference on Systems and Informatics (ICSAI) . IEEE, 2019, pp. 421–426. [20] L. Beyer, A. Hermans, T. Linder, K. O. Arras, and B. Leibe, “Deep person detection in two-dimensional range data,” IEEE Robotics and Automation Letters , vol. 3, no. 3, pp. 2726–2733, 2018. [21] D. Jia, A. Hermans, and B. Leibe, “Dr-spaam: A spatial-attention and auto-regressive model for person detection in 2d range data,” in 2020 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS) . IEEE, 2020, pp. 10 270–10 277. [22] H. Yang, Y. Yang, C. Yao, C. Liu, and Q. Chen, “Li2former: Omni-dimension aggregation transformer for person detection in 2-d range data,” IEEE Transactions on Instrumentation and Measurement ,vol. 73, pp. 1–12, 2024. [23] D. Jia, M. Steinweg, A. Hermans, and B. Leibe, “Self-supervised person detection in 2d range data using a calibrated camera,” in 2021 IEEE International Conference on Robotics and Automation (ICRA) .IEEE, 2021, pp. 13 301–13 307. [24] R. Martin-Martin, M. Patel, H. Rezatofighi, A. Shenoi, J. Gwak, E. Frankel, A. Sadeghian, and S. Savarese, “Jrdb: A dataset and benchmark of egocentric robot visual perception of humans in built environments,” IEEE Trans. on Pattern Anal. and Machine Intell. ,vol. 45, no. 6, pp. 6748–6765, 2021. [25] F. Bu, T. Le, X. Du, R. Vasudevan, and M. Johnson-Roberson, “Pedestrian planar lidar pose (pplp) network for oriented pedestrian detection based on planar lidar and monocular images,” IEEE Robotics and Automation Letters , vol. 5, no. 2, pp. 1626–1633, 2019. [26] H. Fan, X. Yu, Y. Ding, Y. Yang, and M. Kankanhalli, “Pstnet: Point spatio-temporal convolution on point cloud sequences,” arXiv preprint arXiv:2205.13713 , 2022. [27] C. Lea, M. D. Flynn, R. Vidal, A. Reiter, and G. D. Hager, “Temporal convolutional networks for action segmentation and detection,” in 
+
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , 2017, pp. 156–165. [28] J. Liu, J. Rojas, Y. Li, Z. Liang, Y. Guan, N. Xi, and H. Zhu, “A graph attention spatio-temporal convolutional network for 3d human pose estimation in video,” in 2021 IEEE international conference on robotics and automation (ICRA) . IEEE, 2021, pp. 3374–3380. [29] S. Arreghini, N. Carlotti, M. Nava, A. Paolillo, and A. Giusti, “Sixth-Sense: Self-supervised learning of spatial awareness of humans from a planar LiDAR,” in 2026 IEEE International Conference on Advanced Robotics and its Social Impacts (ARSO) . IEEE, 2026, pp. 102–107.
